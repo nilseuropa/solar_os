@@ -469,6 +469,7 @@ static void chat_refresh_conversations(void)
         for (size_t i = 0;
              i < count && chat_app.channel_count < CHAT_APP_CHANNEL_COUNT;
              i++) {
+            if (snapshot[i].left) continue;
             if (chat_app.filter_class[0] &&
                 !solar_os_messaging_provider_is_class(snapshot[i].provider, chat_app.filter_class)) continue;
             if (chat_app.filter_provider != 0U &&
@@ -1886,6 +1887,11 @@ static void chat_execute_command(int argc, char **argv)
             if (chat_app.channels[i].conversation_id == id) { chat_select_channel(i, false); chat_app.tab = CHAT_APP_TAB_CHAT; break; }
     } else if (strcasecmp(argv[0], "/leave") == 0 && argc == 1) {
         esp_err_t error = solar_os_messaging_leave(chat_current_conversation_id());
+        if (error == ESP_OK) {
+            chat_app.join_pending = false;
+            chat_refresh_conversations();
+            chat_app.tab = CHAT_APP_TAB_CHANNELS;
+        }
         chat_set_status(error == ESP_OK ? "leave requested" : esp_err_to_name(error));
     } else if (strcasecmp(argv[0], "/classes") == 0 && argc == 1) {
         char cursor[16] = ""; solar_os_messaging_class_status_t status;

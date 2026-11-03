@@ -9,6 +9,10 @@ agent_reference_sections = true
 +++
 # Python audio and control API
 
+The `solaros.controllers` feedback-controller API is documented in
+[Feedback controllers](controllers.md). It provides PID and hysteresis
+instances, manual stepping, timestamped input, and periodic output bindings.
+
 [API overview](python.md) · [Lua audio and control](lua.audio.md)
 
 ## `solaros.controls`

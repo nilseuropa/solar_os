@@ -115,6 +115,12 @@ prefix with `truncated=true`. HTTP 4xx and 5xx statuses are normal responses;
 request, cancellation, deadline, DNS, TLS, and transport failures raise Lua
 errors. Exiting or interrupting Lua cancels an active request.
 
+HTTP URLs are limited to 2047 bytes. Redirect following supports relative URLs
+and statuses 301, 302, 303, 307, and 308. HTTPS downgrade and credentials in
+redirect URLs are rejected. Origin changes discard authorization and cookie
+headers. POST changes to GET after 301/302; 303 changes to GET except for HEAD;
+307/308 preserve the method and body.
+
 `session_open` retains one same-origin HTTP/TLS client. Its origin contains
 only scheme and authority. `session_request` rejects redirects and cross-origin
 URLs, clears previous request headers, and returns the same bounded response

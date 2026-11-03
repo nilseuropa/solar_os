@@ -15,6 +15,7 @@
 #include "solar_os_config.h"
 #include "solar_os.h"
 #include "solar_os_crypto.h"
+#include "solar_os_download.h"
 #include "solar_os_http_client.h"
 #include "solar_os_inference_types_v1.h"
 #include "solar_os_json.h"
@@ -226,70 +227,27 @@ static esp_err_t hash_file(const char *path, const char *expected, const volatil
         if (!error && !solar_os_crypto_sha256_matches_hex(digest, expected)) error = ESP_ERR_INVALID_CRC; }
     solar_os_crypto_sha256_free(&sha); solar_os_memory_free(buffer); fclose(file); return error;
 }
-#define ZOO_DOWNLOAD_CHUNK 4096U
-typedef struct { FILE *file; uint8_t *buffer; size_t pending; solar_os_crypto_sha256_t sha; uint32_t bytes, max; solar_os_zoo_progress_fn fn; void *user; const char *stage; } download_t;
-static esp_err_t download_event(const solar_os_http_event_t *event, void *user)
+typedef struct {
+    solar_os_zoo_progress_fn fn;
+    void *user;
+    const char *stage;
+    uint32_t maximum;
+} download_progress_t;
+static void download_progress(size_t received, size_t total, void *user)
 {
-    download_t *d = user;
-    /* ESP-IDF emits headers while status_code is still -1. Only the completed
-     * response and body events carry the final status. */
-    if (event->type == SOLAR_OS_HTTP_EVENT_HEADER) return ESP_OK;
-    if (event->status_code != 200) return ESP_ERR_INVALID_RESPONSE;
-    if (event->type != SOLAR_OS_HTTP_EVENT_DATA) return ESP_OK;
-    if (event->data_len > d->max - d->bytes) return ESP_ERR_INVALID_SIZE;
-    esp_err_t hashed = solar_os_crypto_sha256_update(&d->sha, event->data, event->data_len);
-    if (hashed) return hashed;
-    /* Batch borrowed transport chunks in transient storage. Full-block writes
-     * keep memory bounded and avoid I/O for each small network fragment. */
-    const uint8_t *source = event->data;
-    size_t remaining = event->data_len;
-    while (remaining) {
-        size_t room = ZOO_DOWNLOAD_CHUNK - d->pending;
-        size_t count = remaining > room ? room : remaining;
-        memcpy(d->buffer + d->pending, source, count);
-        d->pending += count;
-        if (d->pending == ZOO_DOWNLOAD_CHUNK) {
-            if (fwrite(d->buffer, 1, d->pending, d->file) != d->pending) return ESP_FAIL;
-            d->pending = 0;
-        }
-        source += count; remaining -= count;
-    }
-    d->bytes += event->data_len; report(d->fn, d->user, d->stage, d->bytes, d->max); return ESP_OK;
+    download_progress_t *state = user;
+    report(state->fn, state->user, state->stage, received, total ? total : state->maximum);
 }
 static esp_err_t download(const char *url, const char *path, uint32_t max, const volatile bool *cancel,
     solar_os_zoo_progress_fn fn, void *user, const char *stage)
 {
-    FILE *file = fopen(path, "wb"); if (!file) return ESP_FAIL;
-    /* Stream writes directly from the staging allocation. A stdio buffer
-     * would reintroduce a separate, allocator-selected transfer buffer. */
-    if (setvbuf(file, NULL, _IONBF, 0)) { fclose(file); unlink(path); return ESP_FAIL; }
-    download_t data = {.file = file, .max = max, .fn = fn, .user = user, .stage = stage};
-    data.buffer = solar_os_memory_alloc(ZOO_DOWNLOAD_CHUNK, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "zoo.download");
+    download_progress_t progress = {.fn = fn, .user = user, .stage = stage, .maximum = max};
     solar_os_http_request_options_t options = {.url = url, .method = SOLAR_OS_HTTP_METHOD_GET,
         .user_agent = "SolarOS-zoo/" SOLAR_OS_VERSION, .follow_redirects = false, .timeout_ms = 10000,
-        .read_poll_ms = 200, .cancel_flag = cancel, .event_handler = download_event, .user_data = &data};
-    solar_os_http_request_t *request = NULL; solar_os_http_response_t response = {0};
-    solar_os_crypto_sha256_init(&data.sha);
-    esp_err_t error = data.buffer ? solar_os_crypto_sha256_start(&data.sha) : ESP_ERR_NO_MEM;
-    if (!error) error = solar_os_http_request_create(&options, &request);
-    if (!error) error = solar_os_http_request_perform(request, &response);
-    if (!error && response.status_code != 200) error = ESP_ERR_INVALID_RESPONSE;
-    if (!error && cancelled(cancel)) error = ESP_ERR_TIMEOUT;
-    if (!error && data.pending && fwrite(data.buffer, 1, data.pending, file) != data.pending) error = ESP_FAIL;
-    if (!error) error = solar_os_storage_sync_file(file);
-    if (fclose(file) && !error) error = ESP_FAIL;
-    if (request) solar_os_http_request_destroy(request);
-    char hex[65];
-    if (!error) { uint8_t digest[32];
-        error = solar_os_crypto_sha256_finish(&data.sha, digest);
-        if (!error) for (size_t i = 0; i < 32; ++i) snprintf(hex + i*2, 3, "%02x", digest[i]); }
-    solar_os_crypto_sha256_free(&data.sha);
-    /* Verify stored bytes against the received body before accepting a cache
-     * or archive, including when the filesystem reports successful writes. */
-    if (!error) { report(fn, user, "verify download", 0, 0); error = hash_file(path, hex, cancel); }
-    solar_os_memory_free(data.buffer);
-    if (error) unlink(path);
-    return error;
+        .read_poll_ms = 200, .cancel_flag = cancel};
+    solar_os_download_result_t result;
+    return solar_os_download_file(&options, path, max, 0U, NULL,
+                                   download_progress, &progress, &result);
 }
 static void setting(const char *key, char *value, size_t size, const char *fallback)
 {

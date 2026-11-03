@@ -75,7 +75,7 @@ class BoardManifestTest(unittest.TestCase):
 
     def test_owned_keyboard_metadata_selects_key_defaults(self) -> None:
         for name, expected in (
-            ("t_deck_plus", 1), ("t_lora_pager", 1), ("cl_32", 1), ("cl32_epd", 1),
+            ("t_deck_plus", 1), ("t_lora_pager", 1), ("cl_32", 1),
             ("thinknode_m9", 1), ("ttgo_vga32_v14", 1),
             ("solar_term", 0), ("esp32_s3_devkitc1_n16r8", 0), ("odroid_go", 0),
         ):
@@ -526,10 +526,11 @@ class BoardManifestTest(unittest.TestCase):
         self.assertTrue(bases["esp32s3"])
         self.assertTrue(bases["esp32"])
 
-    def test_cl32_variants_are_selectable_but_shared_template_is_private(self) -> None:
+    def test_cl32_has_one_public_board_config(self) -> None:
         bases = available_base_profiles(self.manifest_dir)
         ids = {board["board"]["id"] for _, board in bases["esp32s3"]}
-        self.assertTrue({"cl_32", "cl32_epd"} <= ids)
+        self.assertIn("cl_32", ids)
+        self.assertNotIn("cl32_epd", ids)
         self.assertNotIn("cl32_base", ids)
 
     def test_private_template_inheritance_rejects_cycles(self) -> None:
@@ -1080,43 +1081,25 @@ bindings = { gpio = 7 }
             runtime_driver,
         )
 
-    def test_cl32_variants_share_hardware_and_select_only_their_primary_display(self) -> None:
-        rlcd = load_board_manifest(self.manifest_dir / "cl_32.toml", self.manifest_dir)
-        epd = load_board_manifest(self.manifest_dir / "cl32_epd.toml", self.manifest_dir)
-        for key in ("target", "buses", "pins", "connector", "connectors", "runtime"):
-            self.assertEqual(rlcd[key], epd[key], key)
-        self.assertEqual(rlcd["devices"][1:], epd["devices"][1:])
-        self.assertEqual(rlcd["board"]["name"], "Pi0cket CL-32")
-        self.assertEqual(epd["board"]["name"], "Pi0cket CL-32 EPD")
-        self.assertNotIn("streaming_display", epd["build"]["capabilities"])
-        for board, driver, package, other_package in (
-            (rlcd, "st7305", "driver_display_st7305", "expansion_ssd1685"),
-            (epd, "ssd1685", "expansion_ssd1685", "driver_display_st7305"),
-        ):
-            with self.subTest(board=board["board"]["id"]):
-                validate_board(board, self.drivers)
-                displays = [device for device in board["devices"] if device["name"] == "display0"]
-                self.assertEqual(len(displays), 1)
-                self.assertEqual(displays[0]["driver"], driver)
-                bindings = {"spi": "spi0", "cs": 6, "dc": 13, "reset": 12,
-                            "panel": 1, "rotation": 3}
-                if driver == "ssd1685":
-                    bindings["busy"] = 14
-                self.assertEqual(displays[0]["bindings"], bindings)
-                self.assertEqual([item for item in board["build"]["drivers"]
-                                  if item.startswith("display_")], [f"display_{driver}"])
-                packages = required_packages(board, self.drivers)
-                self.assertIn(package, packages)
-                self.assertNotIn(other_package, packages)
-                header = generate_header(board, self.drivers)
-                self.assertIn(f'.driver = "{driver}", .name = "display0"', header)
-                self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
-                self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
-                self.assertIn("#define SOLAR_OS_BOARD_PIN_SLEEP_WAKE GPIO_NUM_3", header)
-                if driver == "ssd1685":
-                    self.assertIn('.role = "busy", .value = 14', header)
-                self.assertIn(f"boards/drivers/display_{driver}.cmake",
-                              generate_cmake(board, self.drivers))
+    def test_cl32_uses_board_owned_automatic_display(self) -> None:
+        board = load_board_manifest(self.manifest_dir / "cl_32.toml", self.manifest_dir)
+        validate_board(board, self.drivers)
+        self.assertEqual(board["board"]["name"], "Pi0cket CL-32")
+        displays = [device for device in board["devices"] if device["name"] == "display0"]
+        self.assertEqual(len(displays), 1)
+        self.assertEqual(displays[0]["driver"], "cl32-display")
+        self.assertEqual(displays[0]["bindings"], {
+            "spi": "spi0", "cs": 6, "dc": 13, "reset": 12, "busy": 14})
+        self.assertEqual([driver for driver in board["build"]["drivers"]
+                          if driver.startswith("display_")], ["display_cl32"])
+        self.assertIn("expansion_cl32_display", required_packages(board, self.drivers))
+        header = generate_header(board, self.drivers)
+        self.assertIn('.driver = "cl32-display", .name = "display0"', header)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ST7305/SSD1685"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
+        self.assertIn("#define SOLAR_OS_BOARD_PIN_SLEEP_WAKE GPIO_NUM_3", header)
+        self.assertIn("boards/drivers/display_cl32.cmake", generate_cmake(board, self.drivers))
 
     def test_cl32_manifest_keeps_m2_memory_and_system_signals_fixed(self) -> None:
         board = load_board_manifest(
@@ -1128,7 +1111,7 @@ bindings = { gpio = 7 }
             ROOT / "src" / "services" / "solar_os_cl32_core.c"
         ).read_text(encoding="utf-8")
         self.assertNotIn("SOLAR_OS_BOARD_HEADLESS_PREFER_CDC", header)
-        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ST7305"', header)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "ST7305/SSD1685"', header)
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 384", header)
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 168", header)
         self.assertIn(
@@ -1137,7 +1120,7 @@ bindings = { gpio = 7 }
         )
         self.assertIn("display", board["build"]["capabilities"])
         self.assertIn("battery", board["build"]["capabilities"])
-        self.assertIn("streaming_display", board["build"]["capabilities"])
+        self.assertNotIn("streaming_display", board["build"]["capabilities"])
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
@@ -1159,7 +1142,7 @@ bindings = { gpio = 7 }
         display = next(
             device for device in board["devices"] if device["name"] == "display0"
         )
-        self.assertEqual(display["driver"], "st7305")
+        self.assertEqual(display["driver"], "cl32-display")
         self.assertEqual(
             display["bindings"],
             {
@@ -1167,8 +1150,7 @@ bindings = { gpio = 7 }
                 "cs": 6,
                 "dc": 13,
                 "reset": 12,
-                "panel": 1,
-                "rotation": 3,
+                "busy": 14,
             },
         )
         audio = next(
@@ -1177,23 +1159,17 @@ bindings = { gpio = 7 }
         self.assertEqual(audio["driver"], "audio-pwm")
         self.assertEqual(audio["bindings"], {"pwm": 5})
         self.assertIn("expansion_audio_pwm", required_packages(board, self.drivers))
-        self.assertIn("driver_display_st7305", required_packages(board, self.drivers))
+        self.assertIn("expansion_cl32_display", required_packages(board, self.drivers))
         self.assertIn(
             '.kind = SOLAR_OS_EXPANSION_BINDING_PWM, .role = "pwm", .value = 5',
             header,
         )
         self.assertIn(
-            '.driver = "st7305", .name = "display0"',
+            '.driver = "cl32-display", .name = "display0"',
             header,
         )
-        self.assertIn(
-            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .value = 1',
-            header,
-        )
-        self.assertIn(
-            '.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "rotation", .value = 3',
-            header,
-        )
+        self.assertNotIn('.role = "panel"', header)
+        self.assertNotIn('.role = "rotation"', header)
 
         connectors = {
             (pin["connector"], pin["position"]): pin

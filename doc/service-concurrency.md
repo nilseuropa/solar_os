@@ -69,6 +69,18 @@ raw instance pointer cannot race slot teardown or mutex deletion.
 
 ## Callback requirements
 
+Parameter access pins one registration generation through range conversion and
+the callback. Unregister retires its paths immediately and returns
+`ESP_ERR_INVALID_STATE` while callbacks remain in flight. The owner must retain
+its state and retry; only `ESP_OK` permits state destruction. A callback must not
+synchronously wait for its own registration to retire.
+
+Writer claims are checked under the same lock that pins callback access.
+Ordinary setters, including normalized setters, cannot bypass a claim. Range
+updates require a live, unclaimed registration with no callback references.
+Retirement invalidates access and claims immediately while retaining the
+provider's state until every pinned callback finishes.
+
 Callbacks may call other SolarOS services because no global registry lock is
 held around them. A callback must not synchronously start or stop its own job;
 asynchronous completion uses `solar_os_jobs_mark_stopped()` instead. Callbacks
@@ -81,3 +93,15 @@ tick. Port-shell apps similarly shorten their input wait while active. These
 intervals are best-effort scheduling targets, not hard real-time guarantees:
 callbacks still run serially and must return promptly. `tick_deadline_ms`
 records execution-budget misses but does not preempt a callback.
+
+The runtime chooses its wait from the next due session and job ticks, after
+callback and drawing work. Different periods retain independent dispatch
+phases. An overdue tick yields for the minimum scheduler interval rather than
+adding a full period. Background service polling still bounds idle waits to
+25 ms, or 10 ms on boards that require frequent input sampling.
+
+Queued input wakes the main task through a binary signal. Input publishers
+notify after releasing the input lock; repeated unchanged hardware samples do
+not signal. Hardware polling and touch timing run once per iteration, while
+queued events are drained before and after app/job dispatch. The signal is
+retained if input arrives just before the task starts waiting.

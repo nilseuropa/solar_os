@@ -53,6 +53,15 @@ report for scripts and terminal inspection.
 shows attached instances, their wiring, readiness, and whether they start at
 boot.
 
+On ESP32-S3 boards with graphics, the `full` flavor includes the concrete
+`ssd1677` and `ssd2677` (Sticky V2) drivers. Custom flavors can enable their
+respective groups. Drivers omitted by the flavor or pruned for the target's
+capabilities do not appear in the list.
+
+The `cl32-display`, `sticky-display`, and `x4pro` adapters are selected by their board manifests
+and detect the built-in display controller at startup. They are excluded from
+the manual driver list and cannot be attached manually.
+
 From a script, inspect `solaros.expansion.drivers()` and
 `solaros.expansion.devices()`. A driver existing in firmware does not mean a
 physical device is attached.

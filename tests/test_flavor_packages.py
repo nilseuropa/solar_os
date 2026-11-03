@@ -70,19 +70,28 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertEqual(groups["tcp_streams"], flavor == "full")
             self.assertEqual(packages["service_tcp_stream"], flavor == "full")
 
-    def test_classic_uses_compact_baseline_with_dpad_support(self):
-        _, _, compact_groups, compact_packages = self.resolve("writerdeck")
+    def test_classic_preserves_compact_core_and_hardware_controls(self):
+        _, _, _, compact_packages = self.resolve("writerdeck")
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
-        self.assertEqual({key for key in compact_groups if compact_groups[key] != groups[key]},
-                         {"adc_dpad", "synth", "sc2"})
-        self.assertEqual({key for key in compact_packages if compact_packages[key] != packages[key]},
-                         {"service_adc_dpad", "app_synth", "service_synth", "service_midi",
-                          "service_sc2", "service_sc2_provider", "job_sc2_sync"})
-        self.assertTrue(packages["service_adc_dpad"])
-        self.assertFalse(packages["app_lua"])
-        self.assertTrue(packages["app_python"])
-        self.assertTrue(packages["app_playground"])
+        for package in ("app_python", "app_playground", "app_reader", "app_writer",
+                        "app_ssh", "service_audio", "service_messaging"):
+            with self.subTest(shared=package):
+                self.assertTrue(packages[package])
+                self.assertTrue(compact_packages[package])
+        for package in ("service_adc_dpad", "service_onewire", "service_controls",
+                        "app_io", "job_controls"):
+            with self.subTest(classic_only=package):
+                self.assertTrue(packages[package])
+                self.assertFalse(compact_packages[package])
+        for package in ("service_sc2", "service_sc2_provider", "job_sc2_sync"):
+            with self.subTest(writerdeck_only=package):
+                self.assertFalse(packages[package])
+                self.assertTrue(compact_packages[package])
+        for package in ("app_lua", "app_synth", "service_synth", "service_midi"):
+            with self.subTest(omitted=package):
+                self.assertFalse(packages[package])
+                self.assertFalse(compact_packages[package])
         requires = generate_flavor_config.collect_requires(self.catalog, groups, packages)
         self.assertNotIn("lua", requires)
         self.assertIn("micropython_embed", requires)
@@ -487,10 +496,10 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertIn("drivers/rtc_ds3231.c", sources)
         self.assertIn("services/solar_os_ds3231_driver.c", sources)
 
-    def test_cl32_epd_keeps_shared_pulse_sources_in_writerdeck(self):
+    def test_cl32_keeps_both_display_backends_in_writerdeck(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
         manifest_dir = REPOSITORY / "boards/manifests"
-        board = load_board_manifest(manifest_dir / "cl32_epd.toml", manifest_dir)
+        board = load_board_manifest(manifest_dir / "cl_32.toml", manifest_dir)
         drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
         _, _, groups, packages = self.resolve("writerdeck")
         selected = generate_flavor_config.enable_required_packages(
@@ -498,9 +507,15 @@ class FlavorPackagesTest(unittest.TestCase):
         groups, selected = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, selected, set(board["build"]["capabilities"]))
         sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
-        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker"):
+        for source in ("epd_ssd1685", "epd_ssd1685_waveform", "epd_pixel_budget", "epd_scan_worker",
+                       "rlcd_st7305", "cl32_display_identify"):
             self.assertIn(f"drivers/{source}.c", sources)
         self.assertNotIn("drivers/epd_ssd1683.c", sources)
+        self.assertIn("services/solar_os_cl32_display.c", sources)
+        symbols = generate_flavor_config.collect_expansion_drivers(self.catalog, selected)
+        for symbol in ("solar_os_cl32_display_expansion_driver", "solar_os_st7305_expansion_driver",
+                       "solar_os_ssd1685_expansion_driver"):
+            self.assertIn(symbol, symbols)
 
     def test_unknown_board_required_package_is_rejected(self):
         _, _, _, packages = self.resolve("writerdeck")
@@ -716,6 +731,30 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertTrue(s3[package], package)
         self.assertFalse(s3["driver_display_cvbs_pal"])
         self.assertFalse(s3["driver_display_vga32"])
+
+    def test_full_registers_concrete_sticky_drivers_on_supported_targets(self):
+        _, _, groups, packages = self.resolve("full")
+        symbols = {
+            "solar_os_ssd1677_expansion_driver",
+            "solar_os_ssd2677_expansion_driver",
+        }
+        s3 = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32s3")
+        self.assertFalse(s3["expansion_sticky_display"])
+        self.assertFalse(s3["expansion_x4pro"])
+        self.assertTrue(symbols.issubset(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, s3))))
+        header = generate_flavor_config.generate_header(
+            "full", "test", groups, s3, self.catalog,
+            REPOSITORY / "flavors" / "full.toml", REPOSITORY / "packages" / "solar_os_packages.toml")
+        for symbol in symbols:
+            self.assertIn(f"X({symbol})", header)
+        classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
+        self.assertTrue(symbols.isdisjoint(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, classic))))
+        _, headless = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, s3, {"psram", "expansion_spi", "expansion_gpio", "expansion_i2c"})
+        self.assertTrue(symbols.isdisjoint(set(
+            generate_flavor_config.collect_expansion_drivers(self.catalog, headless))))
 
     def test_target_pruning_requires_a_target(self):
         _, _, _, packages = self.resolve("full")
@@ -951,7 +990,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "speech",
             "player",
             "recorder",
-            "synth",
             "audio_pwm",
             "pcm5102",
             "web_browser",
@@ -970,6 +1008,8 @@ class FlavorPackagesTest(unittest.TestCase):
         ):
             self.assertTrue(groups[group], group)
         self.assertFalse(groups["rtsp"])
+        self.assertFalse(groups["synth"])
+        self.assertFalse(groups["control_bindings"])
         self.assertFalse(packages["app_rtsp"])
         self.assertFalse(packages["job_rtspd"])
         for package in (
@@ -991,8 +1031,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_view",
             "app_player",
             "app_recorder",
-            "app_synth",
-            "service_synth",
             "service_speech",
             "job_speechd",
             "expansion_audio_pwm",
@@ -1013,7 +1051,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_sheet",
         ):
             self.assertTrue(packages[package], package)
-        self.assertTrue(packages["job_controls"])
         for group in (
             "device_flasher",
             "logic_analyzer",
@@ -1044,6 +1081,10 @@ class FlavorPackagesTest(unittest.TestCase):
             "job_meshcore_ble",
             "app_lua",
             "app_logic",
+            "app_synth",
+            "service_synth",
+            "service_midi",
+            "job_controls",
         ):
             self.assertFalse(packages[package], package)
 
@@ -1280,13 +1321,14 @@ class FlavorPackagesTest(unittest.TestCase):
                       "elecrow_crowpanel_esp32_s3_4_2_epaper"):
             self.assertEqual(config[f"env:{board}"]["custom_solaros_default_flavor"], "writerdeck")
 
-    def test_existing_flavors_preserve_hardware_job_selection(self):
+    def test_flavors_select_hardware_jobs_by_profile(self):
         for flavor in ("writerdeck", "full"):
             with self.subTest(flavor=flavor):
                 _, _, groups, packages = self.resolve(flavor)
                 self.assertTrue(groups["bridge"])
                 self.assertTrue(packages["job_bridge"])
-                self.assertTrue(packages["job_controls"])
+                self.assertEqual(groups["control_bindings"], flavor == "full")
+                self.assertEqual(packages["job_controls"], flavor == "full")
                 self.assertTrue(packages["job_daq"])
                 self.assertEqual(packages["job_sump"], flavor == "full")
 

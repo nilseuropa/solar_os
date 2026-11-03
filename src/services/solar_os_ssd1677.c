@@ -1,4 +1,6 @@
 #include "solar_os_ssd1677.h"
+#include "solar_os_sync.h"
+#include "solar_os_display_bindings.h"
 
 #include <stdbool.h>
 #include <string.h>
@@ -40,6 +42,8 @@ typedef struct {
     epd_ssd1677_t driver;
     solar_os_board_display_t display;
 } solar_os_ssd1677_device_t;
+
+static solar_os_lifecycle_t lifecycle;
 
 static const char *TAG = "ssd1677";
 static solar_os_ssd1677_device_t *devices[SOLAR_OS_SSD1677_MAX];
@@ -85,13 +89,7 @@ static void release_device_slot(size_t slot)
 
 static const u8g2_cb_t *rotation_callback(int rotation)
 {
-    switch (rotation) {
-    case 0: return U8G2_R0;
-    case 1: return U8G2_R1;
-    case 2: return U8G2_R2;
-    case 3: return U8G2_R3;
-    default: return NULL;
-    }
+    return solar_os_display_rotation_callback(rotation);
 }
 
 static esp_err_t axp2101_set_epaper_power(void *context, bool on)
@@ -127,22 +125,12 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         const solar_os_expansion_binding_t *binding = &bindings[i];
         switch (binding->kind) {
         case SOLAR_OS_EXPANSION_BINDING_SPI_BUS:
-            if (have_spi) return ESP_ERR_INVALID_ARG;
-            strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
-            have_spi = true;
+        case SOLAR_OS_EXPANSION_BINDING_SPI_CS: {
+            const esp_err_t err = solar_os_display_parse_spi_binding(binding,
+                config->spi_bus, sizeof(config->spi_bus), &have_spi, &have_cs, &config->cs_pin);
+            if (err != ESP_OK) return err;
             break;
-        case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
-            if (have_cs) return ESP_ERR_INVALID_ARG;
-            config->cs_pin = binding->value;
-            have_cs = true;
-            if (binding->target[0] != '\0') {
-                if (have_spi && strcmp(config->spi_bus, binding->target) != 0) {
-                    return ESP_ERR_INVALID_ARG;
-                }
-                strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
-                have_spi = true;
-            }
-            break;
+        }
         case SOLAR_OS_EXPANSION_BINDING_I2C_BUS:
             if (!role_is(binding, "power") || have_power_i2c) {
                 return ESP_ERR_INVALID_ARG;
@@ -152,20 +140,12 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                     sizeof(config->power_i2c_bus));
             have_power_i2c = true;
             break;
-        case SOLAR_OS_EXPANSION_BINDING_GPIO:
-            if (role_is(binding, "dc") && config->dc_pin < 0) {
-                config->dc_pin = binding->value;
-            } else if ((role_is(binding, "reset") || role_is(binding, "rst")) &&
-                       config->reset_pin < 0) {
-                config->reset_pin = binding->value;
-            } else if (role_is(binding, "busy") && config->busy_pin < 0) {
-                config->busy_pin = binding->value;
-            } else if (role_is(binding, "power") && config->power_pin < 0) {
-                config->power_pin = binding->value;
-            } else {
-                return ESP_ERR_INVALID_ARG;
-            }
+        case SOLAR_OS_EXPANSION_BINDING_GPIO: {
+            const esp_err_t err = solar_os_display_parse_gpio_binding(binding,
+                &config->dc_pin, &config->reset_pin, &config->busy_pin, &config->power_pin);
+            if (err != ESP_OK) return err;
             break;
+        }
         case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
             if (role_is(binding, "clock")) {
                 config->spi_clock_khz = binding->value;
@@ -189,16 +169,12 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         config->busy_pin < 0 || config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
         config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_STICKY ||
-        config->cs_pin == config->dc_pin || config->cs_pin == config->reset_pin ||
-        config->cs_pin == config->busy_pin || config->dc_pin == config->reset_pin ||
-        config->dc_pin == config->busy_pin || config->reset_pin == config->busy_pin ||
+        !solar_os_display_pins_valid(config->cs_pin, config->dc_pin,
+            config->reset_pin, config->busy_pin, config->power_pin) ||
         have_power_i2c != have_power_address ||
         (have_power_i2c &&
          (config->power_i2c_address != 0x34 || config->power_pin >= 0 ||
           !solar_os_expansion_find_i2c_bus(config->power_i2c_bus, NULL, NULL))) ||
-        (config->power_pin >= 0 &&
-         (config->power_pin == config->cs_pin || config->power_pin == config->dc_pin ||
-          config->power_pin == config->reset_pin || config->power_pin == config->busy_pin)) ||
         !solar_os_expansion_find_spi_bus(config->spi_bus, NULL, NULL) ||
         !solar_os_expansion_spi_cs_allowed(config->spi_bus, config->cs_pin)) {
         return ESP_ERR_INVALID_ARG;
@@ -353,7 +329,7 @@ static esp_err_t register_auxiliary(solar_os_ssd1677_device_t *device)
     return solar_os_display_register_target(&target);
 }
 
-esp_err_t solar_os_ssd1677_attach(const char *name,
+static esp_err_t attach_locked(const char *name,
                                   const solar_os_expansion_binding_t *bindings,
                                   size_t binding_count)
 {
@@ -434,7 +410,7 @@ esp_err_t solar_os_ssd1677_attach(const char *name,
     return ESP_OK;
 }
 
-esp_err_t solar_os_ssd1677_detach(const char *name)
+static esp_err_t detach_locked(const char *name)
 {
     const int slot = find_device_slot(name);
     if (slot < 0) return ESP_ERR_NOT_FOUND;
@@ -445,4 +421,21 @@ esp_err_t solar_os_ssd1677_detach(const char *name)
     if (ret != ESP_OK) return ret;
     release_device_slot((size_t)slot);
     return ESP_OK;
+}
+
+esp_err_t solar_os_ssd1677_attach(const char *name,
+    const solar_os_expansion_binding_t *bindings, size_t binding_count)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = attach_locked(name, bindings, binding_count);
+    solar_os_lifecycle_leave(&lifecycle);
+    return err;
+}
+
+esp_err_t solar_os_ssd1677_detach(const char *name)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = detach_locked(name);
+    solar_os_lifecycle_leave(&lifecycle);
+    return err;
 }

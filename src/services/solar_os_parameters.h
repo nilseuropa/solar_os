@@ -12,6 +12,7 @@
 #define SOLAR_OS_PARAMETER_LABEL_MAX 40U
 #define SOLAR_OS_PARAMETER_UNIT_MAX 12U
 #define SOLAR_OS_PARAMETER_MAX 48U
+#define SOLAR_OS_PARAMETER_WRITER_MAX 32U
 #define SOLAR_OS_PARAMETER_NORMALIZED_MAX UINT16_MAX
 
 typedef enum {
@@ -60,8 +61,17 @@ esp_err_t solar_os_parameters_register(
     const solar_os_parameter_definition_t *definitions,
     size_t count,
     solar_os_parameter_registration_t *registration);
+/* Retires the registration immediately. ESP_ERR_INVALID_STATE means callbacks
+ * remain in flight: retain their state and retry until ESP_OK. Retiring names
+ * cannot be reused. A callback must not synchronously wait for its own removal.
+ * Writer claims alone do not prevent retirement or removal. */
 esp_err_t solar_os_parameters_unregister(
     solar_os_parameter_registration_t *registration);
+/* Metadata update by the registering service. Reject while claimed or while
+ * a callback is in flight. The service must keep its current value in range. */
+esp_err_t solar_os_parameters_update_range(
+    const solar_os_parameter_registration_t *registration, const char *name,
+    float minimum, float maximum);
 
 size_t solar_os_parameter_count(void);
 bool solar_os_parameter_get_info(size_t index, solar_os_parameter_info_t *info);
@@ -69,6 +79,13 @@ esp_err_t solar_os_parameter_find(const char *path,
                                   solar_os_parameter_info_t *info);
 esp_err_t solar_os_parameter_get(const char *path, float *value);
 esp_err_t solar_os_parameter_set(const char *path, float value);
+/* A claim excludes ordinary setters (including normalized writes). Provider
+ * removal invalidates the claim; a replacement provider must be claimed anew.
+ * Owned writes/releases return NOT_FOUND if the path or this writer's claim
+ * no longer exists, and do not affect another writer's replacement claim. */
+esp_err_t solar_os_parameter_claim(const char *path, const char *writer);
+esp_err_t solar_os_parameter_release(const char *path, const char *writer);
+esp_err_t solar_os_parameter_set_owned(const char *path, const char *writer, float value);
 esp_err_t solar_os_parameter_get_normalized(const char *path, uint16_t *value);
 esp_err_t solar_os_parameter_set_normalized(const char *path, uint16_t value);
 

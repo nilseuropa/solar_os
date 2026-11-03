@@ -818,6 +818,32 @@ esp_err_t solar_os_stream_read_scalar(
     return err;
 }
 
+esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample)
+{
+    if (sample == NULL || stream_ensure_init() != ESP_OK) return ESP_ERR_INVALID_ARG;
+    stream_entry_t *entry = NULL;
+    void *user = NULL;
+    solar_os_stream_read_scalar_sample_fn callback = NULL;
+    stream_lock();
+    esp_err_t err = stream_get_callbacks(handle, &entry, &user);
+    if (err == ESP_OK) {
+        callback = entry->driver.read_scalar_sample;
+        if (handle->type != SOLAR_OS_STREAM_TYPE_SCALAR ||
+            !stream_direction_can_read(handle->direction) || callback == NULL)
+            err = ESP_ERR_NOT_SUPPORTED;
+    }
+    stream_unlock();
+    if (err != ESP_OK) return err;
+    err = callback(user, options, sample);
+    if (err == ESP_OK) {
+        stream_lock();
+        if (entry->registered && entry->generation == handle->generation) entry->read_units++;
+        stream_unlock();
+    }
+    return err;
+}
+
 esp_err_t solar_os_stream_read_csv(solar_os_stream_handle_t *handle,
                                    const solar_os_stream_read_options_t *options,
                                    solar_os_stream_csv_record_t *record)

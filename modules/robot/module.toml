@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "robot"
+name = "Robot"
+version = "1.0.0"
+description = "Calibrated servo position and motor/encoder velocity joints."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "robot.library.elf"

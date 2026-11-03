@@ -35,6 +35,7 @@ void solar_os_shell_cmd_deepsleep(solar_os_context_t *ctx, int argc, char **argv
 void solar_os_shell_cmd_shutdown(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_df(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_screen_keyboard(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_dlp(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_help(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_EMAIL
@@ -48,6 +49,12 @@ void solar_os_shell_cmd_contacts(solar_os_context_t *ctx, int argc, char **argv)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 void solar_os_shell_cmd_control(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+void solar_os_shell_cmd_robot(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
 void solar_os_shell_cmd_osc(solar_os_context_t *ctx, int argc, char **argv);

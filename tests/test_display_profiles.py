@@ -106,7 +106,10 @@ class DisplayProfilesTest(unittest.TestCase):
     def test_board_rejects_geometry_that_disagrees_with_panel_selector(self):
         board = load_board_manifest(self.manifests / "cl_32.toml", self.manifests)
         display = next(device for device in board["devices"] if device["name"] == "display0")
-        display["bindings"]["panel"] = 0
+        # An explicit concrete-driver override must still validate its geometry.
+        display["driver"] = "st7305"
+        display["bindings"] = {"spi": "spi0", "cs": 6, "dc": 13, "reset": 12,
+                               "panel": 0, "rotation": 3}
         # Legacy manifests need no explicit native-size macros. Their logical size
         # must still agree with the panel selected by ordinary runtime bindings.
         self.assertNotIn("SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH", board["defines"])

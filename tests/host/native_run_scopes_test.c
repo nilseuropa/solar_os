@@ -76,13 +76,18 @@ static void esp_elf_deinit(esp_elf_t *elf) {
 static const void *solar_os_native_media_get_service(const char *s, uint32_t a, uint32_t n) {
     (void)s; (void)a; (void)n; return NULL;
 }
+static const int motion_service_marker = 1;
+static const void *solar_os_native_motion_get_service(const char *s, uint32_t a, uint32_t n) {
+    return s && !strcmp(s, "motion") && a == 1 && n <= sizeof(motion_service_marker) ? &motion_service_marker : NULL;
+}
 #include "native_run.inc"
 
 static esp_err_t write_output(const char *text, size_t n, void *user) {
     assert(user == current_task); assert(n == 1U && text[0] == 'x'); return ESP_OK;
 }
 static const void *service(const char *s, uint32_t abi, uint32_t size, void *user) {
-    assert(!strcmp(s, "foreground") && abi == 1U && size == 8U);
+    if (strcmp(s, "foreground")) return NULL;
+    assert(abi == 1U && size == 8U);
     assert(user == current_task); return user;
 }
 static void cleanup(void *user) {
@@ -107,6 +112,7 @@ static int esp_elf_request(esp_elf_t *elf, int unused, int argc, char **argv) {
     assert(!atomic_load(&native_running) && allocation_count == 0);
     assert(native_write_utf8("x", 1U) == ESP_OK);
     assert(native_job_get_service("foreground", 1U, 8U) == current_task);
+    assert(native_job_get_service("motion", 1U, 4U) == &motion_service_marker);
     if (current_task == &outer && depth == 1) {
         native_run_scope_t *saved = native_run_scope_current();
         pthread_t thread;

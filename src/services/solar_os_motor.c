@@ -13,11 +13,13 @@ typedef struct motor {
     void *ctx;
     size_t refs;
     bool removing;
+    uint32_t claim;
     StaticSemaphore_t *operation_storage;
     SemaphoreHandle_t operation_mutex;
 } motor_t;
 
 static motor_t *motors;
+static uint32_t next_claim;
 static StaticSemaphore_t registry_storage;
 static SemaphoreHandle_t registry_mutex;
 static portMUX_TYPE init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -105,7 +107,7 @@ esp_err_t solar_os_motor_unregister(const char *name)
     lock();
     motor_t *m = find(name);
     if (m == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
-    if (m->refs != 0U || m->removing) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    if (m->refs != 0U || m->removing || m->claim != 0U) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     m->removing = true;
     xSemaphoreGive(registry_mutex);
     const esp_err_t ret = m->ops.shutdown != NULL ? m->ops.shutdown(m->ctx) : m->ops.coast(m->ctx);
@@ -165,7 +167,8 @@ esp_err_t solar_os_motor_drive(const char *name, float value)
     motor_t *m;
     esp_err_t ret = acquire(name, &m);
     if (ret != ESP_OK) return ret;
-    if (value == 0.0f) ret = m->ops.coast(m->ctx);
+    if (m->claim != 0) ret = ESP_ERR_INVALID_STATE;
+    else if (value == 0.0f) ret = m->ops.coast(m->ctx);
     else if (!m->info.can_drive) ret = ESP_ERR_NOT_SUPPORTED;
     else ret = m->ops.drive(m->ctx, value);
     release(m);
@@ -178,7 +181,7 @@ static esp_err_t simple_operation(const char *name, unsigned operation)
     esp_err_t ret = acquire(name, &m);
     if (ret != ESP_OK) return ret;
     esp_err_t (*callback)(void *) = operation == 0U ? m->ops.coast : operation == 1U ? m->ops.brake : m->ops.clear;
-    ret = callback != NULL ? callback(m->ctx) : ESP_ERR_NOT_SUPPORTED;
+    ret = m->claim != 0 ? ESP_ERR_INVALID_STATE : callback != NULL ? callback(m->ctx) : ESP_ERR_NOT_SUPPORTED;
     release(m);
     return ret;
 }
@@ -186,6 +189,57 @@ static esp_err_t simple_operation(const char *name, unsigned operation)
 esp_err_t solar_os_motor_coast(const char *name) { return simple_operation(name, 0U); }
 esp_err_t solar_os_motor_brake(const char *name) { return simple_operation(name, 1U); }
 esp_err_t solar_os_motor_clear(const char *name) { return simple_operation(name, 2U); }
+
+esp_err_t solar_os_motor_claim(const char *name, uint32_t *claim)
+{
+    if (claim == NULL) return ESP_ERR_INVALID_ARG;
+    *claim = 0;
+    motor_t *m;
+    esp_err_t ret = acquire(name, &m);
+    if (ret != ESP_OK) return ret;
+    lock();
+    if (m->claim || m->refs != 1 || next_claim == UINT32_MAX) ret = ESP_ERR_INVALID_STATE;
+    else { m->claim = ++next_claim; *claim = m->claim; }
+    xSemaphoreGive(registry_mutex);
+    release(m);
+    return ret;
+}
+
+static esp_err_t acquire_owned(uint32_t claim, motor_t **result)
+{
+    if (!claim) return ESP_ERR_INVALID_ARG;
+    lock(); motor_t *m;
+    for (m = motors; m != NULL && m->claim != claim; m = m->next) {}
+    if (m != NULL) m->refs++;
+    xSemaphoreGive(registry_mutex);
+    if (m == NULL) return ESP_ERR_NOT_FOUND;
+    xSemaphoreTake(m->operation_mutex, portMAX_DELAY);
+    if (m->claim != claim) { release(m); return ESP_ERR_NOT_FOUND; }
+    *result = m;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_motor_drive_owned(uint32_t claim, float value)
+{
+    if (!isfinite(value) || value < -1 || value > 1) return ESP_ERR_INVALID_ARG;
+    motor_t *m; esp_err_t ret = acquire_owned(claim, &m);
+    if (ret != ESP_OK) return ret;
+    ret = value == 0 ? m->ops.coast(m->ctx) : m->ops.drive == NULL ?
+        ESP_ERR_NOT_SUPPORTED : m->ops.drive(m->ctx, value);
+    release(m); return ret;
+}
+
+static esp_err_t stop_owned(uint32_t claim, bool brake, bool drop)
+{
+    motor_t *m; esp_err_t ret = acquire_owned(claim, &m);
+    if (ret != ESP_OK) return ret;
+    esp_err_t (*callback)(void *) = brake ? m->ops.brake : m->ops.coast;
+    ret = callback != NULL ? callback(m->ctx) : ESP_ERR_NOT_SUPPORTED;
+    if (ret == ESP_OK && drop) { lock(); m->claim = 0; xSemaphoreGive(registry_mutex); }
+    release(m); return ret;
+}
+esp_err_t solar_os_motor_stop_owned(uint32_t claim, bool brake) { return stop_owned(claim, brake, false); }
+esp_err_t solar_os_motor_release(uint32_t claim, bool brake) { return stop_owned(claim, brake, true); }
 
 const char *solar_os_motor_mode_name(solar_os_motor_mode_t mode)
 {

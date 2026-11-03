@@ -95,17 +95,7 @@ power = "CW2017 battery gauge."
 sensors = "BM8563-compatible RTC."
 
 [devices.cl_32]
-display = "384×168 ST7305 reflective LCD."
-keyboard = "Built-in keyboard managed by the ATmega808 board controller."
-sound = "Onboard PWM buzzer."
-storage = "microSD over SPI."
-connectivity = "Wi-Fi, BLE, native USB CDC, and UART."
-power = "Battery monitoring through the ATmega808 board controller."
-sensors = "PCF85063 RTC."
-expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S."
-
-[devices.cl32_epd]
-display = "384×168 SSD1685 GDEY029T71H e-paper."
+display = "384×168 ST7305 reflective LCD or SSD1685 GDEY029T71H e-paper, detected at boot."
 keyboard = "Built-in keyboard managed by the ATmega808 board controller."
 sound = "Onboard PWM buzzer."
 storage = "microSD over SPI."

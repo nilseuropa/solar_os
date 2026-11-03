@@ -254,12 +254,14 @@ esp_err_t solar_os_ssd1677_detach(const char *name)
 }
 
 static unsigned flaky_attach_failures = 1U;
+static unsigned flaky_attach_calls;
 static bool check_refresh_reservation;
 
 static esp_err_t test_flaky_attach(const char *name,
                                    const solar_os_expansion_binding_t *bindings,
                                    size_t binding_count)
 {
+    flaky_attach_calls++;
     (void)name;
     (void)bindings;
     (void)binding_count;
@@ -277,6 +279,7 @@ static esp_err_t test_flaky_attach(const char *name,
 const solar_os_expansion_driver_t test_flaky_expansion_driver = {
     .name = "test-flaky",
     .summary = "test delayed board device",
+    .board_only = true,
     .category = SOLAR_OS_EXPANSION_CATEGORY_STORAGE,
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO,
     .allow_unlisted_bindings = true,
@@ -378,11 +381,38 @@ int main(void)
     solar_os_expansion_driver_t manual_driver;
     assert(solar_os_expansion_get_driver(0, &manual_driver));
     assert(manual_driver.category == SOLAR_OS_EXPANSION_CATEGORY_UTILITY);
+    assert(solar_os_expansion_driver_count() == 3);
+    for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
+        assert(solar_os_expansion_get_driver(i, &manual_driver));
+        assert(!manual_driver.board_only);
+        assert(strcmp(manual_driver.name, "test-flaky") != 0);
+    }
+    assert(!solar_os_expansion_get_driver(solar_os_expansion_driver_count(), &manual_driver));
+    solar_os_expansion_driver_t dynamic_driver = {
+        .name = "test-dynamic", .summary = "test dynamic driver", .board_only = true,
+    };
+    assert(solar_os_expansion_register_driver(&dynamic_driver) == ESP_ERR_INVALID_ARG);
+    dynamic_driver.board_only = false;
+    assert(solar_os_expansion_register_driver(&dynamic_driver) == ESP_OK);
+    assert(solar_os_expansion_driver_count() == 4);
+    assert(solar_os_expansion_get_driver(3, &manual_driver));
+    assert(strcmp(manual_driver.name, "test-dynamic") == 0);
+    assert(!solar_os_expansion_get_driver(4, &manual_driver));
+    assert(solar_os_expansion_unregister_driver(&dynamic_driver) == ESP_OK);
+    const solar_os_expansion_binding_t board_binding = {
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .value = 5,
+    };
+    assert(solar_os_expansion_validate_bindings("test-flaky", &board_binding, 1, NULL) ==
+           ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_expansion_attach("test-flaky", "manual-selector", &board_binding, 1) ==
+           ESP_ERR_NOT_SUPPORTED);
+    assert(flaky_attach_calls == 0 && live_allocations == 0);
 
     assert(solar_os_expansion_init_early() == ESP_OK);
     assert(solar_os_expansion_device_count() == 0);
 
     assert(solar_os_expansion_init() == ESP_ERR_TIMEOUT);
+    assert(flaky_attach_calls == 1);
     assert(solar_os_expansion_device_count() == 8);
     assert(live_allocations == 8);
     assert(solar_os_expansion_detach("board0") == ESP_OK);

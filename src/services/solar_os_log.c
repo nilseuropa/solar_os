@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "nvs.h"
 #include "solar_os_memory.h"
+#include "solar_os_sync_dynamic.h"
 
 #define LOG_NVS_NAMESPACE "log"
 #define LOG_NVS_LEVEL_KEY "level"
@@ -74,12 +75,7 @@ static void log_mirror_to_cdc(solar_os_log_level_t level, const char *tag, const
 
 static esp_err_t log_ensure_mutex(void)
 {
-    if (log_mutex != NULL) {
-        return ESP_OK;
-    }
-
-    log_mutex = xSemaphoreCreateMutex();
-    return log_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    return solar_os_mutex_get_dynamic(&log_mutex) != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static void log_lock(void)

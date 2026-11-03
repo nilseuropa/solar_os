@@ -1,4 +1,5 @@
 #include "solar_os_gnss.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -24,9 +25,7 @@ static uint32_t gnss_next_generation = 1U;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (gnss_mutex == NULL) {
-        gnss_mutex = xSemaphoreCreateMutexStatic(&gnss_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&gnss_mutex, &gnss_mutex_storage);
     return gnss_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

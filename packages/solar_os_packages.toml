@@ -101,6 +101,11 @@ label = "Signal processing"
 category = "System"
 members = ["service_dsp"]
 
+[groups.controllers]
+label = "Feedback controllers"
+category = "System"
+members = ["job_controllers"]
+
 [groups.vector_math]
 label = "Vector math"
 category = "System"
@@ -301,6 +306,11 @@ members = ["job_gpio_keys"]
 label = "Graffiti handwriting input"
 category = "Hardware tools"
 members = ["job_graffiti"]
+
+[groups.screen_keyboard]
+label = "Screen keyboard"
+category = "Hardware tools"
+members = ["job_screen_keyboard"]
 
 [groups.ps2_keyboard]
 label = "PS/2 keyboard"
@@ -525,12 +535,12 @@ members = ["app_invaders"]
 [groups.python]
 label = "Python"
 category = "Scripting"
-members = ["app_python", "service_emotion", "service_jet"]
+members = ["app_python", "service_emotion", "service_jet", "service_robot"]
 
 [groups.lua]
 label = "Lua"
 category = "Scripting"
-members = ["app_lua", "service_emotion", "service_jet"]
+members = ["app_lua", "service_emotion", "service_jet", "service_robot"]
 
 [groups.playground]
 label = "Playground package manager"
@@ -925,6 +935,7 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_layer.c",
   "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
@@ -991,6 +1002,7 @@ capabilities = ["wifi"]
 [packages.service_native_modules]
 label = "bootstrap.native-modules"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
@@ -999,6 +1011,7 @@ sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
   "services/solar_os_native_media.c",
+  "services/solar_os_native_motion.c",
   "services/solar_os_native_foreground.c",
   "services/solar_os_native_elf.c",
   "shell/solar_os_shell_native.c",
@@ -1011,6 +1024,7 @@ capabilities = ["psram"]
 [packages.service_docs]
 label = "maintenance.docs"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
@@ -1046,6 +1060,7 @@ sources = [
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
+  "shell/solar_os_shell_vocabulary.c",
   "shell/solar_os_shell_input.c",
   "shell/solar_os_shell_completion.c",
   "shell/solar_os_shell_gesture_completion.c",
@@ -1166,6 +1181,13 @@ requires = ["esp_timer"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
 
+[packages.service_robot]
+label = "service.robot"
+depends = ["service_native_modules"]
+sources = ["services/solar_os_robot.c", "shell/solar_os_shell_robot.c"]
+targets = ["esp32s3"]
+capabilities = ["psram"]
+
 [packages.service_ftp]
 label = "network.ftp"
 depends = ["service_net"]
@@ -1245,14 +1267,22 @@ label = "network.http-client"
 depends = ["service_wifi"]
 sources = [
   "services/solar_os_http_client.c",
+  "services/solar_os_http_policy.c",
   "services/solar_os_http_stream.c",
 ]
-requires = ["esp_http_client", "esp_timer"]
+requires = ["esp_http_client", "esp_timer", "http_parser"]
+capabilities = ["wifi"]
+
+[packages.service_download]
+label = "network.download"
+depends = ["service_http_client", "service_crypto"]
+sources = ["services/solar_os_download.c"]
 capabilities = ["wifi"]
 
 [packages.service_playground]
 label = "service.playground"
 depends = [
+  "service_download",
   "service_crypto",
   "service_http_client",
   "service_json",
@@ -1453,6 +1483,15 @@ sources = [
   "shell/solar_os_shell_controls.c",
 ]
 
+[packages.service_controllers]
+label = "service.controllers"
+depends = ["service_streams", "service_pwm"]
+sources = [
+  "services/solar_os_controller_math.c",
+  "services/solar_os_controllers.c",
+  "shell/solar_os_shell_controllers.c",
+]
+
 [packages.service_streams]
 label = "service.streams"
 sources = ["services/solar_os_stream.c"]
@@ -1612,6 +1651,7 @@ sources = ["services/solar_os_motor.c", "shell/solar_os_shell_motor.c"]
 [packages.service_encoder]
 label = "service.encoder"
 sources = ["services/solar_os_encoder.c", "shell/solar_os_shell_encoder.c"]
+requires = ["esp_timer"]
 
 [packages.pcnt_encoder]
 label = "expansion.pcnt-encoder"
@@ -2977,7 +3017,7 @@ capabilities = ["psram", "wifi"]
 
 [packages.service_zoo]
 label = "service.zoo"
-depends = ["service_inference", "service_http_client", "service_zip", "service_json", "service_crypto"]
+depends = ["service_inference", "service_download", "service_http_client", "service_zip", "service_json", "service_crypto"]
 sources = ["services/solar_os_zoo.c"]
 requires = ["nvs_flash"]
 capabilities = ["psram", "wifi"]
@@ -3241,6 +3281,11 @@ label = "job.controls"
 depends = ["service_controls"]
 sources = ["jobs/solar_os_controls_job.c"]
 
+[packages.job_controllers]
+label = "job.controllers"
+depends = ["service_controllers"]
+sources = ["jobs/solar_os_controllers_job.c"]
+
 [packages.job_gesture_listener]
 label = "job.gesture-listener"
 sources = ["jobs/solar_os_gesture_listener_job.c"]
@@ -3248,6 +3293,11 @@ sources = ["jobs/solar_os_gesture_listener_job.c"]
 [packages.job_pointer_arrows]
 label = "job.pointer-arrows"
 sources = ["jobs/solar_os_pointer_arrows_job.c"]
+
+[packages.job_screen_keyboard]
+label = "job.screen-keyboard"
+sources = ["jobs/solar_os_screen_keyboard_job.c", "services/solar_os_screen_keyboard_layout.c"]
+capabilities = ["display"]
 
 [packages.service_unistroke]
 label = "service.unistroke"
@@ -3381,6 +3431,20 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.expansion_cl32_display]
+label = "board.cl32-display"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_cl32_display_expansion_driver"]
+depends = ["driver_display_st7305", "expansion_ssd1685"]
+sources = ["drivers/cl32_display_identify.c", "services/solar_os_cl32_display.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[groups.cl32_display]
+label = "CL-32 automatic display"
+hidden = true
+members = ["expansion_cl32_display"]
 
 [groups.uc8179]
 label = "UC8179 e-paper expansion"

@@ -287,7 +287,7 @@ job for periodic polling.
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
 | `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
 | `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
-| `display` | `display relax <target> [seconds]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. |
+| `display` | `display relax [<target> [seconds]]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. Without arguments, use the first supported display for 1 second. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
 | `display` | `display split <target> --horizontal\|--vertical <first> <second>`; `display unsplit <target>` | Split one physical target into two equal logical viewports, or remove the split. |
@@ -300,6 +300,7 @@ job for periodic polling.
 | `gesture` | `gesture bind source=<name\|*> gesture=<name> [direction=<name\|*>] [cooldown=<ms>] -- <command> [args...]` | Configure a volatile gesture-to-command rule for the `gestures` job. |
 | `gesture` | `gesture bindings` | Show listener state and list volatile gesture bindings, trigger counts, queue drops, cooldowns, and commands. |
 | `gesture` | `gesture unbind <id\|all>` | Remove one volatile gesture binding or all of them. |
+| `screen-keyboard` | `screen-keyboard [status]`; `screen-keyboard show\|hide\|toggle`; `screen-keyboard mode full\|symbols` | Inspect or control the running `screen-keyboard` job. Touch or arrow keys select keys; Enter activates the selection. |
 | `status` | `status` | Print a compact system summary, including the last foreground-app exit code. |
 | `uptime` | `uptime` | Print elapsed time since boot. |
 | `mem` | `mem [policy]` | Print heap and managed PSRAM status; `policy` also shows allocation-class counters, guarded fallback limits, and the last tagged failure. |
@@ -1269,6 +1270,7 @@ available for the compiled board.
 | `audio` | `audio queue` | Show asynchronous tone queue state and counters. |
 | `audio` | `audio cancel <request-id>` | Cancel a queued or playing asynchronous tone request. |
 | `audio` | `audio level [volume]` | Show or set global speaker level. |
+| `audio` | `audio mute` | Set global speaker level to zero while playback continues. Restore sound with `audio level <1-100>`. |
 | `audio` | `audio mic [ms]` | Sample microphone level. |
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
@@ -1317,6 +1319,21 @@ available for the compiled board.
 | `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `controller` | `controller list` or `controller status <name>` | Inspect feedback controller configuration, state, output, and errors. |
+| `controller` | `controller create <name> pid\|hysteresis` or `controller delete <name>` | Create or remove a named feedback controller. |
+| `controller` | `controller configure <name> <key> <value>` | Set gains, setpoint, output limits, direction, timing, or safe output; see [Feedback controllers](controllers.md). |
+| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>` | Select timestamped measurement input and an owned parameter or PWM pulse output. |
+| `controller` | `controller feed <name> <measurement>` | Publish a manual-source measurement acquired now. |
+| `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
+| `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
+| `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
+| `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
+| `robot` | `robot joint create <joint> velocity\|servo` | Create an inactive joint without claiming hardware. |
+| `robot` | `robot joint configure <joint> <key> <value>` | Configure PPR, gearbox ratio, polarities, limits, timing or control gains. |
+| `robot` | `robot joint motor <joint> <motor> <encoder>` | Bind named devices to a velocity joint. |
+| `robot` | `robot joint servo <joint> <provider> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz]` | Bind a calibrated input-shaft servo output. |
+| `robot` | `robot joint command <joint> <target>` | Refresh an joint target in radians/second or radians. |
+| `robot` | `robot joint enable\|disable\|close <joint>` | Activate, stop and release, or destroy an joint; see [Robot joints](robot.md). |
 | `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
@@ -1471,7 +1488,9 @@ then releases it. `display mode <target>` lists driver-specific display
 settings for supported display drivers; `display mode <target> <mode>` applies
 one setting.
 
-`display relax display0` runs black/white recovery for 60 seconds. Supply a
+`display relax` runs black/white recovery on the first registered display that
+supports it for 1 second. It reports an error if no display supports recovery.
+`display relax display0` runs recovery for 60 seconds. Supply a
 duration from 1 to 86400 seconds, for example `display relax display0 3600` for
 one hour. It alternates solid black and white using synchronous native full
 refreshes, with up to one second of hold after each refresh. It completes a

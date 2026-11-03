@@ -17,6 +17,11 @@ const solar_os_app_t solar_os_chat_app = {.name = "chat"};
 static unsigned launches;
 static char launch_selector[48];
 static solar_os_launch_policy_t launch_policy;
+static solar_os_job_state_t worker_state = SOLAR_OS_JOB_STOPPED;
+static bool worker_available = true, resource_worker, popup_pending, popup_flushed;
+static unsigned worker_starts;
+static esp_err_t worker_start_error;
+static bool screen_has(const char *text);
 void solar_os_context_finish(solar_os_context_t *ctx, int code, const char *message)
 { (void)message; assert(!code); ctx->exit_requested = true; }
 esp_err_t solar_os_context_request_launch_ex(solar_os_context_t *ctx, const solar_os_app_t *app,
@@ -29,14 +34,30 @@ esp_err_t solar_os_context_request_launch_ex(solar_os_context_t *ctx, const sola
 bool solar_os_jobs_get_by_name(const char *name, solar_os_job_status_t *status)
 {
     assert(!strcmp(name, "test-worker"));
-    *status = (solar_os_job_status_t){.name = "test-worker", .state = SOLAR_OS_JOB_STOPPED};
+    if (!worker_available) return false;
+    *status = (solar_os_job_status_t){.name = "test-worker", .state = worker_state};
     return true;
 }
-size_t solar_os_jobs_count(void) { return 0; }
+esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv)
+{
+    assert(ctx == &context && !strcmp(name, "test-worker") && argc >= 1 && !strcmp(argv[0], name));
+    if (resource_worker) assert(argc == 2 && !strcmp(argv[1], "test-link"));
+    else assert(argc == 1);
+    worker_starts++;
+    if (worker_start_error == ESP_OK) worker_state = SOLAR_OS_JOB_RUNNING;
+    return worker_start_error;
+}
+size_t solar_os_jobs_count(void) { return resource_worker && worker_available ? 1 : 0; }
 bool solar_os_jobs_get(size_t index, solar_os_job_status_t *status)
-{ (void)index; (void)status; return false; }
+{
+    assert(index == 0);
+    if (!solar_os_jobs_get_by_name("test-worker", status)) return false;
+    status->resource_count = 1;
+    strlcpy(status->resources[0].name, "test-link", sizeof(status->resources[0].name));
+    return true;
+}
 const char *solar_os_job_state_name(solar_os_job_state_t state)
-{ (void)state; return "stopped"; }
+{ return state == SOLAR_OS_JOB_RUNNING ? "running" : "stopped"; }
 
 typedef struct { bool enabled; char endpoint[48], secret[48]; } form_config_t;
 static form_config_t configs[256];
@@ -48,7 +69,8 @@ static esp_err_t fake_read(void *ctx, unsigned form, solar_os_messaging_settings
 {
     if (form) return ESP_ERR_NOT_FOUND;
     out->label = "Test provider"; out->fields = fields; out->count = 2;
-    strlcpy(out->worker, "test-worker", sizeof(out->worker));
+    strlcpy(out->worker, resource_worker ? "test-link" : "test-worker", sizeof(out->worker));
+    out->worker_is_resource = resource_worker;
     if (ctx) {
         form_config_t *config = ctx; out->enabled = config->enabled;
         solar_os_messaging_settings_value(out, 0, config->endpoint);
@@ -79,7 +101,8 @@ static esp_err_t fake_write(void *ctx, unsigned form, const char *name,
 }
 static esp_err_t fake_connect(void *ctx, bool enabled)
 { ((form_config_t *)ctx)->enabled = enabled; return ESP_OK; }
-static esp_err_t fake_remove(void *ctx) { (void)ctx; return ESP_OK; }
+static esp_err_t fake_remove(void *ctx)
+{ (void)ctx; assert(popup_flushed); popup_flushed = false; return ESP_OK; }
 static void fake_removed(void *ctx, bool removed) { (void)ctx; (void)removed; }
 static const solar_os_messaging_provider_class_t fake_class = {
     .name = "test", .create = fake_create, .settings_read = fake_read, .settings_write = fake_write,
@@ -106,7 +129,16 @@ void solar_os_tui_clear(solar_os_tui_t *tui)
         memset(screen[row], ' ', cols); screen[row][cols] = '\0';
     }
 }
-void solar_os_tui_refresh(solar_os_tui_t *tui) { (void)tui; }
+void solar_os_tui_refresh(solar_os_tui_t *tui)
+{ (void)tui; if (popup_pending) { popup_flushed = true; popup_pending = false; } }
+esp_err_t solar_os_tui_text_popup(solar_os_tui_t *tui, const solar_os_tui_rect_t *bounds,
+    const char *title, const char *text, solar_os_tui_rect_t *popup)
+{
+    (void)tui; (void)bounds; (void)text; (void)popup;
+    assert(!strcmp(title, "Deleting...") || !strcmp(title, "Saving..."));
+    if (!strcmp(title, "Deleting...")) popup_pending = true;
+    return ESP_OK;
+}
 esp_err_t solar_os_tui_set_cursor_visible(solar_os_tui_t *tui, bool visible)
 { (void)tui; cursor_visible = visible; return ESP_OK; }
 esp_err_t solar_os_tui_fill(solar_os_tui_t *tui, size_t row, size_t col,
@@ -180,9 +212,32 @@ int main(void)
     /* Enabled and worker-stopped are separate from transport connection state. */
     key('\t'); key('c'); assert(configs[first].enabled);
     assert(screen_has("worker stopped"));
+    key('a'); assert(screen_has("s Start worker"));
+    key(SOLAR_OS_KEY_DOWN); key('\r');
+    assert(worker_starts == 1 && worker_state == SOLAR_OS_JOB_RUNNING && configs[first].enabled);
+    key('s'); assert(worker_starts == 1 && strstr(app_state.feedback, "already running"));
+    worker_state = SOLAR_OS_JOB_WAITING;
+    key('s'); assert(worker_starts == 1 && strstr(app_state.feedback, "waiting for memory"));
     key('\r'); assert(app_state.mode == MESSAGES_CONNECTION_DETAIL);
+    worker_state = SOLAR_OS_JOB_STOPPED;
+    key('s'); assert(worker_starts == 2 && app_state.mode == MESSAGES_CONNECTION_DETAIL);
     key(SOLAR_OS_KEY_END); key(SOLAR_OS_KEY_ESCAPE);
     key('x'); assert(!configs[first].enabled);
+    worker_state = SOLAR_OS_JOB_FAILED; worker_start_error = ESP_FAIL;
+    key('s'); assert(worker_starts == 3 && strstr(app_state.feedback, esp_err_to_name(ESP_FAIL)));
+    assert(!configs[first].enabled);
+    worker_start_error = ESP_OK; worker_available = false;
+    key('s'); assert(worker_starts == 3 && strstr(app_state.feedback, "not in this build"));
+    worker_available = true; resource_worker = true;
+    key('s'); assert(app_state.mode == MESSAGES_WORKER_COMMAND && cursor_visible);
+    key('\r'); assert(app_state.mode == MESSAGES_WORKER_COMMAND && worker_starts == 3);
+    type("test-worker test-link"); key('\r');
+    assert(app_state.mode == MESSAGES_BROWSE && worker_starts == 4);
+    key('s'); assert(worker_starts == 4 && strstr(app_state.feedback, "already active"));
+    worker_state = SOLAR_OS_JOB_STOPPED;
+    key('s'); key(SOLAR_OS_KEY_ESCAPE);
+    assert(app_state.mode == MESSAGES_BROWSE && worker_starts == 4 && !app_state.edit[0]);
+    resource_worker = false;
 
     solar_os_messaging_inbound_t inbound = {.provider = first, .conversation_key = "room",
         .conversation_kind = SOLAR_OS_CONVERSATION_ROOM, .conversation_title = "Room",

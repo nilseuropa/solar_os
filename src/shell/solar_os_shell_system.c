@@ -1904,6 +1904,10 @@ void solar_os_shell_cmd_mem(solar_os_context_t *ctx, int argc, char **argv)
         (unsigned)pressure.requests, (unsigned)pressure.callbacks, (unsigned)pressure.busy,
         (unsigned)pressure.low_stack,
         (unsigned)pressure.released_bytes, (unsigned)pressure.moved_bytes);
+    solar_os_shell_io_table_printf(term,
+        "Recovery: last %u us max %u us; compactions last %u total %u\n",
+        (unsigned)pressure.last_duration_us, (unsigned)pressure.max_duration_us,
+        (unsigned)pressure.last_compactions, (unsigned)pressure.compactions);
 
     char reserve[16];
     char fallback_max[16];

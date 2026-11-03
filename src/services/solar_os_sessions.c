@@ -111,6 +111,7 @@ typedef enum {
     SOLAR_OS_SESSION_OPERATION_CLOSE_SESSION,
     SOLAR_OS_SESSION_OPERATION_SEND_COMMAND,
     SOLAR_OS_SESSION_OPERATION_SET_DISPLAY_PROFILE,
+    SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER,
 } solar_os_session_operation_type_t;
 
 typedef struct {
@@ -124,6 +125,8 @@ typedef struct {
     uint8_t command_session_id;
     const char *command;
     solar_os_terminal_profile_t display_profile;
+    esp_err_t (*operation)(void *);
+    void *operation_context;
     solar_os_shell_io_t *caller_io;
     SemaphoreHandle_t complete;
     esp_err_t result;
@@ -1575,8 +1578,15 @@ static bool switch_to_display_app(const solar_os_app_t *app,
     }
     if (return_to_parent && parent != NULL) {
         session->close_on_exit = true;
+    }
+    /* Ordinary launches return to their display's shell too. A replacement
+     * handoff inherits that shell without turning the old app into a parent. */
+    solar_os_session_entry_t *return_session =
+        return_to_parent || (parent != NULL && parent->app == solar_os_shell_app()) ?
+            parent : session_return_shell(parent);
+    if (return_session != NULL) {
         session->has_return_session = true;
-        session->return_session_id = parent->id;
+        session->return_session_id = return_session->id;
     }
     return switch_to_session(session, false);
 }
@@ -2468,6 +2478,28 @@ static esp_err_t session_set_display_terminal_profile_internal(
     return err;
 }
 
+esp_err_t solar_os_sessions_run_on_owner(esp_err_t (*operation)(void *), void *context)
+{
+    if (!operation) return ESP_ERR_INVALID_ARG;
+    if (!session_scheduler_task || xTaskGetCurrentTaskHandle() == session_scheduler_task)
+        return operation(context);
+    if (!session_operation_queue) return ESP_ERR_INVALID_STATE;
+    /* Teardown must remain possible without an extra heap allocation. The
+     * request and completion latch stay alive until the owner finishes. */
+    StaticSemaphore_t completion;
+    solar_os_session_operation_request_t request = {
+        .type = SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER,
+        .operation = operation,
+        .operation_context = context,
+        .complete = xSemaphoreCreateBinaryStatic(&completion),
+    };
+    solar_os_session_operation_request_t *queued_request = &request;
+    (void)xQueueSend(session_operation_queue, &queued_request, portMAX_DELAY);
+    (void)xSemaphoreTake(request.complete, portMAX_DELAY);
+    vSemaphoreDelete(request.complete);
+    return request.result;
+}
+
 esp_err_t solar_os_sessions_set_display_terminal_profile(
     const char *target_name, const solar_os_terminal_profile_t *profile)
 {
@@ -3187,6 +3219,9 @@ static void session_process_operation_requests(void)
             request->result = session_set_display_terminal_profile_internal(
                 request->target_name, &request->display_profile);
             break;
+        case SOLAR_OS_SESSION_OPERATION_RUN_ON_OWNER:
+            request->result = request->operation(request->operation_context);
+            break;
         default:
             request->result = ESP_ERR_INVALID_ARG;
             break;
@@ -3280,6 +3315,28 @@ uint32_t solar_os_sessions_requested_tick_interval_ms(void)
     }
 
     return interval_ms;
+}
+
+uint32_t solar_os_sessions_next_tick_wait_ms(uint32_t now_ms)
+{
+    uint32_t wait_ms = SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
+    for (size_t i = 0; i < SOLAR_OS_SESSION_MAX; i++) {
+        const solar_os_session_entry_t *session = &session_state.sessions[i];
+        if (!session->used || session->suspended || session->app == NULL || session->app->event == NULL) continue;
+        uint32_t remaining = solar_os_tick_wait_ms(&session->tick_stats,
+            solar_os_app_tick_interval_ms(session->app, SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
+            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS, now_ms);
+        if (remaining < wait_ms) wait_ms = remaining;
+    }
+    const solar_os_app_t *app = session_state.foreground_app;
+    if (session_state.foreground_session == NULL && app != NULL && app->event != NULL) {
+        if (session_state.legacy_tick_app != app) return 0U;
+        uint32_t remaining = solar_os_tick_wait_ms(&session_state.legacy_tick_stats,
+            solar_os_app_tick_interval_ms(app, SOLAR_OS_TICK_INTERVAL_DEFAULT_MS),
+            SOLAR_OS_TICK_INTERVAL_DEFAULT_MS, now_ms);
+        if (remaining < wait_ms) wait_ms = remaining;
+    }
+    return wait_ms;
 }
 
 void solar_os_sessions_dispatch_resume(uint32_t now_ms)

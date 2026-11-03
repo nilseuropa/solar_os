@@ -33,6 +33,7 @@ esp_err_t solar_os_ssd2677_detach(const char *n) { assert(used_ssd2677 && !strcm
 
 int main(void)
 {
+    assert(solar_os_sticky_display_expansion_driver.board_only);
     solar_os_expansion_binding_t bindings[] = {
         {.kind=SOLAR_OS_EXPANSION_BINDING_SPI_BUS,.target="spi0"},
         {.kind=SOLAR_OS_EXPANSION_BINDING_SPI_CS,.value=15},

@@ -88,3 +88,27 @@ if (err == ESP_OK) {
     (void)solar_os_http_request_destroy(request);
 }
 ```
+
+## Verified downloads to storage
+
+The `service_download` package provides `solar_os_download_file()` for callers
+that own a staging path. It accepts normal HTTP request options, a maximum
+size, an optional exact size and SHA-256, a progress callback, and a required
+result structure. It replaces the HTTP event callback while retaining request
+deadlines, cancellation and redirect policy. Only HTTP 200 responses succeed.
+
+The service batches writes and reads back stored bytes through one 4 KiB
+allocation. Memory for the HTTP transport and cryptographic context is separate.
+It syncs and closes the file, then verifies the stored size and digest against
+the received body before returning success. Transfer or verification failure
+removes the staging file. Invalid arguments or cancellation before opening the
+staging file leave existing files untouched.
+
+Callers validate application-specific metadata before publishing. Use
+`solar_os_storage_replace_file()` for one file or
+`solar_os_storage_replace_files()` for up to eight related files. The grouped
+operation preflights every staged member, recovers sole backups, and rolls back
+earlier members on a later I/O error. A failed rollback retains its backup.
+Callers must sync staged contents and exclusively own resolved, distinct paths.
+This provides I/O error rollback; it does not provide a power-loss journal or
+atomic visibility to concurrent readers.

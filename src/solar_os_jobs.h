@@ -102,6 +102,7 @@ esp_err_t solar_os_jobs_mark_stopped(const char *name,
                                      uint32_t generation,
                                      esp_err_t last_error);
 uint32_t solar_os_jobs_requested_tick_interval_ms(void);
+uint32_t solar_os_jobs_next_tick_wait_ms(uint32_t now_ms);
 void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms);
 esp_err_t solar_os_jobs_owner_name(const char *name, char *owner, size_t owner_len);
 esp_err_t solar_os_jobs_note_resource(const char *name,

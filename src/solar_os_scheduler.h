@@ -44,6 +44,8 @@ bool solar_os_tick_due(solar_os_tick_stats_t *stats,
                        uint32_t default_interval_ms,
                        uint32_t default_deadline_ms,
                        uint32_t now_ms);
+uint32_t solar_os_tick_wait_ms(const solar_os_tick_stats_t *stats,
+    uint32_t configured_interval_ms, uint32_t default_interval_ms, uint32_t now_ms);
 int64_t solar_os_tick_begin(void);
 bool solar_os_tick_end(solar_os_tick_stats_t *stats, int64_t started_us);
 bool solar_os_tick_should_log_miss(const solar_os_tick_stats_t *stats);

@@ -2,6 +2,36 @@
 
 ## 4.x
 
+- **4.17.5** — 2026-11-02 — Added a screen keyboard overlay with full,
+  symbols, and compact T-Deck punctuation modes, touch and arrow-key navigation,
+  and configurable key or edge-swipe activation. Keyboard overlays preserve
+  terminal colors. Added edge-swipe touch gestures and Python/Lua board
+  information APIs. Added `audio mute` to silence output while playback
+  continues. Bare `display relax` now runs one second of recovery on the first
+  supported display. Fixed startup crashes when Wi-Fi is disabled and
+  background services use networking.
+- **4.17.4** — 2026-10-31 — Added PID and hysteresis feedback controllers
+  with timestamped measurements, exclusive output control, shell commands and
+  Python/Lua APIs. Added the optional robot library for calibrated servo-position
+  and motor/encoder-velocity joints on supported ESP32-S3 devices with executable
+  PSRAM. Reduced peak memory use for Docs and Playground installation by
+  streaming verified downloads to storage. Shared download verification now
+  covers native modules and Zoo, with improved installation rollback and HTTP
+  redirect handling. Improved PCM conversion, audio-buffer wakeups, input
+  wakeups and app/job scheduling. Fixed concurrent service initialization,
+  parameter-provider shutdown and display attachment races, and bounded memory
+  compaction work during low-memory recovery. Fixed CL-32 RLCD detection on
+  modules without register readback. Fixed repeated Writer recovery and
+  metadata writes on FAT filesystems, preserving the previous snapshot if
+  replacement fails.
+- **4.17.3** — 2026-10-31 — Added SC2 setup and provider worker startup
+  in Messages, with saving and deletion progress popups. SC2 relay fields now
+  accept `host:port` addresses. Leaving a chat room hides it while retaining
+  history for rejoining. Contacts now explains unavailable chat endpoints.
+  Unified CL-32 RLCD and e-paper builds under `cl_32` with automatic display
+  detection. CL-32, Sticky, and X4 Pro display selectors are board-only and
+  hidden from manual expansion attachment. The full flavor now includes the
+  concrete SSD1677 and SSD2677 expansion drivers.
 - **4.17.2** — 2026-10-30 — Added SSD2677 support for Sticky V2 with
   automatic display-controller detection, Fastwave pulse refresh, native-app
   raster output and sleep/resume. Improved V2 refresh response and reduced

@@ -14,6 +14,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "sdkconfig.h"
 #include "nvs_flash.h"
 #if SOLAR_OS_BOARD_HAS_DISPLAY
@@ -31,6 +32,9 @@
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+#include "solar_os_screen_keyboard_job.h"
+#endif
 #include "solar_os_display.h"
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
@@ -190,7 +194,6 @@ static uint32_t suspend_input_key_press_generation;
 static uint32_t suspend_ble_wake_generation;
 #endif
 static uint32_t key_pressed_ms;
-static uint32_t last_app_tick_ms;
 static uint32_t last_status_update_ms;
 static uint32_t last_terminal_draw_ms;
 static uint32_t last_session_overlay_draw_ms;
@@ -474,6 +477,9 @@ static void session_overlay_requested(const char *title,
                                       void *user)
 {
     (void)user;
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
 
     solar_os_display_target_t target;
     u8g2_t *overlay_u8g2 = NULL;
@@ -547,6 +553,9 @@ static void resume_display_after_sleep(uint32_t now_ms)
 
 static void enter_suspend(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     if (!board_has(SOLAR_OS_BOARD_CAP_KEY) && !SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD) {
         SOLAR_OS_LOGW(TAG, "%s: suspend needs a key resume source", reason);
         return;
@@ -659,7 +668,6 @@ static void exit_suspend(const char *reason)
     solar_os_display_clear_power_state();
     const uint32_t now_ms = millis_u32();
     solar_os_power_note_activity(now_ms);
-    last_app_tick_ms = now_ms;
     last_status_update_ms = 0;
     update_status();
     dispatch_app_resume(now_ms);
@@ -1149,7 +1157,6 @@ static void enter_sleep(const char *reason, bool deep_sleep)
     sleep_wake_restore_gpio();
 
     const uint32_t now_ms = millis_u32();
-    last_app_tick_ms = now_ms;
     last_status_update_ms = 0;
     key_irq_pending = false;
     key_pressed = false;
@@ -1221,6 +1228,9 @@ static void enter_sleep(const char *reason, bool deep_sleep)
 
 static void enter_light_sleep(const char *reason)
 {
+#if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
+    solar_os_screen_keyboard_hide();
+#endif
     enter_sleep(reason, false);
 }
 
@@ -1728,6 +1738,15 @@ static uint16_t input_display_orientation(const char *target)
         ? profile.orientation_degrees : 0;
 }
 
+static bool input_display_size(const char *name, uint16_t *width, uint16_t *height)
+{
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(name, &target)) return false;
+    *width = target.native_width ? target.native_width : target.width;
+    *height = target.native_height ? target.native_height : target.height;
+    return *width != 0U && *height != 0U;
+}
+
 static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer)
 {
     if (pointer == NULL) {
@@ -1838,8 +1857,6 @@ static void poll_local_input_sources(void)
 
 static void dispatch_input_sources(void)
 {
-    poll_local_input_sources();
-    solar_os_input_poll();
     maybe_exit_suspend_for_input();
     if (solar_os_input_take_captured_activity()) {
         maybe_exit_suspend_for_input();
@@ -1879,11 +1896,23 @@ static void dispatch_input_sources(void)
     }
 }
 
-static uint32_t requested_tick_interval_ms(void)
+static StaticSemaphore_t runtime_wake_storage;
+static SemaphoreHandle_t runtime_wake;
+static TaskHandle_t runtime_task;
+
+static void runtime_notify_input(void)
 {
-    uint32_t interval_ms = solar_os_sessions_requested_tick_interval_ms();
+    /* Hardware polled by this task is drained in the same iteration. */
+    if (runtime_wake != NULL && xTaskGetCurrentTaskHandle() != runtime_task)
+        xSemaphoreGive(runtime_wake);
+}
+
+static uint32_t next_tick_wait_ms(void)
+{
+    const uint32_t now_ms = millis_u32();
+    uint32_t interval_ms = solar_os_sessions_next_tick_wait_ms(now_ms);
     const uint32_t jobs_interval_ms =
-        solar_os_jobs_requested_tick_interval_ms();
+        solar_os_jobs_next_tick_wait_ms(now_ms);
     if (jobs_interval_ms < interval_ms) {
         interval_ms = jobs_interval_ms;
     }
@@ -1942,15 +1971,9 @@ static void note_runtime_cadence(uint32_t now_ms, uint32_t planned_wait_ms)
 static void dispatch_app_tick(void)
 {
     const uint32_t now_ms = millis_u32();
-    const uint32_t interval_ms = requested_tick_interval_ms();
-    if ((now_ms - last_app_tick_ms) < interval_ms) {
-        return;
-    }
-
-    last_app_tick_ms = now_ms;
     solar_os_sessions_dispatch_tick(now_ms);
 
-    solar_os_jobs_tick(&os_ctx, now_ms);
+    solar_os_jobs_tick(&os_ctx, millis_u32());
     process_app_requests();
 }
 
@@ -2155,6 +2178,7 @@ void app_main(void)
 #endif
     const esp_err_t input_err = solar_os_input_init();
     solar_os_input_set_display_orientation_resolver(input_display_orientation);
+    solar_os_input_set_display_size_resolver(input_display_size);
     if (input_err != ESP_OK) {
         ESP_LOGW(TAG, "Input preferences unavailable: %s", esp_err_to_name(input_err));
     }
@@ -2301,6 +2325,9 @@ void app_main(void)
     SOLAR_OS_LOGI(TAG, "SolarOS runtime started");
     log_runtime_memory();
     const bool requires_fast_poll = runtime_requires_fast_poll();
+    runtime_task = xTaskGetCurrentTaskHandle();
+    runtime_wake = xSemaphoreCreateBinaryStatic(&runtime_wake_storage);
+    solar_os_input_set_wake_callback(runtime_notify_input);
     SOLAR_OS_LOGI(TAG,
                   "runtime cadence policy: max wait=%u ms (%s input)",
                   (unsigned)(requires_fast_poll ?
@@ -2338,6 +2365,8 @@ void app_main(void)
         }
 #endif
         poll_key_button();
+        poll_local_input_sources();
+        solar_os_input_poll();
         dispatch_input_sources();
         dispatch_app_tick();
         dispatch_input_sources();
@@ -2350,8 +2379,10 @@ void app_main(void)
         maybe_enter_idle_sleep();
 
         const uint32_t loop_interval_ms = solar_os_runtime_wait_ms(
-            requested_tick_interval_ms(), requires_fast_poll);
+            next_tick_wait_ms(), requires_fast_poll);
         note_runtime_cadence(millis_u32(), loop_interval_ms);
-        vTaskDelay(pdMS_TO_TICKS(loop_interval_ms));
+        TickType_t wait_ticks = pdMS_TO_TICKS(loop_interval_ms);
+        if (wait_ticks == 0U) wait_ticks = 1U;
+        xSemaphoreTake(runtime_wake, wait_ticks);
     }
 }

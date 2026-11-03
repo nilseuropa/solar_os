@@ -53,7 +53,7 @@ static solar_os_power_status_t status;
 static jmp_buf deep_return;
 static int key_release_action;
 static bool key_irq_pending, key_pressed, key_long_press_fired, key_ignore_until_released;
-static uint32_t key_pressed_ms, last_app_tick_ms, last_status_update_ms;
+static uint32_t key_pressed_ms, last_status_update_ms;
 static uint32_t suspend_input_key_press_generation;
 static uint32_t session_overlay_until_ms, last_session_overlay_draw_ms;
 static char session_overlay_title[48];

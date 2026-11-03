@@ -20,6 +20,7 @@
 #include "solar_os_contacts.h"
 #include "solar_os_storage.h"
 #include "solar_os_config.h"
+#include "solar_os_saved_config.h"
 #if SOLAR_OS_PACKAGE_SERVICE_CREDENTIALS
 #include "solar_os_credentials.h"
 #endif
@@ -104,6 +105,19 @@ typedef struct messaging_class_node {
 } messaging_class_node_t;
 
 typedef struct {
+    solar_os_messaging_provider_id_t provider;
+    char key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
+} messaging_left_room_t;
+typedef struct {
+    uint32_t version;
+    messaging_left_room_t rooms[SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY];
+} messaging_left_rooms_t;
+typedef struct {
+    solar_os_saved_config_t file;
+    messaging_left_rooms_t data;
+} messaging_room_preferences_t;
+
+typedef struct {
     bool initialized;
     solar_os_messaging_conversation_t *conversations;
     size_t conversation_count;
@@ -124,6 +138,7 @@ typedef struct {
     messaging_message_slot_t *pending_slot;
     int32_t *history_buckets;
     messaging_history_navigation_t *navigation;
+    messaging_room_preferences_t *room_preferences;
     uint32_t next_conversation_id;
     uint32_t next_outbox_id;
     uint32_t next_event_id;
@@ -308,6 +323,8 @@ static int messaging_conversation_id_index_locked(
     return -1;
 }
 
+static bool messaging_room_left_locked(solar_os_messaging_provider_id_t provider, const char *key);
+
 static solar_os_conversation_id_t messaging_upsert_conversation_locked(
     const solar_os_messaging_conversation_upsert_t *request,
     bool publish_event)
@@ -334,6 +351,7 @@ static solar_os_conversation_id_t messaging_upsert_conversation_locked(
     conversation->endpoint_id = request->endpoint_id;
     conversation->group_ref = request->group_ref;
     conversation->security_flags = request->security_flags;
+    conversation->left = messaging_room_left_locked(request->provider, request->provider_key);
     messaging_provider_node_t *provider_node = messaging_provider_node_locked(request->provider);
     const char *group_prefix = provider_node ? provider_node->group_prefix : "";
     conversation->history_only = request->kind == SOLAR_OS_CONVERSATION_GROUP &&
@@ -434,6 +452,7 @@ static uint64_t messaging_inbound_key_locked(
     return hash != 0 ? hash : 1U;
 }
 
+#include "solar_os_messaging_rooms.inc"
 #include "solar_os_messaging_registry.inc"
 
 static esp_err_t messaging_sync_file(FILE *file)
@@ -708,10 +727,13 @@ esp_err_t solar_os_messaging_init(void)
         sizeof(*messaging.history_buckets), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.index");
     messaging.navigation = solar_os_memory_calloc(SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY,
         sizeof(*messaging.navigation), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.navigation");
+    messaging.room_preferences = solar_os_memory_calloc(1, sizeof(*messaging.room_preferences),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.rooms");
     if (messaging.conversations == NULL || messaging.messages == NULL ||
         messaging.outbox == NULL || messaging.events == NULL ||
         messaging.record_scratch == NULL || messaging.history_scratch == NULL ||
-        messaging.pending_slot == NULL || messaging.history_buckets == NULL || messaging.navigation == NULL) {
+        messaging.pending_slot == NULL || messaging.history_buckets == NULL || messaging.navigation == NULL ||
+        messaging.room_preferences == NULL) {
         solar_os_memory_free(messaging.conversations);
         solar_os_memory_free(messaging.messages);
         solar_os_memory_free(messaging.outbox);
@@ -721,6 +743,7 @@ esp_err_t solar_os_messaging_init(void)
         solar_os_memory_free(messaging.pending_slot);
         solar_os_memory_free(messaging.history_buckets);
         solar_os_memory_free(messaging.navigation);
+        solar_os_memory_free(messaging.room_preferences);
         vSemaphoreDelete(messaging.lock);
         vSemaphoreDelete(messaging.io_lock);
         vSemaphoreDelete(messaging.history_lock);
@@ -737,6 +760,7 @@ esp_err_t solar_os_messaging_init(void)
     memset(messaging.history_buckets, 0xff, MESSAGING_HISTORY_BUCKETS * sizeof(*messaging.history_buckets));
     messaging.generation = 1U;
     messaging.initialized = true;
+    messaging_rooms_load();
     messaging_profiles_restore();
     messaging_history_lock();
     (void)messaging_store_load();

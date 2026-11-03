@@ -14,7 +14,11 @@
 #include "sc2_codec.h"
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
+#include "solar_os_config.h"
 #include "solar_os_sc2.h"
+#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#include "solar_os_sc2_discover.h"
+#endif
 
 #define SC2P_CLASS "sc2"
 #define SC2P_DETAIL_DISABLED "disabled"
@@ -40,6 +44,10 @@ static esp_err_t sc2p_connect(void *context, bool enabled);
 static esp_err_t sc2p_create(const char *name, int argc, const char *const *argv,
                              solar_os_messaging_provider_id_t *id);
 static esp_err_t sc2p_configure(void *context, int argc, const char *const *argv);
+static esp_err_t sc2p_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings);
+static esp_err_t sc2p_settings_write(void *context, unsigned form, const char *name,
+                                    const solar_os_messaging_settings_t *settings,
+                                    solar_os_messaging_provider_id_t *id);
 static esp_err_t sc2p_normalize(void *context, const char *target, char *out, size_t size);
 static esp_err_t sc2p_remove_prepare(void *context);
 static void sc2p_remove_finish(void *context, bool removed);
@@ -54,6 +62,8 @@ static const solar_os_messaging_provider_class_t sc2p_class = {
     .connect = sc2p_connect,
     .create = sc2p_create,
     .configure = sc2p_configure,
+    .settings_read = sc2p_settings_read,
+    .settings_write = sc2p_settings_write,
     .normalize_target = sc2p_normalize,
     .remove_prepare = sc2p_remove_prepare,
     .remove_finish = sc2p_remove_finish,
@@ -649,6 +659,141 @@ esp_err_t solar_os_sc2_relay_set_key(solar_os_messaging_provider_id_t id, size_t
 }
 
 /* ---------------- class callbacks ---------------- */
+
+static const solar_os_messaging_setting_t sc2p_settings_fields[] = {
+    {"Relay address", "DOMAIN, HOST:PORT, or chats://HOST:PORT", SOLAR_OS_SC2_RELAY_URL_MAX, false, true},
+    {"Admission code", "Optional; empty clears code", SOLAR_OS_SC2_RELAY_ADMIT_MAX, true, false},
+    {"TLS pin", "Optional sha256/B64; empty uses default CAs", SOLAR_OS_SC2_RELAY_PIN_MAX, false, false},
+    {"Relay key", "Optional base64 signing key; empty clears pin", 45, false, false},
+};
+
+/* Keep URL parsing strict internally; the form also accepts a TLS shorthand
+ * and the same signed domain discovery offered by the shell. */
+static esp_err_t sc2p_settings_endpoint(const char *address, const uint8_t *expect_key,
+                                       solar_os_sc2_relay_config_t *config)
+{
+    if (strstr(address, "://")) return solar_os_sc2_relay_parse_url(address, config);
+    if (strchr(address, ':')) {
+        char url[8 + SOLAR_OS_SC2_RELAY_URL_MAX];
+        int n = snprintf(url, sizeof(url), "chats://%s", address);
+        return n > 0 && (size_t)n < sizeof(url) ? solar_os_sc2_relay_parse_url(url, config) : ESP_ERR_INVALID_SIZE;
+    }
+#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+    sc2_desc_t *descriptor = solar_os_memory_calloc(1, sizeof(*descriptor),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "sc2.settings.discovery");
+    if (!descriptor) return ESP_ERR_NO_MEM;
+    char why[112] = "";
+    esp_err_t error = solar_os_sc2_discover(address, expect_key, descriptor, why, sizeof(why));
+    if (error == ESP_OK) {
+        char url[SOLAR_OS_SC2_RELAY_URL_MAX];
+        int n = snprintf(url, sizeof(url), "chats://%s:%u", descriptor->host[0] ? descriptor->host : address,
+                         (unsigned)descriptor->port);
+        error = n > 0 && (size_t)n < sizeof(url) ? solar_os_sc2_relay_parse_url(url, config) : ESP_ERR_INVALID_SIZE;
+        if (error == ESP_OK) {
+            strlcpy(config->pin, descriptor->pin, sizeof(config->pin));
+            memset(config->fallback, 0, sizeof(config->fallback));
+            memset(config->keys, 0, sizeof(config->keys));
+            config->key_set = 0;
+            sc2p_key_put(config, 0, descriptor->key);
+        }
+        solar_os_sc2_relay_config_t *parsed = error == ESP_OK ? sc2p_config_alloc() : NULL;
+        if (error == ESP_OK && !parsed) error = ESP_ERR_NO_MEM;
+        for (size_t i = 0; error == ESP_OK && i < descriptor->fallback_count; i++) {
+            error = solar_os_sc2_relay_parse_url(descriptor->fallback[i].url, parsed);
+            if (error != ESP_OK) break;
+            config->fallback[i].tls = parsed->tls;
+            config->fallback[i].port = parsed->port;
+            strlcpy(config->fallback[i].url, parsed->url, sizeof(config->fallback[i].url));
+            strlcpy(config->fallback[i].pin, parsed->pin, sizeof(config->fallback[i].pin));
+            sc2p_key_put(config, i + 1, descriptor->fallback[i].key);
+        }
+        sc2p_config_free(parsed);
+    }
+    solar_os_memory_free(descriptor);
+    return error;
+#else
+    (void)expect_key;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+static esp_err_t sc2p_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    settings->label = "SC2";
+    settings->fields = sc2p_settings_fields;
+    settings->count = sizeof(sc2p_settings_fields) / sizeof(sc2p_settings_fields[0]);
+    strlcpy(settings->worker, "sc2-sync", sizeof(settings->worker));
+    if (!context) return ESP_OK;
+    solar_os_sc2_relay_config_t *config = sc2p_config_alloc();
+    if (!config) return ESP_ERR_NO_MEM;
+    sc2p_snapshot(context, config);
+    settings->enabled = config->enabled;
+    solar_os_messaging_settings_value(settings, 0, config->url);
+    solar_os_messaging_settings_value(settings, 1, config->admit);
+    solar_os_messaging_settings_value(settings, 2, config->pin);
+    if (solar_os_sc2_relay_key(config, 0, NULL)) {
+        size_t length = 0;
+        (void)sc2_b64_encode(settings->values[3], sizeof(settings->values[3]), &length,
+                             config->keys[0], SOLAR_OS_SC2_RELAY_KEY_LEN);
+        settings->present[3] = true;
+    }
+    sc2p_config_free(config);
+    return ESP_OK;
+}
+
+static esp_err_t sc2p_settings_write(void *context, unsigned form, const char *name,
+                                    const solar_os_messaging_settings_t *settings,
+                                    solar_os_messaging_provider_id_t *id)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    solar_os_sc2_relay_config_t *config = sc2p_config_alloc();
+    if (!config) return ESP_ERR_NO_MEM;
+    sc2p_relay_t *node = context;
+    xSemaphoreTake(sc2p.edit_lock, portMAX_DELAY);
+    if (node) sc2p_snapshot(node, config);
+    else config->version = SOLAR_OS_SC2_RELAY_CONFIG_VERSION;
+    const uint32_t secured_before = solar_os_sc2_conversation_security(config, SOLAR_OS_SC2_TARGET_PUBLIC_ROOM, false);
+    esp_err_t error = ESP_OK;
+    bool endpoint_changed = !node || settings->changed[0];
+    bool discover = endpoint_changed && !strchr(settings->values[0], ':');
+    bool key_changed = !node || settings->changed[3];
+    uint8_t key[SOLAR_OS_SC2_RELAY_KEY_LEN];
+    bool have_key = key_changed && settings->values[3][0];
+    if (have_key) {
+        size_t length = 0;
+        if (sc2_b64_decode(key, sizeof(key), &length, settings->values[3], strlen(settings->values[3])) != SC2_OK ||
+            length != sizeof(key)) error = ESP_ERR_INVALID_ARG;
+    }
+    if (error == ESP_OK && endpoint_changed) {
+        char old_url[SOLAR_OS_SC2_RELAY_URL_MAX];
+        memcpy(old_url, config->url, sizeof(old_url));
+        error = sc2p_settings_endpoint(settings->values[0], have_key ? key : NULL, config);
+        /* Match shell URL changes: do not carry a signing-key pin to a new relay. */
+        if (error == ESP_OK && !discover && strcmp(old_url, config->url) != 0) sc2p_key_put(config, 0, NULL);
+    }
+    if (!node || settings->changed[1])
+        strlcpy(config->admit, settings->values[1], sizeof(config->admit));
+    if (settings->changed[2] || (!node && settings->values[2][0]))
+        strlcpy(config->pin, settings->values[2], sizeof(config->pin));
+    if (!discover && key_changed && error == ESP_OK) sc2p_key_put(config, 0, have_key ? key : NULL);
+    if (error == ESP_OK && !solar_os_sc2_relay_config_valid(config)) error = ESP_ERR_INVALID_ARG;
+    if (error == ESP_OK && node) {
+        *id = node->id;
+        error = sc2p_save(node, config);
+    } else if (error == ESP_OK) {
+        error = solar_os_messaging_instance_create(SC2P_CLASS, name, config, sizeof(*config), id);
+        if (error == ESP_OK) error = sc2p_attach(*id, config);
+    }
+    xSemaphoreGive(sc2p.edit_lock);
+    if (error == ESP_OK && node) {
+        if (secured_before != solar_os_sc2_conversation_security(config, SOLAR_OS_SC2_TARGET_PUBLIC_ROOM, false))
+            sc2p_upsert_rooms(node->id, config);
+        sc2p_status(node->id, config);
+    }
+    sc2p_config_free(config);
+    return error;
+}
 
 static esp_err_t sc2p_create(const char *name, int argc, const char *const *argv,
                              solar_os_messaging_provider_id_t *id)

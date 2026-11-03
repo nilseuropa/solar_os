@@ -21,6 +21,18 @@ TARGETS += paged_array_test
 
 paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
+
+TARGETS += input_route_test screen_keyboard_layout_test display_layer_test screen_keyboard_job_test
+
+screen_keyboard_job_test: screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c $(ROOT)/src/jobs/solar_os_screen_keyboard_job.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections -I$(ROOT)/components/u8g2/src/clib -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services -I$(ROOT)/src/shell screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c -Wl,--gc-sections -o $@
+
+screen_keyboard_layout_test: screen_keyboard_layout_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services $^ -o $@
+
+display_layer_test: display_layer_test.c $(ROOT)/src/services/solar_os_display_layer.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/components/u8g2/src/clib $^ -o $@
+
 TARGETS += gesture_command_test
 
 can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/services/solar_os_can.c $(wildcard can_stubs/driver/*.h)
@@ -43,11 +55,31 @@ sy6974_service_test: sy6974_service_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/
 
 sy6974_test: sy6974_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/src/drivers/sy6974.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers sy6974_test.c $(ROOT)/src/drivers/sy6974.c -o $@
+TARGETS += cl32_display_identify_test cl32_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
 TARGETS += drv8830_test
 TARGETS += motor_service_test
+TARGETS += controller_math_test controllers_test
+TARGETS += parameters_concurrency_test
+TARGETS += robot_joint_test
+TARGETS += robot_integration_test
+
+robot_integration_test: robot_integration_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_native_motion.c $(ROOT)/src/services/solar_os_robot.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Irobot_stubs -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_integration_test.c $(filter-out robot_integration_test.c $(ROOT)/modules/robot/main/robot.c,$^) -pthread -lm -o $@
+
+robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/src/services/solar_os_controller_math.c
+	$(CC) $(CFLAGS) -I$(ROOT)/include -I$(ROOT)/src/services robot_joint_test.c $(ROOT)/src/services/solar_os_controller_math.c -pthread -lm -o $@
+
+parameters_concurrency_test: parameters_concurrency_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src/services $(filter %.c,$^) -pthread -lm -o $@
+
+controller_math_test: controller_math_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_controller_math.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+
+controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_math.h $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
@@ -186,8 +218,8 @@ rtc_ds3231_test: rtc_ds3231_test.c $(ROOT)/src/drivers/rtc_ds3231.c \
 
 rtc_pcf8563_test: rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c \
         $(ROOT)/src/drivers/rtc_pcf8563.h $(ROOT)/src/services/solar_os_pcf8563.c \
-        $(ROOT)/src/services/solar_os_pcf8563.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iexpansion_stubs -I. \
+        $(ROOT)/src/services/solar_os_pcf8563.h pcf8563_stubs/esp_log.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipcf8563_stubs -Iexpansion_stubs -I. \
 		-I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		rtc_pcf8563_test.c $(ROOT)/src/drivers/rtc_pcf8563.c $(ROOT)/src/services/solar_os_pcf8563.c -o $@
 
@@ -352,6 +384,14 @@ sticky_display_test: sticky_display_test.c $(ROOT)/src/services/solar_os_sticky_
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
 
+cl32_display_identify_test: cl32_display_identify_test.c $(ROOT)/src/drivers/cl32_display_identify.c $(ROOT)/src/drivers/cl32_display_identify.h
+	$(CC) $(CFLAGS) -Iepd_stubs -I. -I$(ROOT)/src/services $< -o $@
+
+cl32_display_test: cl32_display_test.c $(ROOT)/src/services/solar_os_cl32_display.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
+
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
@@ -399,15 +439,17 @@ irc_protocol_test: irc_protocol_test.c $(ROOT)/src/services/solar_os_irc_protoco
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services $^ -o $@
 
 messages_app_test: $(ROOT)/src/apps/solar_os_messages.c $(ROOT)/src/services/solar_os_tui_widgets.c
+messages_app_test: $(ROOT)/src/shell/solar_os_shell_parse.c
 messages_app_test: override CFLAGS += -I$(ROOT)/src/apps -I$(ROOT)/src/shell
 messages_app_test: private MESSAGES_WIDGETS = $(ROOT)/src/services/solar_os_tui_widgets.c
+messages_app_test: private MESSAGES_WORKER_PARSE = $(ROOT)/src/shell/solar_os_shell_parse.c
 
 messaging_service_test gateway_config_test link_messaging_test chat_settings_test meshcore_instances_test messages_app_test: %: %.c $(ROOT)/src/services/solar_os_contacts.c \
         $(ROOT)/src/services/solar_os_meshcore_instances.c $(ROOT)/src/services/solar_os_meshcore_instances.h \
         $(ROOT)/src/services/solar_os_saved_config.h $(ROOT)/src/services/solar_os_credentials.c \
         $(ROOT)/src/services/solar_os_link_messaging.c $(ROOT)/src/services/solar_os_link_messaging.h \
         $(ROOT)/src/services/solar_os_chat.c messaging_service_test.c \
-        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_history.inc $(ROOT)/src/services/solar_os_messaging_registry.inc $(ROOT)/src/services/solar_os_messaging_types.c \
+        $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_history.inc $(ROOT)/src/services/solar_os_messaging_registry.inc $(ROOT)/src/services/solar_os_messaging_rooms.inc $(ROOT)/src/services/solar_os_messaging_types.c \
         $(ROOT)/src/services/solar_os_contacts.h $(ROOT)/src/services/solar_os_messaging.h \
         $(ROOT)/src/services/solar_os_messaging_types.h messaging_stubs/freertos/semphr.h \
         $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h
@@ -415,7 +457,7 @@ messaging_service_test gateway_config_test link_messaging_test chat_settings_tes
 		-ffunction-sections -fdata-sections \
 		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/board -I$(ROOT)/src/drivers \
-		$< $(MESSAGES_WIDGETS) $(ROOT)/src/services/solar_os_messaging_types.c \
+		$< $(MESSAGES_WIDGETS) $(MESSAGES_WORKER_PARSE) $(ROOT)/src/services/solar_os_messaging_types.c \
 		$(ROOT)/src/services/solar_os_storage.c -Wl,--gc-sections \
 		-Wl,--wrap=solar_os_storage_is_mounted,--wrap=solar_os_storage_sd_is_mounted \
 		-Wl,--wrap=solar_os_storage_flash_is_mounted,--wrap=solar_os_storage_flash_mount_point \
@@ -434,7 +476,7 @@ tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_imag
 # Override CJSON_DIR when the SDK is installed elsewhere.
 CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
 IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
-zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c
+zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
@@ -729,7 +771,7 @@ storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
-		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose -o $@
+		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose,--wrap=rename -o $@
 
 json_scan_test: json_scan_test.c $(ROOT)/src/services/solar_os_json_scan.c $(ROOT)/src/services/solar_os_json_scan.h esp_err.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
@@ -743,7 +785,7 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test touch_gesture_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+input_test touch_gesture_test input_route_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		$< $(ROOT)/src/services/solar_os_input.c \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
@@ -768,6 +810,8 @@ graffiti_test: graffiti_test.c $(ROOT)/src/services/solar_os_graffiti.c $(ROOT)/
 
 board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(ROOT)/src/services/solar_os_board_caps.h solar_os_board.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
+		-DSOLAR_OS_BOARD_ID='"host"' -DSOLAR_OS_BOARD_NAME='"Host test board"' \
+		-DSOLAR_OS_BOARD_PSRAM_BYTES=8388608U \
 		-DSOLAR_OS_BOARD_HAS_PSRAM=1 -DSOLAR_OS_BOARD_HAS_DISPLAY=1 \
 		-DSOLAR_OS_BOARD_HAS_GFX=1 -DSOLAR_OS_BOARD_HAS_CDC=1 \
 		-DSOLAR_OS_BOARD_HAS_UART=1 -DSOLAR_OS_BOARD_HAS_I2C=1 \
@@ -1249,6 +1293,10 @@ rtc_pcf85063_test: rtc_pcf85063_test.c \
 		rtc_pcf85063_test.c $(ROOT)/src/drivers/rtc_pcf85063.c -o $@
 
 test: $(TARGETS)
+	./input_route_test
+	./screen_keyboard_layout_test
+	./screen_keyboard_job_test
+	./display_layer_test
 	./can_twai_test
 	./i2c_buses_test
 	./inmp441_test
@@ -1350,7 +1398,12 @@ test: $(TARGETS)
 	./midi_codec_test
 	./midi_service_test
 	./parameters_test
+	./parameters_concurrency_test
 	./controls_test
+	./controller_math_test
+	./controllers_test
+	./robot_joint_test
+	./robot_integration_test
 	./osc_test
 	./dsp_test
 	./stream_test
@@ -1400,6 +1453,8 @@ test: $(TARGETS)
 	./ssd2677_expansion_test
 	./epd_sticky_identify_test
 	./sticky_display_test
+	./cl32_display_identify_test
+	./cl32_display_test
 	./frontlight_pwm_test
 	./pwm_servo_test
 	./pwm_provider_test
@@ -1549,6 +1604,7 @@ TARGETS += sc2_client_lowram_test
 
 # SC2 Messaging provider class on the real Messaging registry (SC2 key store stubbed).
 sc2_provider_test: sc2_provider_test.c messaging_service_test.c $(SC2E_DIR)/solar_os_sc2_provider.c \
+        $(ROOT)/src/services/solar_os_messaging_rooms.inc \
         $(SC2E_DIR)/solar_os_sc2_provider.h $(ROOT)/src/services/solar_os_contacts.c \
         $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_registry.inc \
         $(ROOT)/src/services/solar_os_messaging_types.c $(ROOT)/src/services/solar_os_messaging.h \

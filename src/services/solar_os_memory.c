@@ -6,6 +6,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
+#include "esp_timer.h"
 #include "esp_memory_utils.h"
 #include "esp_private/cache_utils.h"
 #include "freertos/FreeRTOS.h"
@@ -426,6 +427,8 @@ static size_t memory_pressure_run(const solar_os_memory_pressure_request_t *requ
         portEXIT_CRITICAL(&memory_stats_lock);
         return 0;
     }
+    const int64_t started_us = esp_timer_get_time();
+    uint32_t compactions = 1U;
     solar_os_memory_status_t before, after;
     solar_os_memory_get_status(&before);
     bool satisfied = solar_os_memory_compact() != 0 && memory_request_fits(request);
@@ -457,18 +460,30 @@ static size_t memory_pressure_run(const solar_os_memory_pressure_request_t *requ
         entries[i]->references--;
         portEXIT_CRITICAL(&memory_stats_lock);
         if (invoke) {
-            (void)solar_os_memory_compact();
             satisfied = memory_request_fits(request);
         }
     }
     if (legacy && !satisfied) (void)legacy();
-    (void)solar_os_memory_compact();
+    /* Freeing coalesces adjacent holes. Defer relocation until owners have
+     * released their caches rather than scanning the arena after each owner.
+     * A pressure pass performs at most two complete compaction scans. */
+    if (!satisfied) {
+        (void)solar_os_memory_compact();
+        compactions++;
+    }
     solar_os_memory_get_status(&after);
     size_t free_before = before.external.free + before.internal.free;
     size_t free_after = after.external.free + after.internal.free;
     size_t released = free_after > free_before ? free_after - free_before : 0;
+    int64_t duration_us = esp_timer_get_time() - started_us;
+    if (duration_us < 0) duration_us = 0;
+    if (duration_us > UINT32_MAX) duration_us = UINT32_MAX;
     portENTER_CRITICAL(&memory_stats_lock);
     pressure_stats.released_bytes += released;
+    pressure_stats.last_duration_us = (uint32_t)duration_us;
+    if (pressure_stats.last_duration_us > pressure_stats.max_duration_us)
+        pressure_stats.max_duration_us = pressure_stats.last_duration_us;
+    pressure_stats.last_compactions = compactions;
     portEXIT_CRITICAL(&memory_stats_lock);
     atomic_store(&reclaim_running, false);
     return released;

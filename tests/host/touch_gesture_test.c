@@ -7,6 +7,18 @@ static unsigned observed;
 static solar_os_input_gesture_event_t last_observed;
 static uint16_t display_orientation;
 static const char *pointer_target = "display0";
+static uint16_t display_width = 320, display_height = 240;
+static bool display_size_known = true;
+
+static bool resolve_size(const char *target, uint16_t *width, uint16_t *height)
+{
+    solar_os_input_source_info_t info;
+    assert(solar_os_input_source_find("touch", &info));
+    if (!display_size_known || strcmp(target, "display0")) return false;
+    *width = display_width;
+    *height = display_height;
+    return true;
+}
 
 static uint16_t resolve_orientation(const char *target)
 {
@@ -81,9 +93,11 @@ int main(void)
     assert(info.gesture_mask == (SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_TAP) |
         SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP) |
         SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_HOLD) |
-        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE)));
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_SWIPE) |
+        SOLAR_OS_INPUT_GESTURE_MASK(SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE)));
     solar_os_input_gesture_t parsed;
     assert(solar_os_input_parse_gesture("swipe", &parsed) && parsed == SOLAR_OS_INPUT_GESTURE_SWIPE);
+    assert(solar_os_input_parse_gesture("edge-swipe", &parsed) && parsed == SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE);
     assert(solar_os_input_gesture_observer_register(touch_observer, NULL) == ESP_OK);
 
     pointer_at(source, 100, SOLAR_OS_INPUT_POINTER_PRESS, 100, 100, 0);
@@ -320,6 +334,91 @@ int main(void)
     assert(solar_os_input_write_gesture(imu, &tilt) == ESP_OK);
     expect_gesture(imu, SOLAR_OS_INPUT_GESTURE_TILT, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
     solar_os_input_source_close(imu);
+
+    /* Native edge origins and display-relative directions agree at all rotations. */
+    solar_os_input_set_display_size_resolver(resolve_size);
+    const int16_t origins[][2] = {{0, 120}, {319, 120}, {160, 239}, {160, 0}};
+    const int16_t deltas[][2] = {{60, 0}, {-60, 0}, {0, -60}, {0, 60}};
+    uint32_t ms = 60000;
+    for (unsigned r = 0; r < 4; r++) {
+        display_orientation = 90 * r;
+        for (unsigned d = 0; d < 4; d++, ms += 1000) {
+            pointer_at(source, ms, SOLAR_OS_INPUT_POINTER_PRESS, origins[d][0], origins[d][1], 0);
+            pointer_at(source, ms + 100, SOLAR_OS_INPUT_POINTER_RELEASE,
+                origins[d][0] + deltas[d][0], origins[d][1] + deltas[d][1], 0);
+            solar_os_input_gesture_event_t edge = expect_gesture(source,
+                SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE, rotated[r][d]);
+            assert(edge.value == 60 && edge.flags == SOLAR_OS_INPUT_GESTURE_FLAG_EDGE);
+            expect_none(); /* Never trigger an ordinary swipe binding as well. */
+        }
+    }
+    display_orientation = 0;
+    /* The edge band is 12 pixels on a 320x240 display. Outward/parallel strokes
+     * stay ordinary; short, diagonal and slow strokes remain unrecognized. */
+    const struct { int16_t x, y, dx, dy; unsigned duration; int gesture; } cases[] = {
+        {11, 120, 60, 0, 100, SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE},
+        {12, 120, 60, 0, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {160, 120, 0, -60, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {0, 120, -60, 0, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {0, 120, 0, -60, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {-1, 120, 60, 0, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {320, 120, -60, 0, 100, SOLAR_OS_INPUT_GESTURE_SWIPE},
+        {0, 120, 30, 0, 100, -1},
+        {0, 239, 60, -60, 100, -1},
+        {0, 239, 0, -60, 1100, -1},
+    };
+    for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++, ms += 2000) {
+        pointer_at(source, ms, SOLAR_OS_INPUT_POINTER_PRESS, cases[i].x, cases[i].y, 0);
+        pointer_at(source, ms + cases[i].duration, SOLAR_OS_INPUT_POINTER_RELEASE,
+            cases[i].x + cases[i].dx, cases[i].y + cases[i].dy, 0);
+        if (cases[i].gesture < 0) expect_none();
+        else {
+            assert(solar_os_input_read_gesture_events(batch, 2) == 1);
+            assert((int)batch[0].gesture == cases[i].gesture);
+        }
+    }
+    /* The proportional edge band has lower and upper pixel limits. */
+    const uint16_t bounds[][3] = {{100, 100, 8}, {2000, 1000, 24}};
+    for (unsigned i = 0; i < 2; i++) {
+        display_width = bounds[i][0]; display_height = bounds[i][1];
+        for (unsigned outside = 0; outside < 2; outside++, ms += 1000) {
+            int16_t x = bounds[i][2] - 1 + outside;
+            pointer_at(source, ms, SOLAR_OS_INPUT_POINTER_PRESS, x, 50, 0);
+            pointer_at(source, ms + 100, SOLAR_OS_INPUT_POINTER_RELEASE, x + 60, 50, 0);
+            expect_gesture(source, outside ? SOLAR_OS_INPUT_GESTURE_SWIPE :
+                SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+        }
+    }
+    display_width = 320; display_height = 240;
+    /* Bounds, like rotation, are fixed when contact starts. */
+    pointer_at(source, ms, SOLAR_OS_INPUT_POINTER_PRESS, 160, 239, 0);
+    display_width = display_height = 1000;
+    display_orientation = 180;
+    pointer_at(source, ms + 100, SOLAR_OS_INPUT_POINTER_RELEASE, 160, 179, 0);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
+    ms += 1000;
+    display_orientation = 0;
+    /* Missing bounds cannot turn an ordinary swipe into an edge activation. */
+    display_size_known = false;
+    pointer_at(source, ms, SOLAR_OS_INPUT_POINTER_PRESS, 0, 120, 0);
+    pointer_at(source, ms + 100, SOLAR_OS_INPUT_POINTER_RELEASE, 60, 120, 0);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST);
+    ms += 1000;
+    display_size_known = true;
+    /* Calibrated pixel bounds override display geometry, even without a target. */
+    assert(solar_os_input_pointer_calibration_set(source, &calibration) == ESP_OK);
+    event.target[0] = '\0';
+    event.action = SOLAR_OS_INPUT_POINTER_PRESS; event.buttons = 1;
+    event.x = 100; event.y = 200;
+    now_us = (int64_t)ms * 1000;
+    assert(solar_os_input_write_pointer(source, &event) == ESP_OK);
+    event.action = SOLAR_OS_INPUT_POINTER_RELEASE; event.buttons = 0; event.y = 140;
+    now_us += 100000;
+    assert(solar_os_input_write_pointer(source, &event) == ESP_OK);
+    expect_gesture(source, SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE, SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH);
+    assert(solar_os_input_read_pointer_events(pointers, 32) == 2);
+    assert(solar_os_input_pointer_calibration_reset(source) == ESP_OK);
+    solar_os_input_set_display_size_resolver(NULL);
     solar_os_input_set_display_orientation_resolver(NULL);
     solar_os_input_source_close(source);
     solar_os_input_source_close(other);

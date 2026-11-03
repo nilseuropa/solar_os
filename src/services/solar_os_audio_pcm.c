@@ -59,6 +59,32 @@ esp_err_t solar_os_audio_s16_convert(
     size_t produced = 0U;
     const size_t output_frame_capacity =
         output_capacity_samples / target->channels;
+    /* Whole-frame, equal-rate blocks need no interpolation or per-sample
+     * 64-bit phase arithmetic. Preserve partial-block continuation exactly;
+     * fractional phase left by a previous resampling ratio uses the slow path. */
+    if (source->sample_rate == target->sample_rate &&
+        (phase & 0xffffU) == 0U && phase < limit) {
+        const size_t start = (size_t)(phase >> 16);
+        size_t frames = input_frames - start;
+        if (frames > output_frame_capacity) frames = output_frame_capacity;
+        const int16_t *samples = input + start * source->channels;
+        if (source->channels == target->channels) {
+            memmove(output, samples, frames * source->channels * sizeof(*output));
+        } else if (target->channels == 1U) {
+            for (size_t i = 0; i < frames; i++)
+                output[i] = (int16_t)(((int32_t)samples[2U * i] + samples[2U * i + 1U]) / 2);
+        } else {
+            for (size_t i = 0; i < frames; i++) {
+                output[2U * i] = samples[i];
+                output[2U * i + 1U] = samples[i];
+            }
+        }
+        phase += (uint64_t)frames << 16;
+        *source_done = phase >= limit;
+        converter->phase_q16 = *source_done ? phase - limit : phase;
+        *output_samples = frames * target->channels;
+        return ESP_OK;
+    }
     while (phase < limit && produced / target->channels < output_frame_capacity) {
         const size_t index = (size_t)(phase >> 16);
         const size_t next_index = index + 1U < input_frames ? index + 1U : index;

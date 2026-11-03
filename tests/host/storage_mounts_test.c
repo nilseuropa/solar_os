@@ -33,6 +33,17 @@ static bool fail_write;
 static bool fail_sync;
 static bool fail_close;
 static size_t open_closes;
+static unsigned rename_calls, fail_renames;
+int __real_rename(const char *old_path, const char *new_path);
+int __wrap_rename(const char *old_path, const char *new_path)
+{
+    unsigned call = rename_calls++;
+    if (call < 32U && (fail_renames & (1U << call))) {
+        errno = EIO;
+        return -1;
+    }
+    return __real_rename(old_path, new_path);
+}
 
 size_t __real_fwrite(const void *data, size_t size, size_t count, FILE *file);
 int __real_fsync(int fd);
@@ -330,6 +341,51 @@ static void assert_replace_file(void)
         active, ".too-long", staged, 4U) == ESP_ERR_INVALID_SIZE);
 }
 
+static void assert_replace_bundle(void)
+{
+    char root[] = "/tmp/solaros-storage-bundle-XXXXXX";
+    assert(mkdtemp(root) != NULL);
+    char paths[6][SOLAR_OS_STORAGE_PATH_MAX];
+    for (unsigned i = 0; i < 6; i++)
+        assert(snprintf(paths[i], sizeof(paths[i]), "%s/%u", root, i) > 0);
+    solar_os_storage_replacement_t items[] = {
+        {paths[0], paths[1], paths[2]}, {paths[3], paths[4], paths[5]},
+    };
+    for (unsigned failure = 0; failure < 4; failure++) {
+        write_text(paths[0], "catalog-new"); write_text(paths[1], "catalog-old");
+        write_text(paths[3], "source-new"); write_text(paths[4], "source-old");
+        rename_calls = 0; fail_renames = 1U << failure;
+        assert(solar_os_storage_replace_files(items, 2) == ESP_FAIL);
+        assert_file_text(paths[1], "catalog-old"); assert_file_text(paths[4], "source-old");
+        assert(access(paths[2], F_OK) != 0 && access(paths[5], F_OK) != 0);
+    }
+    fail_renames = 0;
+    /* Missing later members and aliased paths are rejected before mutation. */
+    write_text(paths[0], "catalog-new"); remove(paths[3]);
+    assert(solar_os_storage_replace_files(items, 2) == ESP_ERR_NOT_FOUND);
+    assert_file_text(paths[1], "catalog-old");
+    write_text(paths[3], "source-new");
+    items[1].backup_path = paths[0];
+    assert(solar_os_storage_replace_files(items, 2) == ESP_ERR_INVALID_ARG);
+    items[1].backup_path = paths[5];
+    /* Preserve the sole old copy even when publishing fails after recovery. */
+    assert(rename(paths[1], paths[2]) == 0);
+    rename_calls = 0; fail_renames = 1U << 3;
+    assert(solar_os_storage_replace_files(items, 2) == ESP_FAIL);
+    assert_file_text(paths[1], "catalog-old"); assert_file_text(paths[4], "source-old");
+    /* If rollback itself fails, retain its backup for a later retry. */
+    write_text(paths[0], "catalog-new"); write_text(paths[3], "source-new");
+    rename_calls = 0; fail_renames = (1U << 3) | (1U << 4);
+    assert(solar_os_storage_replace_files(items, 2) == ESP_FAIL);
+    assert_file_text(paths[1], "catalog-old"); assert_file_text(paths[5], "source-old");
+    write_text(paths[0], "catalog-new"); write_text(paths[3], "source-new");
+    fail_renames = 0;
+    assert(solar_os_storage_replace_files(items, 2) == ESP_OK);
+    assert_file_text(paths[1], "catalog-new"); assert_file_text(paths[4], "source-new");
+    for (unsigned i = 0; i < 6; i++) remove(paths[i]);
+    assert(rmdir(root) == 0);
+}
+
 static void assert_write_file(void)
 {
     char root[] = "/tmp/solaros-storage-write-XXXXXX";
@@ -588,6 +644,7 @@ int main(void)
     assert_copy_progress();
     assert_copy_cancel();
     assert_replace_file();
+    assert_replace_bundle();
     assert_write_file();
     assert_storage_discovery();
     assert_discovery_notifications();

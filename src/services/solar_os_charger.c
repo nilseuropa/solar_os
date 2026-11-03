@@ -1,4 +1,5 @@
 #include "solar_os_charger.h"
+#include "solar_os_sync.h"
 
 #include <string.h>
 
@@ -32,9 +33,7 @@ static EXT_RAM_BSS_ATTR uint32_t charger_next_generation;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (charger_mutex == NULL) {
-        charger_mutex = xSemaphoreCreateMutexStatic(&charger_mutex_storage);
-    }
+    (void)solar_os_mutex_get(&charger_mutex, &charger_mutex_storage);
     return charger_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 

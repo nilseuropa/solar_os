@@ -35,6 +35,14 @@ static esp_err_t read_scalar(void *user,
     return ESP_OK;
 }
 
+static esp_err_t read_sample(void *user,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample)
+{
+    esp_err_t err = read_scalar(user, options, &sample->value);
+    sample->uptime_ms = 1000; /* Cached acquisition time must survive the read. */
+    return err;
+}
+
 static esp_err_t write_audio(void *user,
                              solar_os_stream_handle_t *handle,
                              const void *data,
@@ -125,6 +133,8 @@ int main(void)
     float value = 0.0f;
     assert(solar_os_stream_read_scalar(&first, NULL, &value) == ESP_OK);
     assert(value == scalar_value);
+    solar_os_stream_scalar_sample_t sample;
+    assert(solar_os_stream_read_scalar_sample(&first, NULL, &sample) == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_stream_unregister("sensor0") == ESP_ERR_INVALID_STATE);
 
     solar_os_stream_info_t info;
@@ -136,6 +146,14 @@ int main(void)
     solar_os_stream_close(&second);
     assert(solar_os_stream_unregister("sensor0") == ESP_OK);
     assert(!solar_os_stream_handle_valid(&first));
+    scalar.read_scalar_sample = read_sample;
+    assert(solar_os_stream_register(&scalar) == ESP_OK);
+    assert(solar_os_stream_open("sensor0", "feedback", &first) == ESP_OK);
+    assert(solar_os_stream_read_scalar_sample(&first, NULL, &sample) == ESP_OK);
+    assert(sample.value == scalar_value && sample.uptime_ms == 1000);
+    solar_os_stream_close(&first);
+    assert(solar_os_stream_read_scalar_sample(&first, NULL, &sample) != ESP_OK);
+    assert(solar_os_stream_unregister("sensor0") == ESP_OK);
 
     size_t bytes = 0U;
     solar_os_stream_driver_t audio = audio_driver(&bytes);

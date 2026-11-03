@@ -1,4 +1,5 @@
 #include "solar_os_neopixel.h"
+#include "solar_os_sync_dynamic.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -27,11 +28,7 @@ static SemaphoreHandle_t devices_mutex;
 
 static esp_err_t ensure_mutex(void)
 {
-    if (devices_mutex != NULL) {
-        return ESP_OK;
-    }
-    devices_mutex = xSemaphoreCreateMutex();
-    return devices_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    return solar_os_mutex_get_dynamic(&devices_mutex) != NULL ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static solar_os_neopixel_device_t *find_device_locked(const char *name)

@@ -67,6 +67,7 @@ COMMAND_GITHUB_HREFS = {
 # Any new or changed collision is a review failure rather than a silent alias
 # deletion.
 DERIVED_ALIAS_OWNERS = {
+    ("job.screen-keyboard", "screen-keyboard"): "command.screen-keyboard",
     ("command.adc", "adc"): "gpio.analog",
     ("command.agent", "agent"): "agent",
     ("command.apps", "apps"): "apps",
@@ -75,6 +76,8 @@ DERIVED_ALIAS_OWNERS = {
     ("command.board", "board"): "boards",
     ("command.commands", "commands"): "commands",
     ("command.control", "control"): "controls",
+    ("command.controller", "controller"): "controllers",
+    ("command.robot", "robot"): "robot",
     ("command.expansion", "expansion"): "expansion",
     ("command.encoder", "encoder"): "encoder",
     ("command.gpio", "gpio"): "gpio.analog",
@@ -112,6 +115,7 @@ DERIVED_ALIAS_OWNERS = {
     ("app.playground", "playground"): "playground",
     ("app.python", "python"): "python",
     ("job.controls", "controls"): "controls",
+    ("job.controllers", "controllers"): "controllers",
     ("job.daq", "daq"): "command.daq",
     ("job.espnow-link", "espnow-link"): "link",
     ("job.log", "log"): "command.log",

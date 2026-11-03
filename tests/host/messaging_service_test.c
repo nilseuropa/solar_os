@@ -148,6 +148,7 @@ static void restart_messages(void)
     free(messaging.history_scratch); free(messaging.pending_slot);
     free(messaging.history_buckets);
     free(messaging.navigation);
+    free(messaging.room_preferences);
     vSemaphoreDelete(messaging.lock); vSemaphoreDelete(messaging.io_lock);
     vSemaphoreDelete(messaging.history_lock);
     memset(&messaging, 0, sizeof(messaging));
@@ -322,7 +323,7 @@ static void test_channel_ownership_and_restart(void)
 }
 
 static unsigned test_joins;
-static bool reject_join;
+static bool reject_join, reject_leave;
 static unsigned remove_prepares, remove_commits, remove_aborts;
 static bool reject_remove_prepare;
 static solar_os_messaging_provider_id_t remove_inside_join;
@@ -345,6 +346,11 @@ static esp_err_t test_remove_prepare(void *context)
     assert(context == &test_joins); remove_prepares++;
     return reject_remove_prepare ? ESP_FAIL : ESP_OK;
 }
+static esp_err_t test_leave(void *context, const char *target)
+{
+    assert(context == &test_joins && !strcmp(target, "#same"));
+    return reject_leave ? ESP_FAIL : ESP_OK;
+}
 static void test_remove_finish(void *context, bool removed)
 {
     assert(context == &test_joins);
@@ -352,6 +358,7 @@ static void test_remove_finish(void *context, bool removed)
 }
 static const solar_os_messaging_provider_class_t test_class = {
     .name = "test-net", .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM, .join = test_join,
+    .leave = test_leave,
     .normalize_target = test_normalize,
     .remove_prepare = test_remove_prepare, .remove_finish = test_remove_finish,
 };
@@ -379,6 +386,10 @@ static void test_provider_instances(void)
     assert(solar_os_messaging_join(a, "#same", NULL) == ESP_FAIL);
     assert(solar_os_messaging_conversation_get(room_a, &room) == ESP_OK && room.join_state == SOLAR_OS_MESSAGING_JOIN_FAILED);
     reject_join = false;
+    reject_leave = true;
+    assert(solar_os_messaging_leave(room_a) == ESP_FAIL);
+    assert(solar_os_messaging_conversation_get(room_a, &room) == ESP_OK && !room.left);
+    reject_leave = false;
     solar_os_message_key_t key_a, key_b;
     assert(solar_os_messaging_send(room_a, "only A", false, &key_a) == ESP_OK);
     assert(solar_os_messaging_send(room_b, "only B", false, &key_b) == ESP_OK);

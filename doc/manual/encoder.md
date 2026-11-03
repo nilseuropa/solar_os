@@ -133,6 +133,11 @@ Consumers include `solar_os_encoder.h` and use `solar_os_encoder_get()`,
 `solar_os_encoder_status()`, `solar_os_encoder_read()`, and
 `solar_os_encoder_reset()`. Providers register a name, driver, counting mode,
 context, and read callback. Reset and shutdown callbacks are optional.
+
+Native reference claims prevent reset and detach while allowing shared reads.
+Claimed sampling returns a fresh count, the x1/x2/x4 decoding factor and a
+monotonic acquisition timestamp. Release the claim after dependent control
+has stopped. Tokens are invalid after release. See [Robot axes](robot.md).
 Callbacks are serialized per endpoint outside the registry lock. In-flight
 operations prevent unregister; failed shutdown keeps the registration for
 retry. The provider owns its context until unregister succeeds.

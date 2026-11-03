@@ -3,6 +3,7 @@ name = "writerdeck"
 description = "Compact SolarOS build with package installation, Python, Playground, writing, media and communications."
 
 [groups]
+screen_keyboard = true
 hardware_shell = true
 filesystem = true
 bluetooth = true

@@ -99,6 +99,7 @@ esp_err_t epd_ultrachip_relax(epd_ultrachip_t *d, solar_os_display_relax_phase_t
 { assert(d && phase == SOLAR_OS_DISPLAY_RELAX_BEGIN); relaxed_ssd = false; return ESP_OK; }
 int main(void)
 {
+    assert(solar_os_x4pro_expansion_driver.board_only);
     assert(attach()==ESP_OK && probes==1 && commits==1 && cached_id==EPD_XTEINK_UC8179);
     assert(registered->ops->relax(registered, SOLAR_OS_DISPLAY_RELAX_BEGIN) == ESP_OK);
     assert(!relaxed_ssd);

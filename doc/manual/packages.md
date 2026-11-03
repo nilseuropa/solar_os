@@ -135,9 +135,9 @@ catalog and require native-module support in the firmware. They do not add
 firmware flavor groups.
 
 SolarOS provides three firmware profiles. `full` is the standard profile with
-the broad application and hardware-service selection. `classic` uses the compact
-Writerdeck feature selection without the synthesizer and with ADC D-pad support
-for ODROID-GO. It is the default for all classic ESP32 targets, including boards
+the broad application and hardware-service selection. `classic` is a compact
+profile with ADC D-pad support for ODROID-GO, the I/O app, control bindings,
+and 1-Wire. It is the default for all classic ESP32 targets, including boards
 with 4 MiB flash.
 `writerdeck` is the compact profile used by e-paper boards with smaller
 application partitions.
@@ -148,9 +148,10 @@ and image-processing pipelines are omitted. ODROID-GO retains its buttons and
 ADC D-pad; VGA32 retains its default PS/2 keyboard attachment.
 
 `writerdeck` includes Python, Playground, editing, Files, Reader, Writer, Notes,
-View, audio playback, recording, speech synthesis, the synthesizer, Web, Agent,
+View, audio playback, recording, speech synthesis, Web, Agent,
 WireGuard, messaging, and file transfer.
-Its synth service also supplies generated audio for native foreground apps.
+It includes SC2 messaging. The synthesizer and controls worker are omitted;
+native apps that use the Synth service require a custom flavor with `synth` enabled.
 Its transfer tools include FTP/FTPD, SSH, SCP, SFTP, SFTP Sync, and Curl.
 PCM5102/I2S and PWM audio remain available for runtime expansion outputs.
 Broad expansion-driver collections, external radio stacks, Lua, built-in

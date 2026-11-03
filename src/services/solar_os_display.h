@@ -171,6 +171,12 @@ esp_err_t solar_os_display_set_high_refresh_override(const char *name,
 esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
                                                 solar_os_display_present_mode_t mode);
 esp_err_t solar_os_display_set_overlay_active(u8g2_t *u8g2, bool active);
+/* Live opaque layer, independent of the foreground display claim. Packed
+ * horizontal bits are black when set. Coordinates use the logical display. */
+esp_err_t solar_os_display_set_layer(const char *name, const char *owner,
+    const uint8_t *bits, size_t size, uint16_t x, uint16_t y, uint16_t width, uint16_t height);
+esp_err_t solar_os_display_clear_layer(const char *name, const char *owner);
+bool solar_os_display_has_layer(const char *name, const char *owner);
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);
 void solar_os_display_present_overlay(u8g2_t *u8g2,
                                       uint16_t x,

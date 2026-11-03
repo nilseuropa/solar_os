@@ -21,7 +21,16 @@ static unsigned allocations;
 static unsigned direct_opens, chat_launches;
 static solar_os_contact_id_t chat_contact;
 static esp_err_t direct_error, launch_error;
+static esp_err_t provider_error;
+static bool provider_removed;
 const solar_os_app_t solar_os_chat_app = {.name = "chat"};
+
+esp_err_t solar_os_messaging_provider_get_status(solar_os_messaging_provider_id_t provider,
+    solar_os_messaging_provider_status_t *status)
+{
+    *status = (solar_os_messaging_provider_status_t){.id = provider, .removed = provider_removed};
+    return provider_error;
+}
 
 esp_err_t solar_os_messaging_direct_open(solar_os_contact_id_t contact,
     solar_os_conversation_id_t *conversation)
@@ -283,8 +292,24 @@ int main(void)
     direct_error = ESP_ERR_INVALID_STATE;
     key('c');
     assert(chat_launches == 3U && state.mode == CONTACTS_NOTICE);
-    assert(strstr(state.notice, "Chat:"));
-    direct_error = ESP_OK; key('\r');
+    assert(strstr(state.notice, "no direct-message endpoint"));
+    key('\r'); select_contact(2);
+    solar_os_endpoint_t saved_endpoint = endpoints[1];
+    endpoints[1].capabilities = SOLAR_OS_ENDPOINT_CAP_DIRECT;
+    endpoints[1].trust = SOLAR_OS_CONTACT_TRUST_TRUSTED;
+    provider_error = ESP_ERR_NOT_FOUND;
+    key('c');
+    assert(chat_launches == 3U && state.mode == CONTACTS_NOTICE);
+    assert(strstr(state.notice, "saved instance 'meshcore' unavailable"));
+    assert(endpoints[1].trust == SOLAR_OS_CONTACT_TRUST_TRUSTED); /* No implicit rerouting/trust change. */
+    key('\r'); provider_error = ESP_OK; provider_removed = true;
+    key('c'); assert(strstr(state.notice, "unavailable"));
+    key('\r'); provider_removed = false;
+    key('c'); assert(!strstr(state.notice, "unavailable")); /* A newly available provider is not misdiagnosed. */
+    key('\r'); endpoints[1].trust = SOLAR_OS_CONTACT_TRUST_BLOCKED;
+    key('c'); assert(strstr(state.notice, "endpoints are blocked"));
+    key('\r'); endpoints[1] = saved_endpoint; select_contact(1);
+    direct_error = ESP_OK;
     launch_error = ESP_ERR_NO_MEM;
     key('c'); assert(chat_launches == 4U && state.mode == CONTACTS_NOTICE);
     launch_error = ESP_OK; key('\r');

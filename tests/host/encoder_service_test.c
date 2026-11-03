@@ -5,6 +5,8 @@
 #include <string.h>
 #include "solar_os_encoder.h"
 #include "solar_os_memory.h"
+static int64_t sample_time_us = 1000;
+int64_t esp_timer_get_time(void) { return sample_time_us; }
 
 static unsigned allocations;
 static const char *fail_tag;
@@ -107,6 +109,20 @@ int main(void)
     pthread_mutex_lock(&a.mutex); a.hold = false; pthread_cond_broadcast(&a.condition); pthread_mutex_unlock(&a.mutex);
     assert(pthread_join(thread, NULL) == 0);
     assert(solar_os_encoder_reset("left") == ESP_OK && a.value == 0);
+    uint32_t claim, other;
+    assert(solar_os_encoder_claim("left", &claim) == ESP_OK && claim);
+    assert(solar_os_encoder_claim("left", &other) == ESP_ERR_INVALID_STATE && other == 0);
+    assert(solar_os_encoder_reset("left") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_encoder_unregister("left") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_encoder_read("left", &value) == ESP_OK);
+    solar_os_encoder_sample_t sample;
+    assert(solar_os_encoder_sample_owned(claim, &sample) == ESP_OK);
+    assert(sample.count == 0 && sample.decoding == 4 && sample.timestamp_us == (uint64_t)sample_time_us);
+    assert(solar_os_encoder_release(claim) == ESP_OK);
+    assert(solar_os_encoder_sample_owned(claim, &sample) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_encoder_claim("left", &other) == ESP_OK && other != claim);
+    assert(solar_os_encoder_release(claim) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_encoder_release(other) == ESP_OK);
     a.fail_shutdown = true;
     assert(solar_os_encoder_unregister("left") == ESP_FAIL && solar_os_encoder_count() == 2);
     assert(solar_os_encoder_read("left", &value) == ESP_OK && value == 0);

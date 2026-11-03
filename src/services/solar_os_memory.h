@@ -48,6 +48,7 @@ typedef struct solar_os_memory_reclaimer {
 typedef struct {
     uint32_t requests, callbacks, busy, compactions, low_stack;
     size_t released_bytes, moved_bytes;
+    uint32_t last_duration_us, max_duration_us, last_compactions;
 } solar_os_memory_pressure_stats_t;
 
 typedef struct solar_os_memory_buffer solar_os_memory_buffer_t;
