@@ -644,8 +644,11 @@ Reader workers block on camera/audio availability and immediately publish or
 discard the completed frame/block. They continuously drain idle sources, so
 connecting does not expose a stale camera image or audio backlog. The video
 cap drops newly captured images rather than holding them until a timer expires.
-There is one leased PSRAM camera framebuffer, no JPEG copy or video queue,
-and at most one MTU-sized PCM block. Disabled sources allocate no reader stack.
+The publisher leases one PSRAM camera framebuffer at a time and keeps no
+additional JPEG copy or video queue. OV5640 capture uses two PSRAM framebuffers
+in latest-frame mode so capture can continue while a frame is being sent;
+OV2640 capture uses one. There is at most one MTU-sized PCM block.
+Disabled sources allocate no reader stack.
 Temporary UDP transmit pressure drops the current frame/block and newly
 captured data during a short backoff instead of disconnecting or building a
 queue. Audio sample timestamps advance across dropped blocks. Status reports

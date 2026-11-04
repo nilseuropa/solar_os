@@ -6,7 +6,7 @@
 #include "esp_err.h"
 
 typedef enum { FRAMESIZE_QVGA, FRAMESIZE_VGA } framesize_t;
-enum { PIXFORMAT_JPEG, CAMERA_FB_IN_PSRAM, CAMERA_GRAB_WHEN_EMPTY };
+enum { PIXFORMAT_JPEG, CAMERA_FB_IN_PSRAM, CAMERA_GRAB_WHEN_EMPTY, CAMERA_GRAB_LATEST };
 #define CAMERA_MODEL_MAX 2
 #define OV5640_PID 0x5640
 typedef struct { int pid; const char *name; } camera_sensor_info_t;
@@ -32,3 +32,4 @@ camera_fb_t *esp_camera_fb_get(void);
 void esp_camera_fb_return(camera_fb_t *frame);
 bool esp_camera_get_psram_mode(void);
 esp_err_t esp_camera_set_psram_mode(bool enable);
+esp_err_t esp_camera_reconfigure(const camera_config_t *config);

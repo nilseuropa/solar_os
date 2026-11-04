@@ -122,7 +122,7 @@ static esp_err_t camera_start(void *ctx,
                                                            &sccb_port);
         if (error != ESP_OK) return error;
     }
-    const camera_config_t native_config = {
+    camera_config_t native_config = {
         .pin_pwdn = state->pins[PIN_PWDN],
         .pin_reset = state->pins[PIN_RESET],
         .pin_xclk = state->pins[PIN_XCLK],
@@ -164,7 +164,7 @@ static esp_err_t camera_start(void *ctx,
     }
 
     /* OV5640 JPEG capture is unreliable with direct PSRAM DMA on the S3.
-     * Stage DMA internally while keeping the single JPEG framebuffer in PSRAM.
+     * Stage DMA internally while keeping JPEG framebuffers in PSRAM.
      * Restore the configured default if a different sensor is later attached. */
 #if CONFIG_CAMERA_PSRAM_DMA
     const bool psram_dma = sensor->id.PID != OV5640_PID;
@@ -181,13 +181,28 @@ static esp_err_t camera_start(void *ctx,
             return mode_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : mode_error;
         }
     }
-    SOLAR_OS_LOGI("camera", "%s: %s DMA; framebuffer=psram",
+    if (sensor->id.PID == OV5640_PID) {
+        /* Two buffers keep capture running while the consumer holds a JPEG.
+         * Latest mode bounds the ready queue to one frame. */
+        native_config.fb_count = 2U;
+        native_config.grab_mode = CAMERA_GRAB_LATEST;
+        const esp_err_t configure_error = esp_camera_reconfigure(&native_config);
+        sensor = configure_error == ESP_OK ? esp_camera_sensor_get() : NULL;
+        if (sensor == NULL) {
+            (void)esp_camera_deinit();
+            if (shared_sccb) camera_sccb_unlock();
+            return configure_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : configure_error;
+        }
+    }
+    SOLAR_OS_LOGI("camera", "%s: %s DMA; buffers=%u storage=psram",
                   sensor_name(sensor->id.PID),
-                  psram_dma ? "direct PSRAM" : "internal staging");
+                  psram_dma ? "direct PSRAM" : "internal staging",
+                  (unsigned)native_config.fb_count);
     if (shared_sccb) camera_sccb_unlock();
 
     state->started = true;
     sensor_info->product_id = sensor->id.PID;
+    sensor_info->frame_buffer_count = native_config.fb_count;
     strlcpy(sensor_info->name, sensor_name(sensor->id.PID),
             sizeof(sensor_info->name));
     return ESP_OK;

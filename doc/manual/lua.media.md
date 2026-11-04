@@ -72,7 +72,7 @@ schema is invented here.
 Available when `service.camera` is compiled:
 
 - `solaros.camera.status()`: backend, sensor, owner, initialized/leased flags,
-  selected size/quality, capture count, and last error name.
+  selected size/quality, `frame_buffer_count`, capture count, and last error name.
 - `snapshot([size[, jpeg_quality[, source]]])`: return a native JPEG frame
   handle. Defaults are `qvga`, quality 12, and `camera0`.
 - `capture(path[, size[, jpeg_quality[, source]]])`: capture directly to a

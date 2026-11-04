@@ -61,13 +61,14 @@ static void print_status(solar_os_shell_io_t *io)
     solar_os_shell_io_printf(
         io,
         "driver=%s sensor=%s pid=0x%04x format=jpeg size=%s "
-        "quality=%u buffers=1 storage=psram owner=%s frame=%s captures=%lu "
+        "quality=%u buffers=%u storage=psram owner=%s frame=%s captures=%lu "
         "timeout=%ums last=%s\r\n",
         status.driver,
         status.sensor.name,
         (unsigned)status.sensor.product_id,
         solar_os_camera_frame_size_name(status.config.frame_size),
         (unsigned)status.config.jpeg_quality,
+        (unsigned)status.sensor.frame_buffer_count,
         status.owner_leased ? status.owner : "-",
         status.frame_leased ? "leased" : "free",
         (unsigned long)status.capture_count,

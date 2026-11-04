@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     uint16_t product_id;
     char name[SOLAR_OS_CAMERA_SENSOR_NAME_MAX];
+    uint8_t frame_buffer_count;
 } solar_os_camera_sensor_info_t;
 
 typedef struct {
