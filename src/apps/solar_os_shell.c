@@ -1763,6 +1763,11 @@ static const char * const view_options[] = {"-fit", "-actual"};
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 static const char * const vplay_options[] = {"-fit", "-actual"};
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+static const char * const mac_options[] = {"--pointer-speed"};
+static const char * const mac_media_options[] = {"--floppy", "--pointer-speed"};
+static const char * const mac_pointer_speed_values[] = {"1", "2", "5", "10"};
+#endif
 #if SOLAR_OS_PACKAGE_APP_PLOT
 static const char * const plot_options[] = {"-f", "--file", "--rate"};
 static const char * const plot_live_options[] = {"--rate"};
@@ -1885,6 +1890,14 @@ static const char * const path_view_after_option[] = {"view", SHELL_COMPLETION_A
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 static const char * const path_vplay[] = {"vplay"};
 static const char * const path_vplay_after_option[] = {"vplay", SHELL_COMPLETION_ANY};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+static const char * const path_mac[] = {"mac"};
+static const char * const path_mac_after_rom[] = {"mac", SHELL_COMPLETION_ANY};
+static const char * const path_mac_floppy[] = {"mac", SHELL_COMPLETION_ANY, "--floppy"};
+static const char * const path_mac_after_disk[] = {"mac", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
+static const char * const path_mac_after_floppy[] = {"mac", SHELL_COMPLETION_ANY, "--floppy", SHELL_COMPLETION_ANY};
+static const char * const path_mac_pointer_speed[] = {"mac", "--pointer-speed"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
 static const char * const path_files[] = {"files"};
@@ -3373,6 +3386,18 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_VPLAY
     SHELL_COMPLETION_OPTIONS(path_vplay, vplay_options),
     SHELL_COMPLETION_PATH(path_vplay_after_option, false),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+    SHELL_COMPLETION_OPTIONS(path_mac, mac_options),
+    SHELL_COMPLETION_PATH(path_mac, false),
+    SHELL_COMPLETION_OPTIONS(path_mac_after_rom, mac_media_options),
+    SHELL_COMPLETION_PATH(path_mac_after_rom, false),
+    SHELL_COMPLETION_PATH(path_mac_floppy, false),
+    /* A floppy image is still pending here, rather than a trailing option. */
+    {.path = path_mac_floppy, .path_count = SHELL_ARRAY_COUNT(path_mac_floppy)},
+    SHELL_COMPLETION_OPTIONS(path_mac_after_disk, mac_options),
+    SHELL_COMPLETION_OPTIONS(path_mac_after_floppy, mac_options),
+    SHELL_COMPLETION_STATIC(path_mac_pointer_speed, mac_pointer_speed_values),
 #endif
 #if SOLAR_OS_PACKAGE_APP_FILES
     SHELL_COMPLETION_OPTIONS(path_files, files_options),
@@ -9019,6 +9044,27 @@ static void shell_print_argument_completion_matches(solar_os_context_t *ctx,
     shell_replace_input(ctx, original);
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+/* Keep ROM/media completion positions independent of the optional speed pair.
+ * A pending speed value uses its exact rule and must not fall back to paths. */
+static bool shell_completion_normalize_mac_arguments(const char **tokens, size_t *count)
+{
+    if (*count == 0 || strcmp(tokens[0], "mac") != 0) return false;
+    size_t next = 1;
+    for (size_t i = 1; i < *count; ++i) {
+        if (strcmp(tokens[i], "--pointer-speed") == 0) {
+            if (++i == *count) {
+                tokens[1] = "--pointer-speed";
+                *count = 2;
+                return true;
+            }
+        } else tokens[next++] = tokens[i];
+    }
+    *count = next;
+    return false;
+}
+#endif
+
 static bool shell_complete_argument(solar_os_context_t *ctx,
                                     const shell_completion_parse_t *parse,
                                     size_t current_index,
@@ -9123,7 +9169,12 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         return true;
     }
 
-    const shell_completion_rule_t *path_rule =
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+    const bool mac_speed_value = shell_completion_normalize_mac_arguments(completed_tokens, &completed_count);
+#else
+    const bool mac_speed_value = false;
+#endif
+    const shell_completion_rule_t *path_rule = mac_speed_value ? NULL :
         shell_completion_find_path_rule(completed_tokens, completed_count);
 
     const bool rule_seen = shell_completion_collect_matches(ctx,
@@ -9142,7 +9193,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                 show_matches);
             return true;
         }
-        return false;
+        return mac_speed_value;
     }
     if (state.count == 0) {
         if (path_rule != NULL) {
@@ -9154,7 +9205,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                 show_matches);
             return true;
         }
-        return false;
+        return mac_speed_value;
     }
 
     shell_session(ctx)->history_browsing = false;
