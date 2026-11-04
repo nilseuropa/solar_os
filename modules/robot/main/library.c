@@ -20,7 +20,7 @@ int main(int argc, char **argv)
     if (!api) return 1;
     const solar_os_native_library_descriptor_v1_t descriptor = {
         .abi_version = 1, .struct_size = sizeof(descriptor), .id = SOLAR_OS_ROBOT_LIBRARY,
-        .summary = "Robot joint runtime", .api = (const solar_os_native_library_api_header_v1_t *)api,
+        .summary = "Robot model and joint runtime", .api = (const solar_os_native_library_api_header_v1_t *)api,
         .shutdown = solar_os_robot_engine_shutdown,
     };
     int result = host->register_library(&descriptor);

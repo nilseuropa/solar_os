@@ -108,6 +108,67 @@ static void solua_robot_destroy(void)
     esp_err_t err=solar_os_robot_release_owner("lua");
     if (err!=ESP_OK) SOLAR_OS_LOGW(TAG,"Robot cleanup retained resources: %s",esp_err_to_name(err));
 }
+static int solua_robot_model_info(lua_State *L)
+{
+    solar_os_robot_model_info_t info;
+    (void)solua_check_esp(L, solar_os_robot_model_get_info(&info));
+    lua_newtable(L); int d = lua_gettop(L);
+    solua_set_str(L, d, "name", info.name); solua_set_str(L, d, "root", info.root);
+    solua_set_int(L, d, "known_joints", info.known_joints);
+    solua_set_int(L, d, "extension_bytes", info.extension_bytes);
+    lua_newtable(L);
+    for (uint32_t i = 0; i < info.links; ++i) {
+        char name[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+        (void)solua_check_esp(L, solar_os_robot_model_get_link(i, name, sizeof(name)));
+        lua_pushstring(L, name); lua_rawseti(L, -2, i+1);
+    }
+    lua_setfield(L, d, "links");
+    lua_newtable(L);
+    for (uint32_t i = 0; i < info.joints; ++i) {
+        solar_os_robot_model_joint_info_t j;
+        (void)solua_check_esp(L, solar_os_robot_model_get_joint(i, &j));
+        lua_newtable(L); int item = lua_gettop(L);
+        solua_set_str(L, item, "name", j.name); solua_set_str(L, item, "parent", j.parent);
+        solua_set_str(L, item, "child", j.child); solua_set_int(L, item, "kind", j.kind);
+        solua_set_int(L, item, "position_known", j.position_known); solua_set_num(L, item, "position", j.position);
+        lua_rawseti(L, -2, i+1);
+    }
+    lua_setfield(L, d, "joints"); return 1;
+}
+static int solua_robot_model_load(lua_State *L)
+{
+    (void)solua_check_esp(L, solar_os_robot_model_load_file(luaL_checkstring(L, 1), NULL, 0));
+    return solua_robot_model_info(L);
+}
+static int solua_robot_model_unload(lua_State *L)
+{ return solua_check_esp(L, solar_os_robot_model_unload()); }
+static int solua_robot_model_set_joint(lua_State *L)
+{
+    const char *name = luaL_checkstring(L, 1); float value = (float)luaL_checknumber(L, 2);
+    return solua_check_esp(L, solar_os_robot_model_update(&name, &value, 1));
+}
+static void solua_robot_float_list(lua_State *L, const float *values, unsigned count)
+{
+    lua_createtable(L, count, 0);
+    for (unsigned i = 0; i < count; ++i) { lua_pushnumber(L, values[i]); lua_rawseti(L, -2, i+1); }
+}
+static int solua_robot_model_transform(lua_State *L)
+{
+    solar_os_robot_transform_t t;
+    (void)solua_check_esp(L, solar_os_robot_model_transform(luaL_checkstring(L, 1), luaL_checkstring(L, 2), &t));
+    lua_newtable(L);
+    solua_robot_float_list(L, t.translation, 3); lua_setfield(L, -2, "translation");
+    solua_robot_float_list(L, t.rotation, 4); lua_setfield(L, -2, "rotation"); return 1;
+}
+static int solua_robot_model_apply(lua_State *L, bool direction)
+{
+    float in[3], out[3];
+    for (unsigned i = 0; i < 3; ++i) in[i] = (float)luaL_checknumber(L, 3+i);
+    (void)solua_check_esp(L, solar_os_robot_model_apply(luaL_checkstring(L, 1), luaL_checkstring(L, 2), in, direction, out));
+    solua_robot_float_list(L, out, 3); return 1;
+}
+static int solua_robot_model_point(lua_State *L) { return solua_robot_model_apply(L, false); }
+static int solua_robot_model_vector(lua_State *L) { return solua_robot_model_apply(L, true); }
 #else
 static void solua_robot_destroy(void) {}
 #endif

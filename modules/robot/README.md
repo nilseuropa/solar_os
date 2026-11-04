@@ -1,12 +1,21 @@
 # Robot library
 
-Optional ESP32-S3 native library implementing calibrated rotary joints. The
+Optional ESP32-S3 native library implementing URDF models, transforms and calibrated rotary joints. The
 versioned C API is [solar_os_robot_abi.h](../../include/solar_os_robot_abi.h).
 Motor/encoder velocity joints own PPR, gearbox ratio, encoder placement,
 motor/encoder polarity, velocity estimation, ramping, command deadband,
 directional friction feedforward and PI/PID state.
 Servo-position joints own joint-to-servo conversion and calibrated limits.
-There is no URDF or graphics dependency.
+Joint control works without a URDF model or display.
+
+The model API loads expanded URDF, validates a fixed/continuous/revolute/prismatic
+joint tree, accepts explicit position updates and computes frame transforms.
+Transform math supports RPY construction, composition, inverse, points and
+directions. Movable joints start unknown. The optional version-1 `solar_os`
+block is retained as metadata; loading never activates hardware or creates
+controllers. The shell exposes `robot model load`, `set`, `transform`,
+`point`, `vector`, inspection and `unload`. Python/Lua provide matching model
+operations. See [Robot models and transforms](../../doc/manual/robot-models.md).
 
 The shell exposes joint operations under `robot joint`. Continuous friction
 feedforward is configured with `friction_bias_forward` and
@@ -24,7 +33,10 @@ Command expiry stops output and returns to waiting; a fresh command resumes
 without disable/enable. Hardware and feedback faults remain latched.
 Counts per joint revolution are derived from PPR, the actual decoding factor
 and encoder placement/gear ratio, and are exposed as read-only status.
-The provider API is `robot` ABI 3; the generic host `motion` ABI remains 1.
+The provider API is `robot` ABI 3 with append-only model/transform functions;
+the generic host `motion` ABI remains 1. Joint-only clients retain prefix
+compatibility. Model clients require the extended table. Live model handles
+also prevent provider shutdown and must be closed before releasing a lease.
 
 Build against a configured ESP32-S3 firmware SDK:
 

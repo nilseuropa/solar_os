@@ -41,7 +41,8 @@ def build(sdk, output):
     prefix = compiler[:-3]
     output.mkdir(parents=True, exist_ok=True)
     objects = []
-    for source in (HERE / "main/robot.c", HERE / "main/library.c", ROOT / "src/services/solar_os_controller_math.c"):
+    for source in (HERE / "main/robot.c", HERE / "main/model.c", HERE / "main/transform.c",
+                   HERE / "main/library.c", ROOT / "src/services/solar_os_controller_math.c"):
         target = output / (source.stem + ".o")
         args = list(base)
         args[args.index("-o") + 1] = str(target)

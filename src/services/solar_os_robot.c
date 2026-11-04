@@ -1,9 +1,11 @@
 #include "solar_os_robot.h"
 #include <string.h>
+#include <stdio.h>
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_native.h"
+#include "solar_os_memory.h"
 
 typedef struct {
     uint32_t lease, joint;
@@ -11,6 +13,7 @@ typedef struct {
     char name[SOLAR_OS_ROBOT_JOINT_NAME_MAX], owner[16];
 } entry_t;
 static EXT_RAM_BSS_ATTR entry_t entries[SOLAR_OS_ROBOT_JOINT_MAX];
+static struct { uint32_t lease, id; const solar_os_robot_api_v3_t *api; } model;
 static StaticSemaphore_t storage;
 static SemaphoreHandle_t mutex;
 static portMUX_TYPE init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -33,6 +36,7 @@ static esp_err_t result(int e)
     case SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED: return ESP_ERR_NOT_SUPPORTED;
     case SOLAR_OS_NATIVE_ERROR_NO_MEMORY: return ESP_ERR_NO_MEM;
     case SOLAR_OS_NATIVE_ERROR_TIMEOUT: return ESP_ERR_TIMEOUT;
+    case SOLAR_OS_NATIVE_ERROR_INVALID_SIZE: return ESP_ERR_INVALID_SIZE;
     default: return ESP_FAIL;
     }
 }
@@ -48,7 +52,7 @@ esp_err_t solar_os_robot_joint_create(const char *name, uint32_t kind, const cha
     const void *table = NULL;
     uint32_t lease = 0, joint = 0;
     esp_err_t err = result(solar_os_native_library_acquire(SOLAR_OS_ROBOT_LIBRARY, SOLAR_OS_ROBOT_ABI,
-        sizeof(solar_os_robot_api_v3_t), &lease, &table));
+        SOLAR_OS_ROBOT_JOINT_API_SIZE, &lease, &table));
     const solar_os_robot_api_v3_t *api = table;
     if (err == ESP_OK) err = result(api->create(name, kind, &joint));
     if (err == ESP_OK) {
@@ -134,5 +138,94 @@ esp_err_t solar_os_robot_release_owner(const char *owner)
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (entries[i].lease && !strcmp(entries[i].owner, owner)) {
         esp_err_t one = close_entry(&entries[i]); if (err == ESP_OK) err = one;
     }
+    xSemaphoreGive(mutex); return err;
+}
+
+esp_err_t solar_os_robot_model_load_xml(const char *xml, size_t bytes, char *error, size_t error_bytes)
+{
+    if (error && error_bytes) *error = 0;
+    if (!xml || !bytes || bytes > SOLAR_OS_ROBOT_MODEL_XML_MAX) return ESP_ERR_INVALID_ARG;
+    lock();
+    esp_err_t err = ESP_OK;
+    if (!model.lease) {
+        const void *table = NULL;
+        err = result(solar_os_native_library_acquire(SOLAR_OS_ROBOT_LIBRARY, SOLAR_OS_ROBOT_ABI,
+            sizeof(solar_os_robot_api_v3_t), &model.lease, &table));
+        if (err == ESP_OK) model.api = table;
+    }
+    uint32_t next = 0;
+    if (err == ESP_OK) err = result(model.api->model_load(xml, bytes, &next, error, error_bytes));
+    if (err == ESP_OK && model.id) {
+        err = result(model.api->model_close(model.id));
+        if (err != ESP_OK) (void)model.api->model_close(next);
+    }
+    if (err == ESP_OK) model.id = next;
+    if (err != ESP_OK && model.lease && !model.id) {
+        /* Retain a failed release for explicit unload/retry. */
+        if (solar_os_native_library_release(model.lease) == SOLAR_OS_NATIVE_OK) memset(&model, 0, sizeof(model));
+    }
+    xSemaphoreGive(mutex); return err;
+}
+
+esp_err_t solar_os_robot_model_load_file(const char *path, char *error, size_t error_bytes)
+{
+    if (error && error_bytes) *error = 0;
+    if (!path || !*path) return ESP_ERR_INVALID_ARG;
+    FILE *file = fopen(path, "rb");
+    if (!file) return ESP_ERR_NOT_FOUND;
+    esp_err_t err = ESP_FAIL;
+    char *xml = NULL;
+    if (fseek(file, 0, SEEK_END)) goto done;
+    long length = ftell(file);
+    if (length <= 0 || (unsigned long)length > SOLAR_OS_ROBOT_MODEL_XML_MAX) { err = ESP_ERR_INVALID_SIZE; goto done; }
+    if (fseek(file, 0, SEEK_SET)) goto done;
+    xml = solar_os_memory_alloc((size_t)length, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "robot.urdf");
+    if (!xml) { err = ESP_ERR_NO_MEM; goto done; }
+    if (fread(xml, 1, (size_t)length, file) != (size_t)length || ferror(file)) goto done;
+    /* Reject growth during the read rather than parsing a truncated prefix. */
+    if (fgetc(file) != EOF || ferror(file)) goto done;
+    err = solar_os_robot_model_load_xml(xml, (size_t)length, error, error_bytes);
+done:
+    solar_os_memory_free(xml);
+    fclose(file);
+    return err;
+}
+
+esp_err_t solar_os_robot_model_unload(void)
+{
+    lock();
+    esp_err_t err = model.id ? result(model.api->model_close(model.id)) : ESP_OK;
+    if (err == ESP_OK) {
+        model.id = 0;
+        if (model.lease) err = result(solar_os_native_library_release(model.lease));
+        if (err == ESP_OK) memset(&model, 0, sizeof(model));
+    }
+    xSemaphoreGive(mutex); return err;
+}
+
+#define MODEL_FRONTEND(expression) do { \
+    lock(); esp_err_t err = model.id ? result(expression) : ESP_ERR_NOT_FOUND; \
+    xSemaphoreGive(mutex); return err; \
+} while (0)
+esp_err_t solar_os_robot_model_get_info(solar_os_robot_model_info_t *out)
+{ MODEL_FRONTEND(model.api->model_info(model.id, out)); }
+esp_err_t solar_os_robot_model_get_link(uint32_t index, char *out, size_t bytes)
+{ MODEL_FRONTEND(model.api->model_link(model.id, index, out, bytes)); }
+esp_err_t solar_os_robot_model_get_joint(uint32_t index, solar_os_robot_model_joint_info_t *out)
+{ MODEL_FRONTEND(model.api->model_joint(model.id, index, out)); }
+esp_err_t solar_os_robot_model_update(const char *const *names, const float *positions, uint32_t count)
+{ MODEL_FRONTEND(model.api->model_set_positions(model.id, names, positions, count)); }
+esp_err_t solar_os_robot_model_transform(const char *target, const char *source, solar_os_robot_transform_t *out)
+{ MODEL_FRONTEND(model.api->model_lookup(model.id, target, source, out)); }
+esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes)
+{ MODEL_FRONTEND(model.api->model_extension(model.id, out, bytes)); }
+#undef MODEL_FRONTEND
+
+esp_err_t solar_os_robot_model_apply(const char *target, const char *source, const float in[3], bool direction, float out[3])
+{
+    lock();
+    solar_os_robot_transform_t transform;
+    esp_err_t err = model.id ? result(model.api->model_lookup(model.id, target, source, &transform)) : ESP_ERR_NOT_FOUND;
+    if (err == ESP_OK) err = result(model.api->transform_apply(&transform, in, direction, out));
     xSemaphoreGive(mutex); return err;
 }

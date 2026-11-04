@@ -21,6 +21,13 @@ int main(void)
 {
     setup();lua_State *L=luaL_newstate();assert(L);luaL_openlibs(L);
     const luaL_Reg api[]={
+        {"model_load",solua_robot_model_load},
+        {"model_unload",solua_robot_model_unload},
+        {"model_info",solua_robot_model_info},
+        {"model_set_joint",solua_robot_model_set_joint},
+        {"model_transform",solua_robot_model_transform},
+        {"model_point",solua_robot_model_point},
+        {"model_vector",solua_robot_model_vector},
         {"joints",solua_robot_joints},
         {"joint_create",solua_robot_joint_create},
         {"joint_configure",solua_robot_joint_configure},
@@ -34,6 +41,13 @@ int main(void)
         {NULL,NULL}};
     luaL_newlib(L,api);lua_setglobal(L,"robot");
     const char *script=
+        "local m=robot.model_load('" ROBOT_MODEL_FIXTURE "');assert(m.name=='solbot' and #m.links==5 and #m.joints==4 and m.known_joints==2)\n"
+        "assert(not pcall(robot.model_transform,'base_link','left_wheel_link'))\n"
+        "robot.model_set_joint('left_wheel_joint',0)\n"
+        "local t=robot.model_transform('base_link','left_wheel_link');assert(math.abs(t.translation[2]-0.0350641)<1e-6 and #t.rotation==4)\n"
+        "local p=robot.model_point('base_link','left_wheel_link',0,0,0);assert(math.abs(p[2]-0.0350641)<1e-6)\n"
+        "local v=robot.model_vector('base_link','left_wheel_link',1,0,0);assert(v[1]==1 and v[2]==0)\n"
+        "robot.model_unload();assert(not pcall(robot.model_info))\n"
         "local s=robot.joint_create('wheel');assert(s.state=='ready')\n"
         "robot.joint_configure('wheel','ppr',70);robot.joint_configure('wheel','gear_ratio',30)\n"
         "assert(not pcall(robot.joint_configure,'wheel','encoder_counts_per_rev',2098))\n"

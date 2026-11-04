@@ -15,6 +15,7 @@ class RobotBindingsTest(unittest.TestCase):
         sources = [ROOT / "src/services" / name for name in (
             "solar_os_controller_math.c", "solar_os_motor.c", "solar_os_encoder.c",
             "solar_os_native_motion.c", "solar_os_robot.c")]
+        sources += [ROOT / "modules/robot/main" / name for name in ("model.c", "transform.c")]
         if runtime == "lua":
             sources += [p for p in lua.glob("*.c") if p.name not in {"lua.c", "luac.c"}]
         with tempfile.TemporaryDirectory() as directory:
@@ -23,14 +24,16 @@ class RobotBindingsTest(unittest.TestCase):
             if runtime == "shell":
                 source = (ROOT / "src/shell/solar_os_shell_robot.c").read_text()
                 usage = re.search(r'static const char usage\[\] =.*?;', source, re.S).group()
+                usage += "\n" + re.search(r'static const char model_usage\[\] =.*?;', source, re.S).group()
                 common = (ROOT / "src/shell/solar_os_shell_common.c").read_text()
                 code = usage + "\n" + production_functions(common, ("solar_os_shell_parse_size_arg",))
                 code += "\n" + production_functions(source, (
-                    "number", "show", "joint_command", "solar_os_shell_cmd_robot"))
+                    "number", "show", "joint_command", "model_command", "solar_os_shell_cmd_robot"))
                 fixture = Path(directory) / "shell.c"
                 fixture.write_text((ROOT / "tests/host/robot_shell_bindings_test.inc").read_text()
                                    .replace("/* SHELL_COMMAND */", code))
             cmd = ["cc", "-x", "c", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
+                   '-DROBOT_MODEL_FIXTURE="' + str(ROOT / "tests/fixtures/solbot.urdf") + '"',
                    "-Wno-unused-function", "-include", str(ROOT / "tests/host/compat.h")]
             for path in (ROOT / "tests/host/robot_stubs", ROOT / "tests/host/pwm_stubs",
                          ROOT / "tests/host", ROOT / "include", ROOT / "src", ROOT / "src/services", ROOT / "src/apps", lua):

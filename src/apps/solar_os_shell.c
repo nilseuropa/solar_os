@@ -1144,7 +1144,10 @@ static const char * const controller_keys[] = {
 static const char * const controller_sources[] = {"manual"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
-static const char * const robot_domains[] = {"joint"};
+static const char * const robot_domains[] = {"joint", "model"};
+static const char * const robot_model_subcommands[] = {
+    "load", "unload", "info", "links", "joints", "metadata", "set", "transform", "point", "vector",
+};
 static const char * const robot_joint_subcommands[] = {"list","status","create","configure","motor","servo","command","enable","disable","close"};
 static const char * const robot_kinds[] = {"velocity","servo"};
 static const char * const robot_keys[] = {"ppr","gear_ratio","motor_polarity","encoder_polarity","encoder_on_output",
@@ -3245,6 +3248,8 @@ static const char * const path_controller_delete[] = {"controller", "delete"};
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
 static const char * const path_robot[] = {"robot"};
 static const char * const path_robot_joint[] = {"robot","joint"};
+static const char * const path_robot_model[] = {"robot", "model"};
+static const char * const path_robot_model_load[] = {"robot", "model", "load"};
 static const char * const path_robot_kind[] = {"robot","joint","create",SHELL_COMPLETION_ANY};
 static const char * const path_robot_key[] = {"robot","joint","configure",SHELL_COMPLETION_ANY};
 static const char * const path_robot_motor_name[] = {"robot","joint","motor",SHELL_COMPLETION_ANY};
@@ -3262,6 +3267,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
     SHELL_COMPLETION_STATIC(path_robot,robot_domains),
     SHELL_COMPLETION_STATIC(path_robot_joint,robot_joint_subcommands),
+    SHELL_COMPLETION_STATIC(path_robot_model, robot_model_subcommands),
+    SHELL_COMPLETION_PATH(path_robot_model_load, false),
     SHELL_COMPLETION_STATIC(path_robot_kind,robot_kinds),
     SHELL_COMPLETION_STATIC(path_robot_key,robot_keys),
     SHELL_COMPLETION_MOTOR_NAMES(path_robot_motor_name),
@@ -8704,6 +8711,42 @@ static void shell_completion_emit_rtspd_candidate(const char *candidate, void *c
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+/* Model poses and hardware controllers have separate name spaces. Completion
+ * only reads the resident model; it never loads a library or activates devices. */
+static bool shell_completion_emit_robot_model(shell_completion_match_t *state,
+                                              const char * const *tokens,
+                                              size_t token_count)
+{
+    if (token_count < 3 || strcmp(tokens[0], "robot") || strcmp(tokens[1], "model")) return false;
+    const bool positions = strcmp(tokens[2], "set") == 0;
+    const bool frames = strcmp(tokens[2], "transform") == 0 ||
+        strcmp(tokens[2], "point") == 0 || strcmp(tokens[2], "vector") == 0;
+    if (!positions && !frames) return false;
+    /* Even counts in set await a numeric value. Frame commands take two frame
+     * names followed, for point/vector, by three numeric coordinates. */
+    if ((positions && token_count % 2 == 0) || (frames && token_count > 4)) return true;
+    solar_os_robot_model_info_t model;
+    if (solar_os_robot_model_get_info(&model) != ESP_OK) return true;
+    if (frames) {
+        for (uint32_t i = 0; i < model.links; ++i) {
+            char name[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+            if (solar_os_robot_model_get_link(i, name, sizeof(name)) == ESP_OK) shell_completion_emit(state, name);
+        }
+    } else {
+        for (uint32_t i = 0; i < model.joints; ++i) {
+            solar_os_robot_model_joint_info_t joint;
+            if (solar_os_robot_model_get_joint(i, &joint) != ESP_OK || joint.kind == SOLAR_OS_ROBOT_MODEL_FIXED) continue;
+            bool used = false;
+            for (size_t k = 3; k + 1 < token_count; k += 2)
+                if (strcmp(tokens[k], joint.name) == 0) { used = true; break; }
+            if (!used) shell_completion_emit(state, joint.name);
+        }
+    }
+    return true;
+}
+#endif
+
 static bool shell_completion_collect_matches(solar_os_context_t *ctx,
                                              const char * const *tokens,
                                              size_t token_count,
@@ -8723,6 +8766,10 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->io = shell_io(ctx);
     state->prefix = prefix;
     state->print = print;
+
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+    if (shell_completion_emit_robot_model(state, tokens, token_count)) return true;
+#endif
 
 #if SOLAR_OS_PACKAGE_JOB_RTSPD
     if (solar_os_shell_rtspd_completion_emit(tokens, token_count, prefix,

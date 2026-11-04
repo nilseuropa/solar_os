@@ -12,7 +12,8 @@ The optional `robot` native library provides rotary servo-position and
 motor/encoder-velocity joints. Joint calibration, feedback conversion, controller
 state and workers live in the external ELF. The firmware provides generic
 device services and a thin shell/Python/Lua adapter. Robot joints do not require
-URDF or a display. Native libraries require ESP32-S3, executable PSRAM, and
+URDF or a display. The same library also provides [URDF models and transforms](robot-models.md),
+independently of hardware joints. Native libraries require ESP32-S3, executable PSRAM, and
 the native-module service.
 
 Install `robot` from a compatible signed module catalog before creating an

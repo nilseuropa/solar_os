@@ -254,6 +254,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
 - [Motor control](motor.md) — Control named motors with normalized drive commands
 - [Robot joints](robot.md) — Use the optional external robot library for calibrated servo and motor/encoder joints
+- [Robot models and transforms](robot-models.md) — Load URDF models and query link transforms with the optional robot library
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, temperature, and humidity

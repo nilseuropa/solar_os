@@ -18,6 +18,8 @@ static void solar_os_shell_io_writeln(solar_os_shell_io_t *io,const char *text)
 { solar_os_shell_io_printf(io,"%s\n",text); }
 static const char *solar_os_shell_error_text(esp_err_t error)
 { (void)error; return "device error"; }
+static esp_err_t solar_os_shell_resolve_path(solar_os_context_t *ctx, const char *path, char *out, size_t bytes)
+{ (void)ctx;return strlcpy(out,path,bytes)<bytes?ESP_OK:ESP_ERR_INVALID_ARG; }
 
 /* SHELL_COMMAND */
 
@@ -36,9 +38,21 @@ int main(void)
 {
     setup();
     assert(strstr(run("robot"),"robot joint"));
-    assert(strstr(run("robot model create wheel"),"usage:"));
+    assert(strstr(run("robot model create wheel"),"robot model load"));
     assert(strstr(run("robot axis list"),"usage:"));
     assert(strstr(run("robot create wheel velocity"),"usage:"));
+    assert(strstr(run("robot model load " ROBOT_MODEL_FIXTURE),"Robot model loaded"));
+    assert(strstr(run("robot model info"),"solbot: root=base_footprint links=5 joints=4 known=2"));
+    assert(strstr(run("robot model links"),"left_wheel_link"));
+    assert(strstr(run("robot model joints"),"position=0 known=0"));
+    assert(strstr(run("robot model transform base_link left_wheel_link"),"Supply positions"));
+    assert(!*run("robot model set left_wheel_joint 0 right_wheel_joint 0"));
+    assert(strstr(run("robot model transform base_link left_wheel_link"),"base_link <- left_wheel_link"));
+    assert(strstr(run("robot model point base_link left_wheel_link 0 0 0"),"0.035064"));
+    assert(strstr(run("robot model vector base_link left_wheel_link 1 0 0"),"[1 0 0]"));
+    assert(strstr(run("robot model load /missing.urdf"),"robot model:"));
+    assert(strstr(run("robot model info"),"solbot:"));
+    assert(!*run("robot model unload"));
     assert(!solar_os_robot_joint_count());
     assert(strstr(run("robot joint"),"robot joint configure"));
     assert(strstr(run("robot joint list"),"No joints open"));

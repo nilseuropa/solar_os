@@ -1328,6 +1328,11 @@ available for the compiled board.
 | `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
 | `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
+| `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |
+| `robot` | `robot model info\|links\|joints\|metadata` | Inspect the resident model and retained SolarOS extension. |
+| `robot` | `robot model set <joint> <position> [<joint> <position> ...]` | Supply model joint positions as one validated batch. |
+| `robot` | `robot model transform <target> <source>` | Query the transform mapping source-frame coordinates into target. |
+| `robot` | `robot model point\|vector <target> <source> <x> <y> <z>` | Transform a point or direction; see [Robot models and transforms](robot-models.md). |
 | `robot` | `robot joint create <joint> velocity\|servo` | Create an inactive joint without claiming hardware. |
 | `robot` | `robot joint configure <joint> <key> <value>` | Configure PPR, gearbox ratio, polarities, limits, timing or control gains. |
 | `robot` | `robot joint motor <joint> <motor> <encoder>` | Bind named devices to a velocity joint. |

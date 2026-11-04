@@ -2,6 +2,7 @@
 #include "solar_os_native_time_abi.h"
 #include "solar_os_native_thread_abi.h"
 #include "solar_os_controller_math.h"
+#include "model.h"
 #include <math.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -34,6 +35,8 @@ static const solar_os_native_motion_api_v1_t *motion;
 static void *mutex;
 static joint_t *joints[SOLAR_OS_ROBOT_JOINT_MAX];
 static uint32_t next_id;
+static struct { uint32_t id; solar_os_robot_model_t *object; } models[SOLAR_OS_ROBOT_MODEL_MAX];
+static uint32_t next_model_id;
 
 static bool equal(const char *a, const char *b)
 { if (!a || !b) return false; while (*a && *a == *b) { a++; b++; } return *a == *b; }
@@ -425,9 +428,63 @@ static int close_joint(uint32_t id)
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i] == a) joints[i] = NULL;
     memory->free(a); unlock(); return OK;
 }
+static solar_os_robot_model_t *find_model(uint32_t id)
+{
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; ++i) if (models[i].id == id) return models[i].object;
+    return NULL;
+}
+static int model_load(const char *xml, size_t bytes, uint32_t *id, char *error, size_t error_bytes)
+{
+    if (!id) return ARG;
+    *id = 0;
+    solar_os_robot_model_t *m = NULL;
+    /* Parsing does not hold the worker mutex: existing motor feedback loops
+     * must continue while another client loads a description. */
+    int e = solar_os_robot_model_parse(memory, xml, bytes, &m, error, error_bytes);
+    if (e) return e;
+    lock();
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; ++i) if (!models[i].object && next_model_id != UINT32_MAX) {
+        models[i].object = m; models[i].id = *id = ++next_model_id;
+        unlock(); return OK;
+    }
+    unlock(); solar_os_robot_model_destroy(m); return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+}
+static int model_close(uint32_t id)
+{
+    lock();
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; ++i) if (id && models[i].id == id) {
+        solar_os_robot_model_t *m = models[i].object;
+        models[i].id = 0; models[i].object = NULL;
+        unlock(); solar_os_robot_model_destroy(m); return OK;
+    }
+    unlock(); return MISSING;
+}
+#define MODEL_CALL(expression) do { \
+    lock(); solar_os_robot_model_t *m = find_model(id); \
+    int e = m ? (expression) : MISSING; unlock(); return e; \
+} while (0)
+static int model_info(uint32_t id, solar_os_robot_model_info_t *out)
+{ MODEL_CALL(solar_os_robot_model_info(m, out)); }
+static int model_link(uint32_t id, uint32_t index, char *out, size_t bytes)
+{ MODEL_CALL(solar_os_robot_model_link(m, index, out, bytes)); }
+static int model_joint(uint32_t id, uint32_t index, solar_os_robot_model_joint_info_t *out)
+{ MODEL_CALL(solar_os_robot_model_joint(m, index, out)); }
+static int model_set_positions(uint32_t id, const char *const *names, const float *positions, uint32_t count)
+{ MODEL_CALL(solar_os_robot_model_set_positions(m, names, positions, count)); }
+static int model_lookup(uint32_t id, const char *target, const char *source, solar_os_robot_transform_t *out)
+{ MODEL_CALL(solar_os_robot_model_lookup(m, target, source, out)); }
+static int model_extension(uint32_t id, char *out, size_t bytes)
+{ MODEL_CALL(solar_os_robot_model_extension(m, out, bytes)); }
+#undef MODEL_CALL
+
 static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .struct_size = sizeof(api),
     .create = create, .configure = configure, .bind_motor = bind_motor, .bind_servo = bind_servo,
-    .command = command, .enable = enable, .disable = disable, .status = status, .close = close_joint};
+    .command = command, .enable = enable, .disable = disable, .status = status, .close = close_joint,
+    .model_load = model_load, .model_close = model_close, .model_info = model_info,
+    .model_link = model_link, .model_joint = model_joint, .model_set_positions = model_set_positions,
+    .model_lookup = model_lookup, .model_extension = model_extension,
+    .transform_from_rpy = solar_os_robot_transform_from_rpy, .transform_compose = solar_os_robot_transform_compose,
+    .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply};
 
 const solar_os_robot_api_v3_t *solar_os_robot_engine_init(
     const solar_os_native_memory_api_v1_t *m, const solar_os_native_time_api_v1_t *t,
@@ -444,6 +501,7 @@ int solar_os_robot_engine_shutdown(void)
 {
     lock();
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i]) { unlock(); return STATE; }
+    for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; i++) if (models[i].object) { unlock(); return STATE; }
     unlock();
     if (threads->mutex_destroy(mutex) != 0) return STATE;
     mutex = NULL; return OK;

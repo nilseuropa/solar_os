@@ -1,6 +1,7 @@
 #pragma once
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_motion_abi.h"
+#include "solar_os_robot_model.h"
 
 #define SOLAR_OS_ROBOT_LIBRARY "robot"
 #define SOLAR_OS_ROBOT_ABI 3U
@@ -43,7 +44,7 @@ typedef struct {
     float target, setpoint, position, velocity, commanded_position, output, feedforward, p, i, d;
 } solar_os_robot_joint_info_v3_t;
 
-/* Optional external library. No URDF or graphics dependency. Creation and
+/* Optional external library. Joint control needs no model or graphics. Creation and
  * configuration do not claim outputs. Enable starts a joinable periodic loop;
  * motor output stays stopped until the first fresh command, which arms the
  * command watchdog. Expiry stops output and waits for a new command while
@@ -62,4 +63,22 @@ typedef struct {
     int (*disable)(uint32_t joint);
     int (*status)(uint32_t joint, solar_os_robot_joint_info_v3_t *info);
     int (*close)(uint32_t joint);
+    /* Optional model extension, appended to ABI 3. Older joint-only clients
+     * require only the prefix ending before model_load. All model objects
+     * must be closed before releasing their library lease. Loading has no
+     * hardware side effects. Output buffers are copied, never borrowed. */
+    int (*model_load)(const char *xml, size_t bytes, uint32_t *model, char *error, size_t error_bytes);
+    int (*model_close)(uint32_t model);
+    int (*model_info)(uint32_t model, solar_os_robot_model_info_t *out);
+    int (*model_link)(uint32_t model, uint32_t index, char *out, size_t bytes);
+    int (*model_joint)(uint32_t model, uint32_t index, solar_os_robot_model_joint_info_t *out);
+    int (*model_set_positions)(uint32_t model, const char *const *names, const float *positions, uint32_t count);
+    int (*model_lookup)(uint32_t model, const char *target, const char *source, solar_os_robot_transform_t *out);
+    int (*model_extension)(uint32_t model, char *out, size_t bytes);
+    int (*transform_from_rpy)(const float xyz[3], const float rpy[3], solar_os_robot_transform_t *out);
+    int (*transform_compose)(const solar_os_robot_transform_t *a, const solar_os_robot_transform_t *b, solar_os_robot_transform_t *out);
+    int (*transform_inverse)(const solar_os_robot_transform_t *in, solar_os_robot_transform_t *out);
+    int (*transform_apply)(const solar_os_robot_transform_t *transform, const float in[3], uint32_t direction, float out[3]);
 } solar_os_robot_api_v3_t;
+
+#define SOLAR_OS_ROBOT_JOINT_API_SIZE offsetof(solar_os_robot_api_v3_t, model_load)

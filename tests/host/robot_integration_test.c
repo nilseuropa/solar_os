@@ -9,6 +9,9 @@
 #include "solar_os_native_motion.h"
 #include "solar_os_memory.h"
 #include "../../modules/robot/main/robot.c"
+#ifndef ROBOT_MODEL_FIXTURE
+#define ROBOT_MODEL_FIXTURE "../fixtures/solbot.urdf"
+#endif
 
 static uint64_t time_value=100000;
 static int32_t encoder_count;
@@ -23,6 +26,8 @@ static void provider_free(void *p) { if(p) { provider_allocations--;free(p); } }
 void *solar_os_memory_calloc(size_t n,size_t size,solar_os_memory_class_t cls,const char *tag)
 { (void)cls;(void)tag;void *p=calloc(n,size);if(p)device_allocations++;return p; }
 void solar_os_memory_free(void *p) { if(p) { device_allocations--;free(p); } }
+void *solar_os_memory_alloc(size_t n,solar_os_memory_class_t cls,const char *tag)
+{ return solar_os_memory_calloc(1,n,cls,tag); }
 static int native_mutex_create(void **p,uint32_t recursive)
 { (void)recursive;*p=malloc(sizeof(pthread_mutex_t));return *p?pthread_mutex_init(*p,NULL):1; }
 static int native_mutex_lock(void *p) { return pthread_mutex_lock(p); }
@@ -33,7 +38,8 @@ static int worker_start(void **p,void(*fn)(void*),void *arg,uint32_t bytes,uint3
 { (void)fn;(void)arg;(void)bytes;(void)core;*p=malloc(1);if(*p)workers++;return *p?0:1; }
 static int worker_join(void *p) { free(p);workers--;return 0; }
 int solar_os_native_library_acquire(const char *name,uint32_t abi,uint32_t bytes,uint32_t *lease,const void **api)
-{ assert(!strcmp(name,"robot") && abi==SOLAR_OS_ROBOT_ABI && bytes==sizeof(*provider));*api=provider;*lease=++leases;return 0; }
+{ assert(!strcmp(name,"robot") && abi==SOLAR_OS_ROBOT_ABI &&
+    (bytes==sizeof(*provider) || bytes==SOLAR_OS_ROBOT_JOINT_API_SIZE));*api=provider;*lease=++leases;return 0; }
 int solar_os_native_library_release(uint32_t lease)
 { assert(lease && leases);if(fail_release)return STATE;leases--;return 0; }
 static esp_err_t hw_status(void *ctx,solar_os_motor_status_t *s)
@@ -68,11 +74,51 @@ static void teardown(void)
 int main(void)
 {
     setup();
+    char error[128];
+    uint32_t handles[SOLAR_OS_ROBOT_MODEL_MAX], extra = 0;
+    const char *minimal="<robot name='minimal'><link name='root'/></robot>";
+    for (unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i)
+        assert(provider->model_load(minimal,strlen(minimal),&handles[i],error,sizeof(error))==OK);
+    unsigned held_allocations=provider_allocations;
+    assert(provider->model_load(minimal,strlen(minimal),&extra,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(!extra && provider_allocations==held_allocations);
+    for (unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i) {
+        assert(provider->model_close(handles[i])==OK);
+        assert(provider->model_close(handles[i])==MISSING);
+    }
+    assert(!provider_allocations);
+    fail_release=true;
+    assert(solar_os_robot_model_load_xml("<bad/>",6,error,sizeof(error))!=ESP_OK && leases==1 && !provider_allocations);
+    fail_release=false;
+    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
+    assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && leases==1);
+    assert(solar_os_robot_engine_shutdown()==STATE);
+    solar_os_robot_model_info_t mi;
+    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==5 && mi.joints==4);
+    assert(solar_os_robot_model_load_xml("<bad/>",6,error,sizeof(error))!=ESP_OK && *error);
+    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && !strcmp(mi.name,"solbot") && leases==1);
+    const char *positions[]={"left_wheel_joint","right_wheel_joint"};float values[]={0,0};
+    assert(solar_os_robot_model_update(positions,values,2)==ESP_OK);
+    solar_os_robot_transform_t transform;
+    assert(solar_os_robot_model_transform("right_wheel_link","left_wheel_link",&transform)==ESP_OK);
+    assert(fabsf(transform.translation[1]-.0701282f)<1e-6f);
+    /* Reload leaves no old model allocations or extra leases. */
+    unsigned model_allocations=provider_allocations;
+    assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK);
+    assert(provider_allocations==model_allocations && leases==1 && !workers);
+    fail_release=true;
+    assert(solar_os_robot_model_unload()==ESP_ERR_INVALID_STATE && leases==1 && !provider_allocations);
+    fail_release=false;
+    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
+    assert(solar_os_robot_model_transform("base_link","base_link",&transform)==ESP_ERR_NOT_FOUND);
     assert(solar_os_robot_joint_create("wheel",SOLAR_OS_ROBOT_MOTOR_VELOCITY,"python")==ESP_OK && leases==1);
     assert(solar_os_robot_joint_configure("wheel","ppr",7)==ESP_OK);
     assert(solar_os_robot_joint_configure("wheel","gear_ratio",30)==ESP_OK);
     assert(solar_os_robot_joint_bind_motor("wheel","left","left_enc")==ESP_OK);
     assert(solar_os_robot_joint_enable("wheel")==ESP_OK && workers==1);
+    /* Loading a description never touches active joint claims/workers. */
+    assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && workers==1 && leases==2);
+    assert(solar_os_robot_model_unload()==ESP_OK && workers==1 && leases==1);
     assert(solar_os_motor_drive("left",.3f)==ESP_ERR_INVALID_STATE);
     assert(solar_os_encoder_reset("left_enc")==ESP_ERR_INVALID_STATE);
     assert(solar_os_motor_unregister("left")==ESP_ERR_INVALID_STATE);

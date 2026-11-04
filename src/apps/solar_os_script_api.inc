@@ -94,6 +94,13 @@ SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_enable, joint_enable);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_disable, joint_disable);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_status, joint_status);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, joint_close, joint_close);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_load, model_load);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_unload, model_unload);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_info, model_info);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_set_joint, model_set_joint);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_transform, model_transform);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_point, model_point);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_vector, model_vector);
 SOLAR_OS_SCRIPT_API_MODULE_END(robot);
 #endif
 

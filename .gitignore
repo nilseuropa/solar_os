@@ -62,6 +62,7 @@ tests/host/power_key_custom_test
 /tests/host/parameters_concurrency_test
 /tests/host/robot_joint_test
 /tests/host/robot_integration_test
+/tests/host/robot_model_test
 /tests/host/epd_xteink_identify_test
 /tests/host/x4pro_expansion_test
 /tests/host/gt911_test
