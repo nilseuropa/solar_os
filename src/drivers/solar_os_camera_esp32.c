@@ -12,6 +12,7 @@
 #include "solar_os_buses.h"
 #include "solar_os_camera.h"
 #include "solar_os_camera_stream.h"
+#include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_resources.h"
 
@@ -161,6 +162,28 @@ static esp_err_t camera_start(void *ctx,
         if (shared_sccb) camera_sccb_unlock();
         return ESP_ERR_INVALID_RESPONSE;
     }
+
+    /* OV5640 JPEG capture is unreliable with direct PSRAM DMA on the S3.
+     * Stage DMA internally while keeping the single JPEG framebuffer in PSRAM.
+     * Restore the configured default if a different sensor is later attached. */
+#if CONFIG_CAMERA_PSRAM_DMA
+    const bool psram_dma = sensor->id.PID != OV5640_PID;
+#else
+    const bool psram_dma = false;
+#endif
+    if (esp_camera_get_psram_mode() != psram_dma) {
+        const esp_err_t mode_error = esp_camera_set_psram_mode(psram_dma);
+        /* Changing DMA mode reinitializes the driver and invalidates sensor. */
+        sensor = mode_error == ESP_OK ? esp_camera_sensor_get() : NULL;
+        if (sensor == NULL) {
+            (void)esp_camera_deinit();
+            if (shared_sccb) camera_sccb_unlock();
+            return mode_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : mode_error;
+        }
+    }
+    SOLAR_OS_LOGI("camera", "%s: %s DMA; framebuffer=psram",
+                  sensor_name(sensor->id.PID),
+                  psram_dma ? "direct PSRAM" : "internal staging");
     if (shared_sccb) camera_sccb_unlock();
 
     state->started = true;

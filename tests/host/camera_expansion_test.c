@@ -10,11 +10,16 @@
 #include "solar_os_camera.h"
 #include "solar_os_camera_stream.h"
 #include "solar_os_memory.h"
+#include "solar_os_log.h"
 #include "solar_os_resources.h"
 #include "solar_os_stream.h"
 
-const camera_sensor_info_t camera_sensor[] = {{0x26, "OV2640"}};
+const camera_sensor_info_t camera_sensor[] = {{0x26, "OV2640"}, {OV5640_PID, "OV5640"}};
 static sensor_t sensor = {.id.PID = 0x26};
+static sensor_t reconfigured_sensor;
+static sensor_t *active_sensor = &sensor;
+static bool psram_dma = true, fail_mode, missing_sensor, missing_after_mode;
+static unsigned mode_changes;
 static camera_config_t native;
 static uint8_t jpeg[] = {0xff, 0xd8, 0xff, 0xd9};
 static camera_fb_t fb = {.buf = jpeg, .len = sizeof(jpeg), .format = PIXFORMAT_JPEG,
@@ -64,13 +69,31 @@ esp_err_t esp_camera_init(const camera_config_t *config)
     assert(bus_locked == (config->pin_sccb_sda == -1));
     if (fail_start) return ESP_ERR_NO_MEM;
     native = *config; starts++;
+    active_sensor = &sensor;
     fb.width = native.frame_size == FRAMESIZE_VGA ? 640 : 320;
     fb.height = native.frame_size == FRAMESIZE_VGA ? 480 : 240;
     return ESP_OK;
 }
 esp_err_t esp_camera_deinit(void)
 { assert(bus_locked == (native.pin_sccb_sda == -1)); if (fail_stop) return ESP_FAIL; stops++; return ESP_OK; }
-sensor_t *esp_camera_sensor_get(void) { return &sensor; }
+sensor_t *esp_camera_sensor_get(void) { return missing_sensor ? NULL : active_sensor; }
+bool esp_camera_get_psram_mode(void) { return psram_dma; }
+esp_err_t esp_camera_set_psram_mode(bool enable)
+{
+    assert(bus_locked == (native.pin_sccb_sda == -1));
+    mode_changes++;
+    psram_dma = enable;
+    reconfigured_sensor = sensor;
+    active_sensor = &reconfigured_sensor;
+    if (fail_mode) return ESP_ERR_NO_MEM;
+    missing_sensor = missing_after_mode;
+    /* The original pointer is invalid after a real reconfiguration. */
+    sensor.id.PID = 0;
+    return ESP_OK;
+}
+esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag,
+                             const char *fmt, ...)
+{ (void)level; (void)tag; (void)fmt; return ESP_OK; }
 camera_fb_t *esp_camera_fb_get(void) { return fail_capture ? NULL : &fb; }
 void esp_camera_fb_return(camera_fb_t *frame) { assert(frame == &fb); releases++; }
 
@@ -170,6 +193,7 @@ int main(void)
     assert(native.pin_pclk == 13 && native.pin_xclk == 15);
     assert(native.pin_pwdn == -1 && native.pin_reset == -1);
     assert(native.fb_count == 1 && native.fb_location == CAMERA_FB_IN_PSRAM);
+    assert(psram_dma && mode_changes == 0U);
     assert(handle.video.width == 640 && handle.video.height == 480);
     assert(solar_os_stream_open("camera0", "other", &second) == ESP_ERR_INVALID_STATE);
     solar_os_camera_owner_t owner = {0};
@@ -253,6 +277,48 @@ int main(void)
     assert(solar_os_resource_claim_count() == 1U && allocations == 0U);
     assert(bus_lookups == 4U && bus_locks > 0U && !bus_locked);
     solar_os_resource_release_owner("i2c0");
+
+    /* OV5640 changes only DMA transport, preserves JPEG storage/configuration,
+     * and publishes the sensor from the reinitialized driver. */
+    sensor.id.PID = OV5640_PID;
+    assert(driver->attach("camera0", pins, 16U) == ESP_OK);
+    fail_mode = true;
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_NO_MEM);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(!status.initialized && !status.owner_leased && !bus_locked);
+    fail_mode = false;
+    psram_dma = true;
+    missing_after_mode = true;
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_INVALID_RESPONSE);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(!status.initialized && !status.owner_leased && !bus_locked);
+    missing_after_mode = missing_sensor = false;
+    sensor.id.PID = OV5640_PID;
+    psram_dma = true;
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
+    assert(!psram_dma && mode_changes == 3U);
+    assert(native.fb_location == CAMERA_FB_IN_PSRAM && native.fb_count == 1);
+    assert(native.xclk_freq_hz == 20000000 && native.jpeg_quality == 12);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(status.sensor.product_id == OV5640_PID);
+    assert(strcmp(status.sensor.name, "OV5640") == 0);
+    assert(solar_os_stream_acquire_frame(&handle, &frame) == ESP_OK);
+    assert(solar_os_stream_release_frame(&handle, &frame) == ESP_OK);
+    assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+    assert(driver->detach("camera0") == ESP_OK);
+    solar_os_resource_release_owner("camera0");
+
+    /* A later OV2640 restores the default mode, including shared SCCB locking. */
+    sensor.id.PID = 0x26;
+    assert(driver->attach("camera0", shared, 13U) == ESP_OK);
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
+    assert(psram_dma && mode_changes == 4U && !bus_locked);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(status.sensor.product_id == 0x26);
+    assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+    assert(driver->detach("camera0") == ESP_OK);
+    solar_os_resource_release_owner("camera0");
+    assert(allocations == 0U && solar_os_resource_claim_count() == 0U);
     puts("camera expansion and typed-frame stream tests: ok");
     return 0;
 }
