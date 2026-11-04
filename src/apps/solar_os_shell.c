@@ -1198,7 +1198,8 @@ static const char * const charger_subcommands[] = {
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
-static const char * const camera_subcommands[] = {"status", "capture", "off"};
+static const char * const camera_subcommands[] = {"status", "capture", "orientation", "off"};
+static const char * const camera_orientation_values[] = {"normal", "mirror", "flip", "180"};
 static const char * const camera_frame_sizes[] = {"qvga", "vga"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
@@ -2695,6 +2696,7 @@ static const char * const path_pipeline_start[] = {"pipeline", "start"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 static const char * const path_camera[] = {"camera"};
+static const char * const path_camera_orientation[] = {"camera", "orientation"};
 static const char * const path_camera_capture[] = {"camera", "capture"};
 static const char * const path_camera_capture_file[] = {
     "camera", "capture", SHELL_COMPLETION_ANY,
@@ -3942,6 +3944,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
     SHELL_COMPLETION_STATIC(path_camera, camera_subcommands),
+    SHELL_COMPLETION_STATIC(path_camera_orientation, camera_orientation_values),
     SHELL_COMPLETION_PATH(path_camera_capture, false),
     SHELL_COMPLETION_STATIC(path_camera_capture_file, camera_frame_sizes),
 #endif

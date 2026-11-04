@@ -11,7 +11,12 @@ enum { PIXFORMAT_JPEG, CAMERA_FB_IN_PSRAM, CAMERA_GRAB_WHEN_EMPTY, CAMERA_GRAB_L
 #define OV5640_PID 0x5640
 typedef struct { int pid; const char *name; } camera_sensor_info_t;
 extern const camera_sensor_info_t camera_sensor[CAMERA_MODEL_MAX];
-typedef struct { struct { uint16_t PID; } id; } sensor_t;
+typedef struct sensor_s {
+    struct { uint16_t PID; } id;
+    struct { int hmirror, vflip; } status;
+    int (*set_hmirror)(struct sensor_s *, int);
+    int (*set_vflip)(struct sensor_s *, int);
+} sensor_t;
 typedef struct {
     int pin_pwdn, pin_reset, pin_xclk, pin_sccb_sda, pin_sccb_scl;
     int pin_d7, pin_d6, pin_d5, pin_d4, pin_d3, pin_d2, pin_d1, pin_d0;

@@ -10,7 +10,8 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 
-static const char * const camera_subcommands[] = {"status", "capture", "off"};
+static const char * const camera_subcommands[] = {"status", "capture", "orientation", "off"};
+static const char * const orientation_values[] = {"normal", "mirror", "flip", "180"};
 #define CAMERA_SHELL_OWNER "shell:camera"
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
@@ -61,13 +62,14 @@ static void print_status(solar_os_shell_io_t *io)
     solar_os_shell_io_printf(
         io,
         "driver=%s sensor=%s pid=0x%04x format=jpeg size=%s "
-        "quality=%u buffers=%u storage=psram owner=%s frame=%s captures=%lu "
+        "quality=%u orientation=%s buffers=%u storage=psram owner=%s frame=%s captures=%lu "
         "timeout=%ums last=%s\r\n",
         status.driver,
         status.sensor.name,
         (unsigned)status.sensor.product_id,
         solar_os_camera_frame_size_name(status.config.frame_size),
         (unsigned)status.config.jpeg_quality,
+        solar_os_camera_orientation_name(status.orientation),
         (unsigned)status.sensor.frame_buffer_count,
         status.owner_leased ? status.owner : "-",
         status.frame_leased ? "leased" : "free",
@@ -158,6 +160,36 @@ void solar_os_shell_cmd_camera(solar_os_context_t *ctx, int argc, char **argv)
         print_status(io);
         return;
     }
+    if (argc >= 2 && strcmp(argv[1], "orientation") == 0) {
+        const char *usage = "camera orientation [normal|mirror|flip|180]";
+        if (argc > 3) {
+            solar_os_shell_diag_unexpected(io, "camera orientation", argv[3], usage);
+            return;
+        }
+        esp_err_t error = ESP_OK;
+        if (argc == 3) {
+            size_t index = 0U;
+            while (index < sizeof(orientation_values) / sizeof(orientation_values[0]) &&
+                   strcmp(argv[2], orientation_values[index]) != 0) index++;
+            if (index == sizeof(orientation_values) / sizeof(orientation_values[0])) {
+                solar_os_shell_diag_invalid(io, "camera orientation", "orientation",
+                    argv[2], "normal, mirror, flip, or 180", usage, false);
+                return;
+            }
+            error = solar_os_camera_set_orientation((solar_os_camera_orientation_t)index);
+        }
+        solar_os_camera_status_t status;
+        if (error == ESP_OK) error = solar_os_camera_get_status(&status);
+        if (error == ESP_OK && !status.backend_registered) error = ESP_ERR_NOT_SUPPORTED;
+        if (error == ESP_OK) {
+            solar_os_shell_io_printf(io, "orientation=%s\r\n",
+                                     solar_os_camera_orientation_name(status.orientation));
+        } else {
+            solar_os_shell_io_printf(io, "camera: orientation failed: %s (0x%x)\r\n",
+                                     esp_err_to_name(error), (unsigned)error);
+        }
+        return;
+    }
     if (argc == 2 && strcmp(argv[1], "off") == 0) {
         solar_os_camera_owner_t owner = {0};
         esp_err_t error = solar_os_camera_acquire(CAMERA_SHELL_OWNER, &owner);
@@ -214,7 +246,8 @@ void solar_os_shell_cmd_camera(solar_os_context_t *ctx, int argc, char **argv)
     }
     solar_os_shell_diag_subcommand(
         io, "camera", argc, argv,
-        "camera [status] | camera capture <path> [qvga|vga] | camera off",
+        "camera [status] | camera capture <path> [qvga|vga] | "
+        "camera orientation [normal|mirror|flip|180] | camera off",
         camera_subcommands,
         sizeof(camera_subcommands) / sizeof(camera_subcommands[0]));
 }

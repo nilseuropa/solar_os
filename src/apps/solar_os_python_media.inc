@@ -274,6 +274,7 @@ static mp_obj_t solaros_camera_status(void)
     python_dict_store_uint(d, "jpeg_quality", status.config.jpeg_quality);
     python_dict_store_uint(d, "capture_count", status.capture_count);
     python_dict_store_uint(d, "frame_buffer_count", status.sensor.frame_buffer_count);
+    python_dict_store_cstr(d, "orientation", solar_os_camera_orientation_name(status.orientation));
     python_dict_store_cstr(d, "last_error_name", esp_err_to_name(status.last_error));
     return d;
 }

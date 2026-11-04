@@ -31,6 +31,23 @@ static bool fail_start, fail_stop, fail_capture;
 static unsigned bus_lookups, bus_locks;
 static bool bus_locked;
 static esp_err_t bus_result = ESP_OK;
+static bool fail_mirror, fail_flip;
+
+static int set_mirror(sensor_t *device, int enable)
+{
+    assert(device == active_sensor);
+    assert(bus_locked == (native.pin_sccb_sda == -1));
+    device->status.hmirror = enable;
+    return fail_mirror ? -1 : 0;
+}
+
+static int set_flip(sensor_t *device, int enable)
+{
+    assert(device == active_sensor);
+    assert(bus_locked == (native.pin_sccb_sda == -1));
+    device->status.vflip = enable;
+    return fail_flip ? -1 : 0;
+}
 
 esp_err_t solar_os_bus_i2c_get_handle(const char *name,
                                       i2c_master_bus_handle_t *handle, int *port)
@@ -72,6 +89,9 @@ esp_err_t esp_camera_init(const camera_config_t *config)
     if (fail_start) return ESP_ERR_NO_MEM;
     native = *config; starts++;
     active_sensor = &sensor;
+    sensor.set_hmirror = set_mirror;
+    sensor.set_vflip = set_flip;
+    sensor.status.hmirror = sensor.status.vflip = 0;
     fb.width = native.frame_size == FRAMESIZE_VGA ? 640 : 320;
     fb.height = native.frame_size == FRAMESIZE_VGA ? 480 : 240;
     return ESP_OK;
@@ -280,6 +300,20 @@ int main(void)
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
     assert(native.pin_sccb_sda == -1 && native.pin_sccb_scl == -1);
     assert(native.sccb_i2c_port == 0);
+    assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_180) == ESP_OK);
+    assert(active_sensor->status.hmirror && active_sensor->status.vflip && !bus_locked);
+    fail_flip = true;
+    assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_NORMAL) == ESP_FAIL);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(status.orientation == SOLAR_OS_CAMERA_ORIENTATION_180);
+    assert(active_sensor->status.hmirror && active_sensor->status.vflip && !bus_locked);
+    fail_flip = false;
+    fail_mirror = true;
+    assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_NORMAL) == ESP_FAIL);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(status.orientation == SOLAR_OS_CAMERA_ORIENTATION_180);
+    fail_mirror = false;
+    assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_NORMAL) == ESP_OK);
     assert(solar_os_stream_acquire_frame(&handle, &frame) == ESP_OK);
     assert(solar_os_stream_release_frame(&handle, &frame) == ESP_OK);
     fail_stop = true;
@@ -319,15 +353,23 @@ int main(void)
     fail_reconfigure = false;
     sensor.id.PID = OV5640_PID;
     psram_dma = true;
+    assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_180) == ESP_OK);
+    fail_flip = true;
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_FAIL);
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(!status.initialized && !status.owner_leased);
+    fail_flip = false;
+    sensor.id.PID = OV5640_PID;
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
     assert(!psram_dma && mode_changes == 4U);
     assert(native.fb_location == CAMERA_FB_IN_PSRAM && native.fb_count == 2);
-    assert(native.grab_mode == CAMERA_GRAB_LATEST && reconfigurations == 2U);
+    assert(native.grab_mode == CAMERA_GRAB_LATEST && reconfigurations == 3U);
     assert(native.xclk_freq_hz == 20000000 && native.jpeg_quality == 12);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(status.sensor.product_id == OV5640_PID);
     assert(status.sensor.frame_buffer_count == 2U);
     assert(strcmp(status.sensor.name, "OV5640") == 0);
+    assert(active_sensor->status.hmirror && active_sensor->status.vflip);
     assert(solar_os_stream_acquire_frame(&handle, &frame) == ESP_OK);
     assert(solar_os_stream_release_frame(&handle, &frame) == ESP_OK);
     assert(solar_os_stream_close_ex(&handle) == ESP_OK);
@@ -335,6 +377,7 @@ int main(void)
     sensor.id.PID = OV5640_PID;
     assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_OK);
     assert(native.frame_size == FRAMESIZE_VGA && native.fb_count == 2);
+    assert(active_sensor->status.hmirror && active_sensor->status.vflip);
     assert(!psram_dma && mode_changes == 4U);
     assert(solar_os_stream_acquire_frame(&handle, &frame) == ESP_OK);
     assert(frame.width == 640 && frame.height == 480);
