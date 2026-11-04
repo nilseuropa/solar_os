@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "../../modules/robot/main/robot.c"
+#include "robot_controller_stubs.inc"
 
 static uint64_t fake_time;
 static int32_t count;
@@ -14,6 +15,7 @@ static unsigned allocations, joins;
 static void *allocate(size_t n) { void *p = calloc(1, n); if (p) allocations++; return p; }
 static void deallocate(void *p) { if (p) { allocations--; free(p); } }
 static int64_t time_us(void) { return fake_time; }
+int64_t esp_timer_get_time(void) { return time_us(); }
 static void sleep_ms(uint32_t ms) { fake_time += ms * 1000; }
 static int mutex_create(void **out, uint32_t recursive)
 { (void)recursive; *out = malloc(sizeof(pthread_mutex_t)); return *out ? pthread_mutex_init(*out, NULL) : 1; }
@@ -61,7 +63,9 @@ int main(void)
         .motor_drive=write_motor,.motor_stop=stop_motor,.motor_release=release_motor,
         .encoder_claim=claim_encoder,.encoder_sample=sample_encoder,.encoder_release=release_encoder,
         .servo_open=open_servo,.servo_set=set_servo,.servo_disable=disable_servo,.servo_close=close_servo};
-    const solar_os_robot_api_v3_t *api=solar_os_robot_engine_init(&mem,&clk,&th,&hw); assert(api);
+    const solar_os_native_controllers_api_v1_t *control=solar_os_native_controllers_get_service("controllers",1,sizeof(*control));
+    assert(control);
+    const solar_os_robot_api_v3_t *api=solar_os_robot_engine_init(&mem,&clk,&th,&hw,control); assert(api);
     uint32_t id;
     assert(api->create("wheel",SOLAR_OS_ROBOT_MOTOR_VELOCITY,&id)==OK);
     assert(!motor_held && !encoder_held);
@@ -215,11 +219,13 @@ int main(void)
     assert(fabsf(info(id).p-(1-info(id).velocity))<.0001f && !info(id).saturated);
     assert(api->close(id)==OK);
     assert(api->create("pan",SOLAR_OS_ROBOT_SERVO_POSITION,&id)==OK);
+    assert(!solar_os_controller_count());
     solar_os_native_servo_config_v1_t servo={.provider="native",.output=2,.frequency_hz=50,
         .pulse_min_us=1000,.pulse_max_us=2000,.angle_min=-2,.angle_max=2};
     assert(api->bind_servo(id,&servo)==OK);
     assert(api->configure(id,"gear_ratio",2)==OK && api->configure(id,"motor_polarity",-1)==OK);
     assert(api->command(id,.5f)==OK && api->enable(id)==OK);
+    assert(!solar_os_controller_count()); /* Servo conversion has no PID. */
     tick(id,20); assert(servo_angle==-1 && !info(id).position_valid && !info(id).velocity_valid);
     assert(api->command(id,2)==ARG);
     for (int i=0;i<15;i++) tick(id,20);
@@ -227,6 +233,16 @@ int main(void)
     assert(api->command(id,.25f)==OK);tick(id,20);assert(servo_angle==-.5f);
     tick(id,400); assert(info(id).state==SOLAR_OS_ROBOT_FAULT);
     assert(api->close(id)==OK && !servo_held && !allocations);
+    assert(api->create("failed_enable",SOLAR_OS_ROBOT_MOTOR_VELOCITY,&id)==OK);
+    assert(api->configure(id,"ppr",70)==OK && api->configure(id,"gear_ratio",30)==OK);
+    assert(api->bind_motor(id,"left","enc")==OK);
+    fail_stop=true;
+    assert(api->enable(id)==STATE && motor_held && solar_os_controller_count()==1);
+    solar_os_controller_info_t controller;
+    assert(solar_os_controller_find("failed_enable",&controller)==ESP_OK && controller.faulted && !controller.enabled);
+    assert(api->close(id)==STATE && solar_os_controller_count()==1);
+    fail_stop=false;
+    assert(api->close(id)==OK && !solar_os_controller_count() && !allocations);
     assert(joins>=7); assert(solar_os_robot_engine_shutdown()==OK);
     puts("robot joints: calibration, polarity, PPR decoding, wrap, deadband/feedforward, load control, deadlines and cleanup passed");
     return 0;

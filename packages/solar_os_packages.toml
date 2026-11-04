@@ -1173,7 +1173,7 @@ capabilities = ["psram"]
 
 [packages.service_robot]
 label = "service.robot"
-depends = ["service_native_modules"]
+depends = ["service_native_modules", "service_controllers"]
 sources = ["services/solar_os_robot.c", "shell/solar_os_shell_robot.c"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
@@ -1479,6 +1479,7 @@ depends = ["service_streams", "service_pwm"]
 sources = [
   "services/solar_os_controller_math.c",
   "services/solar_os_controllers.c",
+  "services/solar_os_native_controllers.c",
   "shell/solar_os_shell_controllers.c",
 ]
 

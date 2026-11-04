@@ -4,6 +4,9 @@ static void solua_controller_info(lua_State *L, const solar_os_controller_info_t
     lua_newtable(L);
     const int item = lua_gettop(L);
     solua_set_str(L, item, "name", info->config.name);
+    solua_set_str(L, item, "owner", info->owner);
+    solua_set_bool(L, item, "waiting", info->waiting);
+    solua_set_num(L, item, "feedforward", info->feedforward);
     solua_set_str(L, item, "kind", info->config.algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis");
     solua_set_str(L, item, "source", info->config.source);
     solua_set_str(L, item, "target", info->config.target);
@@ -34,7 +37,7 @@ static void solua_controller_info(lua_State *L, const solar_os_controller_info_t
     solua_set_num(L, item, "p", info->state.p);
     solua_set_num(L, item, "i", info->state.i);
     solua_set_num(L, item, "d", info->state.d);
-    solua_set_num(L, item, "output", info->state.output);
+    solua_set_num(L, item, "output", info->state.output+info->feedforward);
     solua_set_num(L, item, "measurement", info->measurement);
     solua_set_int(L, item, "sample_ms", info->sample_ms);
     solua_set_int(L, item, "steps", info->steps);

@@ -95,7 +95,7 @@ int main(void)
 
     def test_public_runtime_headers_compile_as_c_and_cpp(self):
         headers = ('solar_os_native_libc_abi.h','solar_os_native_thread_abi.h',
-                   'solar_os_native_time_abi.h','solar_os_inference_backend_abi.h')
+                   'solar_os_native_time_abi.h','solar_os_native_controllers_abi.h','solar_os_inference_backend_abi.h')
         source = ''.join(f'#include "{header}"\n' for header in headers)
         for compiler,language in [('cc','c'),('c++','c++')]:
             subprocess.run([compiler,'-x',language,'-Wall','-Wextra','-Werror','-pedantic',

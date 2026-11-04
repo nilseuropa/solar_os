@@ -18,6 +18,7 @@ static bool check_reentry;
 static bool retire_output_in_callback;
 
 uint64_t solar_os_time_uptime_ms(void) { return now; }
+int64_t esp_timer_get_time(void) { return (int64_t)(now*1000); }
 const char *esp_err_to_name(esp_err_t err) { return err == ESP_OK ? "ESP_OK" : "error"; }
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -77,6 +78,70 @@ static void feed_tick(uint64_t time, float measurement)
     now = time;
     assert(solar_os_controller_feed("loop", measurement, now) == ESP_OK);
     solar_os_controllers_tick(now);
+}
+
+static void owned_controllers_test(void)
+{
+    now=1;
+    solar_os_native_controller_config_v1_t c={.kp=.5f,.ki=1,.derivative_tau=.05f,
+        .output_min=-.2f,.output_max=.2f,.max_dt=.2f,.setpoint_min=-3,.setpoint_max=3,
+        .period_ms=20,.timeout_ms=100};
+    uint32_t id=0;
+    assert(solar_os_controller_open_owned("wheel","robot",&c,&id)==ESP_OK && id);
+    solar_os_controller_info_t s;
+    assert(solar_os_controller_find("wheel",&s)==ESP_OK && s.enabled && s.waiting && !strcmp(s.owner,"robot"));
+    assert(solar_os_controller_create("wheel",SOLAR_OS_CONTROLLER_PID)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_configure("wheel","kp",2)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_configure("wheel","setpoint",1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_bind("wheel","manual","parameter:plant.drive")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_feed("wheel",0,0)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_manual("wheel",0)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_auto("wheel")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_reset("wheel")==ESP_ERR_INVALID_STATE);
+    float value;
+    assert(solar_os_controller_step("wheel",0,.02f,&value)==ESP_ERR_INVALID_STATE);
+    solar_os_controllers_tick(now+20); /* The generic worker must not double-step. */
+    assert(solar_os_controller_find("wheel",&s)==ESP_OK && !s.steps && s.enabled);
+    solar_os_native_controller_sample_v1_t sample={.setpoint=1,.measurement=0,.dt=.02f,.feedforward=.15f,.sample_us=1000,.run=1};
+    solar_os_native_controller_output_v1_t out;
+    assert(solar_os_controller_evaluate_owned(id,&sample,1000,&out)==ESP_OK);
+    assert(out.output==.2f && out.saturated && out.i==0); /* Feedforward participates in anti-windup. */
+    assert(solar_os_controller_find("wheel",&s)==ESP_OK && s.steps==1 && !s.waiting && s.state.p==out.p);
+    assert(solar_os_controller_pause_owned(id)==ESP_OK);
+    sample.sample_us+=20000; sample.run=0;
+    assert(solar_os_controller_evaluate_owned(id,&sample,sample.sample_us,&out)==ESP_OK && !out.output && !out.i);
+    assert(solar_os_controller_evaluate_owned(id,&sample,sample.sample_us,&out)==ESP_ERR_TIMEOUT);
+    assert(solar_os_controller_find("wheel",&s)==ESP_OK && s.faulted && !s.enabled);
+    assert(solar_os_controller_pause_owned(id)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_delete("wheel")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_close_owned(id)==ESP_OK);
+    uint32_t replacement=0;
+    assert(solar_os_controller_open_owned("wheel","robot",&c,&replacement)==ESP_OK && id!=replacement);
+    assert(solar_os_controller_close_owned(id)==ESP_ERR_NOT_FOUND); /* Stale owner cannot remove a replacement. */
+    assert(solar_os_controller_stop("wheel")==ESP_OK);
+    assert(solar_os_controller_evaluate_owned(replacement,&sample,sample.sample_us,&out)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_start("wheel")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_close_owned(replacement)==ESP_OK);
+    const char *long_name="Wheel.01234567890123456";
+    assert(strlen(long_name)==23);
+    assert(solar_os_controller_open_owned(long_name,"robot",&c,&id)==ESP_OK);
+    assert(solar_os_controller_find(long_name,&s)==ESP_OK && !strcmp(s.config.name,long_name));
+    assert(solar_os_controller_close_owned(id)==ESP_OK);
+    uint32_t handles[SOLAR_OS_CONTROLLER_MAX];
+    for(unsigned i=0;i<SOLAR_OS_CONTROLLER_MAX;++i) {
+        char name[24];snprintf(name,sizeof(name),"owned_%u",i);
+        assert(solar_os_controller_open_owned(name,"robot",&c,&handles[i])==ESP_OK);
+    }
+    assert(solar_os_controller_create("overflow",SOLAR_OS_CONTROLLER_PID)==ESP_ERR_NO_MEM);
+    assert(solar_os_controller_open_owned("overflow","robot",&c,&id)==ESP_ERR_NO_MEM && !id);
+    assert(solar_os_controllers_stop_all()==ESP_OK);
+    for(unsigned i=0;i<SOLAR_OS_CONTROLLER_MAX;++i) assert(solar_os_controller_close_owned(handles[i])==ESP_OK);
+    assert(solar_os_controller_open_owned("delayed","robot",&c,&id)==ESP_OK);
+    now=201; sample.sample_us=1000;
+    /* Simulate a sample that aged while its caller was waiting for admission. */
+    assert(solar_os_controller_evaluate_owned(id,&sample,1000,&out)==ESP_ERR_TIMEOUT);
+    assert(solar_os_controller_close_owned(id)==ESP_OK);
+    assert(!solar_os_controller_count() && !solar_os_parameter_count());
 }
 
 int main(void)
@@ -194,6 +259,7 @@ int main(void)
         assert(solar_os_controller_delete(name) == ESP_OK);
     }
     assert(solar_os_controller_count() == 0 && solar_os_parameter_count() == 0);
+    owned_controllers_test();
     puts("controllers service tests passed");
     return 0;
 }

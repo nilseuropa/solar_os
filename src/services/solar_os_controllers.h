@@ -6,9 +6,10 @@
 #include "solar_os_controller_math.h"
 #include "solar_os_parameters.h"
 #include "solar_os_stream.h"
+#include "solar_os_native_controllers_abi.h"
 
 #define SOLAR_OS_CONTROLLER_MAX 8U
-#define SOLAR_OS_CONTROLLER_NAME_MAX 20U
+#define SOLAR_OS_CONTROLLER_NAME_MAX 24U
 #define SOLAR_OS_CONTROLLER_TARGET_MAX (SOLAR_OS_PARAMETER_PATH_MAX + 12U)
 
 typedef struct {
@@ -28,6 +29,9 @@ typedef struct {
     uint64_t sample_ms;
     uint32_t steps, faults;
     esp_err_t last_error;
+    char owner[16]; /* Nonempty: explicitly stepped instance; owner keeps its handle. */
+    bool waiting;
+    float feedforward;
 } solar_os_controller_info_t;
 
 esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_t kind);
@@ -52,3 +56,15 @@ esp_err_t solar_os_controller_stop(const char *name);
 esp_err_t solar_os_controllers_stop_all(void);
 /* Called by one worker. Endpoint callbacks must not re-enter this service. */
 void solar_os_controllers_tick(uint64_t now_ms);
+
+/* Owned PID instances share the registry and algorithm implementation. Their
+ * sampling owner calls evaluate with the host acquisition/execution clock;
+ * the generic job must not step them a second time. No hardware is accessed. */
+esp_err_t solar_os_controller_open_owned(const char *name, const char *owner,
+    const solar_os_native_controller_config_v1_t *config, uint32_t *id);
+esp_err_t solar_os_controller_evaluate_owned(uint32_t id,
+    const solar_os_native_controller_sample_v1_t *sample, uint64_t now_us,
+    solar_os_native_controller_output_v1_t *out);
+esp_err_t solar_os_controller_pause_owned(uint32_t id);
+esp_err_t solar_os_controller_fault_owned(uint32_t id, esp_err_t error);
+esp_err_t solar_os_controller_close_owned(uint32_t id);

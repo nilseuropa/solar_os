@@ -42,7 +42,7 @@ def build(sdk, output):
     output.mkdir(parents=True, exist_ok=True)
     objects = []
     for source in (HERE / "main/robot.c", HERE / "main/model.c", HERE / "main/transform.c",
-                   HERE / "main/library.c", ROOT / "src/services/solar_os_controller_math.c"):
+                   HERE / "main/library.c"):
         target = output / (source.stem + ".o")
         args = list(base)
         args[args.index("-o") + 1] = str(target)

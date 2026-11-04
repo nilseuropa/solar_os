@@ -12,8 +12,35 @@ packages_any = ["service_controllers"]
 Controllers compare a measurement with a setpoint and calculate an output.
 The `controllers` package group includes the service and its background job.
 It is enabled in the `full` flavor. Up to eight named instances are available.
-Names use 1 through 19 lowercase letters, digits, underscores, or hyphens.
+Standalone names use 1 through 22 lowercase letters, digits, underscores, or hyphens.
 Definitions are volatile; restore them from a startup script when required.
+
+## Controllers owned by components
+
+Components can create PID instances through native `controllers` ABI 1. These
+share the same eight-slot registry and PID implementation. Motor velocity joints
+appear under their joint names with `owner=robot`; owned names fit 23 bytes.
+`controller list/status` and Python/Lua `solaros.controllers` expose their state,
+including `owner`, `waiting` and `feedforward`. Output includes feedforward.
+
+An owner supplies timestamped measurements and setpoints and calls the OS PID
+synchronously on its sampling task. The generic controller job skips these
+instances, so it can run alongside them without duplicate evaluation. Joint
+calibration, ramping and hardware handling remain with the robot library.
+`claimed` refers to outputs claimed by this controller service; a robot-owned
+controller's physical motor/encoder claims are shown by `robot joint status`.
+
+Owned instances are configured and released through their owner's API. Generic
+configure, bind, feed, step, manual, auto, reset, start and delete operations are
+rejected. `controller stop` (or stopping all controllers) revokes further
+evaluation. A robot joint observes this on its next sample, stops its output
+and latches a fault. Use robot stop/start or joint disable/enable to recover.
+The owner retains the controller handle until physical cleanup succeeds.
+Servo-position joints use the OS servo service and have no PID instance.
+
+Owned instances receive setpoints through their owner rather than registering
+an independently writable `controller.<name>.setpoint` parameter. Standalone
+controllers retain the parameter, stream and PWM interfaces described below.
 
 ## Algorithms
 
@@ -250,4 +277,6 @@ exclusive parameter or PWM pulse output. Start `job controllers`, then start
 each instance. Faults latch and attempt the configured safe output. Stop
 instances to release claims; failed cleanup is retryable. Python and Lua expose
 the same operations under `solaros.controllers`. Native applications can use
-the allocation-free controller math library directly.
+the allocation-free controller math library directly. Component-owned PID
+instances share this registry; inspect their `owner` and `waiting` fields and
+configure/release them through their owner's API.

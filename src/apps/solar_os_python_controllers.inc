@@ -3,6 +3,9 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
 {
     mp_obj_t dict = mp_obj_new_dict(0);
     python_dict_store_cstr(dict, "name", info->config.name);
+    python_dict_store_cstr(dict, "owner", info->owner);
+    python_dict_store_bool(dict, "waiting", info->waiting);
+    python_dict_store_float(dict, "feedforward", info->feedforward);
     python_dict_store_cstr(dict, "kind", info->config.algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis");
     python_dict_store_cstr(dict, "source", info->config.source);
     python_dict_store_cstr(dict, "target", info->config.target);
@@ -33,7 +36,7 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
     python_dict_store_float(dict, "p", info->state.p);
     python_dict_store_float(dict, "i", info->state.i);
     python_dict_store_float(dict, "d", info->state.d);
-    python_dict_store_float(dict, "output", info->state.output);
+    python_dict_store_float(dict, "output", info->state.output+info->feedforward);
     python_dict_store_float(dict, "measurement", info->measurement);
     mp_obj_dict_store(dict, python_key("sample_ms"), python_u64_to_obj(info->sample_ms));
     python_dict_store_uint(dict, "steps", info->steps);

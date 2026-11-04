@@ -108,6 +108,7 @@ Pass the size of the public table and check for NULL before use:
 | --- | --- | --- |
 | `time` | `solar_os_native_time_abi.h` | Monotonic microseconds and cooperative sleep on the calling task |
 | `thread` | `solar_os_native_thread_abi.h` | Normal/recursive mutexes, conditions, task-local keys and joinable workers |
+| `controllers` | `solar_os_native_controllers_abi.h` | Owned PID instances in the OS registry; caller supplies timestamped samples and handles its actuator |
 | `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float parsing and math helpers |
 
 Thread operations return POSIX error numbers. Destroy synchronization objects

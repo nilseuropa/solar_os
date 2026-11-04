@@ -35,11 +35,12 @@ static void print_info(solar_os_shell_io_t *io, const solar_os_controller_info_t
         "  kp=%.6g ki=%.6g kd=%.6g tau=%.6g reverse=%u limits=%.6g..%.6g hysteresis=%.6g\n"
         "  period=%ums timeout=%ums max_dt=%.6gs safe=%.6g frequency=%uHz sample=%llums steps=%u faults=%u last=%s\n",
         c->name, c->algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis",
-        info->faulted ? "fault" : info->enabled ? "running" : "stopped",
+        info->faulted ? "fault" : info->enabled ? info->waiting?"waiting":"running" : "stopped",
         info->state.automatic ? "auto" : "manual", (unsigned)info->claimed,
-        c->source[0] ? c->source : "manual", c->target[0] ? c->target : "unbound",
+        c->source[0] ? c->source : info->owner[0]?"feed":"manual",
+        c->target[0] ? c->target : info->owner[0]?"owner":"unbound",
         (double)c->setpoint, (double)c->setpoint_min, (double)c->setpoint_max,
-        (double)info->measurement, (double)info->state.output,
+        (double)info->measurement, (double)(info->state.output+info->feedforward),
         (double)info->state.error, (double)info->state.p, (double)info->state.i, (double)info->state.d,
         (unsigned)info->state.saturated, (double)c->algorithm.kp, (double)c->algorithm.ki,
         (double)c->algorithm.kd, (double)c->algorithm.derivative_tau, (unsigned)c->algorithm.reverse,
@@ -47,6 +48,9 @@ static void print_info(solar_os_shell_io_t *io, const solar_os_controller_info_t
         (unsigned)c->period_ms, (unsigned)c->timeout_ms, (double)c->algorithm.max_dt,
         (double)c->safe_output, (unsigned)c->frequency_hz, (unsigned long long)info->sample_ms,
         (unsigned)info->steps, (unsigned)info->faults, solar_os_shell_error_text(info->last_error));
+    if(info->owner[0]) solar_os_shell_io_table_printf(io,
+        "  owner=%s clock=owner feedforward=%.6g; stop revokes evaluation, owner releases hardware\n",
+        info->owner,(double)info->feedforward);
 }
 
 void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **argv)

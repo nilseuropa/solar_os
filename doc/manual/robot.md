@@ -9,9 +9,12 @@ packages_any = ["service_robot"]
 # Robot joints
 
 The optional `robot` native library provides rotary servo-position and
-motor/encoder-velocity joints. Joint calibration, feedback conversion, controller
-state and workers live in the external ELF. The firmware provides generic
-device services and a thin shell/Python/Lua adapter. Robot joints do not require
+motor/encoder-velocity joints. Joint calibration, feedback conversion, ramping,
+friction compensation, command expiry and hardware handling live in the external
+ELF. Motor velocity joints use named PID instances in the OS controller service;
+the library contains no PID state or controller math. Its sampling worker feeds
+the OS controller synchronously, then applies the returned output to the motor.
+The firmware provides generic device services and a thin shell/Python/Lua adapter. Robot joints do not require
 URDF or a display. The same library also provides [URDF models and transforms](robot-models.md),
 independently of hardware joints. Native libraries require ESP32-S3, executable PSRAM, and
 the native-module service.
@@ -20,6 +23,16 @@ An expanded URDF can also declare motor/encoder velocity controllers in its
 `solar_os` block. Load the model, then use `robot start` to create and enable
 those controllers and `robot stop` to close them. They use the same calibration
 and command watchdog as manually created joints. See [model controller bindings](robot-models.md#solaros-extension).
+
+Enabled motor joints appear under their joint names in `controller list` and
+`controller status <joint>`, with `owner=robot`. Their controller state and gains
+are also visible through `solaros.controllers`. Configure them through the joint
+API or URDF while disabled. `robot stop` removes the model's controller instances
+after hardware cleanup succeeds. A failed stop retains the instance for retry.
+`controller stop <joint>` revokes PID evaluation; the joint worker observes this
+on its next sample, stops the output and latches a fault. Recover with joint
+disable/enable, or model stop/start. Servo-position joints use the OS servo
+service and do not create a PID instance.
 
 Install `robot` from a compatible signed module catalog before creating an
 joint. Creating the first joint loads the installed library on demand; it does
@@ -120,12 +133,13 @@ signal; it does not remove actuator power.
 
 ## Control and lifecycle
 
-Velocity joints run the portable PI/PID implementation with private per-joint
-state. The loop reads feedback, converts counts, estimates velocity, ramps the
-velocity setpoint, updates the controller and writes normalized motor demand.
+Velocity joints use the OS PI/PID implementation and controller registry. The
+joint loop reads feedback, converts counts, estimates velocity, ramps the
+velocity setpoint, requests an OS controller evaluation and writes normalized motor demand.
 `motor_polarity` is applied after the controller; `encoder_polarity` is applied
 to feedback. Saturation, anti-windup and filtered derivative use the common
-controller implementation. Joint loops do not use `job controllers`.
+controller implementation. The joint worker supplies the sampling clock;
+`job controllers` skips owned instances and can run alongside them.
 
 Each enabled joint has one joinable 4 KiB worker. Timing is bounded by provider
 calls and OS scheduling, without a hard real-time guarantee. Device callbacks
@@ -273,8 +287,10 @@ the connected mechanism. Lua uses the same names and arguments after
 through the native library service and keep the lease until every joint is
 closed. `solar_os_native_motion_abi.h` defines generic host motor claims,
 timestamped encoder sampling and owned servo operations. Its capability bits
-identify which underlying services are compiled. The robot ELF contains its
-own copy of the portable controller math, compiled from the shared source.
+identify which underlying services are compiled. Native `controllers` ABI 1
+provides OS-owned PID instances with copied inputs/outputs and monotonic owner
+handles. Update firmware and the robot ELF together for this interface. Loading
+models remains available without that service; enabling a motor joint requires it.
 
 ## Quick reference
 
@@ -285,4 +301,5 @@ Enable explicitly and refresh commands within their timeout. Expiry stops output
 and waits for a fresh command; hardware and feedback faults require recovery.
 Status distinguishes commanded, relative and measured quantities. Disable joins workers and stops
 outputs before releasing claims; failed cleanup is retryable. Close joints before
-unloading the library. Python and Lua expose the same operations in solaros.robot.
+unloading the library. Enabled motor joints also appear in `controller list`
+under their joint names. Python and Lua expose the same operations in solaros.robot.

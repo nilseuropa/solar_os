@@ -1,7 +1,6 @@
 #pragma once
 /* Shared by declarative model validation and manually configured joints. */
 #include "solar_os_robot_abi.h"
-#include "solar_os_controller_math.h"
 #include <math.h>
 #include <string.h>
 static bool solar_os_robot_config_equal(const char *a, const char *b)
@@ -22,10 +21,9 @@ static void solar_os_robot_config_defaults(solar_os_robot_joint_config_v3_t *c, 
 }
 static bool solar_os_robot_config_valid(const solar_os_robot_joint_config_v3_t *c, bool ppr_configured, bool ratio_configured)
 {
-    solar_os_controller_math_config_t p = {.kind=SOLAR_OS_CONTROLLER_PID, .kp=c->kp, .ki=c->ki, .kd=c->kd,
-        .derivative_tau=c->derivative_tau, .output_min=-c->max_drive, .output_max=c->max_drive,
-        .hysteresis=1, .max_dt=c->max_gap_ms/1000.0f};
-    return solar_os_controller_math_valid(&p) && isfinite(c->ppr) &&
+    return isfinite(c->kp) && c->kp>=0 && isfinite(c->ki) && c->ki>=0 &&
+        isfinite(c->kd) && c->kd>=0 && isfinite(c->derivative_tau) && c->derivative_tau>=0 &&
+        (c->kd==0 || c->derivative_tau>0) && isfinite(c->ppr) &&
         (c->ppr > 0 || (!ppr_configured && c->ppr == 0)) && isfinite(c->gear_ratio) &&
         (c->gear_ratio > 0 || (!ratio_configured && c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY && c->gear_ratio == 0)) &&
         (c->motor_polarity == 1 || c->motor_polarity == -1) &&

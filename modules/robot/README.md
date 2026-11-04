@@ -4,7 +4,11 @@ Optional ESP32-S3 native library implementing URDF models, transforms and calibr
 versioned C API is [solar_os_robot_abi.h](../../include/solar_os_robot_abi.h).
 Motor/encoder velocity joints own PPR, gearbox ratio, encoder placement,
 motor/encoder polarity, velocity estimation, ramping, command deadband,
-directional friction feedforward and PI/PID state.
+and directional friction feedforward. PI/PID state and evaluation belong to
+named instances in the OS controller service, accessed through native
+`controllers` ABI 1. The joint worker supplies calibrated timestamped samples,
+setpoints and feedforward; the OS applies PID and anti-windup, and the joint
+applies polarity and writes the motor. No controller math is linked into the ELF.
 Servo-position joints own joint-to-servo conversion and calibrated limits.
 Joint control works without a URDF model or display.
 
@@ -52,10 +56,11 @@ Without `--sdk-build-dir`, the builder configures an isolated SDK under
 `.pio/robot-sdk` for `--environment` (default `esp32_s3_devkitc1_n16r8`).
 
 Outputs are `.pio/modules/robot/robot.library.elf`, `robot.debug.elf`, and
-`build.json` with artifact size/hash and verified imports. The builder links
-portable controller math from the shared firmware source. `module.toml`
+`build.json` with artifact size/hash and verified imports. Controller math
+remains in firmware. `module.toml`
 integrates the provider with the signed module catalog; CMake exposes `typed_elf`.
-The firmware must provide native `motion` ABI 1. The standard install path is
+The firmware provides native `motion` ABI 1 and `controllers` ABI 1 for motor
+velocity control. Update firmware and the ELF together. The standard install path is
 `modules/libraries/robot.elf` on the preferred storage volume.
 
 See [Robot joints](../../doc/manual/robot.md) for calibration, lifecycle,

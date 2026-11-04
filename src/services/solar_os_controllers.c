@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "solar_os_pwm.h"
 #include "solar_os_time.h"
+#include "esp_timer.h"
 
 typedef struct {
     bool active;
@@ -17,11 +18,14 @@ typedef struct {
     bool source_open;
     solar_os_stream_handle_t source_handle;
     solar_os_parameter_registration_t registration;
+    uint32_t owner_id;
+    uint64_t sample_us;
 } controller_slot_t;
 
 static EXT_RAM_BSS_ATTR controller_slot_t slots[SOLAR_OS_CONTROLLER_MAX];
 static StaticSemaphore_t mutex_storage;
 static SemaphoreHandle_t mutex;
+static uint32_t next_owner_id;
 static portMUX_TYPE init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void lock(void)
@@ -57,8 +61,10 @@ static esp_err_t setpoint_get(void *user, float *value)
 static esp_err_t setpoint_set(void *user, float value)
 {
     if (!isfinite(value)) return ESP_ERR_INVALID_ARG;
-    lock(); ((controller_slot_t *)user)->info.config.setpoint = value;
-    xSemaphoreGive(mutex); return ESP_OK;
+    lock(); controller_slot_t *slot=user;
+    esp_err_t err=slot->owner_id?ESP_ERR_INVALID_STATE:ESP_OK;
+    if(err==ESP_OK) slot->info.config.setpoint = value;
+    xSemaphoreGive(mutex); return err;
 }
 
 static void writer_name(const controller_slot_t *slot, char *text, size_t size)
@@ -100,7 +106,7 @@ static esp_err_t release_output(controller_slot_t *slot)
 
 esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_t kind)
 {
-    if (!name_valid(name)) return ESP_ERR_INVALID_ARG;
+    if (!name_valid(name) || strlen(name)+sizeof(".setpoint")>SOLAR_OS_PARAMETER_NAME_MAX) return ESP_ERR_INVALID_ARG;
     solar_os_controller_math_config_t algorithm = solar_os_controller_math_defaults(kind);
     if (!solar_os_controller_math_valid(&algorithm)) return ESP_ERR_INVALID_ARG;
     lock();
@@ -118,7 +124,7 @@ esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_
         slot->info.config.timeout_ms = 200;
         slot->info.config.frequency_hz = 50;
         solar_os_controller_math_reset(&algorithm, &slot->info.state, 0);
-        char parameter[SOLAR_OS_PARAMETER_NAME_MAX];
+        char parameter[SOLAR_OS_CONTROLLER_NAME_MAX+sizeof(".setpoint")];
         snprintf(parameter, sizeof(parameter), "%s.setpoint", name);
         const solar_os_parameter_definition_t definition = {
             .name = parameter, .label = "Setpoint", .unit = "", .minimum = -1e20f,
@@ -135,7 +141,7 @@ esp_err_t solar_os_controller_delete(const char *name)
 {
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         err = solar_os_parameters_unregister(&slot->registration);
         if (err == ESP_OK) *slot = (controller_slot_t){0};
     }
@@ -173,13 +179,17 @@ esp_err_t solar_os_controller_configure(const char *name, const char *key, float
     /* Route setpoint writes through the same claim policy as controls/OSC. */
     if (strcmp(key, "setpoint") == 0) {
         if (!name_valid(name)) return ESP_ERR_INVALID_ARG;
+        lock(); controller_slot_t *slot=find(name);
+        bool owned=slot && slot->owner_id;
+        xSemaphoreGive(mutex);
+        if(owned) return ESP_ERR_INVALID_STATE;
         char path[SOLAR_OS_PARAMETER_PATH_MAX];
         snprintf(path, sizeof(path), "controller.%s.setpoint", name);
         return solar_os_parameter_set(path, value);
     }
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         solar_os_controller_config_t c = slot->info.config;
         err = ESP_OK;
         if (strcmp(key, "kp") == 0) c.algorithm.kp = value;
@@ -204,7 +214,7 @@ esp_err_t solar_os_controller_configure(const char *name, const char *key, float
         if (c.setpoint_min >= c.setpoint_max || c.setpoint < c.setpoint_min ||
             c.setpoint > c.setpoint_max) err = ESP_ERR_INVALID_ARG;
         if (err == ESP_OK && (strcmp(key, "setpoint_min") == 0 || strcmp(key, "setpoint_max") == 0)) {
-            char parameter[SOLAR_OS_PARAMETER_NAME_MAX];
+            char parameter[SOLAR_OS_CONTROLLER_NAME_MAX+sizeof(".setpoint")];
             snprintf(parameter, sizeof(parameter), "%s.setpoint", c.name);
             err = solar_os_parameters_update_range(&slot->registration, parameter, c.setpoint_min, c.setpoint_max);
         }
@@ -225,7 +235,7 @@ esp_err_t solar_os_controller_bind(const char *name, const char *source, const c
         strncmp(target, "parameter:controller.", 21) == 0) return ESP_ERR_INVALID_ARG;
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         strlcpy(slot->info.config.source, strcmp(source, "manual") == 0 ? "" : source, sizeof(slot->info.config.source));
         strlcpy(slot->info.config.target, target, sizeof(slot->info.config.target));
         slot->info.has_measurement = false;
@@ -239,7 +249,7 @@ esp_err_t solar_os_controller_feed(const char *name, float measurement, uint64_t
     if (!isfinite(measurement) || sample_ms > solar_os_time_uptime_ms()) return ESP_ERR_INVALID_ARG;
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && slot->info.config.source[0] == '\0') {
+    if (slot != NULL && !slot->owner_id && slot->info.config.source[0] == '\0') {
         if (slot->info.has_measurement && sample_ms < slot->info.sample_ms) err = ESP_ERR_INVALID_ARG;
         else {
             slot->info.measurement = measurement; slot->info.sample_ms = sample_ms;
@@ -254,7 +264,7 @@ esp_err_t solar_os_controller_step(const char *name, float measurement, float dt
     if (output == NULL) return ESP_ERR_INVALID_ARG;
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         err = solar_os_controller_math_step(&slot->info.config.algorithm, &slot->info.state,
             slot->info.config.setpoint, measurement, dt) ? ESP_OK : ESP_ERR_INVALID_ARG;
         if (err == ESP_OK) {
@@ -269,22 +279,24 @@ esp_err_t solar_os_controller_manual(const char *name, float output)
 {
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
-    if (slot != NULL && solar_os_controller_math_manual(&slot->info.config.algorithm, &slot->info.state, output)) err = ESP_OK;
+    if(slot && slot->owner_id) err=ESP_ERR_INVALID_STATE;
+    else if (slot != NULL && solar_os_controller_math_manual(&slot->info.config.algorithm, &slot->info.state, output)) err = ESP_OK;
     xSemaphoreGive(mutex); return err;
 }
 
 esp_err_t solar_os_controller_auto(const char *name)
 {
     lock(); controller_slot_t *slot = find(name);
-    if (slot != NULL) solar_os_controller_math_auto(&slot->info.state);
-    xSemaphoreGive(mutex); return slot != NULL ? ESP_OK : ESP_ERR_NOT_FOUND;
+    esp_err_t err=slot?slot->owner_id?ESP_ERR_INVALID_STATE:ESP_OK:ESP_ERR_NOT_FOUND;
+    if (err==ESP_OK) solar_os_controller_math_auto(&slot->info.state);
+    xSemaphoreGive(mutex); return err;
 }
 
 esp_err_t solar_os_controller_reset(const char *name)
 {
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         err = solar_os_controller_math_reset(&slot->info.config.algorithm, &slot->info.state,
             slot->info.config.safe_output) ? ESP_OK : ESP_ERR_INVALID_ARG;
         if (err == ESP_OK) {
@@ -299,7 +311,7 @@ esp_err_t solar_os_controller_start(const char *name)
 {
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->info.enabled && !slot->info.claimed) {
         const solar_os_controller_config_t *c = &slot->info.config;
         err = ESP_ERR_INVALID_ARG;
         if (c->safe_output >= c->algorithm.output_min && c->safe_output <= c->algorithm.output_max &&
@@ -337,6 +349,7 @@ esp_err_t solar_os_controller_start(const char *name)
 static esp_err_t stop_locked(controller_slot_t *slot)
 {
     slot->info.enabled = false;
+    slot->info.waiting = false;
     if (!slot->info.claimed) return ESP_OK;
     esp_err_t err = write_output(slot, slot->info.config.safe_output);
     if (err == ESP_OK || err == ESP_ERR_NOT_FOUND) {
@@ -376,12 +389,131 @@ static void fault(controller_slot_t *slot, esp_err_t err)
     if (safe_err != ESP_OK) slot->info.last_error = safe_err;
 }
 
+static controller_slot_t *find_owned(uint32_t id)
+{
+    for(unsigned i=0;id && i<SOLAR_OS_CONTROLLER_MAX;++i)
+        if(slots[i].active && slots[i].owner_id==id) return &slots[i];
+    return NULL;
+}
+
+esp_err_t solar_os_controller_open_owned(const char *name, const char *owner,
+    const solar_os_native_controller_config_v1_t *c, uint32_t *id)
+{
+    if(id) *id=0;
+    if(!id || !name || !*name || strnlen(name,SOLAR_OS_CONTROLLER_NAME_MAX)>=SOLAR_OS_CONTROLLER_NAME_MAX ||
+        !owner || !*owner || strnlen(owner,16)>=16 || !c)
+        return ESP_ERR_INVALID_ARG;
+    solar_os_controller_math_config_t algorithm={.kind=SOLAR_OS_CONTROLLER_PID,
+        .kp=c->kp,.ki=c->ki,.kd=c->kd,.derivative_tau=c->derivative_tau,
+        .output_min=c->output_min,.output_max=c->output_max,.max_dt=c->max_dt,.hysteresis=1};
+    if(!solar_os_controller_math_valid(&algorithm) || c->output_min>0 || c->output_max<0 ||
+        !isfinite(c->setpoint_min) || !isfinite(c->setpoint_max) || c->setpoint_min>=c->setpoint_max ||
+        c->setpoint_min>0 || c->setpoint_max<0 || c->period_ms<10 || c->period_ms>1000 ||
+        c->timeout_ms<c->period_ms || c->timeout_ms>60000 || c->max_dt*1000<c->period_ms)
+        return ESP_ERR_INVALID_ARG;
+    lock();
+    esp_err_t err=find(name)?ESP_ERR_INVALID_STATE:ESP_ERR_NO_MEM;
+    if(err==ESP_ERR_NO_MEM && next_owner_id!=UINT32_MAX) for(unsigned i=0;i<SOLAR_OS_CONTROLLER_MAX;++i) {
+        controller_slot_t *slot=&slots[i];
+        if(slot->active) continue;
+        *slot=(controller_slot_t){0};
+        slot->source_handle=(solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
+        slot->info.config.algorithm=algorithm;
+        strlcpy(slot->info.config.name,name,sizeof(slot->info.config.name));
+        strlcpy(slot->info.owner,owner,sizeof(slot->info.owner));
+        slot->info.config.setpoint_min=c->setpoint_min; slot->info.config.setpoint_max=c->setpoint_max;
+        slot->info.config.period_ms=c->period_ms; slot->info.config.timeout_ms=c->timeout_ms;
+        solar_os_controller_math_reset(&algorithm,&slot->info.state,0);
+        slot->info.enabled=slot->info.waiting=slot->active=true;
+        slot->owner_id=*id=++next_owner_id;
+        err=ESP_OK; break;
+    }
+    xSemaphoreGive(mutex); return err;
+}
+
+static void fault_owned(controller_slot_t *slot, esp_err_t err)
+{
+    if(!slot->info.faulted) slot->info.faults++;
+    slot->info.enabled=slot->info.waiting=false;
+    slot->info.faulted=true; slot->info.last_error=err;
+}
+
+esp_err_t solar_os_controller_evaluate_owned(uint32_t id,
+    const solar_os_native_controller_sample_v1_t *s, uint64_t now_us,
+    solar_os_native_controller_output_v1_t *out)
+{
+    if(!s || !out) return ESP_ERR_INVALID_ARG;
+    lock(); controller_slot_t *slot=find_owned(id);
+    /* Another controller may have held this mutex across endpoint I/O. Age
+     * the sample at completion of admission, not just before taking the lock. */
+    uint64_t admitted_us=(uint64_t)esp_timer_get_time();
+    if(admitted_us>now_us) now_us=admitted_us;
+    esp_err_t err=slot?slot->info.enabled?ESP_OK:ESP_ERR_INVALID_STATE:ESP_ERR_NOT_FOUND;
+    if(err==ESP_OK) {
+        const solar_os_controller_config_t *c=&slot->info.config;
+        if(!isfinite(s->setpoint) || s->setpoint<c->setpoint_min || s->setpoint>c->setpoint_max ||
+            !isfinite(s->measurement) || !isfinite(s->dt) || s->dt<=0 || s->dt>c->algorithm.max_dt ||
+            !isfinite(s->feedforward) || s->feedforward<c->algorithm.output_min ||
+            s->feedforward>c->algorithm.output_max || s->run>1) err=ESP_ERR_INVALID_ARG;
+        else if(s->sample_us>now_us || now_us-s->sample_us>(uint64_t)c->timeout_ms*1000 ||
+            (slot->info.has_measurement && s->sample_us<=slot->sample_us)) err=ESP_ERR_TIMEOUT;
+        if(err==ESP_OK) {
+            solar_os_controller_math_config_t algorithm=c->algorithm;
+            if(s->run) {
+                algorithm.output_min-=s->feedforward; algorithm.output_max-=s->feedforward;
+                if(!solar_os_controller_math_step(&algorithm,&slot->info.state,s->setpoint,s->measurement,s->dt))
+                    err=ESP_ERR_INVALID_ARG;
+            } else solar_os_controller_math_reset(&algorithm,&slot->info.state,0);
+            if(err==ESP_OK) {
+                slot->info.config.setpoint=s->setpoint;
+                slot->info.measurement=s->measurement; slot->sample_us=s->sample_us;
+                slot->info.sample_ms=s->sample_us/1000; slot->info.has_measurement=true;
+                slot->info.waiting=!s->run; slot->info.feedforward=s->run?s->feedforward:0;
+                slot->info.steps++; slot->info.last_error=ESP_OK;
+                *out=(solar_os_native_controller_output_v1_t){
+                    .output=fminf(c->algorithm.output_max,fmaxf(c->algorithm.output_min,
+                        slot->info.state.output+slot->info.feedforward)),
+                    .p=slot->info.state.p,.i=slot->info.state.i,.d=slot->info.state.d,
+                    .saturated=slot->info.state.saturated};
+            }
+        }
+        if(err!=ESP_OK) fault_owned(slot,err);
+    }
+    xSemaphoreGive(mutex); return err;
+}
+
+esp_err_t solar_os_controller_pause_owned(uint32_t id)
+{
+    lock(); controller_slot_t *slot=find_owned(id);
+    esp_err_t err=slot?slot->info.enabled?ESP_OK:ESP_ERR_INVALID_STATE:ESP_ERR_NOT_FOUND;
+    if(err==ESP_OK) {
+        solar_os_controller_math_reset(&slot->info.config.algorithm,&slot->info.state,0);
+        slot->info.config.setpoint=slot->info.feedforward=0; slot->info.waiting=true;
+    }
+    xSemaphoreGive(mutex); return err;
+}
+
+esp_err_t solar_os_controller_fault_owned(uint32_t id, esp_err_t error)
+{
+    if(error==ESP_OK) return ESP_ERR_INVALID_ARG;
+    lock(); controller_slot_t *slot=find_owned(id);
+    if(slot) fault_owned(slot,error);
+    xSemaphoreGive(mutex); return slot?ESP_OK:ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_controller_close_owned(uint32_t id)
+{
+    lock(); controller_slot_t *slot=find_owned(id);
+    if(slot) *slot=(controller_slot_t){0};
+    xSemaphoreGive(mutex); return slot?ESP_OK:ESP_ERR_NOT_FOUND;
+}
+
 void solar_os_controllers_tick(uint64_t now_ms)
 {
     lock();
     for (size_t i = 0; i < SOLAR_OS_CONTROLLER_MAX; i++) {
         controller_slot_t *slot = &slots[i];
-        if (!slot->active || !slot->info.enabled) continue;
+        if (!slot->active || !slot->info.enabled || slot->owner_id) continue;
         const solar_os_controller_config_t *c = &slot->info.config;
         uint64_t elapsed = slot->clock_started ? now_ms - slot->last_step_ms : c->period_ms;
         if (slot->clock_started && now_ms < slot->last_step_ms) { fault(slot, ESP_ERR_INVALID_ARG); continue; }
