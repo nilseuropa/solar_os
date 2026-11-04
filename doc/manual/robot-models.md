@@ -115,36 +115,68 @@ For the supplied Solbot model at zero wheel angles, the left wheel centre is
 
 ## SolarOS extension
 
-One optional `<solar_os version="1">` child of `<robot>` can carry hardware and
-drive declarations alongside the standard model:
+One optional `<solar_os version="1">` child of `<robot>` declares existing
+rotary motor velocity controllers alongside the standard model:
 
 ```xml
 <solar_os version="1">
   <joint name="left_wheel_joint" command="velocity">
-    <motor device="left_motor" polarity="1"/>
-    <encoder device="left_encoder" ppr="70" placement="motor" polarity="1"/>
+    <motor device="left" polarity="1"/>
+    <encoder device="left_enc" ppr="70" placement="motor" polarity="1"/>
     <transmission gear_ratio="30"/>
+    <param name="kp" value="0.04"/>
+    <param name="ki" value="0.03"/>
+    <param name="max_drive" value="0.2"/>
+    <param name="velocity_limit" value="3"/>
+    <param name="command_timeout_ms" value="150"/>
   </joint>
-  <diff_drive name="base"
-              left_joint="left_wheel_joint"
-              right_joint="right_wheel_joint">
-    <geometry wheel_radius="0.0145" wheel_separation="0.0701282"/>
-    <odometry frame="odom" base_frame="base_footprint"/>
-  </diff_drive>
 </solar_os>
 ```
 
-The loader validates XML, the extension version, joint references, duplicate
-joint bindings, rotary drive references, and odometry base-frame references.
-It retains the extension's XML verbatim for inspection:
+Add a matching right-wheel declaration with devices `right` and `right_enc`.
+The loader validates the tree, joint references, controller parameters,
+calibration, duplicate declarations and exclusive motor/encoder bindings. It
+retains the extension's XML verbatim for inspection:
 
 ```text
 robot model metadata
 ```
 
-The declarations are descriptive metadata in this interface. Device existence,
-calibration, control gains and drive geometry are not resolved or activated.
-Use the existing `robot joint` operations separately for hardware control.
+Loading creates no controllers and claims no hardware. Start them explicitly:
+
+```text
+robot model load /sdcard/solbot.urdf
+robot start
+robot joint list
+robot stop
+robot model unload
+```
+
+`robot start` creates and configures all declared controllers, then enables them
+through the existing joint API. Device availability is checked during enable.
+Outputs stay stopped until fresh joint commands arrive; the existing command
+watchdog applies. A startup failure closes every controller created by that
+attempt. If a device stop or lease release fails, ownership is retained: retry
+`robot stop` before starting, replacing or unloading the model.
+
+`robot stop` releases only model-owned controllers and leaves the model loaded.
+Separately created joints are unaffected. Commands, status and disable remain
+available through `robot joint`; model-owned joints must be stopped together
+before changing bindings or configuration. They survive interpreter cleanup.
+
+Each binding requires `command="velocity"`, a motor, an encoder, positive PPR
+and an explicit gear ratio. Encoder placement is `motor` (default) or `output`;
+decoder factor comes from the actual provider. Optional `<param name="..."
+value="..."/>` elements use the existing `robot joint configure` keys. Defaults
+match manually created joints. Parameters are validated together, in any order;
+duplicate keys, unknown keys/attributes and malformed values are rejected.
+Do not repeat calibration or polarity as both an attribute and a parameter.
+Up to eight bindings are allowed; bound joint names must fit 23 bytes.
+
+Verify example calibration, gains and polarities for the mounted hardware.
+Servo controllers remain available through the manual joint API; position and
+prismatic bindings are unsupported here. Diff-drive/odometry declarations are
+retained metadata with reference checks; `robot start` does not execute them.
 
 ## Python and Lua
 
@@ -159,6 +191,8 @@ Both runtimes expose these functions on `solaros.robot`:
 | `model_transform(target, source)` | `translation` and `rotation` arrays; quaternion order is x,y,z,w. |
 | `model_point(target, source, x, y, z)` | Three coordinates after rotation and translation. |
 | `model_vector(target, source, x, y, z)` | Three coordinates after rotation only. |
+| `start()` | Create/configure/enable the loaded model's velocity controllers. |
+| `stop()` | Close model-owned controllers; retain the model. |
 
 Joint records include `name`, `parent`, `child`, numeric `kind`, `position` and
 `position_known`. Kinds are 0 fixed, 1 revolute, 2 continuous and 3 prismatic.
@@ -205,5 +239,7 @@ joint positions with `robot model set <joint> <position>`; unknown positions
 block transforms only along the affected path. `robot model transform <target>
 <source>` maps source coordinates into target. `point` includes translation;
 `vector` rotates a direction only. Python/Lua expose matching `solaros.robot.model_*`
-functions. The version-1 SolarOS extension is retained metadata, without device
-binding or drive execution. `robot model unload` releases the shared model.
+functions. `robot start` enables velocity controllers declared in the version-1
+SolarOS extension; `robot stop` closes them while preserving the model. Stop
+before replacing or unloading a model with owned controllers. `robot model
+unload` releases the shared model. Diff-drive execution is not provided.

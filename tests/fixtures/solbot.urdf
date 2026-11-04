@@ -101,4 +101,29 @@
       <geometry><sphere radius="0.006"/></geometry>
     </collision>
   </link>
+  <!-- SolarOS resolves these devices only on explicit robot start. -->
+  <solar_os version="1">
+    <joint name="left_wheel_joint" command="velocity">
+      <motor device="left" polarity="1"/>
+      <encoder device="left_enc" ppr="70" placement="motor" polarity="1"/>
+      <transmission gear_ratio="30"/>
+      <param name="kp" value="0.04"/>
+      <param name="ki" value="0.03"/>
+      <param name="max_drive" value="0.2"/>
+      <param name="velocity_limit" value="3"/>
+      <param name="acceleration_limit" value="10"/>
+      <param name="command_timeout_ms" value="150"/>
+    </joint>
+    <joint name="right_wheel_joint" command="velocity">
+      <motor device="right" polarity="1"/>
+      <encoder device="right_enc" ppr="70" placement="motor" polarity="1"/>
+      <transmission gear_ratio="30"/>
+      <param name="kp" value="0.04"/>
+      <param name="ki" value="0.03"/>
+      <param name="max_drive" value="0.2"/>
+      <param name="velocity_limit" value="3"/>
+      <param name="acceleration_limit" value="10"/>
+      <param name="command_timeout_ms" value="150"/>
+    </joint>
+  </solar_os>
 </robot>

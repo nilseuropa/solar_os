@@ -79,6 +79,10 @@ typedef struct {
     int (*transform_compose)(const solar_os_robot_transform_t *a, const solar_os_robot_transform_t *b, solar_os_robot_transform_t *out);
     int (*transform_inverse)(const solar_os_robot_transform_t *in, solar_os_robot_transform_t *out);
     int (*transform_apply)(const solar_os_robot_transform_t *transform, const float in[3], uint32_t direction, float out[3]);
+    /* Declarative controllers. Creating copies a validated binding into a
+     * READY joint without claiming hardware. Caller owns and must close it. */
+    int (*model_binding)(uint32_t model, uint32_t index, solar_os_robot_joint_config_v3_t *out);
+    int (*model_create_joint)(uint32_t model, uint32_t index, uint32_t *joint);
 } solar_os_robot_api_v3_t;
 
 #define SOLAR_OS_ROBOT_JOINT_API_SIZE offsetof(solar_os_robot_api_v3_t, model_load)

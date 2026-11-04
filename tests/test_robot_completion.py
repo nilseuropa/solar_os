@@ -93,7 +93,7 @@ static void check(const char *input,bool expect_handled,bool expect_path,const c
     }
 }
 int main(void) {
-    check("robot ",true,false,"joint|model");
+    check("robot ",true,false,"joint|model|start|stop");
     check("robot mo",true,false,"model");
     check("robot model ",true,false,"load|unload|info|links|joints|metadata|set|transform|point|vector");
     check("robot model tr",true,false,"transform");

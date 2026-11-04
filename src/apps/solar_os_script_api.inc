@@ -101,6 +101,8 @@ SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_set_joint, model_set_joint);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_transform, model_transform);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_point, model_point);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_vector, model_vector);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, start, start);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, stop, stop);
 SOLAR_OS_SCRIPT_API_MODULE_END(robot);
 #endif
 

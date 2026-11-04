@@ -10,6 +10,7 @@
 #include "solar_os_shell_io.h"
 
 static const char usage[] =
+    "robot start | stop (URDF-declared controllers)\n"
     "robot joint list | status <joint>\n"
     "  robot joint create <joint> velocity|servo\n"
     "  robot joint configure <joint> <key> <value>\n"
@@ -192,14 +193,27 @@ static void model_command(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (err != ESP_OK) {
         solar_os_shell_io_printf(io, "robot model: %s%s%s\n", solar_os_shell_error_text(err), *error ? ": " : "", error);
-        if (err == ESP_ERR_INVALID_STATE) solar_os_shell_io_writeln(io, "Supply positions for movable joints on the requested path");
+        if (err == ESP_ERR_INVALID_STATE) solar_os_shell_io_writeln(io,
+            !strcmp(argv[1],"load") || !strcmp(argv[1],"unload") ?
+            "Run robot stop before replacing or unloading the model" :
+            "Supply positions for movable joints on the requested path");
         if (err == ESP_ERR_INVALID_ARG) solar_os_shell_io_writeln(io, model_usage);
     }
 }
 
 void solar_os_shell_cmd_robot(solar_os_context_t *ctx,int argc,char **argv)
 {
-    if (argc >= 2 && !strcmp(argv[1], "joint")) joint_command(ctx, argc-1, argv+1);
+    if (argc==2 && (!strcmp(argv[1],"start") || !strcmp(argv[1],"stop"))) {
+        bool start=!strcmp(argv[1],"start");
+        esp_err_t err=start?solar_os_robot_start():solar_os_robot_stop();
+        solar_os_shell_io_t *io=solar_os_shell_command_io(ctx);
+        if(err==ESP_OK) solar_os_shell_io_writeln(io,start?"robot: controllers started; waiting for commands":"robot: controllers stopped");
+        else {
+            solar_os_shell_io_printf(io,"robot %s: %s\n",argv[1],solar_os_shell_error_text(err));
+            solar_os_shell_io_writeln(io,"Inspect robot joint list; robot stop retries incomplete cleanup");
+        }
+    }
+    else if (argc >= 2 && !strcmp(argv[1], "joint")) joint_command(ctx, argc-1, argv+1);
     else if (argc >= 2 && !strcmp(argv[1], "model")) model_command(ctx, argc-1, argv+1);
-    else solar_os_shell_io_writeln(solar_os_shell_command_io(ctx), "usage: robot joint|model <operation> [arguments]");
+    else solar_os_shell_io_writeln(solar_os_shell_command_io(ctx), "usage: robot start|stop | joint|model <operation> [arguments]");
 }

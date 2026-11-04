@@ -1144,7 +1144,7 @@ static const char * const controller_keys[] = {
 static const char * const controller_sources[] = {"manual"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
-static const char * const robot_domains[] = {"joint", "model"};
+static const char * const robot_domains[] = {"joint", "model", "start", "stop"};
 static const char * const robot_model_subcommands[] = {
     "load", "unload", "info", "links", "joints", "metadata", "set", "transform", "point", "vector",
 };

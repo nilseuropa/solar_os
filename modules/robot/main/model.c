@@ -1,4 +1,5 @@
 #include "model.h"
+#include "joint_config.h"
 #include <math.h>
 #include <string.h>
 
@@ -30,9 +31,14 @@ struct solar_os_robot_model {
     link_t links[SOLAR_OS_ROBOT_MODEL_LINK_MAX];
     model_joint_t joints[SOLAR_OS_ROBOT_MODEL_JOINT_MAX];
     char *extension;
+    unsigned binding_count;
+    struct {
+        solar_os_robot_joint_config_v3_t config;
+        uint32_t parameters, elements;
+    } bindings[SOLAR_OS_ROBOT_JOINT_MAX];
 };
 
-typedef enum { ROBOT, LINK, JOINT, LEAF, SKIP, EXTENSION, EXTENSION_CHILD } context_t;
+typedef enum { ROBOT, LINK, JOINT, LEAF, SKIP, EXTENSION, EXTENSION_CHILD, BINDING } context_t;
 typedef struct { char name[NAME]; context_t context; int index; } frame_t;
 typedef struct { char name[NAME], value[VALUE]; } attribute_t;
 typedef struct {
@@ -221,6 +227,74 @@ static int reference(parser_t *p, const char *name, unsigned kind)
     return OK;
 }
 
+static bool allowed_attributes(const parser_t *p, const char *const *names, unsigned count)
+{
+    for (unsigned i=0; i<p->attrs; ++i) {
+        unsigned j=0;
+        while (j<count && !eq(p->attributes[i].name,names[j])) ++j;
+        if (j==count) return false;
+    }
+    return true;
+}
+
+static int binding_parameter(parser_t *p, unsigned index, const char *key, const char *value)
+{
+    static const char *const keys[] = {"ppr", "gear_ratio", "motor_polarity", "encoder_polarity",
+        "position_min", "position_max", "position_zero", "velocity_limit", "acceleration_limit",
+        "max_drive", "velocity_tau", "friction_bias_forward", "friction_bias_reverse", "velocity_deadband",
+        "kp", "ki", "kd", "tau", "encoder_on_output", "brake", "period_ms", "command_timeout_ms",
+        "feedback_timeout_ms", "max_gap_ms"};
+    unsigned k=0;
+    while (k<sizeof(keys)/sizeof(keys[0]) && !eq(key,keys[k])) ++k;
+    if (k==sizeof(keys)/sizeof(keys[0])) return fail(p,ARG,"Unknown joint parameter");
+    uint32_t bit=1U<<k;
+    if (p->model->bindings[index].parameters & bit) return fail(p,ARG,"Duplicate joint parameter");
+    float v;
+    if (!numbers(value,&v,1) || solar_os_robot_config_set(&p->model->bindings[index].config,key,v))
+        return fail(p,ARG,"Invalid joint parameter");
+    p->model->bindings[index].parameters |= bit;
+    return OK;
+}
+
+static int binding_element(parser_t *p, const char *name, unsigned index)
+{
+    solar_os_robot_joint_config_v3_t *c=&p->model->bindings[index].config;
+    const char *const motor_attrs[]={"device","polarity"};
+    const char *const encoder_attrs[]={"device","ppr","placement","polarity"};
+    const char *const transmission_attrs[]={"gear_ratio"};
+    const char *const param_attrs[]={"name","value"};
+    unsigned bit=eq(name,"motor")?1:eq(name,"encoder")?2:eq(name,"transmission")?4:0;
+    if (bit && (p->model->bindings[index].elements & bit)) return fail(p,ARG,"Duplicate binding element");
+    p->model->bindings[index].elements |= bit;
+    if (eq(name,"param")) {
+        if (!allowed_attributes(p,param_attrs,2)) return fail(p,ARG,"Unknown param attribute");
+        return binding_parameter(p,index,attr(p,"name"),attr(p,"value"));
+    }
+    if (bit==1 || bit==2) {
+        if (!allowed_attributes(p,bit==1?motor_attrs:encoder_attrs,bit==1?2:4))
+            return fail(p,ARG,"Unknown device binding attribute");
+        const char *device=attr(p,"device");
+        if (!device || !*device || strlen(device)>=sizeof(c->motor)) return fail(p,ARG,"Invalid device name");
+        memcpy(bit==1?c->motor:c->encoder,device,strlen(device)+1);
+        const char *polarity=attr(p,"polarity");
+        if (polarity) { int e=binding_parameter(p,index,bit==1?"motor_polarity":"encoder_polarity",polarity); if(e)return e; }
+        if (bit==2) {
+            const char *ppr=attr(p,"ppr"), *placement=attr(p,"placement");
+            if(ppr) { int e=binding_parameter(p,index,"ppr",ppr); if(e)return e; }
+            if(placement) {
+                if(!eq(placement,"motor") && !eq(placement,"output")) return fail(p,ARG,"Invalid encoder placement");
+                return binding_parameter(p,index,"encoder_on_output",eq(placement,"output")?"1":"0");
+            }
+        }
+        return OK;
+    }
+    if (bit==4) {
+        if (!allowed_attributes(p,transmission_attrs,1)) return fail(p,ARG,"Unknown transmission attribute");
+        return binding_parameter(p,index,"gear_ratio",attr(p,"gear_ratio"));
+    }
+    return fail(p,UNSUPPORTED,"Unsupported joint binding element");
+}
+
 static int start_element(parser_t *p, const char *name, frame_t *f)
 {
     solar_os_robot_model_t *m = p->model;
@@ -235,12 +309,26 @@ static int start_element(parser_t *p, const char *name, frame_t *f)
     const frame_t *parent = &p->stack[p->depth-1];
     if (parent->context == LEAF) return fail(p, ARG, "Unexpected nested joint field");
     if (parent->context == SKIP) { f->context = SKIP; return OK; }
+    if (parent->context == BINDING) {
+        f->context=LEAF;
+        return binding_element(p,name,(unsigned)parent->index);
+    }
     if (parent->context == EXTENSION || parent->context == EXTENSION_CHILD) {
         f->context = EXTENSION_CHILD;
         if (parent->context == EXTENSION && eq(name, "joint")) {
-            const char *command = attr(p, "command");
-            if (command && !eq(command, "velocity") && !eq(command, "position")) return fail(p, UNSUPPORTED, "Unsupported joint command interface");
-            return reference(p, attr(p, "name"), 1);
+            const char *const attrs[]={"name","command"};
+            if (!allowed_attributes(p,attrs,2)) return fail(p,ARG,"Unknown joint binding attribute");
+            if (!eq(attr(p,"command"),"velocity")) return fail(p,UNSUPPORTED,"URDF bindings currently require command=velocity");
+            if (m->binding_count>=SOLAR_OS_ROBOT_JOINT_MAX) return fail(p,ARG,"Too many joint bindings");
+            const char *joint_name=attr(p,"name");
+            if(!joint_name || !*joint_name || strlen(joint_name)>=SOLAR_OS_ROBOT_JOINT_NAME_MAX)
+                return fail(p,ARG,"Invalid controller joint name");
+            int e=reference(p,joint_name,1); if(e)return e;
+            f->index=(int)m->binding_count++; f->context=BINDING;
+            solar_os_robot_joint_config_v3_t *c=&m->bindings[f->index].config;
+            solar_os_robot_config_defaults(c,SOLAR_OS_ROBOT_MOTOR_VELOCITY);
+            memcpy(c->name,joint_name,strlen(joint_name)+1);
+            return OK;
         }
         if (parent->context == EXTENSION && eq(name, "diff_drive")) {
             int e = reference(p, attr(p, "left_joint"), 2);
@@ -325,6 +413,11 @@ static int start_element(parser_t *p, const char *name, frame_t *f)
 static int end_element(parser_t *p)
 {
     frame_t *f = &p->stack[p->depth-1];
+    if (f->context == BINDING) {
+        const solar_os_robot_joint_config_v3_t *c=&p->model->bindings[f->index].config;
+        if (!*c->motor || !*c->encoder || c->ppr<=0 || c->gear_ratio<=0 ||
+            !solar_os_robot_config_valid(c,true,true)) return fail(p,ARG,"Incomplete or invalid joint controller configuration");
+    }
     if (f->context == JOINT) {
         const model_joint_t *j = &p->model->joints[f->index];
         if ((j->fields & 3) != 3) return fail(p, ARG, "Joint needs parent and child");
@@ -451,6 +544,14 @@ static int validate_tree(parser_t *p)
         if (current != root || steps >= m->info.links) return fail(p, ARG, "Disconnected tree or joint cycle");
     }
     copy_name(m->info.root, m->links[root].name);
+    for(unsigned i=0;i<m->binding_count;++i) {
+        const solar_os_robot_joint_config_v3_t *c=&m->bindings[i].config;
+        int index=joint_index(m,c->name);
+        if(index>=0 && m->joints[index].info.kind==SOLAR_OS_ROBOT_MODEL_PRISMATIC)
+            return fail(p,UNSUPPORTED,"Motor velocity bindings require rotary joints");
+        for(unsigned k=0;k<i;++k) if(eq(c->motor,m->bindings[k].config.motor) || eq(c->encoder,m->bindings[k].config.encoder))
+            return fail(p,ARG,"Joint bindings must use distinct motors and encoders");
+    }
     for (unsigned i = 0; i < p->reference_count; ++i) {
         if (p->reference_kind[i] == 3) {
             if (link_index(m, p->references[i]) < 0) return fail(p, ARG, "SolarOS references an unknown base frame");
@@ -463,6 +564,14 @@ static int validate_tree(parser_t *p)
         if (p->reference_kind[i] == 2 && kind == SOLAR_OS_ROBOT_MODEL_PRISMATIC)
             return fail(p, ARG, "Drive wheels need rotary joints");
     }
+    return OK;
+}
+
+int solar_os_robot_model_binding(const solar_os_robot_model_t *m, uint32_t index, solar_os_robot_joint_config_v3_t *out)
+{
+    if(!m || !out) return ARG;
+    if(index>=m->binding_count) return MISSING;
+    *out=m->bindings[index].config;
     return OK;
 }
 

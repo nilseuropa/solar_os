@@ -37,7 +37,7 @@ static const char *run(const char *line)
 int main(void)
 {
     setup();
-    assert(strstr(run("robot"),"robot joint"));
+    assert(strstr(run("robot"),"robot start|stop"));
     assert(strstr(run("robot model create wheel"),"robot model load"));
     assert(strstr(run("robot axis list"),"usage:"));
     assert(strstr(run("robot create wheel velocity"),"usage:"));
@@ -94,6 +94,12 @@ int main(void)
     assert(s.config.servo.pulse_min_us==1000 && s.config.servo.pulse_max_us==2000 && s.config.servo.angle_min==-1);
     assert(!*run("robot joint command pan 0.5"));
     assert(!*run("robot joint close pan"));
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    assert(strstr(run("robot start"),"controllers started"));
+    assert(strstr(run("robot joint list"),"model_wheel: velocity waiting"));
+    assert(strstr(run("robot model unload"),"Run robot stop"));
+    assert(strstr(run("robot stop"),"controllers stopped"));
+    assert(!*run("robot model unload"));
     teardown(); puts("Robot shell: joint namespace, argument routing, calibration and lifecycle passed");
     return 0;
 }

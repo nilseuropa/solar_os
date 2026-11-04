@@ -116,5 +116,10 @@ int main(void)
     solaros_robot_joint_bind_servo(7,calibration);
     python_robot_destroy();
     assert(!solar_os_robot_joint_count() && !leases);
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    solaros_robot_start();assert(workers==1);
+    python_robot_destroy();assert(workers==1); /* Model controllers are shared. */
+    solaros_robot_stop();assert(!workers && !solar_os_robot_joint_count());
+    solaros_robot_model_unload();
     teardown();puts("Python robot wrappers and interpreter cleanup passed");return 0;
 }

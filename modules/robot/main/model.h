@@ -1,6 +1,7 @@
 #pragma once
 
 #include "solar_os_robot_model.h"
+#include "solar_os_robot_abi.h"
 #include "solar_os_native_service_abi.h"
 
 typedef struct solar_os_robot_model solar_os_robot_model_t;
@@ -20,3 +21,4 @@ int solar_os_robot_model_joint(const solar_os_robot_model_t *model, uint32_t ind
 int solar_os_robot_model_set_positions(solar_os_robot_model_t *model, const char *const *names, const float *positions, uint32_t count);
 int solar_os_robot_model_lookup(const solar_os_robot_model_t *model, const char *target, const char *source, solar_os_robot_transform_t *out);
 int solar_os_robot_model_extension(const solar_os_robot_model_t *model, char *out, size_t bytes);
+int solar_os_robot_model_binding(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_joint_config_v3_t *out);

@@ -12,8 +12,12 @@ The model API loads expanded URDF, validates a fixed/continuous/revolute/prismat
 joint tree, accepts explicit position updates and computes frame transforms.
 Transform math supports RPY construction, composition, inverse, points and
 directions. Movable joints start unknown. The optional version-1 `solar_os`
-block is retained as metadata; loading never activates hardware or creates
-controllers. The shell exposes `robot model load`, `set`, `transform`,
+block declares motor/encoder velocity controllers; loading validates their
+configuration without creating controllers or claiming hardware. `robot start`
+creates and enables them, waiting with outputs stopped for fresh commands.
+`robot stop` releases model-owned controllers and retains the model. Stop before
+reloading or unloading; failed cleanup retains ownership for retry. Diff-drive
+and odometry execution are not implemented. The shell exposes `robot model load`, `set`, `transform`,
 `point`, `vector`, inspection and `unload`. Python/Lua provide matching model
 operations. See [Robot models and transforms](../../doc/manual/robot-models.md).
 

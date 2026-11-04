@@ -16,6 +16,11 @@ URDF or a display. The same library also provides [URDF models and transforms](r
 independently of hardware joints. Native libraries require ESP32-S3, executable PSRAM, and
 the native-module service.
 
+An expanded URDF can also declare motor/encoder velocity controllers in its
+`solar_os` block. Load the model, then use `robot start` to create and enable
+those controllers and `robot stop` to close them. They use the same calibration
+and command watchdog as manually created joints. See [model controller bindings](robot-models.md#solaros-extension).
+
 Install `robot` from a compatible signed module catalog before creating an
 joint. Creating the first joint loads the installed library on demand; it does
 not download code. Loading, creating, configuring and binding do not energize

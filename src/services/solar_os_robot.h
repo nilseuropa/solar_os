@@ -30,3 +30,7 @@ esp_err_t solar_os_robot_model_update(const char *const *names, const float *pos
 esp_err_t solar_os_robot_model_transform(const char *target, const char *source, solar_os_robot_transform_t *out);
 esp_err_t solar_os_robot_model_apply(const char *target, const char *source, const float in[3], bool direction, float out[3]);
 esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes);
+/* Explicit lifecycle for URDF-declared velocity controllers. Stop releases
+ * only model-owned joints. Failed cleanup can be retried and pins the model. */
+esp_err_t solar_os_robot_start(void);
+esp_err_t solar_os_robot_stop(void);

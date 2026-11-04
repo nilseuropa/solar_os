@@ -184,6 +184,12 @@ static mp_obj_t solaros_robot_model_unload(void)
     python_check_esp(solar_os_robot_model_unload()); return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_robot_model_unload_obj, solaros_robot_model_unload);
+static mp_obj_t solaros_robot_start(void)
+{ python_check_esp(solar_os_robot_start()); return mp_const_none; }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_robot_start_obj, solaros_robot_start);
+static mp_obj_t solaros_robot_stop(void)
+{ python_check_esp(solar_os_robot_stop()); return mp_const_none; }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_robot_stop_obj, solaros_robot_stop);
 static mp_obj_t solaros_robot_model_set_joint(mp_obj_t name, mp_obj_t position)
 {
     const char *s = mp_obj_str_get_str(name); float value = (float)mp_obj_get_float(position);

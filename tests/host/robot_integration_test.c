@@ -71,6 +71,77 @@ static void teardown(void)
     assert(solar_os_motor_unregister("left")==ESP_OK && solar_os_encoder_unregister("left_enc")==ESP_OK);
     assert(!device_allocations);
 }
+static const char *model_velocity_fixture=
+        "<robot name='bound'><link name='root'/><link name='wheel'/>"
+        "<joint name='model_wheel' type='continuous'><parent link='root'/><child link='wheel'/></joint>"
+        "<solar_os version='1'><joint name='model_wheel' command='velocity'>"
+        "<motor device='left'/><encoder device='left_enc' ppr='70'/><transmission gear_ratio='30'/>"
+        "<param name='velocity_limit' value='3'/></joint></solar_os></robot>";
+
+static void model_controllers_test(void)
+{
+    char error[128];
+    const char *single=model_velocity_fixture;
+    assert(solar_os_robot_start()==ESP_ERR_NOT_FOUND);
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_robot_model_load_xml(single,strlen(single),error,sizeof(error))==ESP_OK);
+    unsigned loaded=provider_allocations;
+    assert(leases==1 && !workers && !solar_os_robot_joint_count());
+    assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
+    assert(solar_os_robot_start()==ESP_OK && leases==2 && workers==1);
+    solar_os_robot_joint_info_v3_t s;
+    assert(solar_os_robot_joint_status("model_wheel",&s)==ESP_OK);
+    assert(s.state==SOLAR_OS_ROBOT_WAITING && !s.command_valid && !motor_value);
+    assert(s.config.ppr==70 && s.config.gear_ratio==30 && s.encoder_counts_per_rev==2100);
+    assert(solar_os_robot_start()==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_unload()==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_load_xml(single,strlen(single),error,sizeof(error))==ESP_ERR_INVALID_STATE && *error);
+    assert(solar_os_robot_joint_configure("model_wheel","kp",1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_joint_bind_motor("model_wheel","left","left_enc")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_joint_close("model_wheel")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_joint_enable("model_wheel")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_release_owner("robot")==ESP_OK && workers==1);
+    assert(solar_os_robot_joint_command("model_wheel",1)==ESP_OK);
+    /* Failed stop and failed lease release both retain ownership for retry. */
+    fail_coast=true;
+    assert(solar_os_robot_stop()!=ESP_OK && !workers && leases==2);
+    assert(solar_os_robot_joint_command("model_wheel",1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_unload()==ESP_ERR_INVALID_STATE);
+    fail_coast=false; fail_release=true;
+    assert(solar_os_robot_stop()==ESP_ERR_INVALID_STATE && leases==2 && provider_allocations==loaded);
+    assert(solar_os_robot_model_unload()==ESP_ERR_INVALID_STATE);
+    fail_release=false;
+    assert(solar_os_robot_stop()==ESP_OK && leases==1 && !solar_os_robot_joint_count());
+    assert(solar_os_robot_start()==ESP_OK && workers==1);
+    assert(solar_os_robot_stop()==ESP_OK && !workers);
+    /* Name conflicts leave independent controllers untouched. */
+    assert(solar_os_robot_joint_create("model_wheel",SOLAR_OS_ROBOT_MOTOR_VELOCITY,"python")==ESP_OK);
+    assert(solar_os_robot_start()==ESP_ERR_INVALID_STATE && leases==2);
+    assert(solar_os_robot_joint_status("model_wheel",&s)==ESP_OK);
+    assert(solar_os_robot_stop()==ESP_OK && solar_os_robot_joint_count()==1);
+    assert(solar_os_robot_release_owner("python")==ESP_OK);
+    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
+    /* Left enables, right fails resolution: join and release left as well. */
+    assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK);
+    assert(solar_os_robot_start()==ESP_ERR_NOT_FOUND);
+    assert(!workers && leases==1 && !solar_os_robot_joint_count());
+    assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
+    const solar_os_motor_ops_t mo={.status=hw_status,.drive=hw_drive,.coast=hw_coast};
+    const solar_os_motor_registration_t mr={.name="right",.driver="fake",.ops=&mo};
+    const solar_os_encoder_ops_t eo={.read=hw_read,.reset=hw_reset};
+    const solar_os_encoder_registration_t er={.name="right_enc",.driver="fake",.mode=SOLAR_OS_ENCODER_MODE_X1,.ops=&eo};
+    assert(solar_os_motor_register(&mr)==ESP_OK && solar_os_encoder_register(&er)==ESP_OK);
+    assert(solar_os_robot_joint_create("independent",SOLAR_OS_ROBOT_MOTOR_VELOCITY,"python")==ESP_OK);
+    assert(solar_os_robot_start()==ESP_OK && workers==2 && leases==4 && solar_os_robot_joint_count()==3);
+    assert(solar_os_robot_joint_status("right_wheel_joint",&s)==ESP_OK && s.state==SOLAR_OS_ROBOT_WAITING);
+    assert(s.config.velocity_limit==3 && s.config.command_timeout_ms==150 && s.config.kp==0.04f);
+    assert(solar_os_robot_stop()==ESP_OK && !workers && leases==2 && solar_os_robot_joint_count()==1);
+    assert(solar_os_robot_joint_status("independent",&s)==ESP_OK);
+    assert(solar_os_robot_release_owner("python")==ESP_OK && leases==1);
+    assert(solar_os_motor_unregister("right")==ESP_OK && solar_os_encoder_unregister("right_enc")==ESP_OK);
+    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
+}
+
 int main(void)
 {
     setup();
@@ -136,6 +207,7 @@ int main(void)
     fail_release=false;
     assert(solar_os_robot_joint_close("wheel")==ESP_OK && !leases);
     assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
+    model_controllers_test();
     teardown();
     puts("robot integration: native device ABI, claims, encoder scaling, frontend leases and cleanup retry passed");
     return 0;

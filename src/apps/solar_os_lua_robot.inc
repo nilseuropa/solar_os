@@ -142,6 +142,10 @@ static int solua_robot_model_load(lua_State *L)
 }
 static int solua_robot_model_unload(lua_State *L)
 { return solua_check_esp(L, solar_os_robot_model_unload()); }
+static int solua_robot_start(lua_State *L)
+{ return solua_check_esp(L, solar_os_robot_start()); }
+static int solua_robot_stop(lua_State *L)
+{ return solua_check_esp(L, solar_os_robot_stop()); }
 static int solua_robot_model_set_joint(lua_State *L)
 {
     const char *name = luaL_checkstring(L, 1); float value = (float)luaL_checknumber(L, 2);

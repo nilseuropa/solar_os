@@ -3,6 +3,7 @@
 #include "solar_os_native_thread_abi.h"
 #include "solar_os_controller_math.h"
 #include "model.h"
+#include "joint_config.h"
 #include <math.h>
 #include <stdatomic.h>
 #include <string.h>
@@ -59,25 +60,7 @@ static solar_os_controller_math_config_t pid_config(const joint_t *a)
         .max_dt = c->max_gap_ms / 1000.0f};
 }
 static bool valid(const joint_t *a)
-{
-    const solar_os_robot_joint_config_v3_t *c = &a->info.config;
-    solar_os_controller_math_config_t p = pid_config(a);
-    return solar_os_controller_math_valid(&p) && isfinite(c->ppr) &&
-        (c->ppr > 0 || (!a->ppr_configured && c->ppr == 0)) && isfinite(c->gear_ratio) &&
-        (c->gear_ratio > 0 || (!a->ratio_configured && c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY && c->gear_ratio == 0)) &&
-        (c->motor_polarity == 1 || c->motor_polarity == -1) &&
-        (c->encoder_polarity == 1 || c->encoder_polarity == -1) && c->encoder_on_output <= 1 &&
-        isfinite(c->position_min) && isfinite(c->position_max) && c->position_min < c->position_max &&
-        isfinite(c->position_zero) && isfinite(c->velocity_limit) && c->velocity_limit > 0 &&
-        isfinite(c->acceleration_limit) && c->acceleration_limit > 0 && c->max_drive > 0 && c->max_drive <= 1 &&
-        isfinite(c->velocity_tau) && c->velocity_tau >= 0 &&
-        isfinite(c->friction_bias_forward) && c->friction_bias_forward >= 0 && c->friction_bias_forward <= c->max_drive &&
-        isfinite(c->friction_bias_reverse) && c->friction_bias_reverse >= 0 && c->friction_bias_reverse <= c->max_drive &&
-        isfinite(c->velocity_deadband) && c->velocity_deadband >= 0 && c->velocity_deadband < c->velocity_limit &&
-        c->period_ms >= 10 && c->period_ms <= 1000 && c->command_timeout_ms >= c->period_ms &&
-        c->command_timeout_ms <= 60000 && c->feedback_timeout_ms >= c->period_ms && c->feedback_timeout_ms <= 60000 &&
-        c->max_gap_ms >= c->period_ms && c->max_gap_ms <= 60000 && c->brake <= 1;
-}
+{ return solar_os_robot_config_valid(&a->info.config, a->ppr_configured, a->ratio_configured); }
 
 /* Called with the provider mutex held. Cleanup is output-first: a failed stop
  * pins both devices and preserves the feedback reference for retry. */
@@ -248,12 +231,8 @@ static int create(const char *name, uint32_t kind, uint32_t *out)
     const char hex[] = "0123456789abcdef";
     for (unsigned i = 0; i < 8; i++) a->servo_name[2 + i] = hex[(a->id >> ((7 - i) * 4)) & 15];
     solar_os_robot_joint_config_v3_t *c = &a->info.config;
-    c->kind = kind; c->gear_ratio = kind == SOLAR_OS_ROBOT_SERVO_POSITION ? 1 : 0;
-    c->motor_polarity = c->encoder_polarity = 1;
-    c->position_min = -(float)PI; c->position_max = (float)PI;
-    c->velocity_limit = 10; c->acceleration_limit = 10; c->max_drive = 0.2f; c->velocity_tau = 0.1f;
-    c->kp = 0.02f; c->ki = 0.01f; c->derivative_tau = 0.05f;
-    c->period_ms = 20; c->command_timeout_ms = 300; c->feedback_timeout_ms = 100; c->max_gap_ms = 200;
+    solar_os_robot_config_defaults(c, kind);
+    copy(c->name, name, sizeof(c->name));
     joints[free_slot] = a; *out = a->id; unlock(); return OK;
 }
 
@@ -264,34 +243,7 @@ static int configure(uint32_t id, const char *key, float value)
     if (!a) { unlock(); return MISSING; }
     if (a->busy || a->worker || claims(a)) { unlock(); return STATE; }
     solar_os_robot_joint_config_v3_t saved = a->info.config, *c = &a->info.config;
-    int ret = OK;
-    if (equal(key, "ppr") && value > 0) c->ppr = value;
-    else if (equal(key, "gear_ratio") && value > 0) c->gear_ratio = value;
-    else if (equal(key, "motor_polarity") && (value == 1 || value == -1)) c->motor_polarity = (int)value;
-    else if (equal(key, "encoder_polarity") && (value == 1 || value == -1)) c->encoder_polarity = (int)value;
-    else if (equal(key, "position_min")) c->position_min = value;
-    else if (equal(key, "position_max")) c->position_max = value;
-    else if (equal(key, "position_zero")) c->position_zero = value;
-    else if (equal(key, "velocity_limit")) c->velocity_limit = value;
-    else if (equal(key, "acceleration_limit")) c->acceleration_limit = value;
-    else if (equal(key, "max_drive")) c->max_drive = value;
-    else if (equal(key, "velocity_tau")) c->velocity_tau = value;
-    else if (equal(key, "friction_bias_forward")) c->friction_bias_forward = value;
-    else if (equal(key, "friction_bias_reverse")) c->friction_bias_reverse = value;
-    else if (equal(key, "velocity_deadband")) c->velocity_deadband = value;
-    else if (equal(key, "kp")) c->kp = value;
-    else if (equal(key, "ki")) c->ki = value;
-    else if (equal(key, "kd")) c->kd = value;
-    else if (equal(key, "tau")) c->derivative_tau = value;
-    else if (value >= 0 && value <= 60000 && (float)(uint32_t)value == value) {
-        if (equal(key, "encoder_on_output") && value <= 1) c->encoder_on_output = (uint32_t)value;
-        else if (equal(key, "brake") && value <= 1) c->brake = (uint32_t)value;
-        else if (equal(key, "period_ms")) c->period_ms = (uint32_t)value;
-        else if (equal(key, "command_timeout_ms")) c->command_timeout_ms = (uint32_t)value;
-        else if (equal(key, "feedback_timeout_ms")) c->feedback_timeout_ms = (uint32_t)value;
-        else if (equal(key, "max_gap_ms")) c->max_gap_ms = (uint32_t)value;
-        else ret = ARG;
-    } else ret = ARG;
+    int ret = solar_os_robot_config_set(c, key, value);
     if (!valid(a)) ret = ARG;
     if (ret != OK) *c = saved;
     else {
@@ -475,7 +427,26 @@ static int model_lookup(uint32_t id, const char *target, const char *source, sol
 { MODEL_CALL(solar_os_robot_model_lookup(m, target, source, out)); }
 static int model_extension(uint32_t id, char *out, size_t bytes)
 { MODEL_CALL(solar_os_robot_model_extension(m, out, bytes)); }
+static int model_binding(uint32_t id, uint32_t index, solar_os_robot_joint_config_v3_t *out)
+{ MODEL_CALL(solar_os_robot_model_binding(m, index, out)); }
 #undef MODEL_CALL
+
+static int model_create_joint(uint32_t id, uint32_t index, uint32_t *out)
+{
+    if(!out) return ARG;
+    *out=0;
+    solar_os_robot_joint_config_v3_t c;
+    int e=model_binding(id,index,&c);
+    if(e) return e;
+    uint32_t joint=0;
+    e=create(c.name,c.kind,&joint);
+    if(e) return e;
+    lock();
+    joint_t *a=find(joint);
+    a->info.config=c; a->ppr_configured=a->ratio_configured=true;
+    unlock(); *out=joint;
+    return OK;
+}
 
 static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .struct_size = sizeof(api),
     .create = create, .configure = configure, .bind_motor = bind_motor, .bind_servo = bind_servo,
@@ -484,7 +455,8 @@ static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .
     .model_link = model_link, .model_joint = model_joint, .model_set_positions = model_set_positions,
     .model_lookup = model_lookup, .model_extension = model_extension,
     .transform_from_rpy = solar_os_robot_transform_from_rpy, .transform_compose = solar_os_robot_transform_compose,
-    .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply};
+    .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply,
+    .model_binding=model_binding, .model_create_joint=model_create_joint};
 
 const solar_os_robot_api_v3_t *solar_os_robot_engine_init(
     const solar_os_native_memory_api_v1_t *m, const solar_os_native_time_api_v1_t *t,

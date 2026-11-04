@@ -224,9 +224,44 @@ static void solbot(const char *path)
     solar_os_robot_model_destroy(m);assert(!allocations);
 }
 
+static void binding_validation(void)
+{
+    const char *prefix="<robot name='bound'><link name='r'/><link name='w'/>"
+        "<joint name='wheel' type='continuous'><parent link='r'/><child link='w'/></joint>"
+        "<solar_os version='1'><joint name='wheel' command='velocity'>";
+    const char *suffix="</joint></solar_os></robot>";
+    const char *valid="<motor device='left'/><encoder device='enc' ppr='70' placement='output'/>"
+        "<transmission gear_ratio='30'/>";
+    const char *bad[]={
+        "<motor device='left'/><encoder device='enc'/><transmission gear_ratio='30'/>",
+        "<motor device='left'/><encoder device='enc' ppr='70'/>",
+        "<motor device='left' typo='1'/><encoder device='enc' ppr='70'/><transmission gear_ratio='30'/>",
+        "<motor device='left'/><motor device='other'/><encoder device='enc' ppr='70'/><transmission gear_ratio='30'/>",
+        "<motor device='left'/><encoder device='enc' ppr='70' placement='wheel'/><transmission gear_ratio='30'/>"};
+    char xml[2048];
+    for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) { snprintf(xml,sizeof(xml),"%s%s%s",prefix,bad[i],suffix);reject(xml); }
+    const char *params[]={"<param name='kp' value='nan'/>","<param name='typo' value='1'/>",
+        "<param name='period_ms' value='2'/>","<param name='ppr' value='2'/>",
+        "<param name='kp' value='1'/><param name='kp' value='2'/>",
+        "<param name='kd' value='1'/><param name='tau' value='0'/>",
+        "<param name='max_drive' value='0.1'/><param name='friction_bias_forward' value='0.2'/>",
+        "<param name='position_min' value='10'/>"};
+    for(unsigned i=0;i<sizeof(params)/sizeof(params[0]);++i) {
+        snprintf(xml,sizeof(xml),"%s%s%s%s",prefix,valid,params[i],suffix);reject(xml);
+    }
+    /* Final validation permits parameters in any order. */
+    snprintf(xml,sizeof(xml),"%s%s<param name='friction_bias_forward' value='0.3'/>"
+        "<param name='max_drive' value='0.4'/>%s",prefix,valid,suffix);
+    solar_os_robot_model_t *m=parse(xml);
+    solar_os_robot_joint_config_v3_t c;
+    assert(solar_os_robot_model_binding(m,0,&c)==OK && c.encoder_on_output && c.friction_bias_forward==0.3f);
+    assert(solar_os_robot_model_binding(m,1,&c)==MISSING);
+    solar_os_robot_model_destroy(m);
+}
+
 int main(int argc,char **argv)
 {
-    transform_math();kinematics();parser_validation();solbot(argc>1?argv[1]:"../fixtures/solbot.urdf");
+    transform_math();kinematics();parser_validation();binding_validation();solbot(argc>1?argv[1]:"../fixtures/solbot.urdf");
     assert(!allocations);puts("robot model: transform math, URDF validation, unknown state, atomic batches, OOM and Solbot passed");
     return 0;
 }

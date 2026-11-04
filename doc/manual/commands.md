@@ -1329,6 +1329,7 @@ available for the compiled board.
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
 | `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
 | `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |
+| `robot` | `robot start` or `robot stop` | Start URDF-declared velocity controllers or release them while retaining the model. Stop before replacing or unloading it. |
 | `robot` | `robot model info\|links\|joints\|metadata` | Inspect the resident model and retained SolarOS extension. |
 | `robot` | `robot model set <joint> <position> [<joint> <position> ...]` | Supply model joint positions as one validated batch. |
 | `robot` | `robot model transform <target> <source>` | Query the transform mapping source-frame coordinates into target. |

@@ -157,7 +157,11 @@ def main():
     device = args.device_root.rstrip("/") + "/" + folder
     urdf = args.urdf.read_bytes()
     assert urdf.count(b"</robot>") == 1
-    extended = urdf.replace(b"</robot>", EXTENSION.encode() + b"\n</robot>")
+    # The package fixture may already contain controller declarations. Replace
+    # only that block when constructing this metadata/transform test variant.
+    import re
+    plain = re.sub(rb"<solar_os\b[^>]*>.*?</solar_os>", b"", urdf, flags=re.S)
+    extended = plain.replace(b"</robot>", EXTENSION.encode() + b"\n</robot>")
     files = {"solbot.urdf": urdf, "extended.urdf": extended,
              "invalid.urdf": b"<robot name='invalid'><link name='a'/><link name='b'/></robot>",
              "smoke.py": source(device).encode(), "smoke.lua": lua_source(device).encode()}

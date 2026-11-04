@@ -21,6 +21,7 @@ int main(void)
 {
     setup();lua_State *L=luaL_newstate();assert(L);luaL_openlibs(L);
     const luaL_Reg api[]={
+        {"start",solua_robot_start},{"stop",solua_robot_stop},
         {"model_load",solua_robot_model_load},
         {"model_unload",solua_robot_model_unload},
         {"model_info",solua_robot_model_info},
@@ -63,6 +64,11 @@ int main(void)
         "robot.joint_create('pan','servo');robot.joint_bind_servo('pan','native',2,1000,2000,-1,1)\n"
         "assert(not pcall(robot.joint_command,'pan',2))\n";
     int ret=luaL_dostring(L,script);if(ret!=LUA_OK)fprintf(stderr,"%s\n",lua_tostring(L,-1));assert(ret==LUA_OK);
-    solua_robot_destroy();assert(!solar_os_robot_joint_count());lua_close(L);teardown();
+    solua_robot_destroy();assert(!solar_os_robot_joint_count());
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    assert(luaL_dostring(L,"robot.start();assert(robot.joint_status('model_wheel').state=='waiting')")==LUA_OK);
+    solua_robot_destroy();assert(workers==1);
+    assert(luaL_dostring(L,"robot.stop();assert(#robot.joints()==0);robot.model_unload()")==LUA_OK);
+    lua_close(L);teardown();
     puts("Lua robot API with real interpreter and cleanup passed");return 0;
 }
