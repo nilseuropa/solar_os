@@ -225,6 +225,10 @@ The `rtsp://` prefix is optional. The RTSP control connection uses TCP port 554
 unless a port is supplied; RTP media uses negotiated UDP ports. Addresses without
 a path are accepted; include the publisher's path when required.
 
+RTSP playback keeps Wi-Fi awake while connecting, playing, and reconnecting to
+avoid delayed or dropped live media. Normal power saving resumes after playback
+stops, unless another active service still needs low-latency Wi-Fi.
+
 Inline credentials use `user:password@host`; percent-encode spaces and reserved
 characters in the username or password.
 `rtsp-auth set <host[:port]> <user> <password>` saves up to four accounts

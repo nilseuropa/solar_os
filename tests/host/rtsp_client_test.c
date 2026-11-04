@@ -13,6 +13,22 @@
 static atomic_uint allocations, allocation_calls, fail_allocation, live_tasks;
 static atomic_uint samples_played, audio_opens, audio_closes, callbacks;
 static atomic_bool fail_audio;
+static atomic_uint latency_leases;
+static bool wifi_available = true, fail_latency;
+esp_err_t solar_os_wifi_latency_acquire(const char *owner)
+{
+    assert(!strncmp(owner, "rtsp:", 5));
+    if (!wifi_available) return ESP_ERR_INVALID_STATE;
+    if (fail_latency) return ESP_ERR_NO_MEM;
+    assert(atomic_fetch_add(&latency_leases, 1) == 0);
+    return ESP_OK;
+}
+esp_err_t solar_os_wifi_latency_release(const char *owner)
+{
+    assert(!strncmp(owner, "rtsp:", 5));
+    assert(atomic_fetch_sub(&latency_leases, 1) == 1);
+    return ESP_OK;
+}
 static bool live_probe;
 static uint32_t sink_rate = 48000, sink_block = 480;
 static uint8_t sink_channels = 2;
@@ -349,6 +365,14 @@ static void test_failure(bool rejected, bool stalled, bool output_failed, unsign
     solar_os_rtsp_client_destroy(c); server_stop(&s);
     atomic_store(&fail_audio, false);
     atomic_store(&fail_allocation, 0);
+    solar_os_rtsp_client_t *lease_client;
+    solar_os_rtsp_client_options_t lease_options = {.video = true};
+    assert(solar_os_rtsp_client_create("rtsp://127.0.0.1/media", &lease_options, &lease_client) == ESP_OK);
+    fail_latency = true;
+    assert(solar_os_rtsp_client_run(lease_client) == ESP_ERR_NO_MEM);
+    assert(solar_os_rtsp_client_destroy(lease_client) == ESP_OK);
+    assert(!atomic_load(&latency_leases));
+    fail_latency = false;
     assert(!atomic_load(&allocations) && !atomic_load(&live_tasks));
 }
 
@@ -622,5 +646,8 @@ int main(int argc, char **argv)
     test_error_causes();
     test_digest_auth();
     test_reconnect();
+    wifi_available = false;
+    test_play(true, false, false, false); /* A non-Wi-Fi route still works. */
+    assert(!atomic_load(&latency_leases));
     puts("rtsp_client_test: OK"); return 0;
 }

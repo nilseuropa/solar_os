@@ -105,7 +105,8 @@ static esp_timer_handle_t wifi_repeater_reconnect_timer;
 static uint32_t wifi_repeater_reconnect_delay_ms = WIFI_REPEATER_RECONNECT_INITIAL_MS;
 static uint8_t wifi_resume_reconnect_attempts;
 static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
-static char wifi_latency_owner[SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
+static char wifi_latency_owners[SOLAR_OS_WIFI_LATENCY_OWNERS_MAX][SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
+static size_t wifi_latency_count;
 
 static void wifi_set_started_state(bool started);
 static esp_err_t wifi_update_ap_dns_from_path(
@@ -304,7 +305,7 @@ static void wifi_repeater_schedule_reconnect(void)
 
 static wifi_ps_type_t wifi_power_save_mode_locked(void)
 {
-    return wifi_connectionless_active || wifi_latency_owner[0] != '\0' ||
+    return wifi_connectionless_active || wifi_latency_count != 0U ||
         solar_os_wifi_repeater_is_enabled() ?
         WIFI_PS_NONE : WIFI_PS_MAX_MODEM;
 }
@@ -2736,28 +2737,30 @@ esp_err_t solar_os_wifi_latency_acquire(const char *owner)
         wifi_unlock();
         return ESP_ERR_INVALID_STATE;
     }
-    if (wifi_latency_owner[0] != '\0') {
-        const bool already_acquired = strcmp(owner, wifi_latency_owner) == 0;
-        wifi_unlock();
-        return already_acquired ? ESP_OK : ESP_ERR_INVALID_STATE;
+    size_t slot = SOLAR_OS_WIFI_LATENCY_OWNERS_MAX;
+    for (size_t i = 0; i < SOLAR_OS_WIFI_LATENCY_OWNERS_MAX; i++) {
+        if (strcmp(owner, wifi_latency_owners[i]) == 0) {
+            wifi_unlock();
+            return ESP_OK;
+        }
+        if (wifi_latency_owners[i][0] == '\0') slot = i;
     }
-    strlcpy(wifi_latency_owner, owner, sizeof(wifi_latency_owner));
-    wifi_unlock();
-
+    if (slot == SOLAR_OS_WIFI_LATENCY_OWNERS_MAX) {
+        wifi_unlock();
+        return ESP_ERR_NO_MEM;
+    }
+    strlcpy(wifi_latency_owners[slot], owner, sizeof(wifi_latency_owners[slot]));
+    wifi_latency_count++;
+    /* Serialize policy changes with other owners' acquire/release calls. */
     const esp_err_t ret = esp_wifi_set_ps(WIFI_PS_NONE);
     if (ret != ESP_OK) {
-        wifi_lock();
-        if (strcmp(owner, wifi_latency_owner) == 0) {
-            wifi_latency_owner[0] = '\0';
-        }
-        const bool started = wifi_started;
-        const wifi_ps_type_t restore_mode = wifi_power_save_mode_locked();
+        wifi_latency_owners[slot][0] = '\0';
+        wifi_latency_count--;
+        (void)esp_wifi_set_ps(wifi_power_save_mode_locked());
         wifi_unlock();
-        if (started) {
-            (void)esp_wifi_set_ps(restore_mode);
-        }
         return ret;
     }
+    wifi_unlock();
 
     SOLAR_OS_LOGI(TAG, "low-latency Wi-Fi acquired owner=%s", owner);
     return ESP_OK;
@@ -2770,20 +2773,20 @@ esp_err_t solar_os_wifi_latency_release(const char *owner)
     }
 
     wifi_lock();
-    if (wifi_latency_owner[0] == '\0') {
-        wifi_unlock();
-        return ESP_OK;
+    size_t slot = SOLAR_OS_WIFI_LATENCY_OWNERS_MAX;
+    for (size_t i = 0; i < SOLAR_OS_WIFI_LATENCY_OWNERS_MAX; i++) {
+        if (strcmp(owner, wifi_latency_owners[i]) == 0) { slot = i; break; }
     }
-    if (strcmp(owner, wifi_latency_owner) != 0) {
+    if (slot == SOLAR_OS_WIFI_LATENCY_OWNERS_MAX) {
+        const bool empty = wifi_latency_count == 0U;
         wifi_unlock();
-        return ESP_ERR_INVALID_STATE;
+        return empty ? ESP_OK : ESP_ERR_INVALID_STATE;
     }
-    wifi_latency_owner[0] = '\0';
-    const bool started = wifi_started;
+    wifi_latency_owners[slot][0] = '\0';
+    wifi_latency_count--;
     const wifi_ps_type_t mode = wifi_power_save_mode_locked();
+    const esp_err_t ret = wifi_started ? esp_wifi_set_ps(mode) : ESP_OK;
     wifi_unlock();
-
-    const esp_err_t ret = started ? esp_wifi_set_ps(mode) : ESP_OK;
     SOLAR_OS_LOGI(TAG, "low-latency Wi-Fi released owner=%s", owner);
     return ret;
 }

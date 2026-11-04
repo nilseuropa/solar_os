@@ -14,6 +14,12 @@ static ssize_t test_sendto(int, const void *, size_t, int,
 #include "../../src/jobs/solar_os_rtspd_job.c"
 #undef sendto
 
+static unsigned latency_leases;
+esp_err_t solar_os_wifi_latency_acquire(const char *owner)
+{ assert(!strcmp(owner, RTSPD_OWNER) && latency_leases++ == 0); return ESP_OK; }
+esp_err_t solar_os_wifi_latency_release(const char *owner)
+{ assert(!strcmp(owner, RTSPD_OWNER) && latency_leases-- == 1); return ESP_OK; }
+
 static atomic_bool force_congestion;
 static ssize_t test_sendto(int fd, const void *data, size_t len, int flags,
                             const struct sockaddr *peer, socklen_t peer_len)
@@ -418,6 +424,7 @@ static void run_sessions(bool video)
     char *args[] = {video ? "video=camera" : "video=none", "audio=mic0", port, "fps=0"};
     unsigned camera_before = camera_claims;
     assert(solar_os_rtspd_job.start(NULL, video ? 4 : 3, args) == ESP_OK);
+    assert(latency_leases == 1);
     assert(live_allocations == (video ? 3U : 2U));
     assert(live_bytes == sizeof(rtspd_session_t) + sizeof(rtspd_audio_scratch_t) +
                          (video ? sizeof(rtspd_video_scratch_t) : 0U));
@@ -579,6 +586,7 @@ int main(void)
     memset(rtspd.options.audio, 'a', sizeof(rtspd.options.audio) - 1);
     rtspd.options.audio[sizeof(rtspd.options.audio) - 1] = '\0';
     solar_os_context_t context = {0}; rtspd_job_detail(&context);
+    assert(!latency_leases);
     puts("RTSP publisher source, RTP, reconnect and lifecycle tests: OK");
     return 0;
 }

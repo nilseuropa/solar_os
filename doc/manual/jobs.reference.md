@@ -616,6 +616,9 @@ publication rate, not a
 capture timer; `fps=0` removes the cap. `size=` and `fps=` are invalid with
 `video=none`. JPEG quality is fixed at 12.
 
+The publisher keeps Wi-Fi awake while the job runs. Stopping it releases that
+request; other active low-latency services can continue to keep Wi-Fi awake.
+
 Use `stream list` to find available video and audio source IDs. `audio0.capture`
 is the board codec's PCM microphone endpoint when available; `mic0` is a scalar
 level sensor, not a PCM source. Audio must be a source or

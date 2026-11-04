@@ -2862,7 +2862,7 @@ capabilities = ["wifi"]
 
 [packages.service_rtsp_client]
 label = "service.rtsp-client"
-depends = ["service_media", "service_audio", "service_net"]
+depends = ["service_media", "service_audio", "service_net", "service_wifi"]
 sources = ["services/solar_os_rtsp_receiver.c", "services/solar_os_rtsp_client.c", "services/solar_os_rtsp_auth.c"]
 requires = ["nvs_flash"]
 capabilities = ["wifi"]

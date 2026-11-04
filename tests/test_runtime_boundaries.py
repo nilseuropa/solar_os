@@ -324,7 +324,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertIn("solar_os_wifi_latency_acquire", accept)
         self.assertIn("solar_os_wifi_latency_release", cleanup)
         self.assertIn(
-            "wifi_connectionless_active || wifi_latency_owner[0] != '\\0'",
+            "wifi_connectionless_active || wifi_latency_count != 0U",
             wifi,
         )
 
