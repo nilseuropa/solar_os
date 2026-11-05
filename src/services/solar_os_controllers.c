@@ -504,17 +504,17 @@ esp_err_t solar_os_controller_tune(const char *name, float band, uint32_t cycles
         const solar_os_controller_config_t *c=&slot->info.config;
         solar_os_controller_tune_config_t config={.setpoint=c->setpoint,
             .low=c->algorithm.output_min,.high=c->algorithm.output_max,
-            .band=band==0?c->algorithm.hysteresis/2:band,.max_dt=c->algorithm.max_dt,
-            .timeout=(float)timeout_ms/1000,.cycles=cycles,.reverse=c->algorithm.reverse};
-        solar_os_controller_tuner_t candidate;
+            .band=band,.max_dt=c->algorithm.max_dt,
+            .timeout=(float)timeout_ms/1000,.cycles=cycles,.reverse=c->algorithm.reverse,
+            .automatic=true,.safe=c->safe_output,.measurement_min=c->setpoint_min,.measurement_max=c->setpoint_max};
         bool manual=!c->target[0];
         err=ESP_ERR_INVALID_ARG;
         if(timeout_ms>=1000 && timeout_ms<=300000 &&
             c->safe_output>=config.low && c->safe_output<=config.high &&
-            (!manual || !c->source[0]) && solar_os_controller_tuner_init(&candidate,&config)) {
+            (!manual || !c->source[0]) && solar_os_controller_tuner_init(&slot->tuner,&config)) {
             err=manual?ESP_OK:start_locked(slot);
             if(err==ESP_OK) {
-                slot->tuner=candidate; slot->info.tuning=candidate.result; slot->tune_manual=manual;
+                slot->info.tuning=slot->tuner.result; slot->tune_manual=manual;
                 slot->tune_has_sample=false;
                 slot->info.faulted=false; slot->info.last_error=ESP_OK;
                 solar_os_controller_math_reset(&c->algorithm,&slot->info.state,c->safe_output);

@@ -11,16 +11,28 @@ static bool failed(solar_os_controller_tuner_t *t, uint32_t reason)
     return false;
 }
 
+#include "solar_os_controller_autotuning.inc"
+
 bool solar_os_controller_tuner_init(solar_os_controller_tuner_t *t,
     const solar_os_controller_tune_config_t *c)
 {
     if(!t || !c || !isfinite(c->setpoint) || !isfinite(c->low) || !isfinite(c->high) || c->low>=c->high ||
-        !isfinite(c->band) || c->band<=0 || !isfinite(c->max_dt) || c->max_dt<=0 ||
+        !isfinite(c->band) || c->band<0 || (!c->automatic && c->band==0) || !isfinite(c->max_dt) || c->max_dt<=0 ||
         !isfinite(c->timeout) || c->timeout<=0 || c->cycles<3 || c->cycles>SOLAR_OS_CONTROLLER_TUNE_CYCLES_MAX)
         return false;
+    if(c->automatic && (!isfinite(c->safe) || c->safe<c->low || c->safe>c->high ||
+        !isfinite(c->measurement_min) || !isfinite(c->measurement_max) || c->measurement_min>=c->measurement_max)) return false;
     *t=(solar_os_controller_tuner_t){.config=*c,.last_rising=-1};
     t->result.state=SOLAR_OS_CONTROLLER_TUNE_RUNNING;
     t->result.required_cycles=c->cycles;
+    if(c->automatic) {
+        t->result.phase=SOLAR_OS_CONTROLLER_TUNE_BASELINE;
+        t->result.points=c->cycles;t->result.drive=c->safe;
+        /* Exercise one direction at a time. Prefer increasing actuator output,
+         * or decreasing output when safe is already at its upper bound. */
+        t->direction=c->safe<c->high?1:-1;
+        t->limit=t->direction>0?c->high:c->low;
+    }
     return true;
 }
 
@@ -63,8 +75,9 @@ bool solar_os_controller_tuner_step(solar_os_controller_tuner_t *t,
         return failed(t,SOLAR_OS_CONTROLLER_TUNE_BAD_SAMPLE);
     t->elapsed+=dt; t->result.elapsed=(float)t->elapsed; t->result.samples++;
     if(t->elapsed>=t->config.timeout)
-        return failed(t,t->result.cycles>=t->config.cycles?SOLAR_OS_CONTROLLER_TUNE_UNSTABLE:SOLAR_OS_CONTROLLER_TUNE_TIMEOUT);
+        return failed(t,!t->config.automatic && t->result.cycles>=t->config.cycles?SOLAR_OS_CONTROLLER_TUNE_UNSTABLE:SOLAR_OS_CONTROLLER_TUNE_TIMEOUT);
     if(dt>t->largest_dt) t->largest_dt=dt;
+    if(t->config.automatic) return automatic_step(t,measurement,dt,output);
     double value=((double)measurement-t->config.setpoint)*(t->config.reverse?-1:1);
     if(!t->initialized) {
         t->initialized=true; t->high=value<0;
@@ -111,6 +124,25 @@ const char *solar_os_controller_tune_reason_name(uint32_t reason)
     case SOLAR_OS_CONTROLLER_TUNE_UNSTABLE: return "unstable-oscillation";
     case SOLAR_OS_CONTROLLER_TUNE_BAD_SAMPLE: return "invalid-sample";
     case SOLAR_OS_CONTROLLER_TUNE_CLEANUP: return "cleanup-failed";
+    case SOLAR_OS_CONTROLLER_TUNE_NO_MOTION: return "no-motion-within-output-limit";
+    case SOLAR_OS_CONTROLLER_TUNE_NO_HEADROOM: return "insufficient-output-headroom";
+    case SOLAR_OS_CONTROLLER_TUNE_WRONG_DIRECTION: return "wrong-feedback-direction";
+    case SOLAR_OS_CONTROLLER_TUNE_RANGE: return "measurement-outside-test-range";
+    case SOLAR_OS_CONTROLLER_TUNE_NOT_SETTLED: return "response-not-settled";
+    case SOLAR_OS_CONTROLLER_TUNE_VALIDATION: return "candidate-validation-failed";
     default: return "none";
+    }
+}
+
+const char *solar_os_controller_tune_phase_name(uint32_t phase)
+{
+    switch(phase) {
+    case SOLAR_OS_CONTROLLER_TUNE_BASELINE:return "baseline";
+    case SOLAR_OS_CONTROLLER_TUNE_FIND_MOTION:return "finding-motion";
+    case SOLAR_OS_CONTROLLER_TUNE_SETTLE:return "settling";
+    case SOLAR_OS_CONTROLLER_TUNE_IDENTIFY:return "identifying";
+    case SOLAR_OS_CONTROLLER_TUNE_VALIDATE:return "validating";
+    case SOLAR_OS_CONTROLLER_TUNE_DONE:return "done";
+    default:return "unknown";
     }
 }

@@ -8,6 +8,8 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_time.h"
+#include "solar_os_jobs.h"
+#include "solar_os_encoder.h"
 
 static const char usage[] =
     "controller list | status <name>\n"
@@ -17,7 +19,7 @@ static const char usage[] =
     "  controller feed <name> <measurement>\n"
     "  controller step <name> <measurement> <dt-seconds>\n"
     "  controller manual <name> <output> | auto <name>\n"
-    "  controller tune <name> [band [cycles [timeout-ms]]]\n"
+    "  controller tune <name> [noise-floor [points [timeout-ms]]]\n"
     "  controller start|stop|reset <name>\n";
 
 static bool number(const char *text, float *value)
@@ -65,17 +67,21 @@ static void print_info(solar_os_shell_io_t *io, const solar_os_controller_info_t
             (double)c->acceleration_limit,(double)c->velocity_deadband,(double)c->friction_bias_forward,(double)c->friction_bias_reverse);
     if(info->tuning.state!=SOLAR_OS_CONTROLLER_TUNE_IDLE) {
         const solar_os_controller_tune_result_t *t=&info->tuning;
-        solar_os_shell_io_printf(io,"  tune=%s reason=%s cycles=%u/%u elapsed=%.3gs\n",
+        solar_os_shell_io_printf(io,"  tune=%s reason=%s elapsed=%.3gs\n",
             solar_os_controller_tune_state_name(t->state),solar_os_controller_tune_reason_name(t->reason),
-            (unsigned)t->cycles,(unsigned)t->required_cycles,(double)t->elapsed);
+            (double)t->elapsed);
+        solar_os_shell_io_printf(io,"  phase=%s point=%u/%u identified=%u test-drive=%.6g\n",
+            solar_os_controller_tune_phase_name(t->phase),(unsigned)t->point,(unsigned)t->points,
+            (unsigned)t->cycles,(double)t->drive);
+        solar_os_shell_io_printf(io,"  test-setpoint=%.6g breakaway=%.6g noise=%.6g\n",
+            (double)t->test_setpoint,(double)t->breakaway,(double)t->noise);
         if(t->state==SOLAR_OS_CONTROLLER_TUNE_COMPLETE)
             solar_os_shell_io_printf(io,
                 "  candidate kp=%.9g ki=%.9g\n"
                 "  kd=%.9g tau=%.9g (existing gains unchanged)\n"
-                "  relay amplitude=%.6g period=%.6gs\n"
-                "  ultimate-gain=%.6g\n",
+                "  process-gain=%.6g dead-time=%.6gs time-constant=%.6gs\n",
                 (double)t->kp,(double)t->ki,(double)t->kd,(double)t->derivative_tau,
-                (double)t->amplitude,(double)t->period,(double)t->ultimate_gain);
+                (double)t->process_gain,(double)t->dead_time,(double)t->time_constant);
     }
 }
 
@@ -113,13 +119,29 @@ void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **arg
     } else if (argc == 4 && strcmp(argv[1], "manual") == 0 && number(argv[3], &a)) {
         err = solar_os_controller_manual(argv[2], a);
     } else if(argc>=3 && argc<=6 && !strcmp(argv[1],"tune")) {
-        float band=0,cycles=6,timeout=30000;
+        float band=0,cycles=4,timeout=120000;
         if((argc<4 || number(argv[3],&band)) && (argc<5 || number(argv[4],&cycles)) &&
             (argc<6 || number(argv[5],&timeout)) && cycles>=3 && cycles<=12 &&
             timeout>=1000 && timeout<=300000 && (float)(uint32_t)cycles==cycles && (float)(uint32_t)timeout==timeout) {
-            err=solar_os_controller_tune(argv[2],band,(uint32_t)cycles,(uint32_t)timeout);
+            solar_os_controller_info_t info;
+            err=solar_os_controller_find(argv[2],&info);
+            if(err==ESP_OK && !info.owner[0] && info.config.target[0] &&
+                !info.enabled && !info.claimed && !info.input_claimed &&
+                info.config.algorithm.kind==SOLAR_OS_CONTROLLER_PID) {
+                solar_os_job_status_t job;
+                if(!solar_os_jobs_get_by_name("controllers",&job)) err=ESP_ERR_NOT_SUPPORTED;
+                else if(job.state!=SOLAR_OS_JOB_RUNNING) {
+                    char *job_argv[]={"controllers"};
+                    err=solar_os_jobs_start(ctx,"controllers",1,job_argv);
+                }
+                if(err!=ESP_OK) {
+                    solar_os_shell_io_printf(io,"controller tune: cannot run controllers worker: %s\n",solar_os_shell_error_text(err));
+                    return;
+                }
+            }
+            if(err==ESP_OK) err=solar_os_controller_tune(argv[2],band,(uint32_t)cycles,(uint32_t)timeout);
             if(err==ESP_OK) solar_os_shell_io_writeln(io,
-                "Tuning started; inspect controller status. controller stop aborts. Existing gains will remain unchanged.");
+                "Automatic tuning started; inspect controller status. controller stop aborts. Existing gains will remain unchanged.");
         }
     } else if (argc == 3) {
         if (strcmp(argv[1], "delete") == 0) err = solar_os_controller_delete(argv[2]);
@@ -129,6 +151,22 @@ void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **arg
         else if (strcmp(argv[1], "stop") == 0) err = solar_os_controller_stop(argv[2]);
     }
     if (err != ESP_OK) {
+        if(argc>=3 && !strcmp(argv[1],"tune") && err==ESP_ERR_INVALID_STATE) {
+            solar_os_controller_info_t info;
+            if(solar_os_controller_find(argv[2],&info)==ESP_OK && !info.owner[0]) {
+                if(info.input_claimed) {
+                    solar_os_shell_io_writeln(io,"controller tune: close the setpoint stream writer before tuning");return;
+                }
+                if(info.enabled || info.claimed) {
+                    solar_os_shell_io_printf(io,"controller tune: run controller stop %s before tuning\n",argv[2]);return;
+                }
+                solar_os_encoder_config_t encoder;
+                if(!strncmp(info.config.source,"enc.",4) &&
+                    solar_os_encoder_config_get(info.config.source+4,&encoder)==ESP_OK && encoder.ppr<=0) {
+                    solar_os_shell_io_printf(io,"controller tune: encoder %s needs PPR calibration\n",info.config.source+4);return;
+                }
+            }
+        }
         if(argc>=3 && !strcmp(argv[1],"tune") && err==ESP_ERR_NOT_SUPPORTED) {
             solar_os_controller_info_t info;
             if(solar_os_controller_find(argv[2],&info)==ESP_OK && info.owner[0]) {

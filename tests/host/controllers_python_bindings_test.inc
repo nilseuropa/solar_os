@@ -12,8 +12,8 @@ struct object {
     int type;
     double number;
     char text[80];
-    const char *keys[64];
-    mp_obj_t values[64];
+    const char *keys[96];
+    mp_obj_t values[96];
     size_t count;
 };
 static struct object pool[4096], none;
@@ -38,7 +38,7 @@ static mp_obj_t mp_obj_new_list(size_t n, const mp_obj_t *items)
 static void mp_obj_list_append(mp_obj_t list, mp_obj_t value)
 { assert(list->count < 64); list->values[list->count++] = value; }
 static void store(mp_obj_t dict, const char *key, mp_obj_t value)
-{ assert(dict->count < 64); dict->keys[dict->count] = key; dict->values[dict->count++] = value; }
+{ assert(dict->count < 96); dict->keys[dict->count] = key; dict->values[dict->count++] = value; }
 static void python_dict_store_cstr(mp_obj_t d, const char *k, const char *v) { store(d, k, string(v)); }
 static void python_dict_store_bool(mp_obj_t d, const char *k, bool v) { store(d, k, number(v)); }
 static void python_dict_store_uint(mp_obj_t d, const char *k, uint32_t v) { store(d, k, number(v)); }

@@ -120,13 +120,15 @@ static void standalone_controllers_test(void)
     time_value+=20000;solar_os_controllers_tick(time_value/1000);
     assert(solar_os_controller_find("standalone",&s)==ESP_OK && !s.waiting && motor_value>0);
     assert(solar_os_controller_stop("standalone")==ESP_OK);
-    /* Reuse the same bound endpoints for relay identification. */
+    /* Reuse the bound endpoints for automatic multi-speed identification.
+     * At this low speed, filter quantized 2100-count/rev feedback as on device. */
+    assert(solar_os_encoder_configure("left_enc","velocity_tau",.1f)==ESP_OK);
     assert(solar_os_controller_configure("standalone","setpoint",0)==ESP_OK);
     assert(solar_os_controller_configure("standalone","command_timeout_ms",0)==ESP_OK);
-    assert(solar_os_controller_tune("standalone",.001f,3,30000)==ESP_OK);
+    assert(solar_os_controller_tune("standalone",.01f,3,120000)==ESP_OK);
     float delay[18]={0},velocity=0;double position=0;unsigned cursor=0;
     int32_t baseline=encoder_count;
-    for(unsigned i=0;i<1500;++i) {
+    for(unsigned i=0;i<6000;++i) {
         velocity+=(delay[cursor]-velocity)*.02f/.1f;
         position+=velocity*.02;
         encoder_count=baseline+(int32_t)llround(position*2100/6.283185307);
@@ -136,6 +138,10 @@ static void standalone_controllers_test(void)
         assert(fabsf(motor_value)<=.200001f);
         delay[cursor]=motor_value;cursor=(cursor+1)%18;
     }
+    if(s.tuning.state!=SOLAR_OS_CONTROLLER_TUNE_COMPLETE) fprintf(stderr,
+        "standalone autotune: reason=%s phase=%s elapsed=%g point=%u measured=%g breakaway=%g\n",
+        solar_os_controller_tune_reason_name(s.tuning.reason),solar_os_controller_tune_phase_name(s.tuning.phase),
+        s.tuning.elapsed,s.tuning.point,s.measurement,s.tuning.breakaway);
     assert(s.tuning.state==SOLAR_OS_CONTROLLER_TUNE_COMPLETE && !s.claimed && !s.enabled && !motor_value);
     assert(s.config.algorithm.kp==1 && s.config.algorithm.ki==.1f && s.tuning.kp>0);
     assert(solar_os_controller_start("standalone")==ESP_OK);

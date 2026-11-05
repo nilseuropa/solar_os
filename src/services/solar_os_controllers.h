@@ -45,7 +45,10 @@ typedef struct {
 
 esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_t kind);
 esp_err_t solar_os_controller_delete(const char *name);
-/* Standalone PID only, stopped and unclaimed. band=0 uses hysteresis/2.
+/* Standalone PID only, stopped and unclaimed. Automatic step-response tuning
+ * ignores the current setpoint. band is the minimum response/noise floor
+ * (0 selects .02 native feedback units or 6x baseline noise, whichever is larger).
+ * cycles is the number of step-response points (3..12), not relay cycles.
  * Bound instances use the normal controllers job; unbound/manual instances
  * use step(). Gains are reported in status and never applied automatically. */
 esp_err_t solar_os_controller_tune(const char *name, float band, uint32_t cycles, uint32_t timeout_ms);

@@ -165,7 +165,7 @@ static void owned_controllers_test(void)
 static void tune_setup(void)
 {
     assert(solar_os_controller_create("loop",SOLAR_OS_CONTROLLER_PID)==ESP_OK);
-    assert(solar_os_controller_configure("loop","setpoint",.5f)==ESP_OK);
+    /* Tuning chooses its own operating points; leave the command at zero. */
     assert(solar_os_controller_configure("loop","safe_output",.5f)==ESP_OK);
 }
 
@@ -175,7 +175,7 @@ static void tune_plant(bool bound, bool cleanup_failure)
     tune_setup();
     if(bound) assert(solar_os_controller_bind("loop","manual","parameter:plant.drive")==ESP_OK);
     actuator=.5f;
-    assert(solar_os_controller_tune("loop",.01f,3,30000)==ESP_OK);
+    assert(solar_os_controller_tune("loop",.01f,3,120000)==ESP_OK);
     assert(actuator==.5f && info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING);
     assert(solar_os_controller_tune("loop",.01f,3,30000)==ESP_ERR_INVALID_STATE);
     assert(solar_os_controller_configure("loop","kp",2)==ESP_ERR_INVALID_STATE);
@@ -190,8 +190,10 @@ static void tune_plant(bool bound, bool cleanup_failure)
     float delay[18], y=.5f, output=.5f;
     for(unsigned i=0;i<18;++i) delay[i]=.5f;
     unsigned cursor=0;
-    fail_safe=cleanup_failure;
-    for(unsigned i=0;i<1500 && info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING;++i) {
+    fail_safe=false;
+    for(unsigned i=0;i<6000 && info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING;++i) {
+        if(cleanup_failure && info().tuning.phase==SOLAR_OS_CONTROLLER_TUNE_VALIDATE && info().tuning.point==2)
+            fail_safe=true;
         if(bound) { feed_tick(now+20,y); output=actuator; }
         else assert(solar_os_controller_step("loop",y,.02f,&output)==ESP_OK);
         y+=(delay[cursor]-y)*(.02f/.25f);
@@ -199,6 +201,7 @@ static void tune_plant(bool bound, bool cleanup_failure)
     }
     solar_os_controller_info_t s=info();
     assert(s.config.algorithm.kp==1 && s.config.algorithm.ki==.1f && !s.config.algorithm.kd);
+    assert(s.config.setpoint==0);
     assert(s.state.output==.5f && !s.enabled);
     if(cleanup_failure) {
         assert(s.tuning.state==SOLAR_OS_CONTROLLER_TUNE_FAILED && s.tuning.reason==SOLAR_OS_CONTROLLER_TUNE_CLEANUP);
@@ -208,7 +211,7 @@ static void tune_plant(bool bound, bool cleanup_failure)
         assert(solar_os_controller_stop("loop")==ESP_OK && !info().claimed && actuator==.5f);
     } else {
         assert(s.tuning.state==SOLAR_OS_CONTROLLER_TUNE_COMPLETE && s.tuning.cycles==3);
-        assert(s.tuning.kp>0 && s.tuning.ki>0 && s.tuning.kd>0 && !s.claimed);
+        assert(s.tuning.kp>0 && s.tuning.ki>0 && s.tuning.kd>=0 && !s.claimed);
         if(bound) assert(actuator==.5f && solar_os_parameter_set("plant.drive",.5f)==ESP_OK);
         else assert(solar_os_controller_step("loop",y,.02f,&output)==ESP_ERR_INVALID_STATE && output==.5f);
     }

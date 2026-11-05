@@ -145,39 +145,60 @@ unclaimed, using `safe_output` as the initial output. It also clears tuning resu
 ## Standalone PID tuning
 
 ```text
-controller tune <name> [band [cycles [timeout-ms]]]
+controller tune <name> [noise-floor [points [timeout-ms]]]
 controller status <name>
 controller stop <name>
 ```
 
-`tune` starts a bounded relay experiment on a stopped, unclaimed standalone
+`tune` starts an automatic experiment on a stopped, unclaimed standalone
 PID controller. It works without the robot library installed. Component-owned
 controllers, including `owner=robot`, reject tuning without changing their state.
 Hysteresis instances cannot be tuned.
 
-Configure a reachable setpoint, direction, output limits, safe output, and
-measurement timing first. The experiment switches between the configured
-`output_min` and `output_max` to make the measurement oscillate around the
-setpoint. These limits are the actual excitation levels, so choose them for
-the connected process. `band` is the positive half-width of the switching band,
-in measurement units; use a value above measurement noise. Omitted or zero
-`band` uses half the configured `hysteresis` width. `cycles` defaults to 6 and
-accepts integers from 3 through 12. Total timeout defaults to 30000 ms and
-accepts integers from 1000 through 300000.
+Configure direction, permitted output limits, `safe_output`, measurement
+timing, and the permitted measurement range (`setpoint_min/max`) first.
+**The current setpoint is ignored**; the tuner chooses its own operating points.
+It measures a one-second baseline, increases drive in 2% increments of the
+available output span until motion is detected, then measures several
+five-second step responses above the detected breakaway output. Between steps
+it returns to `safe_output` and waits for the baseline to recover.
 
-For a controller with an output binding, start `job controllers`, then use
-`tune` instead of `start`. It claims the configured parameter or PWM output
+The default is four step-response points. Optional `points` accepts 3 through
+12. `noise-floor` is the minimum meaningful response in feedback units, not
+motor power. Omitted or zero selects 0.02; measured baseline noise can raise
+the threshold to six standard deviations. The total timeout defaults to
+120000 ms and accepts 1000 through 300000. The former relay `band/cycles`
+arguments now select the response floor and number of step-response points.
+
+One invocation tests one direction: increasing output from `safe_output`, or
+decreasing output if increasing output has no headroom or the measurement
+range excludes it. To characterize the opposite motor direction, use a separate
+run with output limits that permit only that direction. Output stays within
+the configured limits. Feedback outside the measurement range, with a noise
+allowance, stops the test; this is a monitored limit, not a guarantee against
+transient mechanical overshoot.
+
+Use `tune` instead of `start`. The shell starts the `controllers` worker if
+needed for a bound controller. API callers start the job separately.
+Tuning claims the configured parameter, PWM output, or scalar stream sink
 and uses the normal timestamped stream or `feed` input. It makes no output
 write until a valid measurement is processed. Continue supplying fresh samples;
 cached timestamps do not count as new identification samples. The ordinary
 feedback timeout and `max_dt` checks remain active. Configuration and setpoint
 writes, including parameter/control/OSC writes, are rejected during tuning.
 
-Two startup cycles are discarded. Subsequent cycles must have periods and
-amplitudes within 20 percent of their means, a period covering at least eight
-of the largest sample intervals, and measurement amplitude at least three
-times `band`. Otherwise the experiment continues until timeout and reports
-failure. A nonresponsive process also times out without candidate gains.
+Each response estimates process gain, delay and time constant using its
+10% and 63.2% crossings. Flat, unresolved, wrongly signed, or still drifting
+responses fail with a specific reason. The per-point PID candidates are
+averaged, then exercised privately at 80% of each measured speed change from
+baseline, leaving output headroom for corrections. Each
+target must track continuously for one second within the larger of twice the
+response floor and 5% of its change from baseline, within ten seconds per
+target. Validation uses the PID output directly, without command ramps or
+friction feedforward. Configured gains, setpoint and bias/ramp settings remain
+unchanged. Status shows phase, point counts, test setpoint, breakaway output,
+noise and fitted response data. A test that cannot produce motion within its
+output limit fails with `no-motion-within-output-limit`.
 
 On completion, the service writes `safe_output`, releases the output, and
 reports candidate `kp`, `ki`, `kd`, and `tau` in `status`. **Configured gains
@@ -188,17 +209,15 @@ faults stop updates and retain claims for explicit cleanup, as in periodic
 operation. Results are volatile and remain visible until reset, deletion, or
 another tuning attempt.
 
-The relay amplitude and oscillation period estimate the ultimate gain and
-period. Candidates use classic Ziegler-Nichols PID in this service's parallel
-gain form, as described in [Microstar Laboratories' tuning reference](https://mstarlabs.com/control/znrule.html).
-This heuristic can produce aggressive gains. The suggested derivative filter
-is `max(period/80, largest sample interval)`; this filter choice and the
-convergence checks are SolarOS policy. Review the candidates and test closed-loop
-behavior within the intended output limits before adopting them.
+The step-response identification and IMC PID equations are adapted from
+Tortuga's `PidTuner`. The smoothing time is at least the fitted time constant
+and four sample intervals. The derivative filter is at least one sample
+interval or one tenth of the fitted delay. These are heuristic candidates;
+validation covers the tested targets and load, not every operating condition.
 
 With no source or output binding, `tune` instead advances through
 `controller step` or `solaros.controllers.step`. Each call returns the next
-relay output, or `safe_output` on completion. No background job or actuator
+test output, or `safe_output` on completion. No background job or actuator
 write occurs. The caller supplies acquisition timing, applies the returned
 output, and stops the physical actuator on failure, abort, or completion.
 After this experiment ends, further `step` calls are rejected until `reset`
@@ -207,7 +226,7 @@ old PID loop.
 
 To tune a robot wheel independently, stop the robot, configure the encoder and
 motor through their OS services, and bind a standalone controller as below.
-Use the same calibration, filtering, drive limits and operating point as the
+Use the same calibration, filtering and permitted drive/speed limits as the
 joint. Copy reviewed candidate `kp`, `ki`, `kd` and `tau` into the URDF,
 export and reload it, then explicitly start the robot. Tuning does not edit
 model files.
@@ -247,9 +266,14 @@ Stop the robot first if it owns these devices.
 For tuning, leave the controller stopped and use:
 
 ```text
-controller tune left_pid 0.01 4 20000
+controller tune left_pid
 controller status left_pid
 ```
+
+The preceding 0.2 drive cap is an example control limit, not a useful tuning
+envelope for a motor whose breakaway output is already 0.2. Tuning needs
+permitted headroom above breakaway to measure distinct operating speeds.
+Choose that envelope for the assembly before running the experiment.
 
 The controller job executes the experiment, stops output and releases the
 streams on completion. `controller stop left_pid` aborts it. Existing gains
@@ -427,7 +451,7 @@ Both expose `solaros.controllers` with matching functions:
 | `step(name, measurement, dt)` | Step a stopped instance; return its computed output. |
 | `manual(name, output)` / `auto(name)` | Select manual or automatic mode. |
 | `start(name)` / `stop(name)` | Claim and enable, or stop and release, the output. |
-| `tune(name[, band[, cycles[, timeout_ms]]])` | Start standalone PID tuning; return status. Defaults: 0, 6, 30000. |
+| `tune(name[, noise_floor[, points[, timeout_ms]]])` | Start automatic standalone PID tuning; return status. Defaults: 0, 4, 120000. |
 | `reset(name)` / `delete(name)` | Reset or remove a stopped, unclaimed instance. |
 
 ```python
@@ -446,10 +470,13 @@ service and continue after the script exits; stop them explicitly when the
 script owns their lifecycle.
 
 Status records include `tune_state` (`idle`, `running`, `complete`, `aborted`,
-or `failed`), `tune_reason`, `tune_cycles`, `tune_required_cycles`,
-`tune_elapsed`, `tune_period`, `tune_amplitude`, `tune_ultimate_gain`, and
+or `failed`), `tune_reason`, `tune_phase`, `tune_point`, `tune_points`,
+`tune_test_setpoint`, `tune_drive`, `tune_breakaway`, `tune_noise`,
+`tune_process_gain`, `tune_dead_time`, `tune_time_constant`, `tune_elapsed`, and
 candidate `tune_kp`, `tune_ki`, `tune_kd`, `tune_tau`. Candidate fields are
 valid only when `tune_state` is `complete`.
+Legacy `tune_cycles`/`tune_required_cycles` count identified response points;
+relay-only `tune_period`, `tune_amplitude` and `tune_ultimate_gain` remain zero.
 
 ## Native C
 
@@ -478,7 +505,7 @@ the same operations under `solaros.controllers`. Native applications can use
 the allocation-free controller math library directly. Component-owned PID
 instances share this registry; inspect their `owner` and `waiting` fields and
 configure/release them through their owner's API.
-Use `controller tune name [band [cycles [timeout-ms]]]` on a stopped standalone
+Use `controller tune name [noise-floor [points [timeout-ms]]]` on a stopped standalone
 PID to report candidate gains without applying them. Inspect results with
 `status`, abort with `stop`, and use `reset` before resuming manual stepping.
 Robot-owned controllers reject tuning; copy reviewed standalone results into

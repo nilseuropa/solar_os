@@ -27,6 +27,16 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
     python_dict_store_float(dict,"tune_ki",t->ki);
     python_dict_store_float(dict,"tune_kd",t->kd);
     python_dict_store_float(dict,"tune_tau",t->derivative_tau);
+    python_dict_store_cstr(dict,"tune_phase",solar_os_controller_tune_phase_name(t->phase));
+    python_dict_store_uint(dict,"tune_point",t->point);
+    python_dict_store_uint(dict,"tune_points",t->points);
+    python_dict_store_float(dict,"tune_test_setpoint",t->test_setpoint);
+    python_dict_store_float(dict,"tune_drive",t->drive);
+    python_dict_store_float(dict,"tune_breakaway",t->breakaway);
+    python_dict_store_float(dict,"tune_noise",t->noise);
+    python_dict_store_float(dict,"tune_process_gain",t->process_gain);
+    python_dict_store_float(dict,"tune_dead_time",t->dead_time);
+    python_dict_store_float(dict,"tune_time_constant",t->time_constant);
     python_dict_store_cstr(dict, "kind", info->config.algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis");
     python_dict_store_cstr(dict, "source", info->config.source);
     python_dict_store_cstr(dict, "target", info->config.target);
@@ -154,8 +164,8 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_controllers_stop_obj, solaros_controllers_stop
 static mp_obj_t solaros_controllers_tune(size_t n_args, const mp_obj_t *args)
 {
     float band=n_args>1?(float)mp_obj_get_float(args[1]):0;
-    float cycles=n_args>2?(float)mp_obj_get_float(args[2]):6;
-    float timeout=n_args>3?(float)mp_obj_get_float(args[3]):30000;
+    float cycles=n_args>2?(float)mp_obj_get_float(args[2]):4;
+    float timeout=n_args>3?(float)mp_obj_get_float(args[3]):120000;
     if(!isfinite(cycles) || cycles<3 || cycles>12 || (float)(uint32_t)cycles!=cycles ||
         !isfinite(timeout) || timeout<1000 || timeout>300000 || (float)(uint32_t)timeout!=timeout)
         python_check_esp(ESP_ERR_INVALID_ARG);

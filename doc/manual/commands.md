@@ -1331,7 +1331,7 @@ available for the compiled board.
 | `controller` | `controller feed <name> <measurement>` | Publish a manual-source measurement acquired now. |
 | `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
 | `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
-| `controller` | `controller tune <name> [band [cycles [timeout-ms]]]` | Run standalone PID relay tuning and report candidate gains without applying them; component-owned controllers reject tuning. Inspect with `status`, abort with `stop`. |
+| `controller` | `controller tune <name> [noise-floor [points [timeout-ms]]]` | Automatically find motion, measure step responses and validate candidate PID gains without applying them. Starts the worker when needed; component-owned controllers reject tuning. Inspect with `status`, abort with `stop`. |
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
 | `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
 | `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |

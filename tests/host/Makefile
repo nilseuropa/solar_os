@@ -86,6 +86,7 @@ controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 controller_tuning_test: controller_tuning_test.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_controller_tuning.h $(ROOT)/src/services/solar_os_controller_math.c
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+controller_tuning_test controllers_test robot_joint_test robot_integration_test: $(ROOT)/src/services/solar_os_controller_autotuning.inc
 TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test

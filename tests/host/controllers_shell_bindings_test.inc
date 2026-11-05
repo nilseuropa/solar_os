@@ -4,6 +4,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdlib.h>
+#include "solar_os_encoder.h"
 
 typedef struct { char output[4096]; size_t used; } solar_os_shell_io_t;
 typedef struct { solar_os_shell_io_t io; } solar_os_context_t;
@@ -28,6 +29,14 @@ static void solar_os_shell_io_writeln(solar_os_shell_io_t *io,const char *text)
 #define solar_os_shell_io_table_writeln solar_os_shell_io_writeln
 static const char *solar_os_shell_error_text(esp_err_t error)
 { (void)error; return "device error"; }
+enum { SOLAR_OS_JOB_STOPPED,SOLAR_OS_JOB_RUNNING };
+typedef struct { int state; } solar_os_job_status_t;
+static bool worker_running;
+static unsigned worker_starts;
+static bool solar_os_jobs_get_by_name(const char *name,solar_os_job_status_t *status)
+{ assert(!strcmp(name,"controllers"));status->state=worker_running?SOLAR_OS_JOB_RUNNING:SOLAR_OS_JOB_STOPPED;return true; }
+static esp_err_t solar_os_jobs_start(solar_os_context_t *ctx,const char *name,int argc,char **argv)
+{ (void)ctx;assert(!strcmp(name,"controllers") && argc==1 && !strcmp(argv[0],name));worker_running=true;worker_starts++;return ESP_OK; }
 /* SHELL_COMMAND */
 
 static const char *run(const char *line)
@@ -44,16 +53,18 @@ static const char *run(const char *line)
 int main(void)
 {
     assert(!*run("controller create loop pid"));
-    assert(strstr(run("controller tune loop .01 3 2000"),"Tuning started"));
-    assert(strstr(run("controller status loop"),"tune=running reason=none cycles=0/3"));
+    assert(strstr(run("controller tune loop .01 3 2000"),"Automatic tuning started"));
+    assert(strstr(run("controller status loop"),"phase=baseline point=0/3"));
     assert(info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING);
     assert(!*run("controller stop loop"));
     assert(strstr(run("controller status loop"),"tune=aborted"));
     assert(!*run("controller reset loop"));
-    assert(strstr(run("controller tune loop .01 3 30000"),"Tuning started"));
-    for(unsigned i=0;i<1000 && info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING;++i) {
+    assert(strstr(run("controller tune loop .01 3 120000"),"Automatic tuning started"));
+    float delay[18]={0},y=0;unsigned cursor=0;
+    for(unsigned i=0;i<6000 && info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_RUNNING;++i) {
         float output;
-        assert(solar_os_controller_step("loop",.5f*sinf(6.283185307f*i*.02f),.02f,&output)==ESP_OK);
+        assert(solar_os_controller_step("loop",y,.02f,&output)==ESP_OK);
+        y+=(delay[cursor]-y)*(.02f/.25f);delay[cursor]=output;cursor=(cursor+1)%18;
     }
     assert(info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_COMPLETE);
     const char *result=run("controller status loop");
@@ -65,9 +76,16 @@ int main(void)
     assert(strstr(run("controller tune loop .01 3 999"),"controller tune <name>"));
     assert(strstr(run("controller tune loop .01 3 30000 extra"),"controller tune <name>"));
     assert(info().tuning.state==SOLAR_OS_CONTROLLER_TUNE_IDLE);
-    assert(strstr(run("controller tune loop"),"Tuning started"));
+    assert(strstr(run("controller tune loop"),"Automatic tuning started"));
+    assert(!*run("controller stop loop"));
+    assert(!worker_starts);
+    register_output();
+    assert(!*run("controller bind loop manual parameter:plant.drive"));
+    assert(strstr(run("controller tune loop"),"Automatic tuning started"));
+    assert(worker_running && worker_starts==1);
     assert(!*run("controller stop loop"));
     assert(!*run("controller delete loop"));
+    assert(solar_os_parameters_unregister(&registration)==ESP_OK);
     assert(!*run("controller create relay hysteresis"));
     assert(strstr(run("controller tune relay"),"requires a standalone PID"));
     assert(!*run("controller delete relay"));
