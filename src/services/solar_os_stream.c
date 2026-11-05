@@ -18,6 +18,7 @@ typedef struct {
     uint32_t generation;
     solar_os_stream_driver_t driver;
     uint32_t active_handles;
+    uint32_t observers;
     char owner[SOLAR_OS_STREAM_OWNER_MAX];
     uint64_t read_units;
     uint64_t written_units;
@@ -229,7 +230,7 @@ esp_err_t solar_os_stream_unregister(const char *id)
         return ESP_ERR_NOT_FOUND;
     }
     stream_entry_t *entry = &streams[index];
-    if (entry->active_handles != 0U) {
+    if (entry->active_handles != 0U || entry->observers != 0U) {
         stream_unlock();
         return ESP_ERR_INVALID_STATE;
     }
@@ -255,7 +256,7 @@ esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count)
     stream_lock();
     for (size_t i=0; i<count; ++i) {
         indexes[i] = stream_find_locked(ids[i]);
-        if (indexes[i] < 0 || streams[indexes[i]].active_handles != 0U) {
+        if (indexes[i] < 0 || streams[indexes[i]].active_handles != 0U || streams[indexes[i]].observers != 0U) {
             err = indexes[i] < 0 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
             stream_unlock();
             return err;
@@ -822,6 +823,25 @@ esp_err_t solar_os_stream_read_scalar(
         }
         stream_unlock();
     }
+    return err;
+}
+
+esp_err_t solar_os_stream_observe_scalar_sample(const char *id,
+    const solar_os_stream_read_options_t *options,solar_os_stream_scalar_sample_t *sample)
+{
+    if(!stream_text_valid(id,SOLAR_OS_STREAM_ID_MAX,true) || !sample) return ESP_ERR_INVALID_ARG;
+    esp_err_t err=stream_ensure_init();if(err!=ESP_OK) return err;
+    stream_lock();int index=stream_find_locked(id);
+    if(index<0) { stream_unlock();return ESP_ERR_NOT_FOUND; }
+    stream_entry_t *entry=&streams[index];
+    solar_os_stream_read_scalar_sample_fn callback=entry->driver.observe_scalar_sample;
+    if(entry->driver.info.type!=SOLAR_OS_STREAM_TYPE_SCALAR ||
+        !stream_direction_can_read(entry->driver.info.direction) || !callback) {
+        stream_unlock();return ESP_ERR_NOT_SUPPORTED;
+    }
+    entry->observers++;void *user=entry->driver.user;stream_unlock();
+    err=callback(user,options,sample);
+    stream_lock();entry->observers--;if(err==ESP_OK) entry->read_units++;stream_unlock();
     return err;
 }
 

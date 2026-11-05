@@ -59,6 +59,9 @@ esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *regis
 esp_err_t solar_os_encoder_unregister(const char *name);
 size_t solar_os_encoder_count(void);
 bool solar_os_encoder_get(size_t index, solar_os_encoder_info_t *info);
+/* Fresh calibrated feedback. Idle encoders use a 20 ms measurement window;
+ * an active stream's estimator is previewed without changing its history.
+ * Raw read remains an immediate count acquisition. */
 esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *status);
 esp_err_t solar_os_encoder_read(const char *name, int32_t *count);
 esp_err_t solar_os_encoder_reset(const char *name);

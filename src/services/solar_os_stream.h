@@ -203,12 +203,19 @@ typedef struct {
                                solar_os_stream_video_frame_t *frame);
     /* Optional error-reporting close. Failure keeps the handle open. */
     esp_err_t (*close_checked)(void *user, solar_os_stream_handle_t *handle);
+    /* Optional non-consuming observation alongside an exclusive owner.
+     * Preserve the producer's acquisition time and estimator state. */
+    solar_os_stream_read_scalar_sample_fn observe_scalar_sample;
     void *user;
 } solar_os_stream_driver_t;
 
 esp_err_t solar_os_stream_init(void);
 /* No fallback: an untimestamped provider returns ESP_ERR_NOT_SUPPORTED. */
 esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
+/* Pins the provider for this call without opening/claiming the endpoint.
+ * NOT_SUPPORTED means a normal source handle is required instead. */
+esp_err_t solar_os_stream_observe_scalar_sample(const char *id,
     const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver);
 esp_err_t solar_os_stream_unregister(const char *id);

@@ -908,6 +908,7 @@ unzip -l /books/archive.zip
 | --- | --- | --- |
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
 | `stream` | `stream status <id>` | Show type, direction, provider, format, owner, and counters for one stream. |
+| `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
 | `stream` | `stream tcp remove <name>` | Remove an unclaimed TCP listener or outbound stream. |

@@ -23,6 +23,7 @@ static uint32_t motor_status_delay_us;
 static const solar_os_robot_api_v3_t *provider;
 
 int64_t esp_timer_get_time(void) { return time_value; }
+void vTaskDelay(uint32_t ticks) { time_value+=(uint64_t)ticks*1000; }
 static void *provider_alloc(size_t n) { void *p=calloc(1,n); if (p) provider_allocations++; return p; }
 static void provider_free(void *p) { if(p) { provider_allocations--;free(p); } }
 void *solar_os_memory_calloc(size_t n,size_t size,solar_os_memory_class_t cls,const char *tag)

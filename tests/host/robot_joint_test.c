@@ -19,6 +19,7 @@ static void *allocate(size_t n) { void *p = calloc(1, n); if (p) allocations++; 
 static void deallocate(void *p) { if (p) { allocations--; free(p); } }
 static int64_t time_us(void) { return fake_time; }
 int64_t esp_timer_get_time(void) { return time_us(); }
+void vTaskDelay(uint32_t ticks) { fake_time+=(uint64_t)ticks*1000; }
 static void sleep_ms(uint32_t ms) { fake_time += ms * 1000; }
 static int mutex_create(void **out, uint32_t recursive)
 { (void)recursive; *out = malloc(sizeof(pthread_mutex_t)); return *out ? pthread_mutex_init(*out, NULL) : 1; }

@@ -38,7 +38,7 @@ static esp_err_t encoder_parameter_set(void *user,float value)
     }
     if(err==ESP_OK && !solar_os_encoder_config_valid(&c)) err=ESP_ERR_INVALID_ARG;
     if(e->claim) err=ESP_ERR_INVALID_STATE;
-    if(err==ESP_OK) { e->config=c; e->feedback.valid=0; e->accumulated=0; }
+    if(err==ESP_OK) { e->config=c; e->feedback=(solar_os_native_encoder_feedback_v1_t){0}; e->accumulated=0; }
     release(e); return err;
 }
 esp_err_t solar_os_encoder_config_get(const char *name,solar_os_encoder_config_t *c)
@@ -101,46 +101,60 @@ static esp_err_t encoder_stream_close(void *user,solar_os_stream_handle_t *handl
     (void)user;esp_err_t err=solar_os_encoder_release((uint32_t)handle->private_data[0]);
     return err==ESP_ERR_NOT_FOUND?ESP_OK:err;
 }
+static esp_err_t feedback_advance(encoder_t *e,solar_os_native_encoder_feedback_v1_t *f,
+    int64_t *accumulated,int32_t count,uint64_t time,bool seed_velocity)
+{
+    const solar_os_encoder_config_t *c=&e->config;
+    if(c->ppr<=0) return ESP_ERR_INVALID_STATE;
+    if(time<=f->timestamp_us) return ESP_ERR_TIMEOUT;
+    uint32_t raw=(uint32_t)count-(uint32_t)f->count;
+    int64_t delta=raw<=INT32_MAX?(int64_t)raw:(int64_t)raw-4294967296LL;
+    if((delta>0 && *accumulated>INT64_MAX-delta) ||
+        (delta<0 && *accumulated<INT64_MIN-delta)) return ESP_ERR_INVALID_RESPONSE;
+    double counts=solar_os_native_encoder_counts_per_rev(c,e->info.mode);
+    double scale=6.2831853071795864769/counts;
+    float dt=(float)(time-f->timestamp_us)/1000000;
+    float velocity=(float)(c->polarity*delta*scale/dt);
+    int64_t total=*accumulated+delta;
+    float position=(float)(c->position_zero+(double)c->polarity*(double)total*scale);
+    float filtered=seed_velocity?velocity:f->velocity+(velocity-f->velocity)*dt/(c->velocity_tau+dt);
+    if(!isfinite(filtered) || !isfinite(position)) return ESP_ERR_INVALID_RESPONSE;
+    *accumulated=total;
+    *f=(solar_os_native_encoder_feedback_v1_t){.count=count,.decoding=e->info.mode,.timestamp_us=time,
+        .position=position,.velocity=filtered,.counts_per_rev=(float)counts,.valid=1};
+    return ESP_OK;
+}
 static esp_err_t encoder_stream_sample(void *user,const solar_os_stream_read_options_t *options,
     solar_os_stream_scalar_sample_t *sample)
 {
-    (void)options;encoder_t *e=user,*owned;
+    encoder_t *e=user,*owned;
     esp_err_t err=acquire_owned(e->stream_claim,&owned);
     if(err!=ESP_OK) return err;
-    const solar_os_encoder_config_t *c=&owned->config;
-    if(c->ppr<=0) { release(owned);return ESP_ERR_INVALID_STATE; }
-    int32_t count;err=owned->ops.read(owned->ctx,&count);
     uint64_t time=(uint64_t)esp_timer_get_time();
-    solar_os_native_encoder_feedback_v1_t *f=&owned->feedback;
-    if(err==ESP_OK && time<=f->timestamp_us) err=ESP_ERR_TIMEOUT;
-    if(err==ESP_OK) {
-        uint32_t raw=(uint32_t)count-(uint32_t)f->count;
-        int64_t delta=raw<=INT32_MAX?(int64_t)raw:(int64_t)raw-4294967296LL;
-        if((delta>0 && owned->accumulated>INT64_MAX-delta) ||
-            (delta<0 && owned->accumulated<INT64_MIN-delta)) err=ESP_ERR_INVALID_RESPONSE;
-        else {
-            double counts=solar_os_native_encoder_counts_per_rev(c,owned->info.mode);
-            double scale=6.2831853071795864769/counts;
-            float dt=(float)(time-f->timestamp_us)/1000000;
-            float velocity=(float)(c->polarity*delta*scale/dt);
-            int64_t accumulated=owned->accumulated+delta;
-            float position=(float)(c->position_zero+(double)c->polarity*(double)accumulated*scale);
-            float filtered=f->velocity+(velocity-f->velocity)*dt/(c->velocity_tau+dt);
-            if(!isfinite(filtered) || !isfinite(position)) err=ESP_ERR_INVALID_RESPONSE;
-            else {
-                owned->accumulated=accumulated;
-                *f=(solar_os_native_encoder_feedback_v1_t){.count=count,.decoding=owned->info.mode,.timestamp_us=time,
-                    .position=position,.velocity=filtered,.counts_per_rev=(float)counts,.valid=1};
-                *sample=(solar_os_stream_scalar_sample_t){.value=filtered,.uptime_ms=time/1000};
-            }
-        }
+    if(options && options->window_ms && (time<=owned->feedback.timestamp_us ||
+        time-owned->feedback.timestamp_us<(uint64_t)options->window_ms*1000)) {
+        release(owned);return ESP_ERR_TIMEOUT;
     }
+    int32_t count;err=owned->ops.read(owned->ctx,&count);
+    if(err==ESP_OK) err=feedback_advance(owned,&owned->feedback,&owned->accumulated,count,(uint64_t)esp_timer_get_time(),false);
+    if(err==ESP_OK) *sample=(solar_os_stream_scalar_sample_t){.value=owned->feedback.velocity,.uptime_ms=owned->feedback.timestamp_us/1000};
+    release(owned);return err;
+}
+static esp_err_t encoder_stream_observe(void *user,const solar_os_stream_read_options_t *options,
+    solar_os_stream_scalar_sample_t *sample)
+{
+    (void)options;encoder_t *e=user,*owned;
+    esp_err_t err=acquire(e->info.name,&owned);
+    if(err!=ESP_OK) return err;
+    if(!owned->stream_claim) err=ESP_ERR_NOT_SUPPORTED;
+    else if(!owned->feedback.valid) err=ESP_ERR_TIMEOUT;
+    else *sample=(solar_os_stream_scalar_sample_t){.value=owned->feedback.velocity,.uptime_ms=owned->feedback.timestamp_us/1000};
     release(owned);return err;
 }
 static esp_err_t publish(encoder_t *e)
 {
     solar_os_stream_driver_t stream={.open=encoder_stream_open,.close_checked=encoder_stream_close,
-        .read_scalar_sample=encoder_stream_sample,.user=e};
+        .read_scalar_sample=encoder_stream_sample,.observe_scalar_sample=encoder_stream_observe,.user=e};
     strlcpy(stream.info.id,e->endpoint,sizeof(stream.info.id));
     strlcpy(stream.info.provider,"encoder",sizeof(stream.info.provider));
     strlcpy(stream.info.device,e->info.name,sizeof(stream.info.device));

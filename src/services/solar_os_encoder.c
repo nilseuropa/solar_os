@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "solar_os_memory.h"
 
 typedef struct { struct encoder *device; unsigned index; } encoder_parameter_t;
@@ -35,6 +36,8 @@ typedef struct encoder {
 static esp_err_t publish(encoder_t *e);
 static esp_err_t unpublish(encoder_t *e);
 static esp_err_t reap_failed(const char *name);
+static esp_err_t feedback_advance(encoder_t *e, solar_os_native_encoder_feedback_v1_t *feedback,
+    int64_t *accumulated, int32_t count, uint64_t time, bool seed_velocity);
 
 static encoder_t *encoders;
 static uint32_t next_claim;
@@ -186,8 +189,37 @@ esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *s
     encoder_t *e;
     esp_err_t ret = acquire(name, &e);
     if (ret != ESP_OK) return ret;
-    solar_os_encoder_status_t value = {.info = e->info,.config=e->config,.feedback=e->feedback,.claimed=e->claim!=0};
+    solar_os_encoder_status_t value = {.info = e->info,.config=e->config,.claimed=e->claim!=0};
     ret = e->ops.read(e->ctx, &value.count);
+    uint64_t time=(uint64_t)esp_timer_get_time();
+    value.feedback=e->feedback;
+    if(ret==ESP_OK && e->config.ppr>0) {
+        int64_t accumulated=e->accumulated;
+        if(e->stream_claim) {
+            /* Preview a fresh measurement without advancing the owner's
+             * filter, reference count or acquisition timestamp. */
+            if(time>value.feedback.timestamp_us)
+                ret=feedback_advance(e,&value.feedback,&accumulated,value.count,time,false);
+        } else {
+            /* Without a sampler, acquire a bounded two-point measurement.
+             * The lock excludes a concurrent claim/reset/configuration. */
+            if(value.feedback.timestamp_us && time>value.feedback.timestamp_us)
+                ret=feedback_advance(e,&value.feedback,&accumulated,value.count,time,false);
+            else if(!value.feedback.timestamp_us) {
+                value.feedback=(solar_os_native_encoder_feedback_v1_t){.count=value.count,.timestamp_us=time,
+                    .position=e->config.position_zero};
+                accumulated=0;
+            }
+            value.feedback.count=value.count;value.feedback.timestamp_us=time;
+            if(ret==ESP_OK) {
+                TickType_t delay=pdMS_TO_TICKS(20);vTaskDelay(delay?delay:1);
+                ret=e->ops.read(e->ctx,&value.count);
+                time=(uint64_t)esp_timer_get_time();
+                if(ret==ESP_OK) ret=feedback_advance(e,&value.feedback,&accumulated,value.count,time,true);
+                if(ret==ESP_OK) { e->feedback=value.feedback;e->accumulated=accumulated; }
+            }
+        }
+    }
     if (ret == ESP_OK) *status = value;
     release(e);
     return ret;
@@ -196,9 +228,12 @@ esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *s
 esp_err_t solar_os_encoder_read(const char *name, int32_t *count)
 {
     if (count == NULL) return ESP_ERR_INVALID_ARG;
-    solar_os_encoder_status_t status;
-    const esp_err_t ret = solar_os_encoder_status(name, &status);
-    if (ret == ESP_OK) *count = status.count;
+    encoder_t *e;esp_err_t ret=acquire(name,&e);
+    if(ret==ESP_OK) {
+        int32_t value;ret=e->ops.read(e->ctx,&value);
+        if(ret==ESP_OK) *count=value;
+        release(e);
+    }
     return ret;
 }
 

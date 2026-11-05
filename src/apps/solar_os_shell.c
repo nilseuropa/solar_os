@@ -602,7 +602,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"mem", "show free memory", solar_os_shell_cmd_mem},
     {"nvs", "inspect or erase persistent settings", solar_os_shell_cmd_nvs},
     {"ramfs", "PSRAM-backed volatile filesystem", solar_os_shell_cmd_ramfs},
-    {"stream", "list data streams", solar_os_shell_cmd_stream},
+    {"stream", "inspect data streams", solar_os_shell_cmd_stream},
 #if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
     {"model", "manage resident inference models", solar_os_shell_cmd_model},
 #endif
@@ -2387,6 +2387,9 @@ static const char * const path_session_send[] = {"session", "send"};
 static const char * const path_session_focus[] = {"session", "focus"};
 static const char * const path_stream[] = {"stream"};
 static const char * const path_stream_status[] = {"stream", "status"};
+static const char * const path_stream_echo[] = {"stream", "echo"};
+static const char * const path_stream_echo_options[] = {"stream", "echo", SHELL_COMPLETION_ANY};
+static const char * const stream_echo_options[] = {"--once", "--rate"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
 static const char * const path_stream_ble[] = {"stream", "ble"};
 static const char * const path_stream_ble_status[] = {"stream", "ble", "status"};
@@ -3703,6 +3706,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_session_focus),
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
+    SHELL_COMPLETION_SCALAR_STREAMS(path_stream_echo),
+    SHELL_COMPLETION_OPTIONS(path_stream_echo_options, stream_echo_options),
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     SHELL_COMPLETION_STATIC(path_stream_ble, stream_ble_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_ble_status),

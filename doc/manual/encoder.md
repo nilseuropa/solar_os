@@ -144,10 +144,24 @@ starts at `position_zero` when the stream opens; it is not an absolute reference
 
 The source permits one open handle, retains its acquisition history while open,
 and prevents calibration changes, reset and detach until close. Raw reads and
-`encoder status` remain available; status includes cached calibrated feedback,
-its validity/timestamp, claim state and the current calibration. Closing the
-stream invalidates cached velocity. See [Feedback controllers](controllers.md)
-for a standalone encoded-motor loop and tuning example.
+`encoder status` remain available. With positive PPR, status reports fresh
+calibrated feedback even when no controller or stream reader is running.
+An idle query measures velocity over a 20 ms window; its first query is valid
+without an earlier status call. Position accumulates from the first observation
+after configuration/reset, or from the current stream reference. Raw `read`
+remains an immediate count acquisition. Without calibration, feedback remains
+invalid.
+
+When a stream is active, status previews the current count using the owner's
+estimator history without changing its filter, position reference or acquisition
+timestamp. The returned status has its own fresh acquisition time.
+
+Use `stream echo enc.<name> [--once] [--rate 1..100]` to inspect the velocity
+source. An idle echo opens the calibrated source and maintains its filter history
+until it stops. Alongside a controller, echo observes the controller's existing
+timestamped samples without taking its claim or advancing its estimator.
+See [Feedback controllers](controllers.md) for a standalone encoded-motor loop
+and tuning example.
 
 ## C providers
 

@@ -25,6 +25,7 @@ void *solar_os_memory_calloc(size_t count,size_t bytes,solar_os_memory_class_t c
 { (void)cls;(void)tag;return calloc(count,bytes); }
 void solar_os_memory_free(void *ptr) { free(ptr); }
 int64_t esp_timer_get_time(void) { return (int64_t)(now*1000); }
+void vTaskDelay(uint32_t ticks) { now+=ticks; }
 const char *esp_err_to_name(esp_err_t err) { return err == ESP_OK ? "ESP_OK" : "error"; }
 size_t strlcpy(char *dst, const char *src, size_t size)
 {

@@ -42,6 +42,15 @@ static esp_err_t read_sample(void *user,
     sample->uptime_ms = 1000; /* Cached acquisition time must survive the read. */
     return err;
 }
+static esp_err_t observe_sample(void *user,const solar_os_stream_read_options_t *options,
+    solar_os_stream_scalar_sample_t *sample)
+{
+    /* Both single and grouped removal must pin provider lifetime. */
+    const char *ids[]={"sensor0"};
+    assert(solar_os_stream_unregister("sensor0")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_unregister_many(ids,1)==ESP_ERR_INVALID_STATE);
+    return read_sample(user,options,sample);
+}
 
 static esp_err_t write_audio(void *user,
                              solar_os_stream_handle_t *handle,
@@ -196,8 +205,15 @@ int main(void)
 
     /* Timestamp-only scalar sources also support ordinary scalar readers. */
     scalar.read_scalar=NULL;
+    scalar.observe_scalar_sample=observe_sample;
+    scalar.info.sharing=SOLAR_OS_STREAM_SHARING_EXCLUSIVE;
     assert(solar_os_stream_register(&scalar)==ESP_OK);
     assert(solar_os_stream_open("sensor0","plain-reader",&first)==ESP_OK);
+    solar_os_stream_scalar_sample_t snapshot;
+    assert(solar_os_stream_open("sensor0","competitor",&second)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_observe_scalar_sample("sensor0",NULL,&snapshot)==ESP_OK);
+    assert(snapshot.value==scalar_value && snapshot.uptime_ms==1000);
+    assert(solar_os_stream_get_info("sensor0",&info)==ESP_OK && info.active_handles==1 && !strcmp(info.owner,"plain-reader"));
     assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_OK && value==scalar_value);
     assert(solar_os_stream_close_ex(&first)==ESP_OK);
     assert(solar_os_stream_unregister("sensor0")==ESP_OK);
