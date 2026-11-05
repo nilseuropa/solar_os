@@ -26,7 +26,7 @@ OVERLAY = ROOT / "patches" / "microreticulum" / "overlay"
 REPOSITORIES = {
     "microReticulum": (
         "https://github.com/zerokelvin-dev/microReticulum.git",
-        "a09477780351e7c59652d76415979bc034c8ca63",
+        "85b19b62ad19ac5f3f4edb6a2876d7de61215038",
         [
             ("src/microReticulum.h", "microReticulum.h"),
             ("src/microReticulum/", "microReticulum/"),

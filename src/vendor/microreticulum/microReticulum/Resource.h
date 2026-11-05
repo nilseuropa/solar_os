@@ -94,6 +94,7 @@ namespace RNS {
 
 	public:
 		// Static creation entry points
+		static bool transfer_size_acceptable(size_t transfer_size);
 		static void reject(const Packet& advertisement_packet);
 		static Resource accept(const Packet& advertisement_packet, Callbacks::concluded callback = nullptr, Callbacks::progress progress_callback = nullptr, const Bytes& request_id = {Bytes::NONE});
 

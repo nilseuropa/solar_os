@@ -9,7 +9,7 @@ every pin the script uses.
 
 | Tree | Revision |
 | --- | --- |
-| microReticulum | `a09477780351e7c59652d76415979bc034c8ca63` ([zerokelvin-dev fork](https://github.com/zerokelvin-dev/microReticulum) of 0.5.0) |
+| microReticulum | `85b19b62ad19ac5f3f4edb6a2876d7de61215038` ([zerokelvin-dev fork](https://github.com/zerokelvin-dev/microReticulum) of 0.5.0) |
 | microStore | `03290c10be52242dd53e78192b2bb632d408f774` ([zerokelvin-dev fork](https://github.com/zerokelvin-dev/microStore)) |
 | MsgPack | `1f552c31b940d6e9063ee17a4b3fa10c47b27169` |
 | ArxContainer | `d6affcd0bc83219b863c20abf7c269214db8db2a` |
@@ -42,6 +42,7 @@ microReticulum: fork of upstream `40fa628809d57140180c1c833559ab96fec992c1`.
 | `eab6361` | `Destination::set_default_app_data()`, so a path response carries the LXMF announce data | fork PR #7; upstream #104 proposes the same method |
 | `f84ac91` | A single-packet request response is passed through as raw msgpack, which LXMF propagation-node collection needs | fork PR #8; not yet proposed |
 | `dc46747` | `Token` and `Fernet` refuse a token without at least one whole block of ciphertext, PKCS#7 unpadding checks the pad length, and padding fills every byte with it. A 48-byte token with a valid HMAC read past an empty buffer, so one packet to any announced destination crashed the node | fork PR #9; to propose |
+| `cebcff7` | `Resource::accept()` rejects an advertisement whose transfer size is zero or larger than one encrypted segment (`Type::Resource::MAX_TRANSFER_SIZE`, which `RNS_RESOURCE_MAX_TRANSFER_SIZE` can lower) before allocating. The receiver sized its parts and hashmap from the claimed size, so one advertisement could make it allocate as much as the sender liked | fork PR #10; to propose |
 
 microStore: fork of upstream `0f28567fe00ab8ab14624a34c2e9e0a000a44c46`.
 
@@ -78,6 +79,9 @@ copied. Nothing else in this directory differs from the pinned revisions.
 - `esp_fill_random()` is a true random source only while Wi-Fi or Bluetooth is
   on, or inside `bootloader_random_enable()`. Identity and link keys must be
   made under one of those.
+- Set `RNS_RESOURCE_MAX_TRANSFER_SIZE` to the largest resource segment the
+  integration takes. The default, one 16 MiB segment, is more than a small
+  device can hold.
 - The FAT mount must allow at least 8 open files: each store keeps an index and an
   active segment open, plus one transient descriptor per read.
 

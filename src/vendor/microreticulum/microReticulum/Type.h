@@ -621,6 +621,17 @@ namespace RNS { namespace Type {
 		// Capped at 16777215 (0xFFFFFF) per segment to
 		// fit in 3 bytes in resource advertisements.
 		static const uint32_t MAX_EFFICIENT_SIZE      = 16 * 1024 * 1024 - 1;
+
+		// The largest transfer size accepted from a resource advertisement:
+		// one segment, its random hash, and the IV, padding and HMAC its
+		// encryption adds. A receiver sizes its part buffers from the
+		// advertised transfer size before any data arrives, so a build with
+		// little memory can set RNS_RESOURCE_MAX_TRANSFER_SIZE lower.
+#ifdef RNS_RESOURCE_MAX_TRANSFER_SIZE
+		static const uint32_t MAX_TRANSFER_SIZE = RNS_RESOURCE_MAX_TRANSFER_SIZE;
+#else
+		static const uint32_t MAX_TRANSFER_SIZE = MAX_EFFICIENT_SIZE + RANDOM_HASH_SIZE + 64;
+#endif
 		static const uint8_t RESPONSE_MAX_GRACE_TIME = 10;
 
 		// Max metadata size is 16777215 (0xFFFFFF) bytes

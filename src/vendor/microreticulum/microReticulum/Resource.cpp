@@ -35,10 +35,22 @@ using namespace RNS::Utilities;
 // ============================================================================
 
 /*
+Whether an advertised transfer size is one a sender could produce: not
+empty, and no larger than one encrypted segment.
+*/
+bool Resource::transfer_size_acceptable(size_t transfer_size) {
+	return transfer_size > 0 && transfer_size <= Type::Resource::MAX_TRANSFER_SIZE;
+}
+
+/*
 Reject a resource advertisement by sending a RESOURCE_RCL packet back to the
 initiator carrying the advertised resource hash. Mirror Python Resource.py:155.
 */
 void Resource::reject(const Packet& advertisement_packet) {
+	if (!advertisement_packet.link()) {
+		// Nothing to send the reject over.
+		return;
+	}
 	try {
 		TRACE("Resource::reject: Sending resource reject packet");
 		ResourceAdvertisement adv = ResourceAdvertisement::unpack(advertisement_packet.plaintext());
@@ -61,6 +73,15 @@ Resource Resource::accept(const Packet& advertisement_packet, Callbacks::conclud
 	ResourceAdvertisement adv = ResourceAdvertisement::unpack(advertisement_packet.plaintext());
 	if (!adv._h) {
 		DEBUG("Could not decode resource advertisement, dropping resource");
+		return {Type::NONE};
+	}
+	// The parts and hashmap below are sized from the advertised transfer
+	// size, which the sender chooses. Refuse one no sender could produce
+	// before allocating anything for it.
+	if (!transfer_size_acceptable(adv._t)) {
+		DEBUGF("Rejecting resource advertisement with a transfer size of %lu bytes",
+		       static_cast<unsigned long>(adv._t));
+		reject(advertisement_packet);
 		return {Type::NONE};
 	}
 
