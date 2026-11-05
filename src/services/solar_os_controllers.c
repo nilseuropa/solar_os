@@ -32,6 +32,9 @@ typedef struct {
     solar_os_motor_config_t saved_motor;
     solar_os_native_bound_controller_config_v1_t binding;
     uint16_t parameter_claims;
+    bool input_registered, input_writer, input_sample_valid;
+    float input_value;
+    uint64_t input_time_us;
 } controller_slot_t;
 
 static EXT_RAM_BSS_ATTR controller_slot_t slots[SOLAR_OS_CONTROLLER_MAX];
@@ -60,6 +63,8 @@ static bool tuning_running(const controller_slot_t *slot)
 static esp_err_t stop_locked(controller_slot_t *slot);
 static esp_err_t restore_binding(controller_slot_t *slot);
 static void tick_locked(controller_slot_t *slot,uint64_t now_ms);
+static esp_err_t publish_input(controller_slot_t *slot);
+static esp_err_t unpublish_input(controller_slot_t *slot);
 static esp_err_t command_locked(controller_slot_t *slot,float value)
 {
     const solar_os_controller_config_t *c=&slot->info.config;
@@ -69,6 +74,8 @@ static esp_err_t command_locked(controller_slot_t *slot,float value)
     slot->info.command_expires_us=c->command_timeout_ms?
         (uint64_t)esp_timer_get_time()+(uint64_t)c->command_timeout_ms*1000:0;
     slot->info.waiting=false;slot->info.last_error=ESP_OK;
+    slot->input_sample_valid=true;slot->input_value=value;
+    slot->input_time_us=(uint64_t)esp_timer_get_time();
     return ESP_OK;
 }
 static void expire_locked(controller_slot_t *slot)
@@ -115,10 +122,12 @@ static esp_err_t setpoint_set(void *user, float value)
 {
     if (!isfinite(value)) return ESP_ERR_INVALID_ARG;
     lock(); controller_slot_t *slot=user;
-    esp_err_t err=slot->owner_id || tuning_running(slot)?ESP_ERR_INVALID_STATE:ESP_OK;
+    esp_err_t err=!slot->active?ESP_ERR_NOT_FOUND:slot->owner_id || tuning_running(slot)?ESP_ERR_INVALID_STATE:ESP_OK;
     if(err==ESP_OK) err=command_locked(slot,value);
     xSemaphoreGive(mutex); return err;
 }
+
+#include "solar_os_controller_stream.inc"
 
 static void writer_name(const controller_slot_t *slot, char *text, size_t size)
 { snprintf(text, size, "ctl.%s", slot->info.config.name); }
@@ -204,7 +213,10 @@ esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_
             .maximum = 1e20f, .get = setpoint_get, .set = setpoint_set, .user = slot,
         };
         err = solar_os_parameters_register("controller", &definition, 1, &slot->registration);
-        if (err == ESP_OK) slot->active = true;
+        if (err == ESP_OK) {
+            slot->active = true;err=publish_input(slot);
+            if(err!=ESP_OK && solar_os_parameters_unregister(&slot->registration)==ESP_OK) *slot=(controller_slot_t){0};
+        }
         break;
     }
     xSemaphoreGive(mutex); return err;
@@ -214,8 +226,9 @@ esp_err_t solar_os_controller_delete(const char *name)
 {
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->owner_id && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
-        err = solar_os_parameters_unregister(&slot->registration);
+    if (slot != NULL && !slot->owner_id && !slot->input_writer && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
+        err=unpublish_input(slot);
+        if(err==ESP_OK) err = solar_os_parameters_unregister(&slot->registration);
         if (err == ESP_OK) *slot = (controller_slot_t){0};
     }
     xSemaphoreGive(mutex); return err;
@@ -262,7 +275,7 @@ esp_err_t solar_os_controller_configure(const char *name, const char *key, float
     }
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->owner_id && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->input_writer && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
         solar_os_controller_config_t c = slot->info.config;
         err = ESP_OK;
         if (strcmp(key, "kp") == 0) c.algorithm.kp = value;
@@ -312,14 +325,17 @@ esp_err_t solar_os_controller_bind(const char *name, const char *source, const c
     if (source == NULL || target == NULL || strlen(source) >= SOLAR_OS_STREAM_ID_MAX ||
         strlen(target) >= SOLAR_OS_CONTROLLER_TARGET_MAX ||
         (strncmp(target, "parameter:", 10) != 0 && strncmp(target, "pwm:", 4) != 0 && strncmp(target,"stream:",7)!=0) ||
-        strncmp(target, "parameter:controller.", 21) == 0) return ESP_ERR_INVALID_ARG;
+        strncmp(target, "parameter:controller.", 21) == 0 ||
+        strncmp(target,"stream:controller.",18)==0 || strncmp(source,"controller.",11)==0) return ESP_ERR_INVALID_ARG;
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
-    if (slot != NULL && !slot->owner_id && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
+    if (slot != NULL && !slot->owner_id && !slot->input_writer && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
         strlcpy(slot->info.config.source, strcmp(source, "manual") == 0 ? "" : source, sizeof(slot->info.config.source));
         strlcpy(slot->info.config.target, target, sizeof(slot->info.config.target));
         slot->info.has_measurement = false;
-        err = ESP_OK;
+        solar_os_stream_info_t info;char path[SOLAR_OS_STREAM_ID_MAX];input_path(slot,path,sizeof(path));
+        const char *unit=slot->info.config.source[0] && solar_os_stream_get_info(slot->info.config.source,&info)==ESP_OK?info.unit:"";
+        err = solar_os_stream_set_unit(path,unit);
     }
     xSemaphoreGive(mutex); return err;
 }
@@ -484,7 +500,7 @@ esp_err_t solar_os_controller_tune(const char *name, float band, uint32_t cycles
     lock(); controller_slot_t *slot=find(name);
     esp_err_t err=slot?ESP_ERR_INVALID_STATE:ESP_ERR_NOT_FOUND;
     if(slot && (slot->owner_id || slot->info.config.algorithm.kind!=SOLAR_OS_CONTROLLER_PID)) err=ESP_ERR_NOT_SUPPORTED;
-    else if(slot && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
+    else if(slot && !slot->input_writer && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
         const solar_os_controller_config_t *c=&slot->info.config;
         solar_os_controller_tune_config_t config={.setpoint=c->setpoint,
             .low=c->algorithm.output_min,.high=c->algorithm.output_max,
@@ -613,7 +629,9 @@ esp_err_t solar_os_controller_open_owned(const char *name, const char *owner,
         solar_os_controller_math_reset(&algorithm,&slot->info.state,0);
         slot->info.enabled=slot->info.waiting=slot->active=true;
         slot->owner_id=*id=++next_owner_id;
-        err=ESP_OK; break;
+        err=publish_input(slot);
+        if(err!=ESP_OK) { *slot=(controller_slot_t){0};*id=0; }
+        break;
     }
     xSemaphoreGive(mutex); return err;
 }
@@ -655,6 +673,7 @@ esp_err_t solar_os_controller_evaluate_owned(uint32_t id,
             } else solar_os_controller_math_reset(&algorithm,&slot->info.state,0);
             if(err==ESP_OK) {
                 slot->info.config.setpoint=s->setpoint;
+                slot->input_value=s->setpoint;slot->input_time_us=now_us;slot->input_sample_valid=true;
                 slot->info.measurement=s->measurement; slot->sample_us=s->sample_us;
                 slot->info.sample_ms=s->sample_us/1000; slot->info.has_measurement=true;
                 slot->info.waiting=!s->run; slot->info.feedforward=s->run?s->feedforward:0;
@@ -700,6 +719,9 @@ esp_err_t solar_os_controller_close_owned(uint32_t id)
     lock(); controller_slot_t *slot=find_owned(id);
     esp_err_t err=slot?ESP_OK:ESP_ERR_NOT_FOUND;
     if(slot && slot->managed) err=stop_locked(slot);
+    if(slot && err==ESP_OK) {
+        slot->info.enabled=false;slot->info.waiting=false;err=unpublish_input(slot);
+    }
     if(slot && err==ESP_OK) *slot=(controller_slot_t){0};
     xSemaphoreGive(mutex); return err;
 }

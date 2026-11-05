@@ -7,7 +7,7 @@
 #include "esp_err.h"
 
 #define SOLAR_OS_STREAM_MAX 40
-#define SOLAR_OS_STREAM_ID_MAX 24
+#define SOLAR_OS_STREAM_ID_MAX 48
 #define SOLAR_OS_STREAM_PROVIDER_MAX 20
 #define SOLAR_OS_STREAM_DEVICE_MAX 16
 #define SOLAR_OS_STREAM_UNIT_MAX 16
@@ -224,6 +224,7 @@ esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count);
 size_t solar_os_stream_count(void);
 bool solar_os_stream_get(size_t index, solar_os_stream_info_t *info);
 esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info);
+esp_err_t solar_os_stream_set_unit(const char *id, const char *unit);
 const char *solar_os_stream_type_name(solar_os_stream_type_t type);
 const char *solar_os_stream_direction_name(solar_os_stream_direction_t direction);
 const char *solar_os_stream_sharing_name(solar_os_stream_sharing_t sharing);

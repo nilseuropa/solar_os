@@ -61,6 +61,8 @@ esp_err_t solar_os_controller_open_bound(const char *name,const char *owner,
     config->acceleration_limit=c->acceleration_limit;config->velocity_deadband=c->velocity_deadband;
     config->friction_bias_forward=c->friction_bias_forward;config->friction_bias_reverse=c->friction_bias_reverse;
     config->command_timeout_ms=c->command_timeout_ms;
+    char endpoint[SOLAR_OS_STREAM_ID_MAX];input_path(slot,endpoint,sizeof(endpoint));
+    if(err==ESP_OK) err=solar_os_stream_set_unit(endpoint,"rad/s");
     char writer[SOLAR_OS_PARAMETER_WRITER_MAX];writer_name(slot,writer,sizeof(writer));
     for(unsigned i=0;i<9 && err==ESP_OK;++i) {
         char path[SOLAR_OS_PARAMETER_PATH_MAX];binding_path(slot,i,path,sizeof(path));
@@ -83,6 +85,7 @@ esp_err_t solar_os_controller_open_bound(const char *name,const char *owner,
     if(err==ESP_OK) err=solar_os_encoder_feedback((uint32_t)slot->source_handle.private_data[0],&slot->info.feedback);
     if(err!=ESP_OK) {
         esp_err_t cleanup=stop_locked(slot);
+        if(cleanup==ESP_OK) cleanup=unpublish_input(slot);
         if(cleanup==ESP_OK) { *slot=(controller_slot_t){0};*id=0; }
         else { slot->info.faulted=true;slot->info.last_error=cleanup; }
     } else {
@@ -111,7 +114,10 @@ esp_err_t solar_os_controller_command_owned(uint32_t id,float setpoint,uint64_t 
         if(acquired_us>time || (timeout && time-acquired_us>=timeout) || acquired_us>UINT64_MAX-timeout) err=ESP_ERR_TIMEOUT;
         else {
             err=command_locked(slot,setpoint);
-            if(err==ESP_OK) slot->info.command_expires_us=timeout?acquired_us+timeout:0;
+            if(err==ESP_OK) {
+                slot->info.command_expires_us=timeout?acquired_us+timeout:0;
+                slot->input_time_us=acquired_us;
+            }
         }
     }
     xSemaphoreGive(mutex);return err;

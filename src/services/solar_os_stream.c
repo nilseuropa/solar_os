@@ -329,6 +329,17 @@ esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info)
     return ESP_OK;
 }
 
+esp_err_t solar_os_stream_set_unit(const char *id,const char *unit)
+{
+    if(!stream_text_valid(id,SOLAR_OS_STREAM_ID_MAX,true) ||
+        !stream_text_valid(unit,SOLAR_OS_STREAM_UNIT_MAX,false)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err=stream_ensure_init();if(err!=ESP_OK) return err;
+    stream_lock();int index=stream_find_locked(id);
+    if(index<0) err=ESP_ERR_NOT_FOUND;
+    else strlcpy(streams[index].driver.info.unit,unit?unit:"",SOLAR_OS_STREAM_UNIT_MAX);
+    stream_unlock();return err;
+}
+
 const char *solar_os_stream_type_name(solar_os_stream_type_t type)
 {
     switch (type) {

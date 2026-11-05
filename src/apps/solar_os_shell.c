@@ -240,6 +240,7 @@ enum {
     SHELL_COMPLETION_FLAG_DIRS_ONLY = 1U << 1,
     SHELL_COMPLETION_FLAG_SCALAR_STREAMS = 1U << 2,
     SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS = 1U << 3,
+    SHELL_COMPLETION_FLAG_SCALAR_SINKS = 1U << 4,
 };
 
 typedef struct {
@@ -2388,6 +2389,7 @@ static const char * const path_session_focus[] = {"session", "focus"};
 static const char * const path_stream[] = {"stream"};
 static const char * const path_stream_status[] = {"stream", "status"};
 static const char * const path_stream_echo[] = {"stream", "echo"};
+static const char * const path_stream_write[] = {"stream", "write"};
 static const char * const path_stream_echo_options[] = {"stream", "echo", SHELL_COMPLETION_ANY};
 static const char * const stream_echo_options[] = {"--once", "--rate"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
@@ -3215,6 +3217,13 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .source = SHELL_COMPLETION_SOURCE_STREAMS, \
         .flags = SHELL_COMPLETION_FLAG_SCALAR_STREAMS, \
     }
+#define SHELL_COMPLETION_SCALAR_SINKS(path_array) \
+    { \
+        .path = path_array, \
+        .path_count = SHELL_ARRAY_COUNT(path_array), \
+        .source = SHELL_COMPLETION_SOURCE_STREAMS, \
+        .flags = SHELL_COMPLETION_FLAG_SCALAR_STREAMS | SHELL_COMPLETION_FLAG_SCALAR_SINKS, \
+    }
 #define SHELL_COMPLETION_CONTROLS(path_array) \
     { \
         .path = path_array, \
@@ -3707,6 +3716,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
     SHELL_COMPLETION_SCALAR_STREAMS(path_stream_echo),
+    SHELL_COMPLETION_SCALAR_SINKS(path_stream_write),
     SHELL_COMPLETION_OPTIONS(path_stream_echo_options, stream_echo_options),
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     SHELL_COMPLETION_STATIC(path_stream_ble, stream_ble_subcommands),
@@ -4217,6 +4227,7 @@ static uint16_t shell_completion_rule_next(uint16_t index, const char *command)
 #undef SHELL_COMPLETION_ENCODER_NAMES
 #undef SHELL_COMPLETION_STREAMS
 #undef SHELL_COMPLETION_SCALAR_STREAMS
+#undef SHELL_COMPLETION_SCALAR_SINKS
 #undef SHELL_COMPLETION_SPI_CS
 #undef SHELL_COMPLETION_UART_BUSES
 #undef SHELL_COMPLETION_UART_ARGUMENTS
@@ -7530,14 +7541,15 @@ static void shell_completion_emit_spi_cs(shell_completion_match_t *state,
 #endif
 }
 
-static void shell_completion_emit_streams(shell_completion_match_t *state, bool scalar_only)
+static void shell_completion_emit_streams(shell_completion_match_t *state, bool scalar_only, bool sinks)
 {
     const size_t count = solar_os_stream_count();
 
     for (size_t i = 0; i < count; i++) {
         solar_os_stream_info_t info;
         if (solar_os_stream_get(i, &info) &&
-            (!scalar_only || (info.type == SOLAR_OS_STREAM_TYPE_SCALAR && info.direction!=SOLAR_OS_STREAM_DIRECTION_SINK))) {
+            (!scalar_only || (info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
+                (sinks?info.direction!=SOLAR_OS_STREAM_DIRECTION_SOURCE:info.direction!=SOLAR_OS_STREAM_DIRECTION_SINK)))) {
             shell_completion_emit(state, info.id);
         }
     }
@@ -9023,7 +9035,8 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
         case SHELL_COMPLETION_SOURCE_STREAMS:
             shell_completion_emit_streams(
                 state,
-                (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_STREAMS) != 0U);
+                (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_STREAMS) != 0U,
+                (rule->flags & SHELL_COMPLETION_FLAG_SCALAR_SINKS) != 0U);
             break;
         case SHELL_COMPLETION_SOURCE_DLP_STREAMS:
 #if SOLAR_OS_PACKAGE_APP_DLP
@@ -9059,7 +9072,8 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             for(size_t i=0;i<solar_os_stream_count();++i) {
                 solar_os_stream_info_t info;
                 if(solar_os_stream_get(i,&info) && info.type==SOLAR_OS_STREAM_TYPE_SCALAR &&
-                    info.direction!=SOLAR_OS_STREAM_DIRECTION_SOURCE && !strcmp(info.format,"f32")) {
+                    info.direction!=SOLAR_OS_STREAM_DIRECTION_SOURCE && !strcmp(info.format,"f32") &&
+                    strncmp(info.id,"controller.",11)) {
                     char name[SOLAR_OS_STREAM_ID_MAX+8];snprintf(name,sizeof(name),"stream:%s",info.id);
                     shell_completion_emit(state,name);
                 }

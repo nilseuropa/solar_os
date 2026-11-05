@@ -99,6 +99,11 @@ static void owned_controllers_test(void)
         .period_ms=20,.timeout_ms=100};
     uint32_t id=0;
     assert(solar_os_controller_open_owned("wheel","robot",&c,&id)==ESP_OK && id);
+    solar_os_stream_info_t endpoint;
+    assert(solar_os_stream_get_info("controller.wheel.setpoint",&endpoint)==ESP_OK && endpoint.direction==SOLAR_OS_STREAM_DIRECTION_SOURCE);
+    solar_os_stream_open_options_t sink={.direction=SOLAR_OS_STREAM_DIRECTION_SINK};
+    solar_os_stream_handle_t input=SOLAR_OS_STREAM_HANDLE_INIT;
+    assert(solar_os_stream_open_ex("controller.wheel.setpoint","external",&sink,&input)==ESP_ERR_NOT_SUPPORTED);
     solar_os_controller_info_t s;
     assert(solar_os_controller_find("wheel",&s)==ESP_OK && s.enabled && s.waiting && !strcmp(s.owner,"robot"));
     assert(solar_os_controller_tune("wheel",.01f,3,30000)==ESP_ERR_NOT_SUPPORTED);
@@ -274,6 +279,56 @@ static void tuning_service_test(void)
     assert(solar_os_parameters_unregister(&registration)==ESP_OK);
 }
 
+static void setpoint_stream_test(void)
+{
+    const char *name="abcdefghijklmnopqrstuv";
+    const char *id="controller.abcdefghijklmnopqrstuv.setpoint";
+    assert(solar_os_controller_create(name,SOLAR_OS_CONTROLLER_PID)==ESP_OK);
+    assert(solar_os_controller_configure(name,"command_timeout_ms",40)==ESP_OK);
+    assert(solar_os_controller_configure(name,"setpoint_min",-2)==ESP_OK);
+    assert(solar_os_controller_configure(name,"setpoint_max",2)==ESP_OK);
+    assert(solar_os_controller_bind(name,"manual","pwm:native:2")==ESP_OK);
+    solar_os_stream_open_options_t sink={.direction=SOLAR_OS_STREAM_DIRECTION_SINK};
+    solar_os_stream_handle_t writer=SOLAR_OS_STREAM_HANDLE_INIT,reader=SOLAR_OS_STREAM_HANDLE_INIT,other=SOLAR_OS_STREAM_HANDLE_INIT;
+    assert(solar_os_stream_open_ex(id,"publisher",&sink,&writer)==ESP_OK);
+    assert(solar_os_stream_open(id,"observer",&reader)==ESP_OK);
+    assert(solar_os_stream_open_ex(id,"competitor",&sink,&other)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_configure(name,"setpoint",1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_parameter_set(id,1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_configure(name,"kp",2)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_bind(name,"manual","pwm:native:2")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_tune(name,.01f,4,20000)==ESP_ERR_INVALID_STATE);
+    now=3000;float value=.5f;size_t written;
+    assert(solar_os_stream_write(&writer,&value,sizeof(value),0,&written)==ESP_OK && written==sizeof(value));
+    solar_os_controller_info_t status;
+    assert(solar_os_controller_find(name,&status)==ESP_OK && status.input_claimed && status.config.setpoint==.5f);
+    uint64_t expiry=status.command_expires_us;
+    for(unsigned i=0;i<3;++i) {
+        value=i==0?NAN:i==1?INFINITY:3;
+        assert(solar_os_stream_write(&writer,&value,sizeof(value),0,&written)==ESP_ERR_INVALID_ARG && !written);
+    }
+    value=.5f;
+    assert(solar_os_stream_write(&writer,&value,1,0,&written)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_controller_find(name,&status)==ESP_OK && status.command_expires_us==expiry);
+    assert(solar_os_controller_feed(name,0,now)==ESP_OK && solar_os_controller_start(name)==ESP_OK);
+    now=3020;assert(solar_os_controller_feed(name,0,now)==ESP_OK);solar_os_controllers_tick(now);
+    now=3060;assert(solar_os_controller_feed(name,0,now)==ESP_OK);solar_os_controllers_tick(now);
+    assert(solar_os_controller_find(name,&status)==ESP_OK && status.waiting && !status.command_valid && !status.config.setpoint);
+    solar_os_stream_scalar_sample_t sample;
+    assert(solar_os_stream_observe_scalar_sample(id,NULL,&sample)==ESP_OK && sample.value==.5f && sample.uptime_ms==3000);
+    assert(solar_os_stream_read_scalar_sample(&reader,NULL,&sample)==ESP_OK && sample.value==.5f);
+    assert(solar_os_controller_stop(name)==ESP_OK);
+    assert(solar_os_controller_delete(name)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_close_ex(&writer)==ESP_OK);
+    assert(solar_os_controller_configure(name,"setpoint",.7f)==ESP_OK);
+    assert(solar_os_stream_observe_scalar_sample(id,NULL,&sample)==ESP_OK && sample.value==.7f && sample.uptime_ms==now);
+    assert(solar_os_controller_delete(name)==ESP_ERR_INVALID_STATE); /* Reader pins registration. */
+    assert(solar_os_stream_close_ex(&reader)==ESP_OK);
+    assert(solar_os_controller_delete(name)==ESP_OK);
+    solar_os_stream_info_t info;assert(solar_os_stream_get_info(id,&info)==ESP_ERR_NOT_FOUND);
+    puts("controller setpoint streams: writer claim, parameter interlock, timestamps, expiry and reader lifetime passed");
+}
+
 int main(void)
 {
     register_output();
@@ -391,6 +446,7 @@ int main(void)
     assert(solar_os_controller_count() == 0 && solar_os_parameter_count() == 0);
     owned_controllers_test();
     tuning_service_test();
+    setpoint_stream_test();
     puts("controllers service tests passed");
     return 0;
 }

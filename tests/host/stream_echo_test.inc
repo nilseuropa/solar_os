@@ -16,6 +16,8 @@ static uint64_t now=100;
 static uint64_t cancel_at;
 static bool cancelled,cached,fail_close,future,observer;
 static unsigned opens,closes,reads;
+static unsigned writes;
+static float last_written;
 static float measurement=1.25f;
 static esp_err_t sample_error;
 uint64_t solar_os_time_uptime_ms(void) {return now;}
@@ -53,20 +55,28 @@ static esp_err_t read_plain(void *u,const solar_os_stream_read_options_t *p,floa
 {(void)u;(void)p;reads++;*v=measurement;return ESP_OK;}
 static esp_err_t observe_source(void *u,const solar_os_stream_read_options_t *p,solar_os_stream_scalar_sample_t *s)
 {return observer?read_source(u,p,s):ESP_ERR_NOT_SUPPORTED;}
+static esp_err_t write_scalar(void *u,solar_os_stream_handle_t *h,const void *data,size_t bytes,uint32_t timeout,size_t *written)
+{(void)u;(void)h;(void)timeout;assert(bytes==sizeof(float));memcpy(&last_written,data,bytes);writes++;*written=bytes;return ESP_OK;}
 static solar_os_stream_driver_t driver={.info={.id="sensor",.provider="test",.format="f32",.unit="rad/s",
-    .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_SOURCE,
+    .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_DUPLEX,
     .sharing=SOLAR_OS_STREAM_SHARING_EXCLUSIVE},.open=open_source,.close_checked=close_source,
-    .read_scalar_sample=read_source,.observe_scalar_sample=observe_source,.read_scalar=read_plain};
+    .read_scalar_sample=read_source,.observe_scalar_sample=observe_source,.read_scalar=read_plain,.write=write_scalar};
 static const char *run(const char *line,int port) {
     static solar_os_context_t ctx;memset(&ctx,0,sizeof(ctx));ctx.io.kind=port;
     char input[256],*argv[16],*save;int argc=0;strlcpy(input,line,sizeof(input));
     for(char *s=strtok_r(input," ",&save);s;s=strtok_r(NULL," ",&save)) {assert(argc<16);argv[argc++]=s;}
-    solar_os_shell_cmd_stream_echo(&ctx,argc,argv);return ctx.io.output;
+    if(argc>=2 && !strcmp(argv[1],"write")) solar_os_shell_cmd_stream_write(&ctx,argc,argv);
+    else solar_os_shell_cmd_stream_echo(&ctx,argc,argv);
+    return ctx.io.output;
 }
 static unsigned lines(const char *s,const char *needle) {unsigned n=0;while((s=strstr(s,needle))) {++n;s+=strlen(needle);}return n;}
 static void released(void) {solar_os_stream_info_t i;assert(solar_os_stream_get_info("sensor",&i)==ESP_OK && !i.active_handles);}
 int main(void) {
     assert(solar_os_stream_register(&driver)==ESP_OK);
+    assert(!*run("stream write sensor .5",1) && writes==1 && last_written==.5f);released();
+    assert(strstr(run("stream write sensor nan",1),"finite number") && writes==1);
+    assert(strstr(run("stream write sensor inf",1),"finite number") && writes==1);
+    assert(strstr(run("stream write sensor .5 extra",1),"usage:"));
     const char *s=run("stream echo sensor --once",0);
     assert(strstr(s,"sample-ms=100 age-ms=0 value=1.25 rad/s") && !strstr(s,"stream echo:"));released();
     for(int port=0;port<=1;++port) {

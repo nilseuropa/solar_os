@@ -3357,13 +3357,16 @@ static mp_obj_t python_servo_info(const solar_os_servo_info_t *info)
     python_dict_store_uint(dict, "freq_hz", info->config.freq_hz);
     python_dict_store_uint(dict, "pulse_min_us", info->config.pulse_min_us);
     python_dict_store_uint(dict, "pulse_max_us", info->config.pulse_max_us);
-    python_dict_store_float(dict, "angle_min_deg", info->config.angle_min_deg);
-    python_dict_store_float(dict, "angle_max_deg", info->config.angle_max_deg);
+    python_dict_store_float(dict, "angle_min_rad", info->config.angle_min_rad);
+    python_dict_store_float(dict, "angle_max_rad", info->config.angle_max_rad);
     python_dict_store_bool(dict, "inverted", info->config.inverted);
     python_dict_store_bool(dict, "enabled", info->enabled);
     python_dict_store_bool(dict, "has_command", info->has_command);
     python_dict_store_uint(dict, "commanded_pulse_us", info->commanded_pulse_us);
-    python_dict_store_float(dict, "commanded_angle_deg", info->commanded_angle_deg);
+    python_dict_store_float(dict, "commanded_angle_rad", info->commanded_angle_rad);
+    python_dict_store_bool(dict,"input_claimed",info->input_claimed);
+    python_dict_store_bool(dict,"stream_writable",info->stream_writable);
+    python_dict_store_bool(dict,"closing",info->closing);
     return dict;
 }
 
@@ -3392,8 +3395,8 @@ static mp_obj_t solaros_servo_open(size_t n_args, const mp_obj_t *args)
         .output = python_pwm_output(args[1]),
         .pulse_min_us = python_u32_from_obj(args[2]),
         .pulse_max_us = python_u32_from_obj(args[3]),
-        .angle_min_deg = (float)mp_obj_get_float(args[4]),
-        .angle_max_deg = (float)mp_obj_get_float(args[5]),
+        .angle_min_rad = (float)mp_obj_get_float(args[4]),
+        .angle_max_rad = (float)mp_obj_get_float(args[5]),
         .freq_hz = n_args > 6 ? python_u32_from_obj(args[6]) : SOLAR_OS_SERVO_FREQ_DEFAULT_HZ,
         .inverted = n_args > 7 && mp_obj_is_true(args[7]),
     };

@@ -112,3 +112,35 @@ void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx,int argc,char **argv
     portENTER_CRITICAL(&reader_lock);reader->busy=false;portEXIT_CRITICAL(&reader_lock);
     if(err!=ESP_OK) solar_os_shell_io_printf(io,"stream echo: %s\n",solar_os_shell_error_text(err));
 }
+
+void solar_os_shell_cmd_stream_write(solar_os_context_t *ctx,int argc,char **argv)
+{
+    solar_os_shell_io_t *io=solar_os_shell_command_io(ctx);
+    if(argc!=4) { solar_os_shell_io_writeln(io,"usage: stream write <scalar-sink> <value>");return; }
+    char *end;errno=0;float value=strtof(argv[3],&end);
+    if(errno || end==argv[3] || *end || !isfinite(value)) {
+        solar_os_shell_io_writeln(io,"stream write: expected a finite number");return;
+    }
+    solar_os_stream_info_t info;esp_err_t err=solar_os_stream_get_info(argv[2],&info);
+    if(err==ESP_OK && (info.type!=SOLAR_OS_STREAM_TYPE_SCALAR ||
+        info.direction==SOLAR_OS_STREAM_DIRECTION_SOURCE || strcmp(info.format,"f32"))) err=ESP_ERR_NOT_SUPPORTED;
+    if(err!=ESP_OK) { solar_os_shell_io_printf(io,"stream write: %s\n",solar_os_shell_error_text(err));return; }
+    echo_reader_t *reader=echo_reader_acquire(info.id);
+    if(!reader) { solar_os_shell_io_writeln(io,"stream write: readers busy; retry later");return; }
+    solar_os_stream_handle_t *handle=&reader->handle;
+    if(solar_os_stream_handle_valid(handle)) err=solar_os_stream_close_ex(handle);
+    if(err==ESP_OK) {
+        const solar_os_stream_open_options_t options={.direction=SOLAR_OS_STREAM_DIRECTION_SINK,.timeout_ms=100};
+        err=solar_os_stream_open_ex(info.id,"stream-write",&options,handle);
+        if(err==ESP_OK) {
+            size_t written=0;err=solar_os_stream_write(handle,&value,sizeof(value),100,&written);
+            if(err==ESP_OK && written!=sizeof(value)) err=ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    if(solar_os_stream_handle_valid(handle)) {
+        esp_err_t close=solar_os_stream_close_ex(handle);
+        if(close!=ESP_OK) solar_os_shell_io_printf(io,"stream write: close failed: %s; repeat stream write %s to retry\n",solar_os_shell_error_text(close),info.id);
+    }
+    portENTER_CRITICAL(&reader_lock);reader->busy=false;portEXIT_CRITICAL(&reader_lock);
+    if(err!=ESP_OK) solar_os_shell_io_printf(io,"stream write: %s\n",solar_os_shell_error_text(err));
+}

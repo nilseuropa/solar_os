@@ -195,6 +195,7 @@ void solar_os_shell_cmd_sshkey(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_status(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx, int argc, char **argv);
+void solar_os_shell_cmd_stream_write(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_temperature(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_time(solar_os_context_t *ctx, int argc, char **argv);
 void solar_os_shell_cmd_top(solar_os_context_t *ctx, int argc, char **argv);

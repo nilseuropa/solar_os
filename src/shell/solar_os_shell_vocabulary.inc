@@ -26,7 +26,7 @@ SOLAR_OS_SHELL_WORDS(setterm,
     "profile", "charset", "keyboard", "keymap", "powerkey", "key", "keyrate",
     "typerate", SOLAR_OS_SHELL_BLE_WORD "repeat", "timezone", "startup", "otaurl", "ota")
 SOLAR_OS_SHELL_WORDS(stream,
-    SOLAR_OS_SHELL_BLE_STREAM_WORD SOLAR_OS_SHELL_TCP_STREAM_WORD "list", "status", "echo")
+    SOLAR_OS_SHELL_BLE_STREAM_WORD SOLAR_OS_SHELL_TCP_STREAM_WORD "list", "status", "echo", "write")
 SOLAR_OS_SHELL_WORDS(log, "status", "show", "follow", "clear", "level", "sink")
 SOLAR_OS_SHELL_WORDS(port, "list", "status")
 SOLAR_OS_SHELL_WORDS(xfer, "protocols", "send", "recv")

@@ -3146,13 +3146,16 @@ static void solua_push_servo_info(lua_State *L, const solar_os_servo_info_t *inf
     solua_set_int(L, -1, "freq_hz", info->config.freq_hz);
     solua_set_int(L, -1, "pulse_min_us", info->config.pulse_min_us);
     solua_set_int(L, -1, "pulse_max_us", info->config.pulse_max_us);
-    solua_set_num(L, -1, "angle_min_deg", info->config.angle_min_deg);
-    solua_set_num(L, -1, "angle_max_deg", info->config.angle_max_deg);
+    solua_set_num(L, -1, "angle_min_rad", info->config.angle_min_rad);
+    solua_set_num(L, -1, "angle_max_rad", info->config.angle_max_rad);
     solua_set_bool(L, -1, "inverted", info->config.inverted);
     solua_set_bool(L, -1, "enabled", info->enabled);
     solua_set_bool(L, -1, "has_command", info->has_command);
     solua_set_int(L, -1, "commanded_pulse_us", info->commanded_pulse_us);
-    solua_set_num(L, -1, "commanded_angle_deg", info->commanded_angle_deg);
+    solua_set_num(L, -1, "commanded_angle_rad", info->commanded_angle_rad);
+    solua_set_bool(L,-1,"input_claimed",info->input_claimed);
+    solua_set_bool(L,-1,"stream_writable",info->stream_writable);
+    solua_set_bool(L,-1,"closing",info->closing);
 }
 
 static int solua_servo_list(lua_State *L)
@@ -3181,8 +3184,8 @@ static int solua_servo_open(lua_State *L)
         .output = solua_pwm_output(L, 2),
         .pulse_min_us = solua_check_u32(L, 3),
         .pulse_max_us = solua_check_u32(L, 4),
-        .angle_min_deg = (float)luaL_checknumber(L, 5),
-        .angle_max_deg = (float)luaL_checknumber(L, 6),
+        .angle_min_rad = (float)luaL_checknumber(L, 5),
+        .angle_max_rad = (float)luaL_checknumber(L, 6),
         .freq_hz = lua_isnoneornil(L, 7) ? SOLAR_OS_SERVO_FREQ_DEFAULT_HZ : solua_check_u32(L, 7),
         .inverted = lua_toboolean(L, 8) != 0,
     };

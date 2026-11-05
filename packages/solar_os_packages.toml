@@ -2765,7 +2765,7 @@ requires = ["esp_driver_gpio", "esp_driver_ledc"]
 
 [packages.service_servo]
 label = "service.servo"
-depends = ["service_pwm"]
+depends = ["service_pwm", "service_streams"]
 sources = ["services/solar_os_servo.c", "shell/solar_os_shell_servo.c"]
 
 [packages.service_buttons]

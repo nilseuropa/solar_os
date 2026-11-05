@@ -15,6 +15,46 @@ It is enabled in the `full` flavor. Up to eight named instances are available.
 Standalone names use 1 through 22 lowercase letters, digits, underscores, or hyphens.
 Definitions are volatile; restore them from a startup script when required.
 
+## Setpoint streams
+
+Each standalone controller publishes `controller.<name>.setpoint`, a scalar
+`f32` command input with readback. Values use the measurement source's native
+unit: for `enc.<name>`, that is output-shaft rad/s. `stream status` shows the
+unit after the feedback source is bound. A setpoint command updates the target;
+it does not start a controller or its background job.
+
+For an already configured controller:
+
+```text
+stream write controller.left_pid.setpoint 0.5
+stream echo controller.left_pid.setpoint --once
+```
+
+`stream write` sends one value and closes its writer. Applications can keep a
+sink handle open and write native float32 values repeatedly. One writer owns
+the input at a time; readback and echo remain available alongside it. The input
+uses the same writer claim as `controller.<name>.setpoint` in the parameter
+service, so shell configuration, parameter/OSC/control writes and a stream
+producer cannot overwrite each other. Gain/limit changes, rebinding and tuning
+are rejected while an input writer is attached.
+
+Each accepted write renews `command_timeout_ms` when it is nonzero. Rejected
+values do not renew it. Closing a writer leaves the last command in effect:
+with timeout zero it stays latched; otherwise it expires normally. Readback
+reports the last accepted command and its original acquisition timestamp, even
+after expiry stops the output. Controller status reports the current waiting
+state and active setpoint separately. Close open stream handles before deleting
+the controller. Setpoint streams are command inputs/readback, not PID feedback
+sources or targets for another PID instance.
+
+Python and Lua use the existing stream API. For example, Python can open
+`solaros.streams.open("controller.left_pid.setpoint", {"direction": "sink"})`
+and write `struct.pack("<f", value)` through `solaros.streams.write(handle, data)`.
+Lua uses the same sink option and `string.pack("<f", value)`. Close the handle
+when the producer stops. The ordinary setpoint parameter and convenience
+`controller configure <name> setpoint <value>` remain available when no stream
+writer owns the input.
+
 ## Controllers owned by components
 
 Components can create PID instances through native `controllers` ABI 1. These
@@ -44,6 +84,8 @@ Servo-position joints use the OS servo service and have no PID instance.
 Owned instances receive setpoints through their owner rather than registering
 an independently writable `controller.<name>.setpoint` parameter. Standalone
 controllers retain the parameter, stream and PWM interfaces described below.
+Owned instances expose `controller.<name>.setpoint` as read-only command
+observation. Stream writers cannot bypass the robot API or its lifecycle.
 Robot startup claims endpoint configuration, applies URDF settings, and restores
 the previous settings before releasing the endpoints. Failed cleanup retains
 ownership for a later stop retry.

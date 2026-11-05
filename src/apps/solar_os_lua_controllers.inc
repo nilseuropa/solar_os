@@ -15,6 +15,7 @@ static void solua_controller_info(lua_State *L, const solar_os_controller_info_t
     solua_set_num(L,item,"active_setpoint",info->active_setpoint);
     solua_set_bool(L,item,"command_valid",info->command_valid);
     const solar_os_controller_tune_result_t *t=&info->tuning;
+    solua_set_bool(L,item,"input_claimed",info->input_claimed);
     solua_set_str(L,item,"tune_state",solar_os_controller_tune_state_name(t->state));
     solua_set_str(L,item,"tune_reason",solar_os_controller_tune_reason_name(t->reason));
     solua_set_int(L,item,"tune_cycles",t->cycles);

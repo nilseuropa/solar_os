@@ -14,6 +14,7 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
     python_dict_store_float(dict,"active_setpoint",info->active_setpoint);
     python_dict_store_bool(dict,"command_valid",info->command_valid);
     const solar_os_controller_tune_result_t *t=&info->tuning;
+    python_dict_store_bool(dict,"input_claimed",info->input_claimed);
     python_dict_store_cstr(dict,"tune_state",solar_os_controller_tune_state_name(t->state));
     python_dict_store_cstr(dict,"tune_reason",solar_os_controller_tune_reason_name(t->reason));
     python_dict_store_uint(dict,"tune_cycles",t->cycles);

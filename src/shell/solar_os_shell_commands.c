@@ -2940,6 +2940,9 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
     if(argc>=2 && !strcmp(argv[1],"echo")) {
         solar_os_shell_cmd_stream_echo(ctx,argc,argv);return;
     }
+    if(argc>=2 && !strcmp(argv[1],"write")) {
+        solar_os_shell_cmd_stream_write(ctx,argc,argv);return;
+    }
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     if (argc >= 2 && !strcmp(argv[1], "ble")) {
@@ -3074,13 +3077,13 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
                                    argc,
                                    argv,
 #if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM && SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-                                   "stream list|status|echo|tcp|ble",
+                                   "stream list|status|echo|write|tcp|ble",
 #elif SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-                                   "stream list|status|echo|tcp",
+                                   "stream list|status|echo|write|tcp",
 #elif SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-                                   "stream list|status|echo|ble",
+                                   "stream list|status|echo|write|ble",
 #else
-                                   "stream list|status|echo",
+                                   "stream list|status|echo|write",
 #endif
                                    stream_commands,
                                    sizeof(stream_commands) / sizeof(stream_commands[0]));

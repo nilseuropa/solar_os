@@ -40,6 +40,7 @@ typedef struct {
     uint64_t command_expires_us;
     float active_setpoint;
     solar_os_native_encoder_feedback_v1_t feedback;
+    bool input_claimed;
 } solar_os_controller_info_t;
 
 esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_t kind);

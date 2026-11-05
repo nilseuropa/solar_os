@@ -53,6 +53,7 @@ static void print_info(solar_os_shell_io_t *io, const solar_os_controller_info_t
         (double)c->safe_output, (unsigned)c->frequency_hz);
     solar_os_shell_io_printf(io,"  sample=%llums steps=%u faults=%u last=%s\n",(unsigned long long)info->sample_ms,
         (unsigned)info->steps, (unsigned)info->faults, solar_os_shell_error_text(info->last_error));
+    solar_os_shell_io_printf(io,"  setpoint-stream=controller.%s.setpoint input-claimed=%u\n",c->name,(unsigned)info->input_claimed);
     if(info->owner[0]) solar_os_shell_io_printf(io,
         "  owner=%s clock=owner feedforward=%.6g\n",
         info->owner,(double)info->feedforward);

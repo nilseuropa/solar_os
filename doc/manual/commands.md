@@ -909,6 +909,7 @@ unzip -l /books/archive.zip
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
 | `stream` | `stream status <id>` | Show type, direction, provider, format, owner, and counters for one stream. |
 | `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
+| `stream` | `stream write <scalar-sink> <value>` | Send one native float32 scalar value and close the writer. Supports controller setpoints and servo commands in radians; subsequent hold/stop behavior belongs to the endpoint. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
 | `stream` | `stream tcp remove <name>` | Remove an unclaimed TCP listener or outbound stream. |
@@ -1455,8 +1456,8 @@ available for the compiled board.
 | `pwm` | `pwm off <output>` | Stop a general PWM output. |
 | `servo` | `servo list` | Show names, outputs, enabled state, and owners in a compact list. |
 | `servo` | `servo status [name]` | Show calibration, frequency, inversion, and the last accepted command for all servos or one named servo. |
-| `servo` | `servo open <name> <output> <min-us> <max-us> <min-deg> <max-deg> [freq-hz [inverted:0\|1]]` | Reserve an output without pulses; see [Servo outputs](servo.md). |
-| `servo` | `servo set <name> <angle-deg>` / `servo pulse <name> <pulse-us>` | Command a calibrated angle or pulse width. |
+| `servo` | `servo open <name> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz [inverted:0\|1]]` | Reserve an output without pulses; see [Servo outputs](servo.md). |
+| `servo` | `servo set <name> <angle-rad>` / `servo pulse <name> <pulse-us>` | Command a calibrated angle in radians or a pulse width in microseconds. |
 | `servo` | `servo disable <name>` / `servo close <name>` | Stop pulses, retaining or releasing the reservation. |
 | `i2c` | `i2c [status [bus]]` | Show every named I2C bus, or one selected bus. |
 | `i2c` | `i2c speed [bus] [hz]` | Show or change a named bus clock; defaults to `i2c0` and accepts 1 through 1000000 Hz. |

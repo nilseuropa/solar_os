@@ -48,6 +48,9 @@ TARGETS += epd_sticky_identify_test sticky_display_test
 TARGETS += cl32_display_identify_test cl32_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
+SERVO_STREAM_SOURCES := $(ROOT)/src/services/solar_os_stream.c motion_endpoint_clock.c
+SERVO_STREAM_HEADERS := $(ROOT)/src/services/solar_os_stream.h $(ROOT)/src/services/solar_os_servo_stream.inc
+pwm_servo_test pwm_provider_test pca9685_expansion_test: $(SERVO_STREAM_SOURCES) $(SERVO_STREAM_HEADERS)
 TARGETS += pca9685_test pca9685_expansion_test
 TARGETS += drv8830_test
 TARGETS += motor_service_test
@@ -57,7 +60,7 @@ TARGETS += robot_joint_test
 TARGETS += robot_integration_test
 TARGETS += robot_model_test
 ROBOT_MODEL_SOURCES := $(ROOT)/modules/robot/main/model.c $(ROOT)/modules/robot/main/transform.c
-MOTION_ENDPOINT_HEADERS := $(wildcard $(ROOT)/src/services/solar_os_encoder_endpoints.inc $(ROOT)/src/services/solar_os_motor_endpoints.inc $(ROOT)/src/services/solar_os_controllers_bound.inc) $(ROOT)/include/solar_os_native_motion_abi.h $(ROOT)/include/solar_os_native_controllers_abi.h
+MOTION_ENDPOINT_HEADERS := $(wildcard $(ROOT)/src/services/solar_os_encoder_endpoints.inc $(ROOT)/src/services/solar_os_motor_endpoints.inc $(ROOT)/src/services/solar_os_controllers_bound.inc $(ROOT)/src/services/solar_os_controller_stream.inc) $(ROOT)/include/solar_os_native_motion_abi.h $(ROOT)/include/solar_os_native_controllers_abi.h $(ROOT)/src/services/solar_os_stream.h
 MOTION_ENDPOINT_SOURCES := $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_parameters.c motion_endpoint_clock.c
 ROBOT_CONTROLLER_SOURCES := $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_native_controllers.c $(MOTION_ENDPOINT_SOURCES)
 ROBOT_CONTROLLER_HEADERS := $(ROOT)/include/solar_os_native_controllers_abi.h $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_tuning.h $(ROOT)/src/services/solar_os_native_controllers.h
@@ -302,12 +305,12 @@ pwm_servo_test: pwm_stubs/freertos/semphr.h
 		-Ipwm_stubs -I. -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		pwm_servo_test.c $(ROOT)/src/drivers/pwm_port.c $(ROOT)/src/services/solar_os_pwm.c \
 		$(ROOT)/src/services/solar_os_pwm_native.c \
-		$(ROOT)/src/services/solar_os_servo.c $(ROOT)/src/services/solar_os_resources.c -lm -o $@
+		$(ROOT)/src/services/solar_os_servo.c $(ROOT)/src/services/solar_os_resources.c $(SERVO_STREAM_SOURCES) -lm -o $@
 
 pwm_provider_test: pwm_provider_test.c $(ROOT)/src/services/solar_os_pwm.c $(ROOT)/src/services/solar_os_pwm.h $(ROOT)/src/services/solar_os_servo.c $(ROOT)/src/services/solar_os_servo.h pwm_stubs/freertos/semphr.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DESP_ERR_NOT_ALLOWED=0x10b -DSOLAR_OS_PACKAGE_DRIVER_PWM_NATIVE=0 \
 		-Ipwm_stubs -I. -I$(ROOT)/src/services pwm_provider_test.c \
-		$(ROOT)/src/services/solar_os_pwm.c $(ROOT)/src/services/solar_os_servo.c -pthread -lm -o $@
+		$(ROOT)/src/services/solar_os_pwm.c $(ROOT)/src/services/solar_os_servo.c $(SERVO_STREAM_SOURCES) -pthread -lm -o $@
 
 epd_xteink_identify_test: epd_xteink_identify_test.c $(ROOT)/src/drivers/epd_xteink_identify.c $(ROOT)/src/drivers/epd_xteink_identify.h
 	$(CC) $(CFLAGS) -Iepd_stubs -I. epd_xteink_identify_test.c -o $@
@@ -965,7 +968,7 @@ pca9685_expansion_test: pca9685_expansion_test.c $(ROOT)/src/drivers/pca9685.c $
 		-include compat.h -Ipwm_stubs -Iexpansion_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
 		pca9685_expansion_test.c $(ROOT)/src/drivers/pca9685.c $(ROOT)/src/services/solar_os_pca9685.c \
 		$(ROOT)/src/services/solar_os_pca9685_driver.c $(ROOT)/src/services/solar_os_pwm.c \
-		$(ROOT)/src/services/solar_os_servo.c -pthread -lm -o $@
+		$(ROOT)/src/services/solar_os_servo.c $(SERVO_STREAM_SOURCES) -pthread -lm -o $@
 
 drv8830_test: drv8830_test.c $(ROOT)/src/drivers/drv8830.c $(ROOT)/src/drivers/drv8830.h \
 		$(ROOT)/src/services/solar_os_drv8830.c $(ROOT)/src/services/solar_os_drv8830.h \
