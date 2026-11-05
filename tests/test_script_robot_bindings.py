@@ -13,7 +13,7 @@ class RobotBindingsTest(unittest.TestCase):
     def run_bindings(self, runtime):
         lua = ROOT / "components/lua/lua/src"
         sources = [ROOT / "src/services" / name for name in (
-            "solar_os_controller_math.c", "solar_os_controllers.c", "solar_os_native_controllers.c", "solar_os_parameters.c", "solar_os_motor.c", "solar_os_encoder.c",
+            "solar_os_controller_math.c", "solar_os_controller_tuning.c", "solar_os_controllers.c", "solar_os_native_controllers.c", "solar_os_parameters.c", "solar_os_stream.c", "solar_os_motor.c", "solar_os_encoder.c",
             "solar_os_native_motion.c", "solar_os_robot.c")]
         sources += [ROOT / "modules/robot/main" / name for name in ("model.c", "transform.c")]
         if runtime == "lua":

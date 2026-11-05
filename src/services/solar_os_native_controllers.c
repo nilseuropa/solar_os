@@ -41,8 +41,25 @@ static int fault_controller(uint32_t id, int error)
 }
 static int close_controller(uint32_t id)
 { return result(solar_os_controller_close_owned(id)); }
+static int open_bound(const char *name,const char *owner,const solar_os_native_bound_controller_config_v1_t *c,uint32_t *id)
+{ return result(solar_os_controller_open_bound(name,owner,c,id)); }
+static int command_bound(uint32_t id,float target,uint64_t acquired_us)
+{ return result(solar_os_controller_command_owned(id,target,acquired_us)); }
+static int step_bound(uint32_t id,solar_os_native_bound_controller_status_v1_t *s)
+{
+    esp_err_t err=solar_os_controller_step_bound(id,s);
+    if(s && err!=ESP_ERR_NOT_FOUND) s->last_error=result(s->last_error);
+    return result(err);
+}
+static int status_bound(uint32_t id,solar_os_native_bound_controller_status_v1_t *s)
+{
+    esp_err_t err=solar_os_controller_status_bound(id,s);
+    if(err==ESP_OK) s->last_error=result(s->last_error);
+    return result(err);
+}
 static const solar_os_native_controllers_api_v1_t api={
     .abi_version=SOLAR_OS_NATIVE_CONTROLLERS_ABI,.struct_size=sizeof(api),
-    .open=open_controller,.evaluate=evaluate,.pause=pause_controller,.fault=fault_controller,.close=close_controller};
+    .open=open_controller,.evaluate=evaluate,.pause=pause_controller,.fault=fault_controller,.close=close_controller,
+    .open_bound=open_bound,.command=command_bound,.step_bound=step_bound,.status_bound=status_bound};
 const void *solar_os_native_controllers_get_service(const char *name, uint32_t abi, uint32_t size)
 { return name && !strcmp(name,SOLAR_OS_NATIVE_CONTROLLERS_SERVICE) && abi==SOLAR_OS_NATIVE_CONTROLLERS_ABI && size<=sizeof(api)?&api:NULL; }

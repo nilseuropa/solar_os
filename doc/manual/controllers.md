@@ -4,7 +4,7 @@ title = "Feedback controllers"
 section = "hardware"
 summary = "Run PID and hysteresis controllers with timestamped measurements and owned outputs"
 aliases = ["controller", "pid", "pi", "hysteresis"]
-keywords = "controller feedback pid pi pd proportional integral derivative setpoint hysteresis pwm anti-windup"
+keywords = "controller feedback pid pi pd proportional integral derivative setpoint hysteresis pwm anti-windup autotune tuning relay"
 packages_any = ["service_controllers"]
 +++
 # Feedback controllers
@@ -23,24 +23,30 @@ appear under their joint names with `owner=robot`; owned names fit 23 bytes.
 `controller list/status` and Python/Lua `solaros.controllers` expose their state,
 including `owner`, `waiting` and `feedforward`. Output includes feedforward.
 
-An owner supplies timestamped measurements and setpoints and calls the OS PID
-synchronously on its sampling task. The generic controller job skips these
-instances, so it can run alongside them without duplicate evaluation. Joint
-calibration, ramping and hardware handling remain with the robot library.
-`claimed` refers to outputs claimed by this controller service; a robot-owned
-controller's physical motor/encoder claims are shown by `robot joint status`.
+Motor velocity joints bind the same calibrated encoder sources and motor sinks
+available to standalone controllers. Encoder scaling, filtering and relative
+position belong to the encoder service. PID, ramping, deadband, friction
+feedforward and command freshness belong to the controller service; motor
+polarity, drive limits and stop behavior belong to the motor service. A joint
+supplies commands and ticks its owned OS controller on its sampling task.
+The generic controller job skips owned instances to avoid duplicate stepping.
+`claimed` includes the bound device streams. No motor feedback/control loop
+implementation is linked into the robot library.
 
 Owned instances are configured and released through their owner's API. Generic
-configure, bind, feed, step, manual, auto, reset, start and delete operations are
+configure, bind, feed, step, manual, auto, reset, start, tune and delete operations are
 rejected. `controller stop` (or stopping all controllers) revokes further
-evaluation. A robot joint observes this on its next sample, stops its output
-and latches a fault. Use robot stop/start or joint disable/enable to recover.
+evaluation and stops/releases its bound endpoints. A robot joint observes
+this on its next sample and latches a fault. Use robot stop/start or joint disable/enable to recover.
 The owner retains the controller handle until physical cleanup succeeds.
 Servo-position joints use the OS servo service and have no PID instance.
 
 Owned instances receive setpoints through their owner rather than registering
 an independently writable `controller.<name>.setpoint` parameter. Standalone
 controllers retain the parameter, stream and PWM interfaces described below.
+Robot startup claims endpoint configuration, applies URDF settings, and restores
+the previous settings before releasing the endpoints. Failed cleanup retains
+ownership for a later stop retry.
 
 ## Algorithms
 
@@ -92,14 +98,143 @@ nonzero integral gain track the manual output for a smooth first automatic
 step. P and PD instances cannot compensate their proportional/derivative
 terms in this way. Hysteresis resumes its two-level switching behavior.
 `reset` clears algorithm history and the fault indication while stopped and
-unclaimed, using `safe_output` as the initial output.
+unclaimed, using `safe_output` as the initial output. It also clears tuning results.
+
+## Standalone PID tuning
+
+```text
+controller tune <name> [band [cycles [timeout-ms]]]
+controller status <name>
+controller stop <name>
+```
+
+`tune` starts a bounded relay experiment on a stopped, unclaimed standalone
+PID controller. It works without the robot library installed. Component-owned
+controllers, including `owner=robot`, reject tuning without changing their state.
+Hysteresis instances cannot be tuned.
+
+Configure a reachable setpoint, direction, output limits, safe output, and
+measurement timing first. The experiment switches between the configured
+`output_min` and `output_max` to make the measurement oscillate around the
+setpoint. These limits are the actual excitation levels, so choose them for
+the connected process. `band` is the positive half-width of the switching band,
+in measurement units; use a value above measurement noise. Omitted or zero
+`band` uses half the configured `hysteresis` width. `cycles` defaults to 6 and
+accepts integers from 3 through 12. Total timeout defaults to 30000 ms and
+accepts integers from 1000 through 300000.
+
+For a controller with an output binding, start `job controllers`, then use
+`tune` instead of `start`. It claims the configured parameter or PWM output
+and uses the normal timestamped stream or `feed` input. It makes no output
+write until a valid measurement is processed. Continue supplying fresh samples;
+cached timestamps do not count as new identification samples. The ordinary
+feedback timeout and `max_dt` checks remain active. Configuration and setpoint
+writes, including parameter/control/OSC writes, are rejected during tuning.
+
+Two startup cycles are discarded. Subsequent cycles must have periods and
+amplitudes within 20 percent of their means, a period covering at least eight
+of the largest sample intervals, and measurement amplitude at least three
+times `band`. Otherwise the experiment continues until timeout and reports
+failure. A nonresponsive process also times out without candidate gains.
+
+On completion, the service writes `safe_output`, releases the output, and
+reports candidate `kp`, `ki`, `kd`, and `tau` in `status`. **Configured gains
+are never changed automatically.** A failed final cleanup invalidates the
+candidate and retains the claim for `stop` to retry. `stop` aborts a running
+experiment and performs the same safe-output cleanup. Input, timing, or I/O
+faults stop updates and retain claims for explicit cleanup, as in periodic
+operation. Results are volatile and remain visible until reset, deletion, or
+another tuning attempt.
+
+The relay amplitude and oscillation period estimate the ultimate gain and
+period. Candidates use classic Ziegler-Nichols PID in this service's parallel
+gain form, as described in [Microstar Laboratories' tuning reference](https://mstarlabs.com/control/znrule.html).
+This heuristic can produce aggressive gains. The suggested derivative filter
+is `max(period/80, largest sample interval)`; this filter choice and the
+convergence checks are SolarOS policy. Review the candidates and test closed-loop
+behavior within the intended output limits before adopting them.
+
+With no source or output binding, `tune` instead advances through
+`controller step` or `solaros.controllers.step`. Each call returns the next
+relay output, or `safe_output` on completion. No background job or actuator
+write occurs. The caller supplies acquisition timing, applies the returned
+output, and stops the physical actuator on failure, abort, or completion.
+After this experiment ends, further `step` calls are rejected until `reset`
+or an explicit periodic `start`; this prevents an accidental return to the
+old PID loop.
+
+To tune a robot wheel independently, stop the robot, configure the encoder and
+motor through their OS services, and bind a standalone controller as below.
+Use the same calibration, filtering, drive limits and operating point as the
+joint. Copy reviewed candidate `kp`, `ki`, `kd` and `tau` into the URDF,
+export and reload it, then explicitly start the robot. Tuning does not edit
+model files.
+
+## Standalone encoded motor
+
+An attached motor and encoder can run closed-loop velocity control without the
+robot library or a script. Attachment defines wiring and counting mode;
+service configuration defines calibration and policy. For Solbot's already
+attached `left` motor and `left_enc` encoder:
+
+```text
+encoder configure left_enc ppr 70
+encoder configure left_enc gear_ratio 30
+encoder configure left_enc polarity 1
+encoder configure left_enc velocity_tau 0.1
+motor configure left max_drive 0.2
+motor configure left polarity 1
+controller create left_pid pid
+controller configure left_pid output_min -0.2
+controller configure left_pid output_max 0.2
+controller configure left_pid kp 0.04
+controller configure left_pid ki 0.03
+controller configure left_pid setpoint 0.3
+controller bind left_pid enc.left_enc stream:mot.left
+job start controllers
+controller start left_pid
+controller status left_pid
+controller stop left_pid
+```
+
+The setpoint and feedback are output-shaft rad/s. Output is normalized motor
+drive, not rad/s. Both PID output limits must fit the motor's `max_drive` and
+motor bindings require `safe_output=0`. The encoder must have a positive PPR.
+Stop the robot first if it owns these devices.
+
+For tuning, leave the controller stopped and use:
+
+```text
+controller tune left_pid 0.01 4 20000
+controller status left_pid
+```
+
+The controller job executes the experiment, stops output and releases the
+streams on completion. `controller stop left_pid` aborts it. Existing gains
+remain unchanged. No Python/Lua sampling loop is required.
+
+`acceleration_limit` limits setpoint change per second; zero disables ramping.
+`velocity_deadband` maps small requested velocities to zero. Both default to
+zero. `friction_bias_forward` and `friction_bias_reverse` default to zero and
+supply continuous direction-dependent feedforward within the output limits.
+Feedforward participates in PID anti-windup. Zero command removes feedforward
+but continues feedback control. Manual output mode does not add feedforward.
+
+`command_timeout_ms=0` (default) keeps a standalone setpoint until it changes
+or the controller stops. A positive timeout requires fresh setpoint writes,
+including through `controller.<name>.setpoint`. Expiry resets the ramp/PID,
+stops output and enters `waiting`, while continuing feedback checks and
+retaining claims. A fresh setpoint resumes operation. It is distinct from
+`timeout_ms`, which limits feedback age. Both timeouts, when enabled, must
+cover the controller period. Relay tuning uses its own bounded experiment
+timeout instead of requiring repeated setpoint writes.
 
 ## Periodic operation
 
 Bind a measurement source and an output before enabling an instance:
 
 ```text
-controller bind <name> <stream>|manual parameter:<path>|pwm:<provider>:<output>
+controller bind <name> <stream>|manual parameter:<path>|pwm:<provider>:<output>|stream:<sink>
 job start controllers
 controller start <name>
 controller status <name>
@@ -135,6 +270,16 @@ cover the period and limits the permitted interval between completed steps.
 
 ## Outputs and ownership
 
+`stream:<sink>` claims a scalar `f32` sink exclusively for the controller's
+lifetime. `stream:mot.<name>` writes normalized signed motor drive through
+the motor service. Encoder sources `enc.<name>` remain open for the same
+lifetime, locking calibration and preventing reset/detach. Ordinary motor
+commands and competing output opens are rejected while claimed. Motor sinks
+check local feedback/command deadlines after status acquisition and before
+applying a new drive. Closing the sink coasts or brakes according to its
+stop policy. Failed closes retain handles for retry.
+
+
 `parameter:<path>` writes a registered native parameter in its declared unit.
 Both output limits must fit the parameter's range. The controller claims the
 parameter exclusively: shell, scripting, OSC, and control-mapping setters
@@ -153,8 +298,8 @@ values are pulse widths in microseconds, rounded to whole microseconds.
 support. Output limits must be nonnegative and their rounded maximum must
 be shorter than the PWM period. Use `pwm providers` and `pwm status` to
 discover available endpoints. Existing PWM or servo reservations can prevent
-a controller from claiming an output. Motor commands and calibrated servo
-angles are not output adapters in this service.
+a controller from claiming an output. Calibrated servo angles are not output adapters in this service.
+Use a motor stream for normalized drive.
 
 For an available GPIO2 and an ADC input on GPIO1, this example maps ADC
 millivolts to PWM pulse widths. Select gains, ranges, and frequency for the
@@ -199,7 +344,9 @@ controller configure <name> <key> <value>
 
 Keys are `setpoint`, `setpoint_min`, `setpoint_max`, `kp`, `ki`, `kd`, `tau`, `output_min`, `output_max`,
 `hysteresis`, `max_dt`, `reverse` (0 or 1), `safe_output`, `period_ms`,
-`timeout_ms`, and `frequency_hz`. The last three use integer values;
+`timeout_ms`, `frequency_hz`, `command_timeout_ms`, `acceleration_limit`,
+`velocity_deadband`, `friction_bias_forward`, and `friction_bias_reverse`.
+Period, timeouts and frequency use integer values;
 `timeout_ms` accepts 1 through 60000. Only `setpoint` can change while claimed.
 Limits default to 0 through 1, `tau` to 0.05 seconds, hysteresis width to 1,
 and safe output to 0. Safe output must lie within the limits before starting.
@@ -238,6 +385,7 @@ Both expose `solaros.controllers` with matching functions:
 | `step(name, measurement, dt)` | Step a stopped instance; return its computed output. |
 | `manual(name, output)` / `auto(name)` | Select manual or automatic mode. |
 | `start(name)` / `stop(name)` | Claim and enable, or stop and release, the output. |
+| `tune(name[, band[, cycles[, timeout_ms]]])` | Start standalone PID tuning; return status. Defaults: 0, 6, 30000. |
 | `reset(name)` / `delete(name)` | Reset or remove a stopped, unclaimed instance. |
 
 ```python
@@ -254,6 +402,12 @@ Lua uses the same names and positional arguments after
 `local solaros = require("solaros")`. Periodic instances belong to the OS
 service and continue after the script exits; stop them explicitly when the
 script owns their lifecycle.
+
+Status records include `tune_state` (`idle`, `running`, `complete`, `aborted`,
+or `failed`), `tune_reason`, `tune_cycles`, `tune_required_cycles`,
+`tune_elapsed`, `tune_period`, `tune_amplitude`, `tune_ultimate_gain`, and
+candidate `tune_kp`, `tune_ki`, `tune_kd`, `tune_tau`. Candidate fields are
+valid only when `tune_state` is `complete`.
 
 ## Native C
 
@@ -273,10 +427,17 @@ Output and stream callbacks invoked by this service must not re-enter it.
 Use `controller create name pid|hysteresis`, configure the setpoint and tuning,
 then call `controller step name measurement dt-seconds` for manual stepping.
 Periodic instances bind a timestamped scalar stream or manual feed to an
-exclusive parameter or PWM pulse output. Start `job controllers`, then start
+exclusive parameter, PWM pulse output, or scalar stream sink.
+For encoded motors, configure `encoder` and `motor`, then bind
+`enc.<encoder>` to `stream:mot.<motor>`. This path needs no robot library. Start `job controllers`, then start
 each instance. Faults latch and attempt the configured safe output. Stop
 instances to release claims; failed cleanup is retryable. Python and Lua expose
 the same operations under `solaros.controllers`. Native applications can use
 the allocation-free controller math library directly. Component-owned PID
 instances share this registry; inspect their `owner` and `waiting` fields and
 configure/release them through their owner's API.
+Use `controller tune name [band [cycles [timeout-ms]]]` on a stopped standalone
+PID to report candidate gains without applying them. Inspect results with
+`status`, abort with `stop`, and use `reset` before resuming manual stepping.
+Robot-owned controllers reject tuning; copy reviewed standalone results into
+the URDF and reload it.

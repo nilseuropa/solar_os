@@ -1320,13 +1320,16 @@ available for the compiled board.
 | `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `encoder` | `encoder configure <name> <key> <value>` | Configure PPR, transmission, polarity or filtering for `enc.<name>` velocity feedback. |
+| `motor` | `motor configure <name> polarity\|max_drive\|brake <value>` | Configure the generic motor service and `mot.<name>` drive sink while unclaimed. |
 | `controller` | `controller list` or `controller status <name>` | Inspect feedback controller configuration, state, output, and errors. |
 | `controller` | `controller create <name> pid\|hysteresis` or `controller delete <name>` | Create or remove a named feedback controller. |
 | `controller` | `controller configure <name> <key> <value>` | Set gains, setpoint, output limits, direction, timing, or safe output; see [Feedback controllers](controllers.md). |
-| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>` | Select timestamped measurement input and an owned parameter or PWM pulse output. |
+| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>\|stream:<sink>` | Select timestamped measurement input and an owned parameter, PWM pulse, or scalar sink output. |
 | `controller` | `controller feed <name> <measurement>` | Publish a manual-source measurement acquired now. |
 | `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
 | `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
+| `controller` | `controller tune <name> [band [cycles [timeout-ms]]]` | Run standalone PID relay tuning and report candidate gains without applying them; component-owned controllers reject tuning. Inspect with `status`, abort with `stop`. |
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
 | `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
 | `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |

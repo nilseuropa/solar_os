@@ -71,6 +71,9 @@ static mp_obj_t python_get_dict_obj(mp_obj_t dict, const char *key, bool require
     return MP_OBJ_NULL;
 }
 
+static double mp_obj_get_float(mp_obj_t value) { if(value->type!=OBJECT_NUMBER)mp_raise_TypeError("number required");return value->number; }
+static void python_dict_store_float(mp_obj_t d,const char *key,float value)
+{ mp_obj_t v=object(OBJECT_NUMBER);v->number=value;store(d,key,v); }
 /* ENCODER_BINDINGS */
 
 #define SOLAR_OS_PACKAGE_SERVICE_ENCODER 1
@@ -102,8 +105,12 @@ int main(void)
     mp_obj_t list = solaros_encoder_list();
     assert(list->count == 2 && !strcmp(python_get_dict_obj(list->values[1], "driver", true)->text, "external"));
     mp_obj_t s = solaros_encoder_status(name);
-    assert(s->map.alloc == 5 && python_get_dict_obj(s, "mode", true)->number == 4);
+    assert(s->map.alloc == 16 && python_get_dict_obj(s, "mode", true)->number == 4);
     assert(python_get_dict_obj(s, "count", true)->number == INT32_MIN);
+    solaros_encoder_configure(name,string("ppr"),mp_obj_new_int(70));
+    solaros_encoder_configure(name,string("gear_ratio"),mp_obj_new_int(30));
+    s=solaros_encoder_status(name);
+    assert(python_get_dict_obj(s,"counts_per_rev",true)->number==8400);
     assert(solaros_encoder_read(string("right"))->number == INT32_MAX);
     assert(solaros_encoder_reset(name) == mp_const_none && solaros_encoder_read(name)->number == 0);
     if (!setjmp(error_jump)) { (void)solaros_encoder_reset(string("right")); assert(false); }

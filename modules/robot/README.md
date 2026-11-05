@@ -2,15 +2,22 @@
 
 Optional ESP32-S3 native library implementing URDF models, transforms and calibrated rotary joints. The
 versioned C API is [solar_os_robot_abi.h](../../include/solar_os_robot_abi.h).
-Motor/encoder velocity joints own PPR, gearbox ratio, encoder placement,
-motor/encoder polarity, velocity estimation, ramping, command deadband,
-and directional friction feedforward. PI/PID state and evaluation belong to
-named instances in the OS controller service, accessed through native
-`controllers` ABI 1. The joint worker supplies calibrated timestamped samples,
-setpoints and feedforward; the OS applies PID and anti-windup, and the joint
-applies polarity and writes the motor. No controller math is linked into the ELF.
+Motor/encoder velocity joints configure and tick bound OS controllers through
+native `controllers` ABI 1's append-only endpoint extension. Encoder scaling,
+velocity estimation and relative position belong to the encoder service. PID,
+ramping, deadband, friction feedforward and command freshness belong to the
+controller service. Motor polarity, output limits and stop behavior belong to
+the motor service. Standalone controllers bind those same `enc.<name>` sources
+and `mot.<name>` sinks without this library. Joint configuration is applied
+under endpoint/configuration claims and restored before release. No motor
+feedback loop or PID implementation is linked into the ELF.
 Servo-position joints own joint-to-servo conversion and calibrated limits.
 Joint control works without a URDF model or display.
+
+`controller tune` accepts standalone PID instances only; robot-owned instances
+reject it. Stop the robot, tune an equivalent standalone controller, then copy
+reviewed candidate gains into the URDF and reload it. Tuning does not modify
+joint configuration or model files. See [Feedback controllers](../../doc/manual/controllers.md).
 
 The model API loads expanded URDF, validates a fixed/continuous/revolute/prismatic
 joint tree, accepts explicit position updates and computes frame transforms.

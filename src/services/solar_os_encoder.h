@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "solar_os_native_motion_abi.h"
 
 #define SOLAR_OS_ENCODER_NAME_MAX 20
 #define SOLAR_OS_ENCODER_DRIVER_MAX 32
@@ -24,6 +25,9 @@ typedef struct {
 typedef struct {
     solar_os_encoder_info_t info;
     int32_t count;
+    solar_os_native_encoder_config_v1_t config;
+    solar_os_native_encoder_feedback_v1_t feedback;
+    bool claimed;
 } solar_os_encoder_status_t;
 
 typedef struct {
@@ -58,6 +62,14 @@ bool solar_os_encoder_get(size_t index, solar_os_encoder_info_t *info);
 esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *status);
 esp_err_t solar_os_encoder_read(const char *name, int32_t *count);
 esp_err_t solar_os_encoder_reset(const char *name);
+typedef solar_os_native_encoder_config_v1_t solar_os_encoder_config_t;
+bool solar_os_encoder_config_valid(const solar_os_encoder_config_t *config);
+esp_err_t solar_os_encoder_config_get(const char *name, solar_os_encoder_config_t *config);
+esp_err_t solar_os_encoder_configure(const char *name, const char *key, float value);
+/* The stream owns a device/configuration claim until close. Owned calibration
+ * is used for transactional model startup; ordinary setters reject claims. */
+esp_err_t solar_os_encoder_stream_configure(uint32_t claim, const solar_os_encoder_config_t *config);
+esp_err_t solar_os_encoder_feedback(uint32_t claim, solar_os_native_encoder_feedback_v1_t *feedback);
 /* A reference claim permits shared reads but excludes reset and detach. */
 esp_err_t solar_os_encoder_claim(const char *name, uint32_t *claim);
 esp_err_t solar_os_encoder_sample_owned(uint32_t claim, solar_os_encoder_sample_t *sample);

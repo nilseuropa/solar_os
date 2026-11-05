@@ -46,6 +46,8 @@ static void python_dict_store_float(mp_obj_t d, const char *k, float v) { store(
 static mp_obj_t field(mp_obj_t dict, const char *key)
 { for (size_t i = 0; i < dict->count; i++) if (!strcmp(dict->keys[i], key)) return dict->values[i]; assert(false); return NULL; }
 
+static void python_dict_store_int(mp_obj_t d,const char *key,int value) { store(d,key,number(value)); }
+
 /* MOTOR_BINDINGS */
 
 int main(void)
@@ -63,7 +65,7 @@ int main(void)
     assert(field(list->values[0], "can_brake")->number && !field(list->values[1], "can_clear")->number);
     assert(solaros_motor_drive(name, number(-0.5)) == mp_const_none && a.value == -0.5f);
     mp_obj_t value = solaros_motor_status(name);
-    assert(value->count == 17 && !strcmp(field(value, "mode")->text, "reverse"));
+    assert(value->count == 21 && !strcmp(field(value, "mode")->text, "reverse"));
     assert(field(value, "drive")->number == -0.5 && field(value, "drive_valid")->number);
     assert(!field(value, "voltage_valid")->number && !field(value, "raw_valid")->number);
     assert(solaros_motor_brake(name) == mp_const_none && a.brakes == 1);
@@ -80,6 +82,9 @@ int main(void)
     assert(last_error == ESP_ERR_NOT_FOUND);
     if (setjmp(error_jump) == 0) { (void)solaros_motor_drive(name, string("bad")); assert(false); }
     assert(last_error == ESP_ERR_INVALID_ARG);
+    assert(solaros_motor_configure(name,string("max_drive"),number(.2))==mp_const_none);
+    value=solaros_motor_status(name);
+    assert(fabs(field(value,"max_drive")->number-.2)<.00001 && !field(value,"claimed")->number);
     assert(solar_os_motor_unregister("left") == ESP_OK && solar_os_motor_unregister("right") == ESP_OK);
     assert(solaros_motor_list()->count == 0 && allocations == 0);
     puts("Python motor binding functions: records, two providers, normalized controls and errors PASS");

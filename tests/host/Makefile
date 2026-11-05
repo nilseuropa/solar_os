@@ -51,14 +51,16 @@ TARGETS += pwm_servo_test pwm_provider_test
 TARGETS += pca9685_test pca9685_expansion_test
 TARGETS += drv8830_test
 TARGETS += motor_service_test
-TARGETS += controller_math_test controllers_test
+TARGETS += controller_math_test controller_tuning_test controllers_test
 TARGETS += parameters_concurrency_test
 TARGETS += robot_joint_test
 TARGETS += robot_integration_test
 TARGETS += robot_model_test
 ROBOT_MODEL_SOURCES := $(ROOT)/modules/robot/main/model.c $(ROOT)/modules/robot/main/transform.c
-ROBOT_CONTROLLER_SOURCES := $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_native_controllers.c $(ROOT)/src/services/solar_os_parameters.c
-ROBOT_CONTROLLER_HEADERS := $(ROOT)/include/solar_os_native_controllers_abi.h $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_native_controllers.h
+MOTION_ENDPOINT_HEADERS := $(wildcard $(ROOT)/src/services/solar_os_encoder_endpoints.inc $(ROOT)/src/services/solar_os_motor_endpoints.inc $(ROOT)/src/services/solar_os_controllers_bound.inc) $(ROOT)/include/solar_os_native_motion_abi.h $(ROOT)/include/solar_os_native_controllers_abi.h
+MOTION_ENDPOINT_SOURCES := $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_parameters.c motion_endpoint_clock.c
+ROBOT_CONTROLLER_SOURCES := $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_native_controllers.c $(MOTION_ENDPOINT_SOURCES)
+ROBOT_CONTROLLER_HEADERS := $(ROOT)/include/solar_os_native_controllers_abi.h $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_tuning.h $(ROOT)/src/services/solar_os_native_controllers.h
 
 robot_model_test: robot_model_test.c $(ROBOT_MODEL_SOURCES) $(ROOT)/include/solar_os_robot_model.h $(ROOT)/modules/robot/main/joint_config.h
 	$(CC) $(CFLAGS) -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/modules/robot/main $(filter %.c,$^) -lm -o $@
@@ -67,9 +69,9 @@ robot_integration_test: robot_integration_test.c $(ROOT)/modules/robot/main/robo
 robot_integration_test: $(ROBOT_CONTROLLER_HEADERS)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Irobot_stubs -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_integration_test.c $(filter-out robot_integration_test.c $(ROOT)/modules/robot/main/robot.c,$(filter %.c,$^)) -pthread -lm -o $@
 
-robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/modules/robot/main/joint_config.h $(ROOT)/src/services/solar_os_controller_math.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) robot_controller_stubs.inc
+robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/modules/robot/main/joint_config.h $(ROOT)/src/services/solar_os_controller_math.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c robot_controller_stubs.inc
 robot_joint_test: $(ROBOT_CONTROLLER_HEADERS)
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services robot_joint_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) -pthread -lm -o $@
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_joint_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c -pthread -lm -o $@
 
 parameters_concurrency_test: parameters_concurrency_test.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src/services $(filter %.c,$^) -pthread -lm -o $@
@@ -77,8 +79,10 @@ parameters_concurrency_test: parameters_concurrency_test.c $(ROOT)/src/services/
 controller_math_test: controller_math_test.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_controller_math.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 
-controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_math.h $(ROOT)/src/services/solar_os_parameters.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+controllers_test: controllers_test.c $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c $(MOTION_ENDPOINT_SOURCES) $(ROOT)/src/services/solar_os_controllers.h $(ROOT)/src/services/solar_os_controller_tuning.h $(ROOT)/src/services/solar_os_controller_math.h $(ROOT)/src/services/solar_os_parameters.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
+controller_tuning_test: controller_tuning_test.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_controller_tuning.h $(ROOT)/src/services/solar_os_controller_math.c
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services $(filter %.c,$^) -lm -o $@
 TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
@@ -969,11 +973,11 @@ drv8830_test: drv8830_test.c $(ROOT)/src/drivers/drv8830.c $(ROOT)/src/drivers/d
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Igpio_controller_stubs -Ipwm_stubs -Iexpansion_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
 		drv8830_test.c $(ROOT)/src/drivers/drv8830.c $(ROOT)/src/services/solar_os_drv8830.c \
-		$(ROOT)/src/services/solar_os_drv8830_driver.c $(ROOT)/src/services/solar_os_motor.c -pthread -lm -o $@
+		$(ROOT)/src/services/solar_os_drv8830_driver.c $(ROOT)/src/services/solar_os_motor.c $(MOTION_ENDPOINT_SOURCES) -pthread -lm -o $@
 
 encoder_service_test: encoder_service_test.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_encoder.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. \
-		-I$(ROOT)/src -I$(ROOT)/src/services encoder_service_test.c $(ROOT)/src/services/solar_os_encoder.c -pthread -o $@
+		-I$(ROOT)/src -I$(ROOT)/src/services encoder_service_test.c $(ROOT)/src/services/solar_os_encoder.c $(MOTION_ENDPOINT_SOURCES) -pthread -lm -o $@
 
 pcnt_encoder_test: pcnt_encoder_test.c encoder_service_test.c $(wildcard encoder_stubs/driver/*.h) \
 		$(wildcard $(ROOT)/src/drivers/pcnt_encoder.*) $(wildcard $(ROOT)/src/services/solar_os_pcnt_encoder*) \
@@ -981,11 +985,11 @@ pcnt_encoder_test: pcnt_encoder_test.c encoder_service_test.c $(wildcard encoder
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iencoder_stubs -Ipwm_stubs -Iexpansion_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services pcnt_encoder_test.c \
 		$(ROOT)/src/drivers/pcnt_encoder.c $(ROOT)/src/services/solar_os_pcnt_encoder.c \
-		$(ROOT)/src/services/solar_os_pcnt_encoder_driver.c $(ROOT)/src/services/solar_os_encoder.c -pthread -o $@
+		$(ROOT)/src/services/solar_os_pcnt_encoder_driver.c $(ROOT)/src/services/solar_os_encoder.c $(MOTION_ENDPOINT_SOURCES) -pthread -lm -o $@
 
 motor_service_test: motor_service_test.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_motor.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ipwm_stubs -I. \
-		-I$(ROOT)/src -I$(ROOT)/src/services motor_service_test.c $(ROOT)/src/services/solar_os_motor.c -pthread -lm -o $@
+		-I$(ROOT)/src -I$(ROOT)/src/services motor_service_test.c $(ROOT)/src/services/solar_os_motor.c $(MOTION_ENDPOINT_SOURCES) -pthread -lm -o $@
 
 drv2605_test: drv2605_test.c $(ROOT)/src/drivers/drv2605.c $(ROOT)/src/drivers/drv2605.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
@@ -1395,6 +1399,7 @@ test: $(TARGETS)
 	./parameters_concurrency_test
 	./controls_test
 	./controller_math_test
+	./controller_tuning_test
 	./controllers_test
 	./robot_joint_test
 	./robot_integration_test
@@ -1699,3 +1704,17 @@ all: sc2_relay_policy_test
 sc2-test: sc2-relay-policy-test
 test: sc2-relay-policy-test
 TARGETS += sc2_relay_policy_test
+
+encoder_service_test: $(MOTION_ENDPOINT_HEADERS)
+
+motor_service_test: $(MOTION_ENDPOINT_HEADERS)
+
+drv8830_test: $(MOTION_ENDPOINT_HEADERS)
+
+pcnt_encoder_test: $(MOTION_ENDPOINT_HEADERS)
+
+robot_integration_test: $(MOTION_ENDPOINT_HEADERS)
+
+controllers_test: $(MOTION_ENDPOINT_HEADERS)
+
+robot_joint_test: $(MOTION_ENDPOINT_HEADERS)

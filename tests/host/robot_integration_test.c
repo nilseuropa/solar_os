@@ -46,9 +46,13 @@ int solar_os_native_library_release(uint32_t lease)
 { assert(lease && leases);if(fail_release)return STATE;leases--;return 0; }
 static esp_err_t hw_status(void *ctx,solar_os_motor_status_t *s)
 { (void)ctx;time_value+=motor_status_delay_us;*s=(solar_os_motor_status_t){.mode=motor_value?SOLAR_OS_MOTOR_MODE_FORWARD:SOLAR_OS_MOTOR_MODE_COAST,.drive_valid=true,.drive=motor_value};return ESP_OK; }
-static esp_err_t hw_drive(void *ctx,float value) { (void)ctx;motor_value=value;return ESP_OK; }
-static esp_err_t hw_coast(void *ctx) { (void)ctx;if(fail_coast)return ESP_FAIL;motor_value=0;return ESP_OK; }
-static esp_err_t hw_read(void *ctx,int32_t *value) { (void)ctx;*value=encoder_count;return ESP_OK; }
+static unsigned drive_calls;
+static esp_err_t hw_drive(void *ctx,float value) { (void)ctx;drive_calls++;motor_value=value;return ESP_OK; }
+static unsigned coast_calls,fail_coast_at,read_calls,fail_read_from;
+static esp_err_t hw_coast(void *ctx)
+{ (void)ctx;coast_calls++;if(fail_coast || coast_calls==fail_coast_at)return ESP_FAIL;motor_value=0;return ESP_OK; }
+static esp_err_t hw_read(void *ctx,int32_t *value)
+{ (void)ctx;read_calls++;if(fail_read_from && read_calls>=fail_read_from)return ESP_FAIL;*value=encoder_count;return ESP_OK; }
 static esp_err_t hw_reset(void *ctx) { (void)ctx;encoder_count=0;return ESP_OK; }
 
 static void setup(void)
@@ -82,6 +86,122 @@ static const char *model_velocity_fixture=
         "<solar_os version='1'><joint name='model_wheel' command='velocity'>"
         "<motor device='left'/><encoder device='left_enc' ppr='70'/><transmission gear_ratio='30'/>"
         "<param name='velocity_limit' value='3'/></joint></solar_os></robot>";
+
+/* No robot handles, provider calls or worker are involved in this loop. */
+static void standalone_controllers_test(void)
+{
+    assert(!leases && !workers && !provider_allocations);
+    assert(solar_os_encoder_configure("left_enc","ppr",70)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","gear_ratio",30)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","velocity_tau",0)==ESP_OK);
+    assert(solar_os_motor_configure("left","max_drive",.2f)==ESP_OK);
+    assert(solar_os_controller_create("standalone",SOLAR_OS_CONTROLLER_PID)==ESP_OK);
+    for(unsigned i=0;i<2;++i) {
+        assert(solar_os_controller_configure("standalone",i?"output_max":"output_min",i?.2f:-.2f)==ESP_OK);
+    }
+    assert(solar_os_controller_configure("standalone","command_timeout_ms",40)==ESP_OK);
+    assert(solar_os_controller_configure("standalone","setpoint",1)==ESP_OK);
+    assert(solar_os_controller_bind("standalone","enc.left_enc","stream:mot.left")==ESP_OK);
+    encoder_count=0;
+    assert(solar_os_controller_start("standalone")==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","ppr",20)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_parameter_set("enc.left_enc.gear_ratio",2)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_motor_configure("left","polarity",-1)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_motor_drive("left",0)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_encoder_reset("left_enc")==ESP_ERR_INVALID_STATE);
+    time_value+=20000;encoder_count=7;solar_os_controllers_tick(time_value/1000);
+    solar_os_controller_info_t s;
+    assert(solar_os_controller_find("standalone",&s)==ESP_OK && s.enabled && !s.owner[0]);
+    assert(fabsf(s.measurement-(float)(6.283185307*7/(2100*.02)))<.0001f && motor_value<0);
+    time_value+=40000;solar_os_controllers_tick(time_value/1000);
+    assert(solar_os_controller_find("standalone",&s)==ESP_OK && s.waiting && !s.faulted && !motor_value);
+    assert(solar_os_controller_configure("standalone","setpoint",1)==ESP_OK);
+    time_value+=20000;solar_os_controllers_tick(time_value/1000);
+    assert(solar_os_controller_find("standalone",&s)==ESP_OK && !s.waiting && motor_value>0);
+    assert(solar_os_controller_stop("standalone")==ESP_OK);
+    /* Reuse the same bound endpoints for relay identification. */
+    assert(solar_os_controller_configure("standalone","setpoint",0)==ESP_OK);
+    assert(solar_os_controller_configure("standalone","command_timeout_ms",0)==ESP_OK);
+    assert(solar_os_controller_tune("standalone",.001f,3,30000)==ESP_OK);
+    float delay[18]={0},velocity=0;double position=0;unsigned cursor=0;
+    int32_t baseline=encoder_count;
+    for(unsigned i=0;i<1500;++i) {
+        velocity+=(delay[cursor]-velocity)*.02f/.1f;
+        position+=velocity*.02;
+        encoder_count=baseline+(int32_t)llround(position*2100/6.283185307);
+        time_value+=20000;solar_os_controllers_tick(time_value/1000);
+        assert(solar_os_controller_find("standalone",&s)==ESP_OK);
+        if(s.tuning.state!=SOLAR_OS_CONTROLLER_TUNE_RUNNING) break;
+        assert(fabsf(motor_value)<=.200001f);
+        delay[cursor]=motor_value;cursor=(cursor+1)%18;
+    }
+    assert(s.tuning.state==SOLAR_OS_CONTROLLER_TUNE_COMPLETE && !s.claimed && !s.enabled && !motor_value);
+    assert(s.config.algorithm.kp==1 && s.config.algorithm.ki==.1f && s.tuning.kp>0);
+    assert(solar_os_controller_start("standalone")==ESP_OK);
+    fail_coast_at=coast_calls+2; /* Safe write succeeds, final output close fails. */
+    assert(solar_os_controller_stop("standalone")==ESP_FAIL);
+    assert(solar_os_encoder_reset("left_enc")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_encoder_configure("left_enc","ppr",10)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_controller_find("standalone",&s)==ESP_OK && s.claimed);
+    fail_coast_at=0;
+    assert(solar_os_controller_stop("standalone")==ESP_OK);
+    assert(solar_os_controller_delete("standalone")==ESP_OK);
+    const char *long_name="long_01234567890123456";
+    assert(strlen(long_name)==22);
+    assert(solar_os_controller_create(long_name,SOLAR_OS_CONTROLLER_PID)==ESP_OK);
+    assert(solar_os_controller_configure(long_name,"output_min",-.2f)==ESP_OK);
+    assert(solar_os_controller_configure(long_name,"output_max",.2f)==ESP_OK);
+    assert(solar_os_controller_bind(long_name,"enc.left_enc","stream:mot.left")==ESP_OK);
+    assert(solar_os_controller_start(long_name)==ESP_OK);
+    solar_os_stream_info_t stream;
+    assert(solar_os_stream_get_info("mot.left",&stream)==ESP_OK && !strcmp(stream.owner,long_name));
+    assert(solar_os_controller_stop(long_name)==ESP_OK && solar_os_controller_delete(long_name)==ESP_OK);
+    assert(!leases && !workers && !provider_allocations);
+    assert(solar_os_encoder_configure("left_enc","ppr",0)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","gear_ratio",1)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","velocity_tau",.1f)==ESP_OK);
+    assert(solar_os_motor_configure("left","max_drive",1)==ESP_OK);
+    encoder_count=0;
+}
+
+static void model_parameter_transaction_test(void)
+{
+    char error[128];
+    assert(solar_os_encoder_configure("left_enc","ppr",17)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","gear_ratio",5)==ESP_OK);
+    assert(solar_os_motor_configure("left","max_drive",.7f)==ESP_OK);
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),error,sizeof(error))==ESP_OK);
+    assert(solar_os_parameter_claim("enc.left_enc.ppr","other")==ESP_OK);
+    assert(solar_os_robot_start()==ESP_ERR_INVALID_STATE);
+    assert(!solar_os_controller_count() && !workers);
+    solar_os_encoder_config_t enc;solar_os_motor_config_t motor;
+    assert(solar_os_encoder_config_get("left_enc",&enc)==ESP_OK && enc.ppr==17 && enc.gear_ratio==5);
+    assert(solar_os_parameter_release("enc.left_enc.ppr","other")==ESP_OK);
+    fail_read_from=read_calls+2; /* Fail calibration after stream acquisition. */
+    assert(solar_os_robot_start()!=ESP_OK);
+    assert(solar_os_robot_stop()!=ESP_OK && solar_os_controller_count()==1);
+    assert(solar_os_motor_drive("left",0)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_encoder_configure("left_enc","ppr",99)==ESP_ERR_INVALID_STATE);
+    fail_read_from=0;
+    assert(solar_os_robot_stop()==ESP_OK && !solar_os_controller_count());
+    assert(solar_os_encoder_config_get("left_enc",&enc)==ESP_OK && enc.ppr==17 && enc.gear_ratio==5);
+    assert(solar_os_robot_start()==ESP_OK);
+    assert(solar_os_encoder_config_get("left_enc",&enc)==ESP_OK && enc.ppr==70 && enc.gear_ratio==30);
+    assert(solar_os_motor_config_get("left",&motor)==ESP_OK && motor.max_drive==.2f);
+    assert(solar_os_parameter_set("enc.left_enc.ppr",12)==ESP_ERR_INVALID_STATE);
+    fail_coast=true;
+    assert(solar_os_robot_stop()!=ESP_OK);
+    assert(solar_os_encoder_config_get("left_enc",&enc)==ESP_OK && enc.ppr==70 && enc.gear_ratio==30);
+    assert(solar_os_motor_configure("left","max_drive",1)==ESP_ERR_INVALID_STATE);
+    fail_coast=false;
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_encoder_config_get("left_enc",&enc)==ESP_OK && enc.ppr==17 && enc.gear_ratio==5);
+    assert(solar_os_motor_config_get("left",&motor)==ESP_OK && motor.max_drive==.7f);
+    assert(solar_os_robot_model_unload()==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","ppr",0)==ESP_OK);
+    assert(solar_os_encoder_configure("left_enc","gear_ratio",1)==ESP_OK);
+    assert(solar_os_motor_configure("left","max_drive",1)==ESP_OK);
+}
 
 static void model_controllers_test(void)
 {
@@ -118,12 +238,14 @@ static void model_controllers_test(void)
     assert(solar_os_controller_find("model_wheel",&controller)==ESP_OK && controller.steps==1);
     assert(controller.state.p==s.p && controller.state.i==s.i && !controller.waiting);
     motor_status_delay_us=120000; time_value+=20000;
+    unsigned writes_before=drive_calls;
     lock();
     for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]);
     unlock(); motor_status_delay_us=0;
     /* Feedback ages past 100ms, while command freshness and max_gap still pass. */
     assert(solar_os_robot_joint_status("model_wheel",&s)==ESP_OK && s.state==SOLAR_OS_ROBOT_FAULT && !motor_value);
     assert(s.last_error==TIMEOUT);
+    assert(drive_calls==writes_before); /* Stale feedback never reaches actuation. */
     assert(solar_os_robot_stop()==ESP_OK);
     assert(solar_os_robot_start()==ESP_OK && solar_os_robot_joint_command("model_wheel",1)==ESP_OK);
     assert(solar_os_controller_stop("model_wheel")==ESP_OK);
@@ -197,6 +319,8 @@ static void model_controllers_test(void)
 int main(void)
 {
     setup();
+    standalone_controllers_test();
+    model_parameter_transaction_test();
     char error[128];
     uint32_t handles[SOLAR_OS_ROBOT_MODEL_MAX], extra = 0;
     const char *minimal="<robot name='minimal'><link name='root'/></robot>";
@@ -248,7 +372,7 @@ int main(void)
     assert(solar_os_encoder_unregister("left_enc")==ESP_ERR_INVALID_STATE);
     assert(solar_os_robot_joint_command("wheel",1)==ESP_OK);
     time_value+=20000;encoder_count=1;
-    lock();cycle(find(1));unlock();
+    lock();for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]);unlock();
     solar_os_robot_joint_info_v3_t s;
     assert(solar_os_robot_joint_status("wheel",&s)==ESP_OK && s.velocity_valid && s.sample_us==time_value);
     fail_coast=true;

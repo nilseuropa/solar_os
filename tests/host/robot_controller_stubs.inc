@@ -5,13 +5,8 @@
 #include "solar_os_pwm.h"
 #include "esp_timer.h"
 uint64_t solar_os_time_uptime_ms(void) { return (uint64_t)esp_timer_get_time()/1000; }
-esp_err_t solar_os_stream_open(const char *id, const char *owner, solar_os_stream_handle_t *h)
-{ (void)id;(void)owner;(void)h;return ESP_ERR_NOT_SUPPORTED; }
-esp_err_t solar_os_stream_close_ex(solar_os_stream_handle_t *h)
-{ (void)h;return ESP_OK; }
-esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *h,
-    const solar_os_stream_read_options_t *o, solar_os_stream_scalar_sample_t *s)
-{ (void)h;(void)o;(void)s;return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *time)
+{ (void)time;return ESP_ERR_NOT_SUPPORTED; }
 bool solar_os_pwm_parse_output(const char *text, solar_os_pwm_output_t *out)
 { (void)text;(void)out;return false; }
 esp_err_t solar_os_pwm_open_output(const solar_os_pwm_output_t *o, uint32_t hz, const char *owner)

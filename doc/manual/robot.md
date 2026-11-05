@@ -9,11 +9,11 @@ packages_any = ["service_robot"]
 # Robot joints
 
 The optional `robot` native library provides rotary servo-position and
-motor/encoder-velocity joints. Joint calibration, feedback conversion, ramping,
-friction compensation, command expiry and hardware handling live in the external
-ELF. Motor velocity joints use named PID instances in the OS controller service;
-the library contains no PID state or controller math. Its sampling worker feeds
-the OS controller synchronously, then applies the returned output to the motor.
+motor/encoder-velocity joints. Velocity joints configure the OS encoder, motor and controller services.
+The shared OS path performs feedback conversion, ramping, feedforward, PID,
+command freshness and actuator I/O. The library supplies joint commands and
+ticks its owned OS instance; standalone controllers use the same implementation
+without the robot library. Endpoint settings are restored on disable/stop.
 The firmware provides generic device services and a thin shell/Python/Lua adapter. Robot joints do not require
 URDF or a display. The same library also provides [URDF models and transforms](robot-models.md),
 independently of hardware joints. Native libraries require ESP32-S3, executable PSRAM, and
@@ -29,8 +29,8 @@ Enabled motor joints appear under their joint names in `controller list` and
 are also visible through `solaros.controllers`. Configure them through the joint
 API or URDF while disabled. `robot stop` removes the model's controller instances
 after hardware cleanup succeeds. A failed stop retains the instance for retry.
-`controller stop <joint>` revokes PID evaluation; the joint worker observes this
-on its next sample, stops the output and latches a fault. Recover with joint
+`controller stop <joint>` stops and releases the bound endpoints and revokes
+further evaluation; the joint worker observes this and latches a fault. Recover with joint
 disable/enable, or model stop/start. Servo-position joints use the OS servo
 service and do not create a PID instance.
 
@@ -42,7 +42,7 @@ is included with Python/Lua on supported native-module builds.
 
 ## Calibration
 
-Each joint owns these conversions:
+Each joint declares this configuration, applied through shared OS services:
 
 - `ppr`: A-channel pulse periods per encoder-shaft revolution, independent of
   decoding. Configure this explicitly for motor joints.

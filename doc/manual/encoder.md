@@ -127,11 +127,34 @@ solaros.expansion.detach("left")
 An encoder measures motion independently of the [motor service](motor.md).
 Attaching one does not enable automatic speed or position control.
 
+## Calibrated feedback
+
+Attachment publishes `enc.<name>`, a timestamped scalar source in rad/s, and
+parameters `enc.<name>.ppr`, `.gear_ratio`, `.polarity`, `.encoder_on_output`,
+`.velocity_tau` and `.position_zero`. Use `encoder configure <name> <key> <value>`
+or the parameter service to configure them while unclaimed. PPR defaults to
+zero (uncalibrated), gear ratio to 1, polarity to +1, velocity filter time
+constant to 0.1 s, and output-shaft placement to false.
+
+A positive PPR is required for velocity control. Counts per output revolution
+are derived from PPR, the actual driver decoding mode, and gear ratio for a
+motor-shaft encoder. The same service accumulates signed count wrap into
+relative position and filters velocity using acquisition intervals. Position
+starts at `position_zero` when the stream opens; it is not an absolute reference.
+
+The source permits one open handle, retains its acquisition history while open,
+and prevents calibration changes, reset and detach until close. Raw reads and
+`encoder status` remain available; status includes cached calibrated feedback,
+its validity/timestamp, claim state and the current calibration. Closing the
+stream invalidates cached velocity. See [Feedback controllers](controllers.md)
+for a standalone encoded-motor loop and tuning example.
+
 ## C providers
 
 Consumers include `solar_os_encoder.h` and use `solar_os_encoder_get()`,
 `solar_os_encoder_status()`, `solar_os_encoder_read()`, and
-`solar_os_encoder_reset()`. Providers register a name, driver, counting mode,
+`solar_os_encoder_reset()`. `solar_os_encoder_configure()` configures the
+service calibration. Providers register a name, driver, counting mode,
 context, and read callback. Reset and shutdown callbacks are optional.
 
 Native reference claims prevent reset and detach while allowing shared reads.
@@ -141,3 +164,5 @@ has stopped. Tokens are invalid after release. See [Robot axes](robot.md).
 Callbacks are serialized per endpoint outside the registry lock. In-flight
 operations prevent unregister; failed shutdown keeps the registration for
 retry. The provider owns its context until unregister succeeds.
+
+The `configure(name, key, value)` function is also available in Python and Lua.

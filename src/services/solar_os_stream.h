@@ -168,6 +168,12 @@ typedef struct {
     float value;
     uint64_t uptime_ms; /* Acquisition time, not time of reading a cached value. */
 } solar_os_stream_scalar_sample_t;
+/* Optional local scalar-command envelope. A sink checks this monotonic
+ * deadline after any blocking status acquisition and before actuation. */
+typedef struct {
+    float value;
+    uint64_t valid_until_us;
+} solar_os_stream_scalar_command_t;
 typedef esp_err_t (*solar_os_stream_read_scalar_sample_fn)(void *user,
     const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 typedef esp_err_t (*solar_os_stream_csv_header_fn)(void *user,

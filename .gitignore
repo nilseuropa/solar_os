@@ -58,6 +58,7 @@ tests/host/power_key_custom_test
 /tests/host/drv8830_test
 /tests/host/motor_service_test
 /tests/host/controller_math_test
+/tests/host/controller_tuning_test
 /tests/host/controllers_test
 /tests/host/parameters_concurrency_test
 /tests/host/robot_joint_test
@@ -113,3 +114,5 @@ tests/host/sticky_display_test
 /tests/host/sc2_vendor_*.o
 /protocol/sc2/tools/__pycache__/
 /protocol/sc2/build/
+
+/tests/host/stream_test

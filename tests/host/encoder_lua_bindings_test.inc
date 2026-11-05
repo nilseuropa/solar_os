@@ -15,6 +15,9 @@ static void solua_set_int(lua_State *L, int table, const char *key, lua_Integer 
 static void solua_set_bool(lua_State *L, int table, const char *key, bool value)
 { table = lua_absindex(L, table); lua_pushboolean(L, value); lua_setfield(L, table, key); }
 
+static void solua_set_num(lua_State *L,int table,const char *key,lua_Number value)
+{ table=lua_absindex(L,table);lua_pushnumber(L,value);lua_setfield(L,table,key); }
+
 /* ENCODER_BINDINGS */
 
 int main(void)
@@ -28,13 +31,15 @@ int main(void)
     assert(solar_os_encoder_register(&one) == ESP_OK && solar_os_encoder_register(&two) == ESP_OK);
     lua_State *L = luaL_newstate(); assert(L); luaL_openlibs(L);
     const luaL_Reg api[] = {{"list", solua_encoder_list}, {"status", solua_encoder_status},
-        {"read", solua_encoder_read}, {"reset", solua_encoder_reset}, {"attach", solua_expansion_attach}, {NULL, NULL}};
+        {"read", solua_encoder_read}, {"reset", solua_encoder_reset}, {"configure", solua_encoder_configure}, {"attach", solua_expansion_attach}, {NULL, NULL}};
     luaL_newlib(L, api); lua_setglobal(L, "encoder");
     const char *script =
         "local es = encoder.list(); assert(#es == 2 and es[1].mode == 4 and not es[2].can_reset)\n"
         "assert(encoder.read('left') == -2147483648 and encoder.read('right') == 2147483647)\n"
         "local s = encoder.status('left'); assert(s.count == -2147483648 and s.driver == 'pcnt')\n"
-        "local n = 0; for k,v in pairs(s) do n = n + 1 end; assert(n == 5)\n"
+        "local n = 0; for k,v in pairs(s) do n = n + 1 end; assert(n == 16)\n"
+        "encoder.configure('left','ppr',70);encoder.configure('left','gear_ratio',30)\n"
+        "assert(encoder.status('left').counts_per_rev==8400)\n"
         "encoder.reset('left'); assert(encoder.read('left') == 0)\n"
         "assert(not pcall(encoder.reset, 'right'))\n"
         "assert(not pcall(encoder.read, 'missing'))\n"

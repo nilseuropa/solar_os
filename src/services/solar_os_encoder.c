@@ -1,11 +1,17 @@
 #include "solar_os_encoder.h"
 
 #include <string.h>
+#include <math.h>
+#include <stdio.h>
+#include <limits.h>
+#include "solar_os_parameters.h"
+#include "solar_os_stream.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
 
+typedef struct { struct encoder *device; unsigned index; } encoder_parameter_t;
 typedef struct encoder {
     struct encoder *next;
     solar_os_encoder_info_t info;
@@ -16,7 +22,19 @@ typedef struct encoder {
     uint32_t claim;
     StaticSemaphore_t *operation_storage;
     SemaphoreHandle_t operation_mutex;
+    solar_os_encoder_config_t config;
+    solar_os_native_encoder_feedback_v1_t feedback;
+    int64_t accumulated;
+    uint32_t stream_claim;
+    solar_os_parameter_registration_t parameters;
+    encoder_parameter_t parameter_users[6];
+    char endpoint[SOLAR_OS_STREAM_ID_MAX];
+    bool stream_registered, shutdown_done, registration_failed, cleanup_busy;
 } encoder_t;
+
+static esp_err_t publish(encoder_t *e);
+static esp_err_t unpublish(encoder_t *e);
+static esp_err_t reap_failed(const char *name);
 
 static encoder_t *encoders;
 static uint32_t next_claim;
@@ -74,6 +92,8 @@ esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *regis
         registration->ops->read == NULL || (registration->mode != SOLAR_OS_ENCODER_MODE_X1 &&
         registration->mode != SOLAR_OS_ENCODER_MODE_X2 && registration->mode != SOLAR_OS_ENCODER_MODE_X4))
         return ESP_ERR_INVALID_ARG;
+    esp_err_t pending=reap_failed(registration->name);
+    if(pending!=ESP_OK) return pending;
     lock();
     if (find(registration->name) != NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     encoder_t *e = solar_os_memory_calloc(1U, sizeof(*e), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "encoder.device");
@@ -93,11 +113,23 @@ esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *regis
     e->info.can_reset = registration->ops->reset != NULL;
     e->ops = *registration->ops;
     e->ctx = registration->ctx;
+    e->config=(solar_os_encoder_config_t){.gear_ratio=1,.polarity=1,.velocity_tau=.1f};
+    snprintf(e->endpoint,sizeof(e->endpoint),"enc.%s",e->info.name);
+    e->removing=true;
     encoder_t **tail = &encoders;
     while (*tail != NULL) tail = &(*tail)->next;
     *tail = e;
     xSemaphoreGive(registry_mutex);
-    return ESP_OK;
+    esp_err_t err=publish(e);
+    lock(); e->removing=err!=ESP_OK; xSemaphoreGive(registry_mutex);
+    if(err!=ESP_OK) {
+        /* Failed attachment retains only metadata until in-flight discovery
+         * callbacks finish. It never retains the driver's borrowed context. */
+        char name[SOLAR_OS_ENCODER_NAME_MAX];strlcpy(name,e->info.name,sizeof(name));
+        lock();e->registration_failed=true; e->ctx=NULL; e->ops=(solar_os_encoder_ops_t){0};xSemaphoreGive(registry_mutex);
+        (void)reap_failed(name);
+    }
+    return err;
 }
 
 esp_err_t solar_os_encoder_unregister(const char *name)
@@ -106,16 +138,18 @@ esp_err_t solar_os_encoder_unregister(const char *name)
     lock();
     encoder_t *e = find(name);
     if (e == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
-    if (e->refs != 0U || e->removing || e->claim != 0) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    if (e->refs != 0U || e->cleanup_busy || (e->removing && !e->registration_failed && !e->shutdown_done) || e->claim != 0) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    e->cleanup_busy=true;
     e->removing = true;
     xSemaphoreGive(registry_mutex);
-    const esp_err_t ret = e->ops.shutdown != NULL ? e->ops.shutdown(e->ctx) : ESP_OK;
+    esp_err_t ret = !e->shutdown_done && e->ops.shutdown != NULL ? e->ops.shutdown(e->ctx) : ESP_OK;
+    if(ret==ESP_OK) { e->shutdown_done=true; ret=unpublish(e); }
     lock();
     if (ret == ESP_OK) {
         encoder_t **link = &encoders;
         while (*link != e) link = &(*link)->next;
         *link = e->next;
-    } else e->removing = false;
+    } else { e->cleanup_busy=false; if(!e->shutdown_done) e->removing = false; }
     xSemaphoreGive(registry_mutex);
     if (ret == ESP_OK) {
         vSemaphoreDelete(e->operation_mutex);
@@ -152,7 +186,7 @@ esp_err_t solar_os_encoder_status(const char *name, solar_os_encoder_status_t *s
     encoder_t *e;
     esp_err_t ret = acquire(name, &e);
     if (ret != ESP_OK) return ret;
-    solar_os_encoder_status_t value = {.info = e->info};
+    solar_os_encoder_status_t value = {.info = e->info,.config=e->config,.feedback=e->feedback,.claimed=e->claim!=0};
     ret = e->ops.read(e->ctx, &value.count);
     if (ret == ESP_OK) *status = value;
     release(e);
@@ -174,6 +208,7 @@ esp_err_t solar_os_encoder_reset(const char *name)
     esp_err_t ret = acquire(name, &e);
     if (ret != ESP_OK) return ret;
     ret = e->claim ? ESP_ERR_INVALID_STATE : e->ops.reset != NULL ? e->ops.reset(e->ctx) : ESP_ERR_NOT_SUPPORTED;
+    if(ret==ESP_OK) { e->feedback=(solar_os_native_encoder_feedback_v1_t){0}; e->accumulated=0; }
     release(e);
     return ret;
 }
@@ -219,6 +254,8 @@ esp_err_t solar_os_encoder_release(uint32_t claim)
 {
     encoder_t *e; esp_err_t ret = acquire_owned(claim, &e);
     if (ret != ESP_OK) return ret;
-    lock(); e->claim = 0; xSemaphoreGive(registry_mutex);
+    lock(); e->claim = 0;e->stream_claim=0;e->feedback.valid=0; xSemaphoreGive(registry_mutex);
     release(e); return ESP_OK;
 }
+
+#include "solar_os_encoder_endpoints.inc"

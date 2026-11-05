@@ -120,7 +120,7 @@ static bool stream_driver_valid(const solar_os_stream_driver_t *driver)
         return false;
     }
     if (stream_direction_can_read(driver->info.direction) &&
-        driver->read == NULL && driver->read_scalar == NULL &&
+        driver->read == NULL && driver->read_scalar == NULL && driver->read_scalar_sample == NULL &&
         driver->read_csv == NULL && driver->acquire_frame == NULL) {
         return false;
     }
@@ -128,8 +128,8 @@ static bool stream_driver_valid(const solar_os_stream_driver_t *driver)
         driver->write == NULL) {
         return false;
     }
-    if (driver->info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
-        driver->read_scalar == NULL) {
+    if (driver->info.type == SOLAR_OS_STREAM_TYPE_SCALAR && stream_direction_can_read(driver->info.direction) &&
+        driver->read_scalar == NULL && driver->read_scalar_sample == NULL) {
         return false;
     }
     if (driver->info.type == SOLAR_OS_STREAM_TYPE_AUDIO &&
@@ -790,6 +790,7 @@ esp_err_t solar_os_stream_read_scalar(
     stream_entry_t *entry = NULL;
     void *user = NULL;
     solar_os_stream_read_scalar_fn read_scalar = NULL;
+    solar_os_stream_read_scalar_sample_fn read_sample = NULL;
     stream_lock();
     esp_err_t err = stream_get_callbacks(handle, &entry, &user);
     if (err == ESP_OK) {
@@ -798,7 +799,8 @@ esp_err_t solar_os_stream_read_scalar(
             err = ESP_ERR_NOT_SUPPORTED;
         } else {
             read_scalar = entry->driver.read_scalar;
-            if (read_scalar == NULL) {
+            read_sample = entry->driver.read_scalar_sample;
+            if (read_scalar == NULL && read_sample == NULL) {
                 err = ESP_ERR_NOT_SUPPORTED;
             }
         }
@@ -807,7 +809,12 @@ esp_err_t solar_os_stream_read_scalar(
     if (err != ESP_OK) {
         return err;
     }
-    err = read_scalar(user, options, value);
+    if(read_scalar) err = read_scalar(user, options, value);
+    else {
+        solar_os_stream_scalar_sample_t sample;
+        err=read_sample(user,options,&sample);
+        if(err==ESP_OK) *value=sample.value;
+    }
     if (err == ESP_OK) {
         stream_lock();
         if (entry->registered && entry->generation == handle->generation) {

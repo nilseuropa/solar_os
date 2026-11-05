@@ -2,10 +2,15 @@
 
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
+#include "solar_os_parameters.h"
+#include "solar_os_stream.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
 
+typedef struct { struct motor *device; unsigned index; } motor_parameter_t;
 typedef struct motor {
     struct motor *next;
     solar_os_motor_info_t info;
@@ -16,7 +21,17 @@ typedef struct motor {
     uint32_t claim;
     StaticSemaphore_t *operation_storage;
     SemaphoreHandle_t operation_mutex;
+    solar_os_motor_config_t config;
+    solar_os_parameter_registration_t parameters;
+    motor_parameter_t parameter_users[3];
+    char endpoint[SOLAR_OS_STREAM_ID_MAX];
+    bool stream_registered, shutdown_done, registration_failed, cleanup_busy;
 } motor_t;
+static esp_err_t publish(motor_t *m);
+static esp_err_t unpublish(motor_t *m);
+static esp_err_t reap_failed(const char *name);
+static esp_err_t drive_guarded(motor_t *m,float value,uint64_t valid_until_us);
+static esp_err_t drive_locked(motor_t *m,float value) { return drive_guarded(m,value,0); }
 
 static motor_t *motors;
 static uint32_t next_claim;
@@ -73,6 +88,8 @@ esp_err_t solar_os_motor_register(const solar_os_motor_registration_t *registrat
     if (registration == NULL || !valid_name(registration->name, SOLAR_OS_MOTOR_NAME_MAX) ||
         !valid_name(registration->driver, SOLAR_OS_MOTOR_DRIVER_MAX) || registration->ops == NULL ||
         registration->ops->status == NULL || registration->ops->coast == NULL) return ESP_ERR_INVALID_ARG;
+    esp_err_t pending=reap_failed(registration->name);
+    if(pending!=ESP_OK) return pending;
     lock();
     if (find(registration->name) != NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     motor_t *m = solar_os_memory_calloc(1U, sizeof(*m), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "motor.device");
@@ -94,11 +111,21 @@ esp_err_t solar_os_motor_register(const solar_os_motor_registration_t *registrat
     m->info.can_clear = registration->ops->clear != NULL;
     m->ops = *registration->ops;
     m->ctx = registration->ctx;
+    m->config=(solar_os_motor_config_t){.polarity=1,.max_drive=1};
+    snprintf(m->endpoint,sizeof(m->endpoint),"mot.%s",m->info.name);
+    m->removing=true;
     motor_t **tail = &motors;
     while (*tail != NULL) tail = &(*tail)->next;
     *tail = m;
     xSemaphoreGive(registry_mutex);
-    return ESP_OK;
+    esp_err_t err=publish(m);
+    lock();m->removing=err!=ESP_OK;xSemaphoreGive(registry_mutex);
+    if(err!=ESP_OK) {
+        char name[SOLAR_OS_MOTOR_NAME_MAX];strlcpy(name,m->info.name,sizeof(name));
+        lock();m->registration_failed=true;m->ctx=NULL;m->ops=(solar_os_motor_ops_t){0};xSemaphoreGive(registry_mutex);
+        (void)reap_failed(name);
+    }
+    return err;
 }
 
 esp_err_t solar_os_motor_unregister(const char *name)
@@ -107,16 +134,19 @@ esp_err_t solar_os_motor_unregister(const char *name)
     lock();
     motor_t *m = find(name);
     if (m == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
-    if (m->refs != 0U || m->removing || m->claim != 0U) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    if (m->refs != 0U || m->cleanup_busy || (m->removing && !m->registration_failed && !m->shutdown_done) || m->claim != 0U) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
+    m->cleanup_busy=true;
     m->removing = true;
     xSemaphoreGive(registry_mutex);
-    const esp_err_t ret = m->ops.shutdown != NULL ? m->ops.shutdown(m->ctx) : m->ops.coast(m->ctx);
+    esp_err_t ret = m->shutdown_done || m->registration_failed ? ESP_OK :
+        m->ops.shutdown != NULL ? m->ops.shutdown(m->ctx) : m->ops.coast(m->ctx);
+    if(ret==ESP_OK) { m->shutdown_done=true;ret=unpublish(m); }
     lock();
     if (ret == ESP_OK) {
         motor_t **link = &motors;
         while (*link != m) link = &(*link)->next;
         *link = m->next;
-    } else m->removing = false;
+    } else { m->cleanup_busy=false;if(!m->shutdown_done) m->removing = false; }
     xSemaphoreGive(registry_mutex);
     if (ret == ESP_OK) {
         vSemaphoreDelete(m->operation_mutex);
@@ -156,7 +186,7 @@ esp_err_t solar_os_motor_status(const char *name, solar_os_motor_status_t *statu
     if (ret != ESP_OK) return ret;
     solar_os_motor_status_t value = {0};
     ret = m->ops.status(m->ctx, &value);
-    if (ret == ESP_OK) { value.info = m->info; *status = value; }
+    if (ret == ESP_OK) { value.info = m->info; value.config=m->config; value.claimed=m->claim!=0; *status = value; }
     release(m);
     return ret;
 }
@@ -168,9 +198,7 @@ esp_err_t solar_os_motor_drive(const char *name, float value)
     esp_err_t ret = acquire(name, &m);
     if (ret != ESP_OK) return ret;
     if (m->claim != 0) ret = ESP_ERR_INVALID_STATE;
-    else if (value == 0.0f) ret = m->ops.coast(m->ctx);
-    else if (!m->info.can_drive) ret = ESP_ERR_NOT_SUPPORTED;
-    else ret = m->ops.drive(m->ctx, value);
+    else ret=drive_locked(m,value);
     release(m);
     return ret;
 }
@@ -224,8 +252,7 @@ esp_err_t solar_os_motor_drive_owned(uint32_t claim, float value)
     if (!isfinite(value) || value < -1 || value > 1) return ESP_ERR_INVALID_ARG;
     motor_t *m; esp_err_t ret = acquire_owned(claim, &m);
     if (ret != ESP_OK) return ret;
-    ret = value == 0 ? m->ops.coast(m->ctx) : m->ops.drive == NULL ?
-        ESP_ERR_NOT_SUPPORTED : m->ops.drive(m->ctx, value);
+    ret=drive_locked(m,value);
     release(m); return ret;
 }
 
@@ -251,3 +278,5 @@ const char *solar_os_motor_mode_name(solar_os_motor_mode_t mode)
     default: return "unknown";
     }
 }
+
+#include "solar_os_motor_endpoints.inc"

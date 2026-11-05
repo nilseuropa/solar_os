@@ -1475,9 +1475,10 @@ sources = [
 
 [packages.service_controllers]
 label = "service.controllers"
-depends = ["service_streams", "service_pwm"]
+depends = ["service_streams", "service_pwm", "service_motor", "service_encoder"]
 sources = [
   "services/solar_os_controller_math.c",
+  "services/solar_os_controller_tuning.c",
   "services/solar_os_controllers.c",
   "services/solar_os_native_controllers.c",
   "shell/solar_os_shell_controllers.c",
@@ -1637,10 +1638,12 @@ sources = [
 
 [packages.service_motor]
 label = "service.motor"
+depends = ["service_streams"]
 sources = ["services/solar_os_motor.c", "shell/solar_os_shell_motor.c"]
 
 [packages.service_encoder]
 label = "service.encoder"
+depends = ["service_streams"]
 sources = ["services/solar_os_encoder.c", "shell/solar_os_shell_encoder.c"]
 requires = ["esp_timer"]
 

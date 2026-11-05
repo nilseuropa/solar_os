@@ -53,6 +53,24 @@ active braking when supported. `coast` releases the bridge output.
 coasting. Commands remain active after the shell or API call returns.
 Neither coast nor brake switches off the motor supply.
 
+## Parameters and command stream
+
+Attachment publishes the exclusive scalar sink `mot.<name>` and parameters
+`mot.<name>.polarity`, `.max_drive` and `.brake`. Configure these through
+`motor configure <name> <key> <value>` or the parameter service while unclaimed.
+Defaults are polarity +1, maximum drive 1 and coast on stream close.
+Configuration changes first coast the motor; a failed stop leaves configuration
+unchanged. Polarity maps logical drive to physical direction. Maximum drive
+limits accepted demand before backend quantization.
+
+The sink accepts normalized signed drive, not velocity. Opening it claims the
+motor and locks configuration until a successful close. Direct commands and
+competing opens are rejected while claimed. Stream zero/close requests use the
+configured coast/brake policy; raw `motor drive ... 0` continues to mean coast.
+Scalar payloads are native `float`; OS feedback controllers also supply a local
+monotonic deadline, checked after status acquisition and before actuation.
+See [Feedback controllers](controllers.md) for binding and tuning.
+
 ## Python and Lua
 
 Both runtimes expose `solaros.motor` when the motor service is compiled:
@@ -62,6 +80,7 @@ Both runtimes expose `solaros.motor` when the motor service is compiled:
 - `drive(name, value)`: apply a normalized signed command.
 - `coast(name)`: release the motor output.
 - `brake(name)`: request active braking, when supported.
+- `configure(name, key, value)`: set service polarity, maximum drive or stop policy.
 - `clear(name)`: coast and clear driver-supported fault latches.
 
 Names are required, including when only one motor is present. Successful

@@ -3226,6 +3226,17 @@ static mp_obj_t solaros_encoder_status(mp_obj_t name)
     python_check_esp(solar_os_encoder_status(mp_obj_str_get_str(name), &status));
     mp_obj_t dict = python_encoder_info(&status.info);
     python_dict_store_int(dict, "count", status.count);
+    python_dict_store_float(dict,"ppr",status.config.ppr);
+    python_dict_store_float(dict,"gear_ratio",status.config.gear_ratio);
+    python_dict_store_int(dict,"polarity",status.config.polarity);
+    python_dict_store_bool(dict,"encoder_on_output",status.config.encoder_on_output);
+    python_dict_store_float(dict,"velocity_tau",status.config.velocity_tau);
+    python_dict_store_float(dict,"position_zero",status.config.position_zero);
+    python_dict_store_float(dict,"counts_per_rev",(float)solar_os_native_encoder_counts_per_rev(&status.config,status.info.mode));
+    python_dict_store_float(dict,"velocity",status.feedback.velocity);
+    python_dict_store_float(dict,"position",status.feedback.position);
+    python_dict_store_bool(dict,"velocity_valid",status.feedback.valid);
+    python_dict_store_bool(dict,"claimed",status.claimed);
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_encoder_status_obj, solaros_encoder_status);
@@ -3244,6 +3255,12 @@ static mp_obj_t solaros_encoder_reset(mp_obj_t name)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_encoder_reset_obj, solaros_encoder_reset);
+static mp_obj_t solaros_encoder_configure(mp_obj_t name,mp_obj_t key,mp_obj_t value)
+{
+    python_check_esp(solar_os_encoder_configure(mp_obj_str_get_str(name),mp_obj_str_get_str(key),(float)mp_obj_get_float(value)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_3(solaros_encoder_configure_obj,solaros_encoder_configure);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_MOTOR
@@ -3285,6 +3302,10 @@ static mp_obj_t solaros_motor_status(mp_obj_t name)
     python_dict_store_bool(dict, "raw_valid", status.raw_valid);
     python_dict_store_uint(dict, "raw_control", status.raw_control);
     python_dict_store_uint(dict, "raw_fault", status.raw_fault);
+    python_dict_store_int(dict,"polarity",status.config.polarity);
+    python_dict_store_float(dict,"max_drive",status.config.max_drive);
+    python_dict_store_bool(dict,"brake",status.config.brake);
+    python_dict_store_bool(dict,"claimed",status.claimed);
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_motor_status_obj, solaros_motor_status);
@@ -3316,6 +3337,12 @@ static mp_obj_t solaros_motor_clear(mp_obj_t name)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_motor_clear_obj, solaros_motor_clear);
+static mp_obj_t solaros_motor_configure(mp_obj_t name,mp_obj_t key,mp_obj_t value)
+{
+    python_check_esp(solar_os_motor_configure(mp_obj_str_get_str(name),mp_obj_str_get_str(key),(float)mp_obj_get_float(value)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_3(solaros_motor_configure_obj,solaros_motor_configure);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SERVO

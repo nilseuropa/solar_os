@@ -3030,6 +3030,17 @@ static int solua_encoder_status(lua_State *L)
     (void)solua_check_esp(L, solar_os_encoder_status(luaL_checkstring(L, 1), &status));
     solua_push_encoder_info(L, &status.info);
     solua_set_int(L, -1, "count", status.count);
+    solua_set_num(L,-1,"ppr",status.config.ppr);
+    solua_set_num(L,-1,"gear_ratio",status.config.gear_ratio);
+    solua_set_int(L,-1,"polarity",status.config.polarity);
+    solua_set_bool(L,-1,"encoder_on_output",status.config.encoder_on_output);
+    solua_set_num(L,-1,"velocity_tau",status.config.velocity_tau);
+    solua_set_num(L,-1,"position_zero",status.config.position_zero);
+    solua_set_num(L,-1,"counts_per_rev",solar_os_native_encoder_counts_per_rev(&status.config,status.info.mode));
+    solua_set_num(L,-1,"velocity",status.feedback.velocity);
+    solua_set_num(L,-1,"position",status.feedback.position);
+    solua_set_bool(L,-1,"velocity_valid",status.feedback.valid);
+    solua_set_bool(L,-1,"claimed",status.claimed);
     return 1;
 }
 
@@ -3044,6 +3055,10 @@ static int solua_encoder_read(lua_State *L)
 static int solua_encoder_reset(lua_State *L)
 {
     return solua_check_esp(L, solar_os_encoder_reset(luaL_checkstring(L, 1)));
+}
+static int solua_encoder_configure(lua_State *L)
+{
+    return solua_check_esp(L,solar_os_encoder_configure(luaL_checkstring(L,1),luaL_checkstring(L,2),(float)luaL_checknumber(L,3)));
 }
 #endif
 
@@ -3087,6 +3102,10 @@ static int solua_motor_status(lua_State *L)
     solua_set_bool(L, -1, "raw_valid", status.raw_valid);
     solua_set_int(L, -1, "raw_control", status.raw_control);
     solua_set_int(L, -1, "raw_fault", status.raw_fault);
+    solua_set_int(L,-1,"polarity",status.config.polarity);
+    solua_set_num(L,-1,"max_drive",status.config.max_drive);
+    solua_set_bool(L,-1,"brake",status.config.brake);
+    solua_set_bool(L,-1,"claimed",status.claimed);
     return 1;
 }
 
@@ -3108,6 +3127,10 @@ static int solua_motor_brake(lua_State *L)
 static int solua_motor_clear(lua_State *L)
 {
     return solua_check_esp(L, solar_os_motor_clear(luaL_checkstring(L, 1)));
+}
+static int solua_motor_configure(lua_State *L)
+{
+    return solua_check_esp(L,solar_os_motor_configure(luaL_checkstring(L,1),luaL_checkstring(L,2),(float)luaL_checknumber(L,3)));
 }
 #endif
 

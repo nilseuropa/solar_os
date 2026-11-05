@@ -155,8 +155,9 @@ robot model unload
 `robot start` creates and configures all declared controllers, then enables them
 through the existing joint API. Device availability is checked during enable.
 Motor joints create named PID instances in the OS controller service. Inspect
-them with `controller list` or `controller status <joint>` (`owner=robot`). Joint
-calibration, feedback conversion and actuator handling remain in the library.
+them with `controller list` or `controller status <joint>` (`owner=robot`). The library applies calibration and bindings to shared OS encoder, motor and
+controller services. Their previous settings are restored before release;
+failed cleanup retains the settings/claims for a stop retry.
 Outputs stay stopped until fresh joint commands arrive; the existing command
 watchdog applies. A startup failure closes every controller created by that
 attempt. If a device stop or lease release fails, ownership is retained: retry

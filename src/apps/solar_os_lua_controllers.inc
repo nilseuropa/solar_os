@@ -7,6 +7,26 @@ static void solua_controller_info(lua_State *L, const solar_os_controller_info_t
     solua_set_str(L, item, "owner", info->owner);
     solua_set_bool(L, item, "waiting", info->waiting);
     solua_set_num(L, item, "feedforward", info->feedforward);
+    solua_set_int(L,item,"command_timeout_ms",info->config.command_timeout_ms);
+    solua_set_num(L,item,"acceleration_limit",info->config.acceleration_limit);
+    solua_set_num(L,item,"velocity_deadband",info->config.velocity_deadband);
+    solua_set_num(L,item,"friction_bias_forward",info->config.friction_bias_forward);
+    solua_set_num(L,item,"friction_bias_reverse",info->config.friction_bias_reverse);
+    solua_set_num(L,item,"active_setpoint",info->active_setpoint);
+    solua_set_bool(L,item,"command_valid",info->command_valid);
+    const solar_os_controller_tune_result_t *t=&info->tuning;
+    solua_set_str(L,item,"tune_state",solar_os_controller_tune_state_name(t->state));
+    solua_set_str(L,item,"tune_reason",solar_os_controller_tune_reason_name(t->reason));
+    solua_set_int(L,item,"tune_cycles",t->cycles);
+    solua_set_int(L,item,"tune_required_cycles",t->required_cycles);
+    solua_set_num(L,item,"tune_elapsed",t->elapsed);
+    solua_set_num(L,item,"tune_period",t->period);
+    solua_set_num(L,item,"tune_amplitude",t->amplitude);
+    solua_set_num(L,item,"tune_ultimate_gain",t->ultimate_gain);
+    solua_set_num(L,item,"tune_kp",t->kp);
+    solua_set_num(L,item,"tune_ki",t->ki);
+    solua_set_num(L,item,"tune_kd",t->kd);
+    solua_set_num(L,item,"tune_tau",t->derivative_tau);
     solua_set_str(L, item, "kind", info->config.algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis");
     solua_set_str(L, item, "source", info->config.source);
     solua_set_str(L, item, "target", info->config.target);
@@ -107,6 +127,16 @@ static int solua_controllers_start(lua_State *L)
 { return solua_check_esp(L, solar_os_controller_start(luaL_checkstring(L, 1))); }
 static int solua_controllers_stop(lua_State *L)
 { return solua_check_esp(L, solar_os_controller_stop(luaL_checkstring(L, 1))); }
+static int solua_controllers_tune(lua_State *L)
+{
+    lua_Number cycles=luaL_optnumber(L,3,6), timeout=luaL_optnumber(L,4,30000);
+    if(!isfinite(cycles) || cycles<3 || cycles>12 || floor(cycles)!=cycles ||
+        !isfinite(timeout) || timeout<1000 || timeout>300000 || floor(timeout)!=timeout)
+        return luaL_error(L,"invalid tuning cycles or timeout");
+    (void)solua_check_esp(L,solar_os_controller_tune(luaL_checkstring(L,1),
+        (float)luaL_optnumber(L,2,0),(uint32_t)cycles,(uint32_t)timeout));
+    return solua_controllers_status(L);
+}
 static int solua_controllers_delete(lua_State *L)
 { return solua_check_esp(L, solar_os_controller_delete(luaL_checkstring(L, 1))); }
 #endif

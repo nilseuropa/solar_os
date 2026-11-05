@@ -5,11 +5,14 @@
 #include <stdlib.h>
 #include "../../modules/robot/main/robot.c"
 #include "robot_controller_stubs.inc"
+#include "solar_os_encoder.h"
+#include "solar_os_motor.h"
+#include "solar_os_memory.h"
 
 static uint64_t fake_time;
 static int32_t count;
 static uint32_t decoding = 1;
-static bool motor_held, encoder_held, servo_held, fail_stop, fail_read;
+static bool servo_held, fail_stop, fail_read;
 static float drive, servo_angle;
 static unsigned allocations, joins;
 static void *allocate(size_t n) { void *p = calloc(1, n); if (p) allocations++; return p; }
@@ -25,21 +28,31 @@ static int mutex_destroy(void *m) { int err = pthread_mutex_destroy(m); if (!err
 static int start_worker(void **out, void (*entry)(void *), void *arg, uint32_t stack, uint32_t core)
 { (void)entry; (void)arg; assert(stack == 4096 && core == 0); *out = malloc(1); return *out ? 0 : 1; }
 static int join_worker(void *w) { free(w); joins++; return 0; }
-static int claim_motor(const char *name, uint32_t *token)
-{ assert(equal(name,"left")); if (motor_held) return STATE; motor_held = true; *token = 1; return OK; }
-static int state_motor(const char *name, solar_os_native_motor_state_v1_t *s)
-{ (void)name; *s = (solar_os_native_motor_state_v1_t){.can_drive = 1, .can_brake = 1}; return OK; }
-static int write_motor(uint32_t token, float value)
-{ assert(token == 1 && motor_held && fabsf(value) <= 1); drive = value; return OK; }
-static int stop_motor(uint32_t token, uint32_t brake)
-{ (void)brake; assert(token == 1 && motor_held); if (fail_stop) return STATE; drive = 0; return OK; }
-static int release_motor(uint32_t token, uint32_t brake)
-{ int err = stop_motor(token,brake); if (!err) motor_held = false; return err; }
-static int claim_encoder(const char *name, uint32_t *token)
-{ assert(equal(name,"enc")); if (encoder_held) return STATE; encoder_held = true; *token = 2; return OK; }
-static int sample_encoder(uint32_t token, solar_os_native_encoder_sample_v1_t *s)
-{ assert(token == 2 && encoder_held); *s = (solar_os_native_encoder_sample_v1_t){.count=count,.decoding=decoding,.timestamp_us=fake_time}; return fail_read ? STATE : OK; }
-static int release_encoder(uint32_t token) { assert(token == 2 && encoder_held); encoder_held=false; return OK; }
+static esp_err_t endpoint_status(void *ctx,solar_os_motor_status_t *s)
+{ (void)ctx;*s=(solar_os_motor_status_t){.drive_valid=true,.drive=drive};return ESP_OK; }
+static esp_err_t endpoint_drive(void *ctx,float value)
+{ (void)ctx;drive=value;return ESP_OK; }
+static esp_err_t endpoint_stop(void *ctx)
+{ (void)ctx;if(fail_stop)return ESP_ERR_INVALID_STATE;drive=0;return ESP_OK; }
+static esp_err_t endpoint_read(void *ctx,int32_t *value)
+{ (void)ctx;*value=count;return fail_read?ESP_ERR_INVALID_STATE:ESP_OK; }
+static bool motor_held(void)
+{ solar_os_motor_status_t s;assert(solar_os_motor_status("left",&s)==ESP_OK);return s.claimed; }
+static bool encoder_held(void)
+{ solar_os_encoder_status_t s;assert(solar_os_encoder_status("enc",&s)==ESP_OK);return s.claimed; }
+static void attach_encoder(uint32_t mode)
+{
+    if(solar_os_encoder_count()) assert(solar_os_encoder_unregister("enc")==ESP_OK);
+    const solar_os_encoder_ops_t ops={.read=endpoint_read};
+    const solar_os_encoder_registration_t r={.name="enc",.driver="fake",.mode=(solar_os_encoder_mode_t)mode,.ops=&ops};
+    assert(solar_os_encoder_register(&r)==ESP_OK);
+}
+size_t strlcpy(char *dst,const char *src,size_t bytes)
+{ size_t n=strlen(src);if(bytes){size_t k=n<bytes-1?n:bytes-1;memcpy(dst,src,k);dst[k]=0;}return n; }
+static unsigned device_allocations;
+void *solar_os_memory_calloc(size_t n,size_t bytes,solar_os_memory_class_t cls,const char *tag)
+{ (void)cls;(void)tag;void *p=calloc(n,bytes);if(p)device_allocations++;return p; }
+void solar_os_memory_free(void *p) { if(p){device_allocations--;free(p);} }
 static int open_servo(const char *name, const char *owner, const solar_os_native_servo_config_v1_t *c)
 { assert(equal(name,owner) && c->frequency_hz == 50); if (servo_held) return STATE; servo_held=true; return OK; }
 static int set_servo(const char *name, const char *owner, float angle)
@@ -59,16 +72,17 @@ int main(void)
     const solar_os_native_time_api_v1_t clk={.now_us=time_us,.sleep_ms=sleep_ms};
     const solar_os_native_thread_api_v1_t th={.mutex_create=mutex_create,.mutex_lock=mutex_lock,
         .mutex_unlock=mutex_unlock,.mutex_destroy=mutex_destroy,.worker_start=start_worker,.worker_join=join_worker};
-    const solar_os_native_motion_api_v1_t hw={.capabilities=7,.motor_claim=claim_motor,.motor_state=state_motor,
-        .motor_drive=write_motor,.motor_stop=stop_motor,.motor_release=release_motor,
-        .encoder_claim=claim_encoder,.encoder_sample=sample_encoder,.encoder_release=release_encoder,
+    const solar_os_native_motion_api_v1_t hw={.capabilities=7,
         .servo_open=open_servo,.servo_set=set_servo,.servo_disable=disable_servo,.servo_close=close_servo};
     const solar_os_native_controllers_api_v1_t *control=solar_os_native_controllers_get_service("controllers",1,sizeof(*control));
     assert(control);
     const solar_os_robot_api_v3_t *api=solar_os_robot_engine_init(&mem,&clk,&th,&hw,control); assert(api);
+    const solar_os_motor_ops_t ops={.status=endpoint_status,.drive=endpoint_drive,.coast=endpoint_stop,.brake=endpoint_stop};
+    const solar_os_motor_registration_t motor={.name="left",.driver="fake",.ops=&ops};
+    assert(solar_os_motor_register(&motor)==ESP_OK);attach_encoder(1);
     uint32_t id;
     assert(api->create("wheel",SOLAR_OS_ROBOT_MOTOR_VELOCITY,&id)==OK);
-    assert(!motor_held && !encoder_held);
+    assert(!motor_held() && !encoder_held());
     assert(info(id).config.ppr==0 && info(id).config.gear_ratio==0);
     assert(api->configure(id,"ppr",0)==ARG && api->configure(id,"gear_ratio",0)==ARG);
     assert(api->bind_motor(id,"left","enc")==OK);
@@ -85,10 +99,15 @@ int main(void)
     assert(api->command(id,1)==OK && api->configure(id,"kp",1)==STATE);
     tick(id,20); assert(info(id).state==SOLAR_OS_ROBOT_ACTIVE && drive>0);
     assert(api->disable(id)==OK);
+    assert(api->command(id,1)==OK);
+    fake_time+=280000;
+    assert(api->enable(id)==OK);tick(id,20);
+    assert(info(id).state==SOLAR_OS_ROBOT_WAITING && !info(id).command_valid && drive==0);
+    assert(api->disable(id)==OK);
     assert(api->enable(id)==OK && api->command(id,1)==OK);
     fail_stop=true;
     for (int i=0;i<15;i++) tick(id,20);
-    assert(info(id).state==SOLAR_OS_ROBOT_FAULT && motor_held && encoder_held);
+    assert(info(id).state==SOLAR_OS_ROBOT_FAULT && motor_held() && encoder_held());
     assert(api->command(id,1)==STATE); /* Failed stopping is never auto-resumable. */
     fail_stop=false;assert(api->disable(id)==OK);
     assert(api->command(id,1)==OK); fake_time+=400000; /* A queued command aged while disabled. */
@@ -102,7 +121,7 @@ int main(void)
     assert(info(id).command_valid && info(id).target==1 && drive>0); /* Fresh pre-enable commands still work. */
     assert(api->disable(id)==OK);
     for (uint32_t mode=1; mode<=4; mode*=2) {
-        decoding=mode; count=0;
+        decoding=mode;attach_encoder(mode); count=0;
         assert(api->enable(id)==OK);
         count=10*(int)mode; tick(id,20);
         solar_os_robot_joint_info_v3_t s=info(id);
@@ -110,7 +129,7 @@ int main(void)
         assert(fabsf(s.velocity-(float)(PI/.02))<0.001f);
         assert(!s.position_valid && !s.referenced && s.velocity_valid);
         assert(api->configure(id,"ppr",20)==STATE);
-        assert(api->disable(id)==OK && !motor_held && !encoder_held && drive==0);
+        assert(api->disable(id)==OK && !motor_held() && !encoder_held() && drive==0);
     }
     assert(api->configure(id,"encoder_polarity",-1)==OK);
     assert(api->configure(id,"motor_polarity",-1)==OK);
@@ -123,7 +142,7 @@ int main(void)
     count=0; assert(api->enable(id)==OK); count=40; tick(id,20);
     assert(fabsf(info(id).position + (float)(2*PI))<0.0001f); /* Ratio applied once, and omitted on output. */
     fail_stop=true; tick(id,400); assert(info(id).state==SOLAR_OS_ROBOT_FAULT);
-    assert(api->close(id)==STATE && motor_held && encoder_held);
+    assert(api->close(id)==STATE && motor_held() && encoder_held());
     fail_stop=false; assert(api->disable(id)==OK);
     assert(api->configure(id,"encoder_polarity",1)==OK && api->configure(id,"motor_polarity",1)==OK);
     assert(api->configure(id,"encoder_on_output",0)==OK);
@@ -160,7 +179,7 @@ int main(void)
     assert(api->configure(id,"kp",.1f)==OK && api->configure(id,"ki",.2f)==OK);
     assert(api->configure(id,"velocity_limit",5)==OK && api->configure(id,"max_drive",.5f)==OK);
     assert(api->configure(id,"acceleration_limit",100)==OK);
-    decoding=1; count=0; assert(api->enable(id)==OK);
+    decoding=1;attach_encoder(1); count=0; assert(api->enable(id)==OK);
     float velocity=0; double position=0;
     for (int i=0;i<1000;i++) {
         float load=i>=500?.5f:0;
@@ -198,7 +217,7 @@ int main(void)
     assert(api->configure(id,"ppr",70)==OK && api->configure(id,"gear_ratio",30)==OK);
     assert(api->configure(id,"velocity_tau",0)==OK);
     for (uint32_t mode=1;mode<=4;mode*=2) {
-        decoding=mode;count=0;assert(api->enable(id)==OK);
+        decoding=mode;attach_encoder(mode);count=0;assert(api->enable(id)==OK);
         count=70*30*(int)mode;tick(id,20);
         assert(info(id).encoder_counts_per_rev==(float)count);
         assert(fabsf(info(id).position-(float)(2*PI))<.0001f);
@@ -213,7 +232,7 @@ int main(void)
     assert(api->disable(id)==OK && api->configure(id,"encoder_on_output",0)==OK);
     assert(api->configure(id,"kp",1)==OK && api->configure(id,"ki",0)==OK);
     assert(api->configure(id,"acceleration_limit",1000)==OK);
-    decoding=1;count=0;assert(api->enable(id)==OK && api->command(id,1)==OK);
+    decoding=1;attach_encoder(1);count=0;assert(api->enable(id)==OK && api->command(id,1)==OK);
     count=7;tick(id,20);
     assert(fabsf(info(id).velocity-(float)(2*PI*7/(2100*.02)))<.0001f);
     assert(fabsf(info(id).p-(1-info(id).velocity))<.0001f && !info(id).saturated);
@@ -237,13 +256,14 @@ int main(void)
     assert(api->configure(id,"ppr",70)==OK && api->configure(id,"gear_ratio",30)==OK);
     assert(api->bind_motor(id,"left","enc")==OK);
     fail_stop=true;
-    assert(api->enable(id)==STATE && motor_held && solar_os_controller_count()==1);
+    assert(api->enable(id)==STATE && motor_held() && solar_os_controller_count()==1);
     solar_os_controller_info_t controller;
     assert(solar_os_controller_find("failed_enable",&controller)==ESP_OK && controller.faulted && !controller.enabled);
     assert(api->close(id)==STATE && solar_os_controller_count()==1);
     fail_stop=false;
     assert(api->close(id)==OK && !solar_os_controller_count() && !allocations);
     assert(joins>=7); assert(solar_os_robot_engine_shutdown()==OK);
+    assert(solar_os_motor_unregister("left")==ESP_OK && solar_os_encoder_unregister("enc")==ESP_OK && !device_allocations);
     puts("robot joints: calibration, polarity, PPR decoding, wrap, deadband/feedforward, load control, deadlines and cleanup passed");
     return 0;
 }

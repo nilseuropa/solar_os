@@ -84,6 +84,18 @@ int main(void)
     assert(field(solaros_controllers_status(name), "enabled")->number);
     solaros_controllers_stop(name);
     solaros_controllers_reset(name);
+    mp_obj_t tune_args[]={name,number(.01),number(3),number(2000)};
+    record=solaros_controllers_tune(4,tune_args);
+    assert(!strcmp(field(record,"tune_state")->text,"running") && field(record,"tune_required_cycles")->number==3);
+    assert(!strcmp(field(record,"tune_reason")->text,"none") && field(record,"tune_kp")->number==0);
+    if(setjmp(error_jump)==0) { solaros_controllers_tune(1,args); assert(false); }
+    assert(last_error==ESP_ERR_INVALID_STATE);
+    solaros_controllers_stop(name);
+    assert(!strcmp(field(solaros_controllers_status(name),"tune_state")->text,"aborted"));
+    tune_args[2]=number(3.5);
+    if(setjmp(error_jump)==0) { solaros_controllers_tune(4,tune_args); assert(false); }
+    assert(last_error==ESP_ERR_INVALID_ARG);
+    solaros_controllers_reset(name);
     solaros_controllers_delete(name);
     assert(solaros_controllers_list()->count == 0);
     if (setjmp(error_jump) == 0) { solaros_controllers_status(name); assert(false); }

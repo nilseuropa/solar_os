@@ -194,6 +194,23 @@ int main(void)
     assert(solar_os_stream_get_info("sensor0", &info) == ESP_ERR_NOT_FOUND);
     assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_ERR_NOT_FOUND);
 
+    /* Timestamp-only scalar sources also support ordinary scalar readers. */
+    scalar.read_scalar=NULL;
+    assert(solar_os_stream_register(&scalar)==ESP_OK);
+    assert(solar_os_stream_open("sensor0","plain-reader",&first)==ESP_OK);
+    assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_OK && value==scalar_value);
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("sensor0")==ESP_OK);
+    solar_os_stream_driver_t sink={.info={.id="actuator0",.provider="test",.format="f32",
+        .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_SINK,
+        .sharing=SOLAR_OS_STREAM_SHARING_EXCLUSIVE},.write=write_audio,.user=&bytes};
+    assert(solar_os_stream_register(&sink)==ESP_OK);
+    assert(solar_os_stream_open("actuator0","controller",&first)==ESP_OK);
+    assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_stream_write(&first,&scalar_value,sizeof(scalar_value),0,&written)==ESP_OK && written==sizeof(scalar_value));
+    assert(solar_os_stream_open("actuator0","competitor",&second)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("actuator0")==ESP_OK);
     puts("stream registry tests: ok");
     return 0;
 }

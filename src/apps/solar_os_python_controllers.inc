@@ -6,6 +6,26 @@ static mp_obj_t python_controller_info(const solar_os_controller_info_t *info)
     python_dict_store_cstr(dict, "owner", info->owner);
     python_dict_store_bool(dict, "waiting", info->waiting);
     python_dict_store_float(dict, "feedforward", info->feedforward);
+    python_dict_store_uint(dict,"command_timeout_ms",info->config.command_timeout_ms);
+    python_dict_store_float(dict,"acceleration_limit",info->config.acceleration_limit);
+    python_dict_store_float(dict,"velocity_deadband",info->config.velocity_deadband);
+    python_dict_store_float(dict,"friction_bias_forward",info->config.friction_bias_forward);
+    python_dict_store_float(dict,"friction_bias_reverse",info->config.friction_bias_reverse);
+    python_dict_store_float(dict,"active_setpoint",info->active_setpoint);
+    python_dict_store_bool(dict,"command_valid",info->command_valid);
+    const solar_os_controller_tune_result_t *t=&info->tuning;
+    python_dict_store_cstr(dict,"tune_state",solar_os_controller_tune_state_name(t->state));
+    python_dict_store_cstr(dict,"tune_reason",solar_os_controller_tune_reason_name(t->reason));
+    python_dict_store_uint(dict,"tune_cycles",t->cycles);
+    python_dict_store_uint(dict,"tune_required_cycles",t->required_cycles);
+    python_dict_store_float(dict,"tune_elapsed",t->elapsed);
+    python_dict_store_float(dict,"tune_period",t->period);
+    python_dict_store_float(dict,"tune_amplitude",t->amplitude);
+    python_dict_store_float(dict,"tune_ultimate_gain",t->ultimate_gain);
+    python_dict_store_float(dict,"tune_kp",t->kp);
+    python_dict_store_float(dict,"tune_ki",t->ki);
+    python_dict_store_float(dict,"tune_kd",t->kd);
+    python_dict_store_float(dict,"tune_tau",t->derivative_tau);
     python_dict_store_cstr(dict, "kind", info->config.algorithm.kind == SOLAR_OS_CONTROLLER_PID ? "pid" : "hysteresis");
     python_dict_store_cstr(dict, "source", info->config.source);
     python_dict_store_cstr(dict, "target", info->config.target);
@@ -130,6 +150,18 @@ static mp_obj_t solaros_controllers_stop(mp_obj_t name)
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_controllers_stop_obj, solaros_controllers_stop);
+static mp_obj_t solaros_controllers_tune(size_t n_args, const mp_obj_t *args)
+{
+    float band=n_args>1?(float)mp_obj_get_float(args[1]):0;
+    float cycles=n_args>2?(float)mp_obj_get_float(args[2]):6;
+    float timeout=n_args>3?(float)mp_obj_get_float(args[3]):30000;
+    if(!isfinite(cycles) || cycles<3 || cycles>12 || (float)(uint32_t)cycles!=cycles ||
+        !isfinite(timeout) || timeout<1000 || timeout>300000 || (float)(uint32_t)timeout!=timeout)
+        python_check_esp(ESP_ERR_INVALID_ARG);
+    python_check_esp(solar_os_controller_tune(mp_obj_str_get_str(args[0]),band,(uint32_t)cycles,(uint32_t)timeout));
+    return solaros_controllers_status(args[0]);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_controllers_tune_obj,1,4,solaros_controllers_tune);
 static mp_obj_t solaros_controllers_delete(mp_obj_t name)
 {
     python_check_esp(solar_os_controller_delete(mp_obj_str_get_str(name)));

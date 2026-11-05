@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "solar_os_native_motion_abi.h"
 
 #define SOLAR_OS_MOTOR_NAME_MAX 20
 #define SOLAR_OS_MOTOR_DRIVER_MAX 32
@@ -46,6 +47,8 @@ typedef struct {
     bool raw_valid;
     uint32_t raw_control; /* Optional, driver-specific diagnostics. */
     uint32_t raw_fault;
+    solar_os_native_motor_config_v1_t config;
+    bool claimed;
 } solar_os_motor_status_t;
 
 typedef struct {
@@ -82,6 +85,11 @@ esp_err_t solar_os_motor_drive(const char *name, float value);
 esp_err_t solar_os_motor_coast(const char *name);
 esp_err_t solar_os_motor_brake(const char *name);
 esp_err_t solar_os_motor_clear(const char *name);
+typedef solar_os_native_motor_config_v1_t solar_os_motor_config_t;
+bool solar_os_motor_config_valid(const solar_os_motor_config_t *config);
+esp_err_t solar_os_motor_config_get(const char *name, solar_os_motor_config_t *config);
+esp_err_t solar_os_motor_configure(const char *name, const char *key, float value);
+esp_err_t solar_os_motor_stream_configure(uint32_t claim, const solar_os_motor_config_t *config);
 /* Exclusive output ownership. Claims pin the endpoint against detach and
  * exclude ordinary drive/coast/brake/clear calls. Tokens are not reusable.
  * Release applies coast or brake before dropping the claim; failure retains it. */

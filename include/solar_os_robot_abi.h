@@ -46,8 +46,8 @@ typedef struct {
 
 /* Optional external library. Joint control needs no model or graphics. Creation and
  * configuration do not claim outputs. Enable starts a joinable periodic loop;
- * motor velocity joints evaluate named OS controller instances; calibration,
- * sampling and actuator handling remain with the joint. Motor output stays
+ * motor velocity joints configure and tick bound OS controller instances.
+ * Calibration, sampling and actuator handling execute in shared OS services. Motor output stays
  * stopped until the first fresh command, which arms the
  * command watchdog. Expiry stops output and waits for a new command while
  * retaining ownership. Hardware, feedback and timing faults latch.
