@@ -45,13 +45,10 @@ namespace RNS { namespace Cryptography {
 			//DEBUGF("PKCS7::pad: len: %lu", len);
 			size_t padlen = bs - (len % bs);
 			//DEBUGF("PKCS7::pad: pad len: %lu", padlen);
-			// create zero-filled byte padding array of size padlen
+			// every padding byte is the padding length
 			//p v = bytes([padlen])
-			//uint8_t pad[padlen] = {0};
 			uint8_t pad[padlen];
-			memset(pad, 0, padlen);
-			// set last byte of padding array to size of padding
-			pad[padlen-1] = (uint8_t)padlen;
+			memset(pad, (int)padlen, padlen);
 			// concatenate data with padding
 			//p return data+v*padlen
 			data.append(pad, padlen);
@@ -62,11 +59,16 @@ namespace RNS { namespace Cryptography {
 		static inline void inplace_unpad(Bytes& data, size_t bs = BLOCKSIZE) {
 			size_t len = data.size();
 			//DEBUGF("PKCS7::unpad: len: %lu", len);
+			if (len == 0) {
+				throw std::runtime_error("Cannot unpad empty data");
+			}
 			// read last byte which is pad length
 			//pad = data[-1]
-			size_t padlen = (size_t)data.data()[data.size()-1];
+			// Only the last byte is read, as Python's unpad() does: earlier
+			// versions of this file filled the rest of the padding with zeros.
+			size_t padlen = (size_t)data.data()[len-1];
 			//DEBUGF("PKCS7::unpad: pad len: %lu", padlen);
-			if (padlen > bs) {
+			if (padlen == 0 || padlen > bs || padlen > len) {
 				throw std::runtime_error("Cannot unpad, invalid padding length of " + std::to_string(padlen) + " bytes");
 			}
 			// truncate data to strip padding
