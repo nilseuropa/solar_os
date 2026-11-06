@@ -652,6 +652,11 @@ label = "BHI260AP IMU"
 category = "Expansion hardware"
 members = ["bhi260ap"]
 
+[groups.mpu6050]
+label = "MPU6050 IMU"
+category = "Expansion hardware"
+members = ["mpu6050"]
+
 [groups.qmi8658]
 label = "QMI8658 IMU"
 category = "Expansion hardware"
@@ -1666,6 +1671,7 @@ sources = [
 
 [packages.service_imu]
 label = "service.imu"
+depends = ["service_streams"]
 sources = [
   "services/solar_os_imu.c",
   "shell/solar_os_shell_imu.c",
@@ -2048,6 +2054,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["expansion_gpio", "expansion_i2c"]
+
+[packages.mpu6050]
+label = "expansion.mpu6050"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_mpu6050_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = ["drivers/mpu6050.c", "services/solar_os_mpu6050.c", "services/solar_os_mpu6050_driver.c"]
+requires = ["esp_timer", "esp_driver_gpio"]
+capabilities = ["i2c"]
 
 [packages.qmi8658]
 label = "expansion.qmi8658"

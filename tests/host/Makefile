@@ -1030,9 +1030,9 @@ modem_service_test: modem_service_test.c $(ROOT)/src/services/solar_os_modem.c $
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		modem_service_test.c $(ROOT)/src/services/solar_os_modem.c -o $@
 
-imu_service_test: imu_service_test.c $(ROOT)/src/services/solar_os_imu.c $(ROOT)/src/services/solar_os_imu.h
+imu_service_test: imu_service_test.c $(ROOT)/src/services/solar_os_imu.c $(ROOT)/src/services/solar_os_imu.h $(ROOT)/src/services/solar_os_stream.c motion_endpoint_clock.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
-		imu_service_test.c $(ROOT)/src/services/solar_os_imu.c -lm -o $@
+		$(filter %.c,$^) -lm -o $@
 
 bhi260ap_codec_test: bhi260ap_codec_test.c $(ROOT)/src/drivers/bhi260ap_codec.c \
 		$(ROOT)/src/drivers/bhi260ap_codec.h

@@ -1149,7 +1149,7 @@ static const char * const controller_sources[] = {"manual"};
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
 static const char * const robot_domains[] = {"joint", "model", "start", "stop"};
 static const char * const robot_model_subcommands[] = {
-    "load", "unload", "info", "links", "joints", "metadata", "set", "transform", "point", "vector",
+    "load", "unload", "info", "links", "joints", "metadata", "set", "transform", "point", "vector", "devices", "frame",
 };
 static const char * const robot_joint_subcommands[] = {"list","status","create","configure","motor","servo","command","enable","disable","close"};
 static const char * const robot_kinds[] = {"velocity","servo"};
@@ -3719,7 +3719,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_session_focus),
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
-    SHELL_COMPLETION_SCALAR_STREAMS(path_stream_echo),
+    SHELL_COMPLETION_STREAMS(path_stream_echo),
     SHELL_COMPLETION_OPTIONS(path_stream_echo_options, stream_echo_options),
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     SHELL_COMPLETION_STATIC(path_stream_ble, stream_ble_subcommands),
@@ -8809,6 +8809,18 @@ static bool shell_completion_emit_robot_model(shell_completion_match_t *state,
                                               size_t token_count)
 {
     if (token_count < 3 || strcmp(tokens[0], "robot") || strcmp(tokens[1], "model")) return false;
+    if (!strcmp(tokens[2], "frame")) {
+        if (token_count == 3) {
+            solar_os_robot_model_device_t device;
+            for (uint32_t i = 0; solar_os_robot_model_get_device(i, &device) == ESP_OK; ++i)
+                shell_completion_emit(state, device.name);
+            solar_os_stream_info_t stream; char frame[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+            for (size_t i = 0; solar_os_stream_get(i, &stream); ++i)
+                if (solar_os_robot_model_frame(stream.id, frame, sizeof(frame)) == ESP_OK)
+                    shell_completion_emit(state, stream.id);
+        }
+        return true;
+    }
     const bool positions = strcmp(tokens[2], "set") == 0;
     const bool frames = strcmp(tokens[2], "transform") == 0 ||
         strcmp(tokens[2], "point") == 0 || strcmp(tokens[2], "vector") == 0;

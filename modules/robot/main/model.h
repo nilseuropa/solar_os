@@ -25,5 +25,7 @@ int solar_os_robot_model_feedback(solar_os_robot_model_t *model, const char *nam
     float position, bool valid, bool referenced);
 int solar_os_robot_model_lookup(const solar_os_robot_model_t *model, const char *target, const char *source, solar_os_robot_transform_t *out);
 int solar_os_robot_model_extension(const solar_os_robot_model_t *model, char *out, size_t bytes);
+int solar_os_robot_model_device(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_model_device_t *out);
+int solar_os_robot_model_device_frame(const solar_os_robot_model_t *model, const char *device, char *out, size_t bytes);
 int solar_os_robot_model_binding(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_joint_config_v3_t *out);
 int solar_os_robot_model_diff_drive(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_diff_drive_config_t *out);

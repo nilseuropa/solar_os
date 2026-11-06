@@ -26,6 +26,56 @@ paths, or load mesh files. Visual, collision, inertial, material, transmission,
 Gazebo and `ros2_control` elements are accepted as metadata and omitted from the
 in-memory kinematic model. This interface does not render or simulate geometry.
 
+## Device frames
+
+Associate an OS device with a URDF link in the existing extension:
+
+```xml
+<link name="imu_link"/>
+<joint name="imu_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="imu_link"/>
+  <origin xyz="0 0 0.02" rpy="0 0 0"/>
+</joint>
+<solar_os version="1">
+  <device name="imu0" frame="imu_link"/>
+</solar_os>
+```
+
+The example pose is a temporary frame 20 mm above `base_footprint` with zero
+rotation. Replace it with the physical mounting pose when the IMU is mounted.
+Use one `solar_os` block per robot, adding device bindings alongside joint and
+drive declarations. Device names must be unique; frames must name existing
+links. Up to 16 devices can be associated, and several devices can share a frame.
+
+```text
+expansion attach mpu6050 imu0 i2c=i2c0 addr=0x68
+robot model load solbot.urdf
+robot model devices
+robot model frame imu0
+robot model frame imu.imu0
+robot model transform base_footprint imu_link
+imu sample imu0
+stream echo imu.imu0 --once
+```
+
+Frame associations are queryable after model load and require no `robot start`.
+Loading does not attach drivers, claim sensors, or start sampling. Unattached
+devices may be declared so geometry is usable without hardware. A device-name
+query works while detached; a stream-name query resolves a registered stream's
+device. Camera, IMU and future range devices use the same binding syntax.
+Samples remain in the sensor's local coordinates, with no frame ID added to the
+source. Consumers resolve the binding and apply the existing model transform;
+the service does not rotate samples or use measured attitude to move the frame.
+Dynamic paths require current joint state, as other transform queries do.
+
+Python and Lua expose `solaros.robot.model_frame(device_or_stream)`, which returns
+the frame name. Pass it to `solaros.robot.model_transform(target, frame)` for the
+transform. C clients use `solar_os_robot_model_frame()` in the OS frontend or
+the native library's appended `model_device` / `model_device_frame` API entries.
+Older robot libraries can still load models but do not support frame lookup;
+update the library to use these entries.
+
 ## Load and inspect
 
 ```text

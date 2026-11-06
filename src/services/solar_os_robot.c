@@ -168,7 +168,7 @@ esp_err_t solar_os_robot_model_load_xml(const char *xml, size_t bytes, char *err
     if (!model.lease) {
         const void *table = NULL;
         err = result(solar_os_native_library_acquire(SOLAR_OS_ROBOT_LIBRARY, SOLAR_OS_ROBOT_ABI,
-            sizeof(solar_os_robot_api_v3_t), &model.lease, &table));
+            offsetof(solar_os_robot_api_v3_t, model_device), &model.lease, &table));
         if (err == ESP_OK) model.api = table;
     }
     uint32_t next = 0;
@@ -312,6 +312,25 @@ esp_err_t solar_os_robot_model_transform(const char *target, const char *source,
 { MODEL_FRONTEND(model.api->model_lookup(model.id, target, source, out)); }
 esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes)
 { MODEL_FRONTEND(model.api->model_extension(model.id, out, bytes)); }
+esp_err_t solar_os_robot_model_get_device(uint32_t index, solar_os_robot_model_device_t *out)
+{ MODEL_FRONTEND(model.api->struct_size < sizeof(*model.api) || !model.api->model_device ?
+    SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED : model.api->model_device(model.id, index, out)); }
+esp_err_t solar_os_robot_model_frame(const char *device_or_stream, char *out, size_t bytes)
+{
+    if (!device_or_stream || !*device_or_stream || !out || !bytes) return ESP_ERR_INVALID_ARG;
+    solar_os_stream_info_t stream;
+    lock();
+    esp_err_t e = ESP_ERR_NOT_FOUND;
+    if (model.id) {
+        if (model.api->struct_size < sizeof(*model.api) || !model.api->model_device_frame) e = ESP_ERR_NOT_SUPPORTED;
+        else {
+            e = result(model.api->model_device_frame(model.id, device_or_stream, out, bytes));
+            if (e == ESP_ERR_NOT_FOUND && solar_os_stream_get_info(device_or_stream, &stream) == ESP_OK && stream.device[0])
+                e = result(model.api->model_device_frame(model.id, stream.device, out, bytes));
+        }
+    }
+    xSemaphoreGive(mutex); return e;
+}
 #undef MODEL_FRONTEND
 
 static bool model_parent_locked(const char *child, uint32_t count, solar_os_robot_model_joint_info_t *out)

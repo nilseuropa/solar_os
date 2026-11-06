@@ -34,6 +34,7 @@ int main(void)
         {"model_info",solua_robot_model_info},
         {"model_set_joint",solua_robot_model_set_joint},
         {"model_transform",solua_robot_model_transform},
+        {"model_frame",solua_robot_model_frame},
         {"model_point",solua_robot_model_point},
         {"model_vector",solua_robot_model_vector},
         {"joints",solua_robot_joints},
@@ -49,7 +50,8 @@ int main(void)
         {NULL,NULL}};
     luaL_newlib(L,api);lua_setglobal(L,"robot");
     const char *script=
-        "local m=robot.model_load('" ROBOT_MODEL_FIXTURE "');assert(m.name=='solbot' and #m.links==5 and #m.joints==4 and m.known_joints==2)\n"
+        "local m=robot.model_load('" ROBOT_MODEL_FIXTURE "');assert(m.name=='solbot' and #m.links==6 and #m.joints==5 and m.known_joints==3)\n"
+        "assert(robot.model_frame('imu0')=='imu_link')\n"
         "assert(not pcall(robot.model_transform,'base_link','left_wheel_link'))\n"
         "robot.model_set_joint('left_wheel_joint',0)\n"
         "local t=robot.model_transform('base_link','left_wheel_link');assert(math.abs(t.translation[2]-0.0350641)<1e-6 and #t.rotation==4)\n"

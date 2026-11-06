@@ -39,6 +39,7 @@ class RobotCompletionTest(unittest.TestCase):
 #include <stdio.h>
 #include <string.h>
 #include "solar_os_robot_model.h"
+#include "solar_os_stream.h"
 #include "solar_os_shell_completion.h"
 #define ESP_OK 0
 #define SHELL_ARRAY_COUNT(a) (sizeof(a)/sizeof(a[0]))
@@ -53,6 +54,17 @@ static bool loaded=true;
 static unsigned reads;
 static const char *links[]={"base_link","left_wheel_link","right_wheel_link","caster_ball_link"};
 static const char *joints[]={"base_joint","left_wheel_joint","right_wheel_joint"};
+static int solar_os_robot_model_get_device(uint32_t index,solar_os_robot_model_device_t *out) {
+    if(!loaded || index)return -1;
+    strcpy(out->name,"imu0");strcpy(out->frame,"imu_link");return ESP_OK;
+}
+bool solar_os_stream_get(size_t index,solar_os_stream_info_t *out) {
+    if(index)return false;
+    strcpy(out->id,"imu.imu0");return true;
+}
+static int solar_os_robot_model_frame(const char *name,char *out,size_t bytes) {
+    (void)name;(void)bytes;if(!loaded)return -1;strcpy(out,"imu_link");return ESP_OK;
+}
 static int solar_os_robot_model_get_info(solar_os_robot_model_info_t *info) {
     ++reads;if(!loaded)return -1;
     *info=(solar_os_robot_model_info_t){.links=4,.joints=3};return ESP_OK;
@@ -97,7 +109,10 @@ int main(void) {
     check("robot diff",true,false,"");
     check("robot diff_drive ",false,false,"");
     check("robot mo",true,false,"model");
-    check("robot model ",true,false,"load|unload|info|links|joints|metadata|set|transform|point|vector");
+    check("robot model ",true,false,"load|unload|info|links|joints|metadata|set|transform|point|vector|devices|frame");
+    check("robot model frame ",true,false,"imu0|imu.imu0");
+    check("robot model frame imu.",true,false,"imu.imu0");
+    check("robot model frame imu0 ",true,false,"");
     check("robot model tr",true,false,"transform");
     check("robot model load ",false,true,"");
     check("robot model load \"/sdcard/My Robot/sol",false,true,"");
@@ -121,6 +136,7 @@ int main(void) {
     check("robot joint status ",false,false,"");
     check("other model set ",false,false,"");
     loaded=false;
+    check("robot model frame ",true,false,"");
     check("robot model set ",true,false,"");
     check("robot model transform ",true,false,"");
     check("robot model load so",false,true,"");
@@ -134,7 +150,8 @@ int main(void) {
             binary = Path(directory) / "robot-completion"
             subprocess.run([
                 "cc", "-x", "c", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-I", str(ROOT / "include"), "-I", str(ROOT / "src/shell"), "-",
+                "-I", str(ROOT / "include"), "-I", str(ROOT / "src/shell"),
+                "-I", str(ROOT / "src/services"), "-I", str(ROOT / "tests/host"), "-",
                 str(ROOT / "src/shell/solar_os_shell_completion.c"), "-o", str(binary),
             ], input=harness, text=True, check=True)
             subprocess.run([str(binary)], check=True)

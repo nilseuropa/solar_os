@@ -130,6 +130,7 @@ sim7670 = true
 st25r3916 = true
 bhi260ap = true
 qmi8658 = true
+mpu6050 = true
 lsm6ds3trc = true
 drv2605 = true
 pca9685 = true

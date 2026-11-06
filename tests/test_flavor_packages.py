@@ -622,6 +622,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "bq27220": "bq27220",
             "bq25896": "bq25896",
             "qmi8658": "qmi8658",
+            "mpu6050": "mpu6050",
         }
         for group, package in reusable.items():
             with self.subTest(group=group):
@@ -652,6 +653,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_bq27220_expansion_driver",
             "solar_os_bq25896_expansion_driver",
             "solar_os_qmi8658_expansion_driver",
+            "solar_os_mpu6050_expansion_driver",
         ):
             self.assertIn(symbol, drivers)
 

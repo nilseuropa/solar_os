@@ -21,6 +21,7 @@ static const char usage[] =
 static const char model_usage[] =
     "robot model load <file.urdf> | unload | info | links | joints | metadata\n"
     "  robot model set <joint> <position> [<joint> <position> ...]\n"
+    "  robot model devices | frame <device-or-stream>\n"
     "  robot model transform <target-frame> <source-frame>\n"
     "  robot model point|vector <target-frame> <source-frame> <x> <y> <z>\n";
 static bool number(const char *s, float *value)
@@ -133,6 +134,24 @@ static void model_command(solar_os_context_t *ctx, int argc, char **argv)
         if (err == ESP_OK) err = solar_os_robot_model_load_file(path, error, sizeof(error));
         if (err == ESP_OK) solar_os_shell_io_writeln(io, "Robot model loaded");
     } else if (argc == 2 && !strcmp(argv[1], "unload")) err = solar_os_robot_model_unload();
+    else if (argc == 2 && !strcmp(argv[1], "devices")) {
+        solar_os_robot_model_device_t device;
+        solar_os_robot_model_info_t info;
+        err = solar_os_robot_model_get_info(&info);
+        for (uint32_t i = 0; err == ESP_OK; ++i) {
+            err = solar_os_robot_model_get_device(i, &device);
+            if (err == ESP_ERR_NOT_FOUND) {
+                if (!i) solar_os_shell_io_writeln(io, "No device frame bindings");
+                err = ESP_OK; break;
+            }
+            if (err != ESP_OK) break;
+            solar_os_shell_io_printf(io, "%s: frame=%s\n", device.name, device.frame);
+        }
+    } else if (argc == 3 && !strcmp(argv[1], "frame")) {
+        char frame[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+        err = solar_os_robot_model_frame(argv[2], frame, sizeof(frame));
+        if (err == ESP_OK) solar_os_shell_io_writeln(io, frame);
+    }
     else if (argc == 2 && (!strcmp(argv[1], "info") || !strcmp(argv[1], "links") ||
         !strcmp(argv[1], "joints") || !strcmp(argv[1], "metadata"))) {
         solar_os_robot_model_info_t info;

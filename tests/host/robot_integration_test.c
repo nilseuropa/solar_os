@@ -42,7 +42,7 @@ static int worker_start(void **p,void(*fn)(void*),void *arg,uint32_t bytes,uint3
 static int worker_join(void *p) { free(p);workers--;return 0; }
 int solar_os_native_library_acquire(const char *name,uint32_t abi,uint32_t bytes,uint32_t *lease,const void **api)
 { assert(!strcmp(name,"robot") && abi==SOLAR_OS_ROBOT_ABI &&
-    (bytes==sizeof(*provider) || bytes==SOLAR_OS_ROBOT_JOINT_API_SIZE));*api=provider;*lease=++leases;return 0; }
+    (bytes==sizeof(*provider) || bytes==offsetof(solar_os_robot_api_v3_t,model_device) || bytes==SOLAR_OS_ROBOT_JOINT_API_SIZE));*api=provider;*lease=++leases;return 0; }
 int solar_os_native_library_release(uint32_t lease)
 { assert(lease && leases);if(fail_release)return STATE;leases--;return 0; }
 static esp_err_t hw_status(void *ctx,solar_os_motor_status_t *s)
@@ -384,6 +384,27 @@ static void model_controllers_test(void)
 
 #include "diff_drive_integration_test.inc"
 
+static esp_err_t model_sensor_read(void *ctx,const solar_os_stream_read_options_t *options,float *value)
+{ (void)ctx;(void)options;*value=0;return ESP_OK; }
+
+static void legacy_model_test(void)
+{
+    const solar_os_robot_api_v3_t *current=provider;
+    solar_os_robot_api_v3_t legacy=*current;
+    legacy.struct_size=offsetof(solar_os_robot_api_v3_t,model_device);
+    legacy.model_device=NULL;legacy.model_device_frame=NULL;
+    provider=&legacy;
+    const char *xml="<robot name='legacy'><link name='base'/></robot>";
+    assert(solar_os_robot_model_load_xml(xml,strlen(xml),NULL,0)==ESP_OK);
+    solar_os_robot_model_info_t info;
+    assert(solar_os_robot_model_get_info(&info)==ESP_OK && !strcmp(info.name,"legacy"));
+    char frame[64];solar_os_robot_model_device_t device;
+    assert(solar_os_robot_model_frame("imu0",frame,sizeof(frame))==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_robot_model_get_device(0,&device)==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_robot_model_unload()==ESP_OK);
+    provider=current;
+}
+
 int main(void)
 {
     setup();
@@ -409,7 +430,16 @@ int main(void)
     assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && leases==1);
     assert(solar_os_robot_engine_shutdown()==STATE);
     solar_os_robot_model_info_t mi;
-    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==5 && mi.joints==4);
+    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==6 && mi.joints==5);
+    char sensor_frame[64]; solar_os_robot_model_device_t sensor;
+    assert(solar_os_robot_model_get_device(0,&sensor)==ESP_OK && !strcmp(sensor.name,"imu0"));
+    assert(solar_os_robot_model_frame("imu0",sensor_frame,sizeof(sensor_frame))==ESP_OK && !strcmp(sensor_frame,"imu_link"));
+    solar_os_stream_driver_t sensor_stream={.info={.id="test.sensor",.provider="test",.device="imu0",.format="f32",
+        .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_SOURCE},.read_scalar=model_sensor_read};
+    assert(solar_os_stream_register(&sensor_stream)==ESP_OK);
+    assert(solar_os_robot_model_frame("test.sensor",sensor_frame,sizeof(sensor_frame))==ESP_OK && !strcmp(sensor_frame,"imu_link"));
+    assert(solar_os_stream_unregister("test.sensor")==ESP_OK);
+    assert(solar_os_robot_model_frame("test.sensor",sensor_frame,sizeof(sensor_frame))==ESP_ERR_NOT_FOUND);
     assert(solar_os_robot_model_load_xml("<bad/>",6,error,sizeof(error))!=ESP_OK && *error);
     assert(solar_os_robot_model_get_info(&mi)==ESP_OK && !strcmp(mi.name,"solbot") && leases==1);
     const char *positions[]={"left_wheel_joint","right_wheel_joint"};float values[]={0,0};
@@ -454,6 +484,7 @@ int main(void)
     model_controllers_test();
     model_feedback_test();
     diff_drive_integration_test();
+    legacy_model_test();
     teardown();
     puts("robot integration: native device ABI, claims, encoder scaling, frontend leases and cleanup retry passed");
     return 0;

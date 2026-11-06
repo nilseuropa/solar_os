@@ -51,7 +51,7 @@ static bool echo_cancelled(solar_os_context_t *ctx,solar_os_shell_io_t *io)
 void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx,int argc,char **argv)
 {
     solar_os_shell_io_t *io=solar_os_shell_command_io(ctx);
-    const char *usage="usage: stream echo <scalar-source> [--once] [--rate 1..100]";
+    const char *usage="usage: stream echo <source> [--once] [--rate 1..100]";
     bool once=false,rate_set=false;unsigned rate=10;
     if(argc<3) { solar_os_shell_io_writeln(io,usage);return; }
     for(int i=3;i<argc;++i) {
@@ -64,7 +64,7 @@ void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx,int argc,char **argv
     }
     solar_os_stream_info_t info;
     esp_err_t err=solar_os_stream_get_info(argv[2],&info);
-    if(err==ESP_OK && (info.type!=SOLAR_OS_STREAM_TYPE_SCALAR || info.direction==SOLAR_OS_STREAM_DIRECTION_SINK))
+    if(err==ESP_OK && (info.type==SOLAR_OS_STREAM_TYPE_AUDIO || info.type==SOLAR_OS_STREAM_TYPE_VIDEO || info.direction==SOLAR_OS_STREAM_DIRECTION_SINK))
         err=ESP_ERR_NOT_SUPPORTED;
     if(err!=ESP_OK) { solar_os_shell_io_printf(io,"stream echo: %s\n",solar_os_shell_error_text(err));return; }
     echo_reader_t *reader=echo_reader_acquire(info.id);
@@ -72,9 +72,27 @@ void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx,int argc,char **argv
     solar_os_stream_handle_t *handle=&reader->handle;
     if(solar_os_stream_handle_valid(handle)) err=solar_os_stream_close_ex(handle);
     solar_os_stream_read_options_t options={.window_ms=10,.timeout_ms=100};
+    const bool scalar=info.type==SOLAR_OS_STREAM_TYPE_SCALAR;
+    if(err==ESP_OK && !scalar) {
+        err=solar_os_stream_open(info.id,"stream-echo",handle);
+        char header[SOLAR_OS_STREAM_CSV_HEADER_MAX];
+        if(err==ESP_OK) err=solar_os_stream_csv_header(&info,header,sizeof(header));
+        if(err==ESP_OK) solar_os_shell_io_writeln(io,header);
+    }
     bool printed=false,cancelled=false;uint64_t last_sample=0,last_success=solar_os_time_uptime_ms();
     if(err==ESP_OK && !once) solar_os_shell_io_printf(io,"%s (%s); Ctrl+C stops\n",info.id,info.unit[0]?info.unit:"unitless");
     while(err==ESP_OK && !cancelled && !(cancelled=echo_cancelled(ctx,io))) {
+        if(!scalar) {
+            solar_os_stream_csv_record_t record;
+            err=solar_os_stream_read_csv(handle,&options,&record);
+            uint64_t now=solar_os_time_uptime_ms();
+            if(err==ESP_OK && record.has_data) {
+                solar_os_shell_io_writeln(io,record.line);last_success=now;
+                if(once) break;
+            } else if(err!=ESP_OK && err!=ESP_ERR_TIMEOUT) break;
+            else if(now-last_success>=1000) { err=ESP_ERR_TIMEOUT;break; }
+            err=ESP_OK;
+        } else {
         solar_os_stream_scalar_sample_t sample={0};bool timestamped=true;
         if(solar_os_stream_handle_valid(handle)) err=solar_os_stream_read_scalar_sample(handle,&options,&sample);
         else {
@@ -101,6 +119,7 @@ void solar_os_shell_cmd_stream_echo(solar_os_context_t *ctx,int argc,char **argv
             }
         } else if(err!=ESP_ERR_TIMEOUT || now-last_success>=1000) break;
         else err=ESP_OK;
+        }
         uint32_t delay=once?10:1000/rate;
         /* Poll cancellation independently of the output rate. */
         while(delay && !(cancelled=echo_cancelled(ctx,io))) {

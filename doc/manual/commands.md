@@ -930,7 +930,7 @@ policy.
 | --- | --- | --- |
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
 | `stream` | `stream status <id>` | Show type, direction, provider, format, owner, counters, and any declared scalar command range. |
-| `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
+| `stream` | `stream echo <source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit, or byte/event source CSV records. IMU records contain one timestamp and all axes. Default display rate is 10 Hz; Ctrl+C stops. |
 | `stream` | `stream write <scalar-sink> <value> [<scalar-sink> <value> ...] [--rate 1..100] [--duration seconds]` | Publish native float32 scalar values once or periodically. Values outside a declared command range are rejected with the stream ID, value, allowed range, and unit. Ctrl+C ends periodic publishing. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
@@ -1359,6 +1359,7 @@ available for the compiled board.
 | `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |
 | `robot` | `robot start` or `robot stop` | Start URDF-declared velocity controllers or release them while retaining the model. Stop before replacing or unloading it. |
 | `robot` | `robot model info\|links\|joints\|metadata` | Inspect the resident model and retained SolarOS extension. |
+| `robot` | `robot model devices` or `robot model frame <device-or-stream>` | List URDF device/frame bindings or resolve a device or registered stream to its frame. |
 | `robot` | `robot model set <joint> <position> [<joint> <position> ...]` | Supply model joint positions as one validated batch. |
 | `robot` | `robot model transform <target> <source>` | Query the transform mapping source-frame coordinates into target. |
 | `robot` | `robot model point\|vector <target> <source> <x> <y> <z>` | Transform a point or direction; see [Robot models and transforms](robot-models.md). |

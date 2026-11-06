@@ -47,7 +47,9 @@ int main(void)
     assert(strstr(run("robot axis list"),"usage:"));
     assert(strstr(run("robot create wheel velocity"),"usage:"));
     assert(strstr(run("robot model load " ROBOT_MODEL_FIXTURE),"Robot model loaded"));
-    assert(strstr(run("robot model info"),"solbot: root=base_footprint links=5 joints=4 known=2"));
+    assert(strstr(run("robot model info"),"solbot: root=base_footprint links=6 joints=5 known=3"));
+    assert(strstr(run("robot model devices"),"imu0: frame=imu_link"));
+    assert(!strcmp(run("robot model frame imu0"),"imu_link\n"));
     assert(strstr(run("robot model links"),"left_wheel_link"));
     assert(strstr(run("robot model joints"),"position=0 known=0"));
     assert(strstr(run("robot model transform base_footprint caster_ball_link"),"base_footprint <- caster_ball_link:"));

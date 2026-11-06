@@ -419,6 +419,32 @@ hint = "gpio"
 role = "irq"
 required = true
 
+[drivers.mpu6050]
+summary = "MPU6050 six-axis IMU"
+package = "mpu6050"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+default_name = "imu0"
+
+[[drivers.mpu6050.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.mpu6050.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68|0x69"
+required = true
+allowed = [0x68, 0x69]
+
+[[drivers.mpu6050.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
 [drivers.qmi8658]
 summary = "QMI8658 six-axis IMU"
 package = "qmi8658"

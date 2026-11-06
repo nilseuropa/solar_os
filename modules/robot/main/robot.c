@@ -438,6 +438,10 @@ static int model_binding(uint32_t id, uint32_t index, solar_os_robot_joint_confi
 { MODEL_CALL(solar_os_robot_model_binding(m, index, out)); }
 static int model_diff_drive(uint32_t id,uint32_t index,solar_os_robot_diff_drive_config_t *out)
 { MODEL_CALL(solar_os_robot_model_diff_drive(m,index,out)); }
+static int model_device(uint32_t id, uint32_t index, solar_os_robot_model_device_t *out)
+{ MODEL_CALL(solar_os_robot_model_device(m, index, out)); }
+static int model_device_frame(uint32_t id, const char *device, char *out, size_t bytes)
+{ MODEL_CALL(solar_os_robot_model_device_frame(m, device, out, bytes)); }
 #undef MODEL_CALL
 
 static int model_create_joint(uint32_t id, uint32_t index, uint32_t *out)
@@ -465,6 +469,7 @@ static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .
     .model_load = model_load, .model_close = model_close, .model_info = model_info,
     .model_link = model_link, .model_joint = model_joint, .model_set_positions = model_set_positions,
     .model_lookup = model_lookup, .model_extension = model_extension,
+    .model_device = model_device, .model_device_frame = model_device_frame,
     .transform_from_rpy = solar_os_robot_transform_from_rpy, .transform_compose = solar_os_robot_transform_compose,
     .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply,
     .model_binding=model_binding, .model_create_joint=model_create_joint,

@@ -97,6 +97,9 @@ typedef struct {
     int (*diff_drive_status)(uint32_t drive, solar_os_robot_diff_drive_status_t *out);
     int (*diff_drive_disable)(uint32_t drive);
     int (*diff_drive_close)(uint32_t drive);
+    /* Optional append-only device/frame associations; no hardware side effects. */
+    int (*model_device)(uint32_t model, uint32_t index, solar_os_robot_model_device_t *out);
+    int (*model_device_frame)(uint32_t model, const char *device, char *out, size_t bytes);
 } solar_os_robot_api_v3_t;
 
 #define SOLAR_OS_ROBOT_JOINT_API_SIZE offsetof(solar_os_robot_api_v3_t, model_load)

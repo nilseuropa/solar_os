@@ -32,6 +32,9 @@ esp_err_t solar_os_robot_model_transform(const char *target, const char *source,
 void solar_os_robot_model_transform_error(const char *target, const char *source, char *error, size_t bytes);
 esp_err_t solar_os_robot_model_apply(const char *target, const char *source, const float in[3], bool direction, float out[3]);
 esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes);
+esp_err_t solar_os_robot_model_get_device(uint32_t index, solar_os_robot_model_device_t *out);
+/* Accepts either a declared device name or a registered stream ID. */
+esp_err_t solar_os_robot_model_frame(const char *device_or_stream, char *out, size_t bytes);
 /* Explicit lifecycle for URDF-declared velocity controllers. Stop releases
  * only model-owned joints. Failed cleanup can be retried and pins the model. */
 esp_err_t solar_os_robot_start(void);

@@ -171,6 +171,12 @@ static void solua_robot_float_list(lua_State *L, const float *values, unsigned c
     lua_createtable(L, count, 0);
     for (unsigned i = 0; i < count; ++i) { lua_pushnumber(L, values[i]); lua_rawseti(L, -2, i+1); }
 }
+static int solua_robot_model_frame(lua_State *L)
+{
+    char frame[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+    (void)solua_check_esp(L, solar_os_robot_model_frame(luaL_checkstring(L, 1), frame, sizeof(frame)));
+    lua_pushstring(L, frame); return 1;
+}
 static int solua_robot_model_transform(lua_State *L)
 {
     solar_os_robot_transform_t t;
