@@ -192,11 +192,14 @@ static void model_command(solar_os_context_t *ctx, int argc, char **argv)
         }
     }
     if (err != ESP_OK) {
+        if (err == ESP_ERR_INVALID_STATE && argc >= 4 &&
+            (!strcmp(argv[1], "transform") || !strcmp(argv[1], "point") || !strcmp(argv[1], "vector")))
+            solar_os_robot_model_transform_error(argv[2], argv[3], error, sizeof(error));
         solar_os_shell_io_printf(io, "robot model: %s%s%s\n", solar_os_shell_error_text(err), *error ? ": " : "", error);
-        if (err == ESP_ERR_INVALID_STATE) solar_os_shell_io_writeln(io,
-            !strcmp(argv[1],"load") || !strcmp(argv[1],"unload") ?
-            "Run robot stop before replacing or unloading the model" :
-            "Supply positions for movable joints on the requested path");
+        if (err == ESP_ERR_INVALID_STATE && (!strcmp(argv[1], "load") || !strcmp(argv[1], "unload")))
+            solar_os_shell_io_writeln(io, "Run robot stop before replacing or unloading the model");
+        if (err == ESP_ERR_INVALID_STATE && !strcmp(argv[1], "set"))
+            solar_os_shell_io_writeln(io, "Bound joints use live feedback; stop the robot before supplying manual model state");
         if (err == ESP_ERR_INVALID_ARG) solar_os_shell_io_writeln(io, model_usage);
     }
 }

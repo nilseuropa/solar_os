@@ -784,6 +784,20 @@ int solar_os_robot_model_set_positions(solar_os_robot_model_t *m, const char *co
     return OK;
 }
 
+int solar_os_robot_model_feedback(solar_os_robot_model_t *m, const char *name,
+    float position, bool valid, bool referenced)
+{
+    if (!m || !name) return ARG;
+    int index = joint_index(m, name);
+    if (index < 0) return MISSING;
+    solar_os_robot_model_joint_info_t *j = &m->joints[index].info;
+    if (j->kind == SOLAR_OS_ROBOT_MODEL_FIXED) return ARG;
+    j->position_known = valid && isfinite(position) &&
+        (referenced || j->kind == SOLAR_OS_ROBOT_MODEL_CONTINUOUS);
+    if (j->position_known) j->position = position;
+    return OK;
+}
+
 static int edge_transform(const model_joint_t *j, solar_os_robot_transform_t *out)
 {
     const solar_os_robot_model_joint_info_t *s = &j->info;

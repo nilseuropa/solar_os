@@ -93,6 +93,14 @@ static void kinematics(void)
     assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==STATE);
     assert(solar_os_robot_model_lookup(m,"tip","sensor",&t)==OK);near(t.translation[2],1);
     assert(solar_os_robot_model_lookup(m,"arm","arm",&t)==OK);near(t.rotation[3],1);
+    /* Relative counts cannot establish a bounded joint's absolute pose. */
+    assert(solar_os_robot_model_feedback(m,"rotation",.5f,true,false)==OK);
+    assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==STATE);
+    assert(solar_os_robot_model_feedback(m,"rotation",.5f,true,true)==OK);
+    solar_os_robot_model_joint_info_t feedback_joint;
+    assert(solar_os_robot_model_joint(m,0,&feedback_joint)==OK && feedback_joint.position_known);
+    assert(solar_os_robot_model_feedback(m,"rotation",NAN,true,true)==OK);
+    assert(solar_os_robot_model_joint(m,0,&feedback_joint)==OK && !feedback_joint.position_known);
     const char *names[]={"rotation","slide"};float q[]={1.5707963267948966f,.5f};
     assert(solar_os_robot_model_set_positions(m,names,q,2)==OK);
     assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==OK);

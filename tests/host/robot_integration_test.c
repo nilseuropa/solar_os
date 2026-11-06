@@ -210,6 +210,65 @@ static void model_parameter_transaction_test(void)
     assert(solar_os_motor_configure("left","max_drive",1)==ESP_OK);
 }
 
+static void model_feedback_test(void)
+{
+    solar_os_robot_transform_t t;
+    solar_os_robot_model_info_t model_info;
+    solar_os_robot_model_joint_info_t joint;
+    solar_os_robot_joint_info_v3_t state;
+    const char *name = "model_wheel";
+    float manual = .7f;
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    /* Enable seeds the existing encoder counter without resetting hardware.
+     * The prior manual pose is superseded, but no zero measurement is invented. */
+    encoder_count = 12345;
+    assert(solar_os_robot_start()==ESP_OK && encoder_count==12345);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_transform("wheel","wheel",&t)==ESP_OK);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_ERR_INVALID_STATE);
+    assert(provider->model_close(models[0].id)==STATE); /* Runtime joints pin the model. */
+    unsigned writes = drive_calls;
+    encoder_count += 525; time_value += 20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_joint_status(name,&state)==ESP_OK && state.velocity_valid && !state.referenced);
+    assert(state.state==SOLAR_OS_ROBOT_WAITING && !state.command_valid && !motor_value);
+    assert(fabsf(state.position-(float)(PI/2))<1e-5f);
+    assert(solar_os_robot_model_get_info(&model_info)==ESP_OK && model_info.known_joints==1);
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && joint.position_known);
+    assert(fabsf(joint.position-state.position)<1e-5f);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    assert(fabsf(t.rotation[0]-sqrtf(.5f))<1e-5f && fabsf(t.rotation[3]-sqrtf(.5f))<1e-5f);
+    assert(solar_os_robot_model_transform("wheel","root",&t)==ESP_OK && t.rotation[0]<0);
+    float point[3]={0,1,0}, out[3];
+    assert(solar_os_robot_model_apply("root","wheel",point,false,out)==ESP_OK);
+    assert(fabsf(out[1])<1e-5f && fabsf(out[2]-1)<1e-5f);
+    assert(drive_calls==writes); /* Feedback queries and idle sampling do not drive motors. */
+    /* Aging alone invalidates the cached state even if the worker has stalled. */
+    time_value += 100001;
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && !joint.position_known);
+    time_value += 20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    fail_read_from=read_calls+1; time_value+=20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    fail_read_from=0;
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_robot_model_get_info(&model_info)==ESP_OK && !model_info.known_joints);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_OK);
+    assert(solar_os_robot_start()==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    time_value+=20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && joint.position_known && !joint.position);
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_unload()==ESP_OK);
+}
+
 static void model_controllers_test(void)
 {
     char error[128];
@@ -393,6 +452,7 @@ int main(void)
     assert(solar_os_robot_joint_close("wheel")==ESP_OK && !leases);
     assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
     model_controllers_test();
+    model_feedback_test();
     diff_drive_integration_test();
     teardown();
     puts("robot integration: native device ABI, claims, encoder scaling, frontend leases and cleanup retry passed");

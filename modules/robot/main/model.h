@@ -19,6 +19,10 @@ int solar_os_robot_model_info(const solar_os_robot_model_t *model, solar_os_robo
 int solar_os_robot_model_link(const solar_os_robot_model_t *model, uint32_t index, char *out, size_t bytes);
 int solar_os_robot_model_joint(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_model_joint_info_t *out);
 int solar_os_robot_model_set_positions(solar_os_robot_model_t *model, const char *const *names, const float *positions, uint32_t count);
+/* Runtime feedback is authoritative for a bound joint. Only continuous joints
+ * can use an unreferenced encoder position. Invalid feedback clears known. */
+int solar_os_robot_model_feedback(solar_os_robot_model_t *model, const char *name,
+    float position, bool valid, bool referenced);
 int solar_os_robot_model_lookup(const solar_os_robot_model_t *model, const char *target, const char *source, solar_os_robot_transform_t *out);
 int solar_os_robot_model_extension(const solar_os_robot_model_t *model, char *out, size_t bytes);
 int solar_os_robot_model_binding(const solar_os_robot_model_t *model, uint32_t index, solar_os_robot_joint_config_v3_t *out);

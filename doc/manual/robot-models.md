@@ -70,7 +70,24 @@ Unload the model before unloading the robot library.
 
 Fixed joints have known positions immediately. Continuous, revolute and
 prismatic joints initially have unknown positions. An unset joint is not assumed
-to have a measured zero position. Supply positions explicitly, for example:
+to have a measured zero position.
+
+After `robot start`, URDF-bound continuous joints use measured encoder positions
+automatically. Transform, point and vector queries and model inspection all use
+the latest joint feedback. Positions are radians relative to the encoder count
+at enable, plus the configured `position_zero`; this does not reset the hardware
+counter or establish an absolute wheel angle. The first valid sample makes the
+position available even while the controller waits for its first command.
+Queries do not command movement.
+
+Missing, stale or faulted feedback makes the bound position unavailable. Stopping
+the joint also clears its model position; restarting establishes a new relative
+reference. Revolute and prismatic joints require referenced position feedback;
+relative encoder counts alone cannot establish their absolute pose. A servo
+command is not measured position feedback.
+
+Supply model state explicitly for unbound joints or while the robot is stopped,
+for example:
 
 ```text
 robot model set left_wheel_joint 0 right_wheel_joint 0
@@ -86,17 +103,20 @@ components own command-limit enforcement. Continuous joints accept finite
 unwrapped angles. A `set` command validates every name and
 value before updating any joint. Duplicate names in one batch are rejected.
 These updates describe a pose; they never command a motor or servo.
+Manual updates to runtime-bound joints are rejected so they cannot replace
+measured state. Stop the robot before supplying a manual pose for those joints.
 
 URDF origins use `Rz(yaw) * Ry(pitch) * Rx(roll)`. Joint motion follows the origin
 in the joint's local axis. The axis defaults to +X and supplied nonzero axes are
 normalized. Transform queries walk the path between the requested links.
-Unknown joints on that path return an invalid-state error. Unknown joints above
+Unknown joints on that path return an invalid-state error naming an affected
+joint in the shell. Unknown joints above
 their common ancestor do not prevent a local lookup. A frame-to-itself lookup
 returns identity even when that frame's pose relative to the root is unknown.
 
 This is current-state forward kinematics. There is no transform history,
-timestamp interpolation, ROS topic publication, external-frame insertion,
-automatic encoder binding or inverse solver in the model interface. The
+timestamp interpolation, ROS topic publication, external-frame insertion or
+inverse solver in the model interface. The
 separate diff_drive component below supplies measured planar odometry.
 
 ## Transform direction

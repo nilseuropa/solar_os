@@ -28,6 +28,8 @@ esp_err_t solar_os_robot_model_get_link(uint32_t index, char *out, size_t bytes)
 esp_err_t solar_os_robot_model_get_joint(uint32_t index, solar_os_robot_model_joint_info_t *out);
 esp_err_t solar_os_robot_model_update(const char *const *names, const float *positions, uint32_t count);
 esp_err_t solar_os_robot_model_transform(const char *target, const char *source, solar_os_robot_transform_t *out);
+/* Explain an unavailable position on this transform path, naming its joint. */
+void solar_os_robot_model_transform_error(const char *target, const char *source, char *error, size_t bytes);
 esp_err_t solar_os_robot_model_apply(const char *target, const char *source, const float in[3], bool direction, float out[3]);
 esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes);
 /* Explicit lifecycle for URDF-declared velocity controllers. Stop releases
