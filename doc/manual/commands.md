@@ -1361,6 +1361,7 @@ available for the compiled board.
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
 | `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |
+| `osc` | `osc bind <name> receive <scalar-sink> <address> [arg=0..7]` | Map one incoming OSC argument to a scalar sink in its native unit. Several bindings may map one message to multiple streams. See [Open Sound Control](osc.md#incoming-stream-bindings). |
 | `osc` | `osc unbind <name>` or `osc clear` | Remove one outbound binding or all outbound bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio scan [name]` | Open the graphical `rfscan` app when included in the firmware. |

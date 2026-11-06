@@ -1233,7 +1233,8 @@ static const char * const encoder_keys[] = {"ppr","gear_ratio","polarity","encod
 static const char * const osc_subcommands[] = {
     "bindings", "bind", "unbind", "clear",
 };
-static const char * const osc_source_types[] = {"stream", "control"};
+static const char * const osc_source_types[] = {"stream", "control", "receive"};
+static const char * const osc_receive_options[] = {"arg=0","arg=1","arg=2","arg=3","arg=4","arg=5","arg=6","arg=7"};
 #endif
 
 static const char * const radio_subcommands[] = {
@@ -2751,6 +2752,8 @@ static const char * const path_osc_bind_stream[] = {
 static const char * const path_osc_bind_control[] = {
     "osc", "bind", SHELL_COMPLETION_ANY, "control"
 };
+static const char * const path_osc_bind_receive[] = {"osc","bind",SHELL_COMPLETION_ANY,"receive"};
+static const char * const path_osc_receive_options[] = {"osc","bind",SHELL_COMPLETION_ANY,"receive",SHELL_COMPLETION_ANY,SHELL_COMPLETION_ANY};
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
 static const char * const path_neopixel[] = {"neopixel"};
@@ -4006,6 +4009,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_osc_bind_type, osc_source_types),
     SHELL_COMPLETION_STREAMS(path_osc_bind_stream),
     SHELL_COMPLETION_CONTROLS(path_osc_bind_control),
+    SHELL_COMPLETION_SCALAR_SINKS(path_osc_bind_receive),
+    SHELL_COMPLETION_STATIC(path_osc_receive_options,osc_receive_options),
 #endif
 #if SOLAR_OS_PACKAGE_EXPANSION_NEOPIXEL
     SHELL_COMPLETION_STATIC(path_neopixel, neopixel_subcommands),

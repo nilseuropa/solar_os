@@ -239,7 +239,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Networking and security
 
 - [Network interfaces, routing, Wi-Fi, WireGuard, and APIs](network.md) — Connect, inspect, and communicate over installed network services
-- [Open Sound Control](osc.md) — Control live app parameters and publish named stream or control bindings over OSC 1.0 UDP
+- [Open Sound Control](osc.md) — Receive scalar stream commands, control live parameters and publish named OSC bindings over UDP
 - [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
 
 ## Hardware and expansion

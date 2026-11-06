@@ -105,6 +105,8 @@ peer filtering, or rate limiting.
   value, timing, send, and error telemetry.
 - `bind_stream(name, source, address[, rate_hz, delta, send_always])`: publish
   a scalar stream and return its binding ID.
+- `bind_receive(name, stream, address[, argument])`: map a zero-based incoming
+  argument to a writable scalar stream in its native unit. Returns a binding ID.
 - `bind_event(name, source, address[, edge, rate_hz])`: publish sampled event
   edges. `edge` is `"rising"`, `"falling"`, or `"both"`.
 - `bind_control(name, control, address[, rate_hz, send_always])`: publish a
@@ -114,7 +116,7 @@ peer filtering, or rate limiting.
 - `encode_float(address, value)` and `encode_int(address, value)`: return a
   bounded OSC message as `bytes`, suitable for `solaros.net.udp_send()`.
 - `dispatch(packet)`: validate a message or immediate bundle and apply its
-  native parameter routes; return message, applied, unknown, and rejected
+  native parameter and receive-stream routes; return message, applied, unknown, and rejected
   counts.
 - `limits()`: return packet, address, binding, bundle/update, and rate limits.
 

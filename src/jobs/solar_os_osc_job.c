@@ -404,6 +404,7 @@ static void osc_job_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
     if (!osc_job.running && osc_job.worker_task == NULL) {
+        osc_job.last_error=solar_os_osc_receive_release();
         return;
     }
     osc_job.running = false;
@@ -413,6 +414,7 @@ static void osc_job_stop(solar_os_context_t *ctx)
     }
     osc_job.worker_task = NULL;
     osc_job.worker_done = false;
+    osc_job.last_error=solar_os_osc_receive_release();
 }
 
 void solar_os_osc_job_print_status(solar_os_context_t *ctx)

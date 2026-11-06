@@ -384,6 +384,7 @@ SOLAR_OS_SCRIPT_API_MODULE_END(midi);
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(osc);
 SOLAR_OS_SCRIPT_API_FUNCTION(osc, bindings, bindings);
 SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_stream, bind_stream);
+SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_receive, bind_receive);
 SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_event, bind_event);
 SOLAR_OS_SCRIPT_API_FUNCTION(osc, bind_control, bind_control);
 SOLAR_OS_SCRIPT_API_FUNCTION(osc, unbind, unbind);

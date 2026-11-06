@@ -2,7 +2,7 @@
 id = "osc"
 title = "Open Sound Control"
 section = "network"
-summary = "Control live app parameters and publish named stream or control bindings over OSC 1.0 UDP"
+summary = "Receive scalar stream commands, control live parameters and publish named OSC bindings over UDP"
 aliases = ["open-sound-control"]
 keywords = "osc open sound control udp synth funcgen parameter stream event control binding telemetry"
 packages_any = ["service_osc", "job_osc"]
@@ -10,8 +10,9 @@ packages_any = ["service_osc", "job_osc"]
 # Open Sound Control
 
 SolarOS implements a bounded OSC 1.0 subset over IPv4 UDP. It accepts exact
-addresses for live native application parameters and sends explicitly named
-stream, event-stream, or normalized-control bindings to one configured target.
+addresses for live native application parameters and explicitly bound scalar
+stream sinks. It sends named stream, event-stream, or normalized-control
+bindings to one configured target.
 
 OSC has no authentication or encryption. Keep the job stopped until it is
 needed. Use it only on a trusted LAN or SoftAP, or carry the traffic through a
@@ -50,10 +51,71 @@ their parameters only while they are running, so a write to a closed
 application increments the `unknown` counter.
 
 Immediate OSC bundles are accepted with at most two bundle levels and eight
-messages per packet. Future timetags, address patterns, blobs, MIDI values,
+messages or mapped updates per packet. Future timetags, address patterns, blobs, MIDI values,
 automatic echo, OSCQuery, and scheduled execution are not part of this version.
 Packets are limited to 512 bytes and accepted traffic is limited to 100 packets
 per second.
+
+## Incoming stream bindings
+
+Map an exact OSC address and a zero-based argument index to a writable float32
+scalar stream:
+
+```text
+osc bind base-linear receive diff_drive.base.cmd_linear /base/cmd_vel arg=0
+osc bind base-angular receive diff_drive.base.cmd_angular /base/cmd_vel arg=1
+job start osc listen=9000 peer=192.168.1.50
+```
+
+The example maps a message with type tags `,ff` and arguments `0.02, 0.0` to
+the drive's linear and angular command streams. Start the robot to make its
+streams available. The same binding syntax works for standalone controller
+setpoints, servo commands and other scalar sinks. `arg=` defaults to zero and
+accepts 0..7. Messages accept up to eight float32, int32 or Boolean arguments.
+Values retain the target stream's native unit, without normalization or scaling.
+
+A desktop Python sender can send both values in one UDP packet:
+
+```python
+import socket
+import struct
+import time
+
+def osc_string(text):
+    data = text.encode("ascii") + b"\0"
+    return data + b"\0" * (-len(data) % 4)
+
+packet = (osc_string("/base/cmd_vel") + osc_string(",ff")
+          + struct.pack(">ff", 0.02, 0.0))
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sender:
+    for _ in range(40):
+        sender.sendto(packet, ("192.168.1.40", 9000))
+        time.sleep(0.05)
+```
+
+This publishes at about 20 Hz for two seconds. Each received packet updates
+the mapped streams once. The receiver never repeats a cached command between
+packets, so stopping the sender allows the target's command watchdog to expire.
+Commands use local receipt/write time; remote-clock synchronization and
+out-of-order packet detection are not provided.
+
+All mapped arguments and target types, directions and declared ranges are
+checked before any stream in that message is written. Writers are acquired
+together on the first valid message and held until `job stop osc`, unbind or
+clear. Configuration alone does not claim outputs. A missing stream is retried
+on the next packet. A target already owned by another writer is rejected.
+Only one receive binding may target a given stream.
+
+Writes within a message or bundle are sequential, not an atomic transaction.
+A provider failure can leave a partial update. Malformed packets are rejected
+before any update; immediate bundles share the eight-update limit. Extra
+numeric arguments are allowed, but every mapped argument must be present.
+The `/solaros/parameter/` namespace remains reserved for parameter writes.
+
+Stopping OSC releases writers without sending an extra value; the target's
+hold/stop/watchdog policy applies. Stop OSC before stopping a robot whose
+streams it holds. Failed closes retain the binding and handle for retry with
+`osc unbind` or `osc clear`.
 
 ## Outgoing bindings
 
@@ -113,14 +175,21 @@ solaros.jobs.start(
 ```
 
 Lua uses the same names and positional arguments. `bind_stream`, `bind_event`,
-and `bind_control` return binding IDs. `bindings()` returns the complete
+`bind_control` and `bind_receive` return binding IDs. `bindings()` returns the complete
 runtime state; `unbind()` and `clear()` remove definitions. The optional rate
 is in Hz, scalar-stream delta uses native units, and the final Boolean selects
 send-always behavior for scalar and control bindings.
 
+`bind_receive(name, stream, address[, argument])` creates an incoming binding;
+the argument index is zero-based in both runtimes. Receive records include
+`direction="receive"`, `source` (the local target stream), `argument`,
+`target_available`, `target_claimed`, `received`, `write_errors`,
+`last_receive_ms` and `last_error`. `clear()` reports cleanup errors rather
+than discarding a writer that could not be closed.
+
 `encode_float(address, value)` and `encode_int(address, value)` return binary
 messages for managed UDP APIs. `dispatch(packet)` applies the same bounded
-parameter parser used by the OSC job and reports message, applied, unknown, and
+parameter/stream parser used by the OSC job and reports message, applied, unknown, and
 rejected counts. `limits()` reports the public packet, address, binding,
 bundle, update, and rate bounds. Socket ownership and filtering remain with the
 native job and `solaros.jobs` API.
@@ -158,8 +227,9 @@ job stop osc
 
 Detailed job status reports the listening port, target, peer filter, inbound
 packet/application/error counters, outbound sends and failures, source errors,
-and binding count. `osc bindings` adds each source state, last value, last send
-time, and last error.
+and binding count. `osc bindings` shows outgoing source state and send counters,
+or incoming argument mappings, target claims, receive/write-error counters,
+last receive time and last error.
 
 ## Quick reference
 
@@ -171,10 +241,11 @@ osc bindings
 osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change|always]
 osc bind <name> stream <event-stream> <address> edge=rising|falling|both [rate=hz]
 osc bind <name> control <control> <address> [rate=hz] [send=change|always]
+osc bind <name> receive <scalar-sink> <address> [arg=0..7]
 osc unbind <name>
 osc clear
 ```
 
 Python/Lua: `solaros.osc.bindings`, `bind_stream`, `bind_event`,
-`bind_control`, `unbind`, `clear`, `encode_float`, `encode_int`, `dispatch`,
+`bind_control`, `bind_receive`, `unbind`, `clear`, `encode_float`, `encode_int`, `dispatch`,
 and `limits`.

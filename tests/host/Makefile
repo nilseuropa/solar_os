@@ -1109,9 +1109,10 @@ controls_test: controls_test.c $(ROOT)/src/services/solar_os_controls.c $(ROOT)/
 		controls_test.c $(ROOT)/src/services/solar_os_controls.c -lm -o $@
 
 osc_test: osc_test.c $(ROOT)/src/services/solar_os_osc.c $(ROOT)/src/services/solar_os_osc.h $(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_parameters.h esp_attr.h esp_err.h freertos/FreeRTOS.h freertos/semphr.h
+osc_test: $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_stream.h $(ROOT)/src/services/solar_os_osc_receive.inc osc_receive_test.inc
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		osc_test.c $(ROOT)/src/services/solar_os_osc.c \
-		$(ROOT)/src/services/solar_os_parameters.c -lm -o $@
+		$(ROOT)/src/services/solar_os_parameters.c $(ROOT)/src/services/solar_os_stream.c -lm -o $@
 
 dsp_test: dsp_test.c $(ROOT)/src/services/solar_os_dsp.c $(ROOT)/src/services/solar_os_dsp.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_DSP_HOST_TEST -I. -I$(ROOT)/src/services \
