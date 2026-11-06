@@ -416,9 +416,20 @@ Application lifecycle ABI 2 declares a foreground app manifest and runs
 optional audio are provided by the versioned foreground service. Resumable apps
 retain their ELF and guest state across session switches.
 
-Run `pkg` without arguments to open the package manager. It refreshes the
-signed catalog in a worker, marks installed entries with `*`, and lets you
-inspect, install, remove, or refresh modules without blocking screen redraws.
+Run `pkg` without arguments to open the package manager. It loads the saved
+signed catalog without a network request and checks its signature and host
+compatibility again. Apps, Jobs, Libraries and Drivers appear as collapsible
+folders, including when empty. Arrows navigate the
+tree, Enter opens a folder or module details, and Left returns to the parent.
+Installed entries show `[I]` and incompatible entries show `[!]`.
+
+Press `R` to refresh and save the signed catalog, `I` to install or replace the
+selected module, or `U` to remove it. Install and removal require confirmation.
+Operations show progress popups and a result popup; Esc cancels a download or
+closes a popup. Confirmation defaults to No. The catalog and signature are
+stored under `/modules/.catalog/` on the preferred storage volume. A failed
+refresh leaves the previous catalog available. A catalog for a different host
+firmware version is not used; press `R` after a firmware update.
 After a successful catalog check, `pkg install` completion uses that verified
 catalog. `pkg remove` completion and `pkg installed` read the installed module
 directories directly.

@@ -504,6 +504,38 @@ static esp_err_t module_parse_catalog(const uint8_t *body,
     return ESP_OK;
 }
 
+static esp_err_t module_catalog_decode(const void *body, size_t body_len,
+    const char *signature, const char *release_url,
+    solar_os_module_catalog_t **out_catalog, char *detail, size_t detail_len)
+{
+    esp_err_t err = module_verify_catalog_signature(body, body_len, signature);
+    if (err != ESP_OK) {
+        module_set_detail(detail, detail_len, "module catalog signature is invalid");
+        return err;
+    }
+    solar_os_module_catalog_t *catalog = solar_os_memory_calloc(
+        1U, sizeof(*catalog), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "modules.catalog");
+    if (catalog == NULL) return ESP_ERR_NO_MEM;
+    err = module_parse_catalog(body, body_len, release_url, catalog);
+    if (err != ESP_OK) {
+        solar_os_memory_free(catalog);
+        module_set_detail(detail, detail_len, err == ESP_ERR_NOT_SUPPORTED ?
+            "catalog does not match this firmware, target, ABI, or schema" : "module catalog is invalid");
+        return err;
+    }
+    catalog->signature_verified = true;
+    portENTER_CRITICAL(&module_catalog_cache_lock);
+    module_catalog_id_cache.count = catalog->count;
+    for (size_t i = 0U; i < catalog->count; ++i)
+        strlcpy(module_catalog_id_cache.ids[i], catalog->packages[i].id,
+            sizeof(module_catalog_id_cache.ids[i]));
+    portEXIT_CRITICAL(&module_catalog_cache_lock);
+    *out_catalog = catalog;
+    return ESP_OK;
+}
+
+#include "solar_os_module_catalog_cache.inc"
+
 static esp_err_t module_catalog_fetch(
     solar_os_module_catalog_t **out_catalog,
     solar_os_module_package_cancel_fn should_cancel,
@@ -552,46 +584,18 @@ static esp_err_t module_catalog_fetch(
         goto done;
     }
 
-    err = module_verify_catalog_signature(catalog_response.body,
-                                          catalog_response.body_len,
-                                          (const char *)signature_response.body);
-    if (err != ESP_OK) {
-        module_set_detail(detail, detail_len, "module catalog signature is invalid");
-        goto done;
+    err = module_catalog_decode(catalog_response.body, catalog_response.body_len,
+        (const char *)signature_response.body, release_url, out_catalog, detail, detail_len);
+    if (err == ESP_OK) {
+        /* A storage failure must not discard a successfully verified online
+         * catalog; the previous saved pair remains available. */
+        esp_err_t saved = module_catalog_save(catalog_response.body, catalog_response.body_len,
+            signature_response.body, signature_response.body_len);
+        if (saved != ESP_OK) {
+            SOLAR_OS_LOGW("modules", "catalog cache: %s", esp_err_to_name(saved));
+            module_set_detail(detail, detail_len, "catalog verified; local cache could not be saved");
+        }
     }
-
-    solar_os_module_catalog_t *catalog = solar_os_memory_calloc(
-        1U,
-        sizeof(*catalog),
-        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
-        "modules.catalog");
-    if (catalog == NULL) {
-        err = ESP_ERR_NO_MEM;
-        module_set_detail(detail, detail_len, "not enough external memory for the catalog");
-        goto done;
-    }
-    err = module_parse_catalog(catalog_response.body,
-                               catalog_response.body_len,
-                               release_url,
-                               catalog);
-    if (err != ESP_OK) {
-        solar_os_memory_free(catalog);
-        module_set_detail(detail, detail_len,
-                          err == ESP_ERR_NOT_SUPPORTED ?
-                              "catalog does not match this firmware, target, ABI, or schema" :
-                              "module catalog is invalid");
-        goto done;
-    }
-    catalog->signature_verified = true;
-    portENTER_CRITICAL(&module_catalog_cache_lock);
-    module_catalog_id_cache.count = catalog->count;
-    for (size_t i = 0U; i < catalog->count; i++) {
-        strlcpy(module_catalog_id_cache.ids[i],
-                catalog->packages[i].id,
-                sizeof(module_catalog_id_cache.ids[i]));
-    }
-    portEXIT_CRITICAL(&module_catalog_cache_lock);
-    *out_catalog = catalog;
 
 done:
     solar_os_http_buffered_response_clear(&signature_response);
