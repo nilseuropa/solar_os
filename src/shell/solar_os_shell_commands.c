@@ -2937,6 +2937,12 @@ static void stream_print_list(solar_os_shell_io_t *term)
 void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+    if(argc>=2 && !strcmp(argv[1],"echo")) {
+        solar_os_shell_cmd_stream_echo(ctx,argc,argv);return;
+    }
+    if(argc>=2 && !strcmp(argv[1],"write")) {
+        solar_os_shell_cmd_stream_write(ctx,argc,argv);return;
+    }
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     if (argc >= 2 && !strcmp(argv[1], "ble")) {
@@ -3034,6 +3040,11 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
                                  info.device[0] != '\0' ? info.device : "-");
         solar_os_shell_io_printf(term, "Format: %s\n", info.format);
         solar_os_shell_io_printf(term, "Unit: %s\n", info.unit[0] != '\0' ? info.unit : "-");
+        if (info.has_scalar_range) {
+            solar_os_shell_io_printf(term, "Allowed range: [%.6g, %.6g]%s%s\n",
+                                     (double)info.scalar_minimum, (double)info.scalar_maximum,
+                                     info.unit[0] != '\0' ? " " : "", info.unit);
+        }
         solar_os_shell_io_printf(term, "Summary: %s\n", info.summary);
         solar_os_shell_io_printf(term, "Handles: %" PRIu32 "\n", info.active_handles);
         solar_os_shell_io_printf(term, "Owner: %s\n",
@@ -3071,13 +3082,13 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
                                    argc,
                                    argv,
 #if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM && SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-                                   "stream list|status|tcp|ble",
+                                   "stream list|status|echo|write|tcp|ble",
 #elif SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-                                   "stream list|status|tcp",
+                                   "stream list|status|echo|write|tcp",
 #elif SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-                                   "stream list|status|ble",
+                                   "stream list|status|echo|write|ble",
 #else
-                                   "stream list|status",
+                                   "stream list|status|echo|write",
 #endif
                                    stream_commands,
                                    sizeof(stream_commands) / sizeof(stream_commands[0]));

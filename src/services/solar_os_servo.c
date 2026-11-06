@@ -7,6 +7,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_pwm.h"
+#include "solar_os_stream.h"
+#include "esp_timer.h"
 
 typedef struct {
     bool used;
@@ -14,7 +16,11 @@ typedef struct {
     SemaphoreHandle_t mutex;
     solar_os_servo_info_t info;
     char pwm_owner[SOLAR_OS_SERVO_OWNER_MAX];
+    bool stream_registered, pwm_closed, input_revoked;
+    uint64_t command_time_us;
 } servo_slot_t;
+static esp_err_t servo_publish(servo_slot_t *slot);
+static esp_err_t servo_close_locked(servo_slot_t *slot);
 
 /* Calibration and command state is task-only. Keep mutex storage internal. */
 static EXT_RAM_BSS_ATTR servo_slot_t servos[SOLAR_OS_SERVO_MAX];
@@ -88,17 +94,17 @@ static esp_err_t servo_acquire(const char *name, const char *owner, servo_slot_t
     return servo_take_locked(*slot);
 }
 
-esp_err_t solar_os_servo_open(const char *name, const char *owner,
-                              const solar_os_servo_config_t *config)
+static esp_err_t servo_open_mode(const char *name, const char *owner,
+                                 const solar_os_servo_config_t *config,bool writable)
 {
     if (!valid_name(name) || owner == NULL || owner[0] == '\0' ||
         strlen(owner) >= SOLAR_OS_SERVO_OWNER_MAX || config == NULL ||
         config->freq_hz == 0U || config->freq_hz > SOLAR_OS_SERVO_FREQ_MAX_HZ ||
         config->pulse_min_us == 0U || config->pulse_min_us >= config->pulse_max_us ||
         (uint64_t)config->pulse_max_us * config->freq_hz >= 1000000U ||
-        !isfinite(config->angle_min_deg) || !isfinite(config->angle_max_deg) ||
-        config->angle_min_deg >= config->angle_max_deg ||
-        !isfinite(config->angle_max_deg - config->angle_min_deg)) return ESP_ERR_INVALID_ARG;
+        !isfinite(config->angle_min_rad) || !isfinite(config->angle_max_rad) ||
+        config->angle_min_rad >= config->angle_max_rad ||
+        !isfinite(config->angle_max_rad - config->angle_min_rad)) return ESP_ERR_INVALID_ARG;
     servo_lock();
     if (servo_find_locked(name) != NULL) {
         xSemaphoreGive(servo_mutex);
@@ -111,22 +117,30 @@ esp_err_t solar_os_servo_open(const char *name, const char *owner,
     if (slot == NULL) { xSemaphoreGive(servo_mutex); return ESP_ERR_NO_MEM; }
     /* An unused slot with no references cannot have an operation in flight. */
     xSemaphoreTake(slot->mutex, portMAX_DELAY);
-    slot->info = (solar_os_servo_info_t){.config = *config};
+    slot->info = (solar_os_servo_info_t){.config = *config,.stream_writable=writable};
+    slot->stream_registered=false;slot->pwm_closed=false;slot->input_revoked=false;slot->command_time_us=0;
     memcpy(slot->info.name, name, strlen(name) + 1U);
     memcpy(slot->info.owner, owner, strlen(owner) + 1U);
     snprintf(slot->pwm_owner, sizeof(slot->pwm_owner), "servo:%s", name);
     slot->used = true;
     slot->refs = 1U;
     xSemaphoreGive(servo_mutex);
-    const esp_err_t ret = solar_os_pwm_open_output(&config->output, config->freq_hz, slot->pwm_owner);
+    esp_err_t ret = solar_os_pwm_open_output(&config->output, config->freq_hz, slot->pwm_owner);
     if (ret != ESP_OK) {
         servo_lock();
         slot->used = false;
         xSemaphoreGive(servo_mutex);
+    } else {
+        ret=servo_publish(slot);
+        if(ret!=ESP_OK) (void)servo_close_locked(slot);
     }
     servo_release(slot);
     return ret;
 }
+esp_err_t solar_os_servo_open(const char *name,const char *owner,const solar_os_servo_config_t *config)
+{ return servo_open_mode(name,owner,config,true); }
+esp_err_t solar_os_servo_open_private(const char *name,const char *owner,const solar_os_servo_config_t *config)
+{ return servo_open_mode(name,owner,config,false); }
 
 size_t solar_os_servo_count(void)
 {
@@ -162,7 +176,7 @@ esp_err_t solar_os_servo_status(const char *name, solar_os_servo_info_t *info)
 }
 
 static esp_err_t servo_pulse_locked(servo_slot_t *slot, uint32_t pulse_us,
-                                     float angle_deg)
+                                     float angle_rad)
 {
     const solar_os_servo_config_t *config = &slot->info.config;
     if (pulse_us < config->pulse_min_us || pulse_us > config->pulse_max_us) return ESP_ERR_INVALID_ARG;
@@ -171,30 +185,30 @@ static esp_err_t servo_pulse_locked(servo_slot_t *slot, uint32_t pulse_us,
         slot->info.enabled = true;
         slot->info.has_command = true;
         slot->info.commanded_pulse_us = pulse_us;
-        slot->info.commanded_angle_deg = angle_deg;
+        slot->info.commanded_angle_rad = angle_rad;
+        slot->command_time_us=(uint64_t)esp_timer_get_time();
     }
     return ret;
 }
 
-esp_err_t solar_os_servo_set(const char *name, const char *owner, float angle_deg)
+static esp_err_t servo_set_locked(servo_slot_t *slot,float angle_rad)
 {
-    if (!isfinite(angle_deg)) return ESP_ERR_INVALID_ARG;
+    const solar_os_servo_config_t *c=&slot->info.config;
+    if(!isfinite(angle_rad) || angle_rad<c->angle_min_rad || angle_rad>c->angle_max_rad) return ESP_ERR_INVALID_ARG;
+    double ratio=((double)angle_rad-c->angle_min_rad)/((double)c->angle_max_rad-c->angle_min_rad);
+    if(c->inverted) ratio=1.0-ratio;
+    uint32_t pulse=c->pulse_min_us+(uint32_t)(ratio*(c->pulse_max_us-c->pulse_min_us)+.5);
+    return servo_pulse_locked(slot,pulse,angle_rad);
+}
+
+esp_err_t solar_os_servo_set(const char *name, const char *owner, float angle_rad)
+{
+    if (!isfinite(angle_rad)) return ESP_ERR_INVALID_ARG;
     servo_slot_t *slot = NULL;
     if (owner == NULL) return ESP_ERR_INVALID_ARG;
     esp_err_t ret = servo_acquire(name, owner, &slot);
     if (ret != ESP_OK) return ret;
-    if (ret == ESP_OK) {
-        const solar_os_servo_config_t *c = &slot->info.config;
-        if (angle_deg < c->angle_min_deg || angle_deg > c->angle_max_deg) ret = ESP_ERR_INVALID_ARG;
-        else {
-            double ratio = ((double)angle_deg - c->angle_min_deg) /
-                ((double)c->angle_max_deg - c->angle_min_deg);
-            if (c->inverted) ratio = 1.0 - ratio;
-            const uint32_t pulse = c->pulse_min_us +
-                (uint32_t)(ratio * (c->pulse_max_us - c->pulse_min_us) + 0.5);
-            ret = servo_pulse_locked(slot, pulse, angle_deg);
-        }
-    }
+    if (ret == ESP_OK) ret=slot->info.closing || slot->info.input_claimed?ESP_ERR_INVALID_STATE:servo_set_locked(slot,angle_rad);
     servo_release(slot);
     return ret;
 }
@@ -205,6 +219,7 @@ esp_err_t solar_os_servo_pulse(const char *name, const char *owner, uint32_t pul
     if (owner == NULL) return ESP_ERR_INVALID_ARG;
     esp_err_t ret = servo_acquire(name, owner, &slot);
     if (ret != ESP_OK) return ret;
+    if(slot->info.closing || slot->info.input_claimed) { servo_release(slot);return ESP_ERR_INVALID_STATE; }
     if (ret == ESP_OK) {
         const solar_os_servo_config_t *c = &slot->info.config;
         if (pulse_us < c->pulse_min_us || pulse_us > c->pulse_max_us) ret = ESP_ERR_INVALID_ARG;
@@ -212,7 +227,7 @@ esp_err_t solar_os_servo_pulse(const char *name, const char *owner, uint32_t pul
             double ratio = (double)(pulse_us - c->pulse_min_us) / (c->pulse_max_us - c->pulse_min_us);
             if (c->inverted) ratio = 1.0 - ratio;
             ret = servo_pulse_locked(slot, pulse_us,
-                (float)(c->angle_min_deg + ratio * ((double)c->angle_max_deg - c->angle_min_deg)));
+                (float)(c->angle_min_rad + ratio * ((double)c->angle_max_rad - c->angle_min_rad)));
         }
     }
     servo_release(slot);
@@ -225,6 +240,8 @@ esp_err_t solar_os_servo_disable(const char *name, const char *owner)
     if (owner == NULL) return ESP_ERR_INVALID_ARG;
     esp_err_t ret = servo_acquire(name, owner, &slot);
     if (ret != ESP_OK) return ret;
+    slot->input_revoked=true;
+    if(slot->pwm_closed) { servo_release(slot);return ESP_OK; }
     if (ret == ESP_OK) {
         ret = solar_os_pwm_disable_output(&slot->info.config.output, slot->pwm_owner);
         if (ret == ESP_OK) slot->info.enabled = false;
@@ -235,7 +252,19 @@ esp_err_t solar_os_servo_disable(const char *name, const char *owner)
 
 static esp_err_t servo_close_locked(servo_slot_t *slot)
 {
-    const esp_err_t ret = solar_os_pwm_close_output(&slot->info.config.output, slot->pwm_owner);
+    slot->info.closing=true;slot->input_revoked=true;
+    esp_err_t ret=ESP_OK;
+    if(!slot->pwm_closed) {
+        ret=solar_os_pwm_close_output(&slot->info.config.output,slot->pwm_owner);
+        if(ret!=ESP_OK) return ret;
+        slot->pwm_closed=true;slot->info.enabled=false;
+    }
+    if(slot->stream_registered) {
+        char endpoint[SOLAR_OS_STREAM_ID_MAX];snprintf(endpoint,sizeof(endpoint),"servo.%s",slot->info.name);
+        ret=solar_os_stream_unregister(endpoint);
+        if(ret!=ESP_OK) return ret;
+        slot->stream_registered=false;
+    }
     if (ret == ESP_OK) {
         servo_lock();
         slot->used = false;
@@ -243,6 +272,8 @@ static esp_err_t servo_close_locked(servo_slot_t *slot)
     }
     return ret;
 }
+
+#include "solar_os_servo_stream.inc"
 
 esp_err_t solar_os_servo_close(const char *name, const char *owner)
 {

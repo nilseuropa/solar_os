@@ -17,6 +17,28 @@ typedef struct {
     uint32_t blocking_faults, can_drive, can_brake;
 } solar_os_native_motor_state_v1_t;
 
+/* Service calibration is independent of the expansion driver and wiring. */
+typedef struct {
+    float ppr, gear_ratio, velocity_tau, position_zero;
+    int32_t polarity;
+    uint32_t encoder_on_output;
+} solar_os_native_encoder_config_v1_t;
+static inline double solar_os_native_encoder_counts_per_rev(
+    const solar_os_native_encoder_config_v1_t *config,uint32_t decoding)
+{ return (double)config->ppr*decoding*(config->encoder_on_output?1:config->gear_ratio); }
+typedef struct {
+    int32_t polarity;
+    float max_drive;
+    uint32_t brake;
+} solar_os_native_motor_config_v1_t;
+typedef struct {
+    int32_t count;
+    uint32_t decoding;
+    uint64_t timestamp_us;
+    float position, velocity, counts_per_rev;
+    uint32_t valid;
+} solar_os_native_encoder_feedback_v1_t;
+
 typedef struct {
     char provider[20];
     uint32_t output, frequency_hz, pulse_min_us, pulse_max_us;

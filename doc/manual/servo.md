@@ -22,8 +22,9 @@ accepted as shorthand for a native output.
 
 Each named servo has explicit pulse and angle endpoints. Choose these values
 from the servo's specification and the mounted mechanism's usable range.
-Angles are in degrees, pulse widths are in microseconds, and frequency is in
-hertz. The default frequency is 50 Hz; supported configuration frequencies are
+All servo angles use radians: calibration, commands, status, streams and the
+C/Python/Lua APIs. Pulse widths use microseconds and frequency uses hertz.
+The default frequency is 50 Hz; supported configuration frequencies are
 1 through 1000 Hz, subject to the hardware timer and servo's requirements.
 Pulse endpoints must be positive, ordered, and shorter than the PWM period.
 Angle endpoints must be finite and ordered. Commands outside either calibrated
@@ -34,8 +35,8 @@ range are rejected.
 ```text
 servo list
 servo status [name]
-servo open <name> <output> <min-us> <max-us> <min-deg> <max-deg> [freq-hz [inverted:0|1]]
-servo set <name> <angle-deg>
+servo open <name> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz [inverted:0|1]]
+servo set <name> <angle-rad>
 servo pulse <name> <pulse-us>
 servo disable <name>
 servo close <name>
@@ -49,10 +50,10 @@ those details for one servo. Tab completes open servo names after `set`,
 
 Names contain 1 through 15 letters, digits, underscores, or hyphens. The
 following example assumes an available GPIO1 and a servo calibrated for
-1000 through 2000 microseconds over -45 through 45 degrees:
+1000 through 2000 microseconds over approximately -π/4 through π/4 radians:
 
 ```text
-servo open arm native:1 1000 2000 -45 45
+servo open arm native:1 1000 2000 -0.785398 0.785398
 servo set arm 0
 servo status arm
 servo disable arm
@@ -69,23 +70,52 @@ calibrated limits.
 These operations control the signal; they do not switch the servo's power rail.
 Shell-opened servos remain reserved until explicitly closed or the OS restarts.
 
+## Scalar stream
+
+Opening a standalone servo also publishes `servo.<name>`. Its scalar `f32`
+command input uses **radians**, matching robot geometry. It applies the same
+calibration, inversion and pulse limits as the servo API. Opening a stream
+sends no pulses; the first valid write starts output.
+
+```text
+servo open arm native:1 1000 2000 -0.785398 0.785398
+stream write servo.arm 0.5
+stream echo servo.arm --once
+servo disable arm
+servo close arm
+```
+
+Readback is the last commanded angle with its acquisition timestamp; it is not
+measured position feedback. One stream writer is allowed alongside source
+readers and echo. While that writer is attached, direct `servo set` and `pulse`
+commands are rejected. Closing the writer preserves the last commanded angle
+and its PWM pulses. `servo disable` stops pulses and revokes the attached
+writer until it closes and opens again. `servo close` stops/releases PWM first;
+if stream handles still exist, close them and retry servo close to finish
+removing the named endpoint. Status exposes `input_claimed`, `stream_writable`
+and `closing` through the shell and Python/Lua.
+
+Servos opened through the native component-owned motion API, including robot
+joints, expose read-only `servo.<name>` command observation. Their commands
+remain restricted to the owning component API.
+
 ## Python and Lua
 
 Both runtimes expose `solaros.servo` when the servo service is compiled:
 
 - `list()`: return all open servo records.
 - `status(name)`: return one record; fail if the name is not open.
-- `open(name, output, min_us, max_us, min_deg, max_deg[, freq_hz[, inverted]])`:
+- `open(name, output, min_us, max_us, min_rad, max_rad[, freq_hz[, inverted]])`:
   reserve a calibrated output. Frequency defaults to 50; inversion defaults
   to false. Use a boolean for inversion.
-- `set(name, angle_deg)`: command an angle within the calibrated range.
+- `set(name, angle_rad)`: command an angle within the calibrated range.
 - `pulse(name, pulse_us)`: command an integer pulse width within that range.
 - `disable(name)`: stop pulses and retain the reservation.
 - `close(name)`: stop pulses and release the reservation.
 
 Records contain `name`, `owner`, `output`, `freq_hz`, `pulse_min_us`,
-`pulse_max_us`, `angle_min_deg`, `angle_max_deg`, `inverted`, `enabled`,
-`has_command`, `commanded_pulse_us`, and `commanded_angle_deg`. Command fields
+`pulse_max_us`, `angle_min_rad`, `angle_max_rad`, `inverted`, `enabled`,
+`has_command`, `commanded_pulse_us`, and `commanded_angle_rad`. Command fields
 are meaningful after `has_command` becomes true. They describe the last
 accepted command and remain available while disabled. `pwm status` reports
 the quantized hardware pulse width separately. Neither interface measures
@@ -96,7 +126,7 @@ Python example using the calibration assumed above:
 ```python
 import solaros
 
-solaros.servo.open("arm", "native:1", 1000, 2000, -45, 45)
+solaros.servo.open("arm", "native:1", 1000, 2000, -0.785398, 0.785398)
 try:
     solaros.servo.set("arm", 0)
     print(solaros.servo.status("arm"))
@@ -107,7 +137,7 @@ finally:
 Lua uses the same argument order:
 
 ```lua
-solaros.servo.open("arm", "native:1", 1000, 2000, -45, 45)
+solaros.servo.open("arm", "native:1", 1000, 2000, -0.785398, 0.785398)
 solaros.servo.set("arm", 0)
 solaros.servo.close("arm")
 ```
@@ -128,7 +158,7 @@ With an existing `i2c0` bus and a controller at address `0x40`:
 ```text
 expansion attach pca9685 servos0 i2c=i2c0 addr=0x40
 pwm providers
-servo open arm servos0:0 1000 2000 -45 45
+servo open arm servos0:0 1000 2000 -0.785398 0.785398
 servo set arm 0
 servo close arm
 expansion detach servos0
@@ -198,7 +228,7 @@ and [Lua hardware API](lua.hardware.md).
 
 ## Quick reference
 
-Use `servo open name output min-us max-us min-deg max-deg [freq-hz [inverted]]`
+Use `servo open name output min-us max-us min-rad max-rad [freq-hz [inverted]]`
 with explicit calibration and a named PWM output such as native:1. Open reserves without pulses;
 set and pulse start output, disable retains the reservation, close releases it.
 Python and Lua expose the same operations under `solaros.servo`, plus list and

@@ -516,8 +516,8 @@ when its queue is idle.
 
 ## osc
 
-OSC 1.0 IPv4 UDP adapter for automatic incoming native-parameter writes and
-explicit named outbound stream, event-stream, or normalized-control bindings.
+OSC 1.0 IPv4 UDP adapter for incoming native-parameter writes, named scalar
+stream receive bindings, and outbound stream, event-stream or control bindings.
 
 ```text
 job start osc [listen=port] [target=host:port] [peer=ipv4]
@@ -530,10 +530,14 @@ incoming-only job and is required before an outbound binding can send.
 `peer=` accepts one exact IPv4 address and drops all other incoming sources.
 
 The worker owns one UDP socket and a 6 KiB internal stack. It accepts packets
-up to 512 bytes, at most eight parameter updates per packet, immediate bundles
+up to 512 bytes, at most eight parameter or mapped stream updates per packet, immediate bundles
 only, and at most 100 accepted packets per second. Detailed status includes the
 listener, target, peer filter, inbound apply/error counters, outbound
 send/source errors, and the current binding count.
+
+Receive bindings acquire scalar writers on the first valid packet. Stop releases
+those writers without sending another value; each target retains its own
+timeout or hold policy. Bindings remain configured for the next start.
 
 OSC has no authentication or encryption. Start the job only on a trusted LAN,
 SoftAP, or WireGuard path. Bindings are volatile and can be restored from
@@ -616,6 +620,9 @@ publication rate, not a
 capture timer; `fps=0` removes the cap. `size=` and `fps=` are invalid with
 `video=none`. JPEG quality is fixed at 12.
 
+The publisher keeps Wi-Fi awake while the job runs. Stopping it releases that
+request; other active low-latency services can continue to keep Wi-Fi awake.
+
 Use `stream list` to find available video and audio source IDs. `audio0.capture`
 is the board codec's PCM microphone endpoint when available; `mic0` is a scalar
 level sensor, not a PCM source. Audio must be a source or
@@ -641,8 +648,11 @@ Reader workers block on camera/audio availability and immediately publish or
 discard the completed frame/block. They continuously drain idle sources, so
 connecting does not expose a stale camera image or audio backlog. The video
 cap drops newly captured images rather than holding them until a timer expires.
-There is one leased PSRAM camera framebuffer, no JPEG copy or video queue,
-and at most one MTU-sized PCM block. Disabled sources allocate no reader stack.
+The publisher leases one PSRAM camera framebuffer at a time and keeps no
+additional JPEG copy or video queue. OV5640 capture uses two PSRAM framebuffers
+in latest-frame mode so capture can continue while a frame is being sent;
+OV2640 capture uses one. There is at most one MTU-sized PCM block.
+Disabled sources allocate no reader stack.
 Temporary UDP transmit pressure drops the current frame/block and newly
 captured data during a short backoff instead of disconnecting or building a
 queue. Audio sample timestamps advance across dropped blocks. Status reports

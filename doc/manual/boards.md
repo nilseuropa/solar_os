@@ -34,7 +34,7 @@ The current tree includes these board targets:
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
 | `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, a default-attached PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
-| `goouuu_esp32_s3cam` | `goouuu_esp32_s3cam` | GOOUUU ESP32-S3CAM | Headless ESP32-S3 camera target with 16 MB flash, 8 MB PSRAM, native USB CDC, CH340/UART console, one-bit SDMMC, an onboard WS2812, Wi-Fi, BLE, and fixed DVP/SCCB camera wiring. Its required `driver.camera-esp32` package exposes OV2640 probing and bounded QVGA/VGA JPEG capture through `service.camera`; `cam-webd` adds a single-client MJPEG stream and JPEG snapshots with optional authentication over the shared HTTP server. |
+| `goouuu_esp32_s3cam` | `goouuu_esp32_s3cam` | GOOUUU ESP32-S3CAM | Headless ESP32-S3 camera target with 16 MB flash, 8 MB PSRAM, native USB CDC, CH340/UART console, one-bit SDMMC, an onboard WS2812, Wi-Fi, BLE, and fixed DVP/SCCB camera wiring. Its required `driver.camera-esp32` package exposes OV2640/OV5640 detection and bounded QVGA/VGA JPEG capture through `service.camera`; `cam-webd` adds a single-client MJPEG stream and JPEG snapshots with optional authentication over the shared HTTP server. |
 | `esp32_devkitc_v4_wrover` | `esp32_devkitc_v4_wrover` | Espressif ESP32-DevKitC V4 with ESP32-WROVER-E | Headless classic ESP32 target with PSRAM, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S, graphics through attachable display targets, and no built-in peripherals. |
 | `devkitc1_epaper_workbench` | `esp32_s3_devkitc1_n16r8` with `SOLAR_OS_BOARD=devkitc1_epaper_workbench` | ESP32-S3 DevKitC-1 E-paper Workbench | Manifest-generated development target with fixed CardKB, 400x300 SSD1683 display, and SDSPI storage attachments. |
 | `t_lora_pager` | `t_lora_pager` | LilyGO T-LoRa-Pager (SX1262) | ESP32-S3-WROOM-1-N16R8 target with a 480x222 ST7796 display, a TCA8418 4x10 matrix keyboard, an SX1262 LoRa radio, PCF85063 RTC, microSD over SDSPI, ES8311 audio, a BQ27220 battery gauge, a BQ25896 charger, a rotary encoder, an XL9555 I2C GPIO controller for integrated power rails, a MIA-M10Q GNSS receiver, an ST25R3916 NFC-A reader, a BHI260AP IMU, a DRV2605 haptic controller, native USB CDC, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM. SD power and its external pull-up start enabled; GNSS and NFC power start disabled and are enabled with `gnss power on` and `nfc power on`. Use `haptic play EFFECT` for DRV2605 ROM effects 1 through 117. The Pager fixes BQ25896 fast-charge current at 704 mA during attachment; inspect or explicitly change charger settings with `charger`. |
@@ -1375,7 +1375,7 @@ Pins follow the Seeed hardware overview:
 - E-paper: SCK GPIO13, MOSI GPIO14, CS GPIO15, DC GPIO16, RST GPIO17, BUSY GPIO18, EN GPIO47
 - Touch (GT911): SCL GPIO2, SDA GPIO3, INT GPIO21, RST GPIO41, EN GPIO42; 180-degree panel alignment before display rotation.
 - Buttons: AI/Power GPIO4 (tap: light sleep/wake, hold: shutdown), Up GPIO5 (tap: Up arrow, hold for two seconds: BLE pairing), Down GPIO6 (tap: Down arrow, hold for two seconds: app exit); all active-low.
-- Power: PWR_HOLD GPIO45, PWR_LOCK GPIO46
+- Power: PWR_HOLD GPIO45, PWR_LOCK GPIO46; BQ25616 charger enable GPIO39 is configured as an output and driven LOW at boot to enable charging.
 - Console: UART0 GPIO43/44 (CH343 USB-C bridge), DIO flash
 - Sensor I2C: SCL GPIO0, SDA GPIO1; PCF8563 RTC at `0x51`, SHT40 at `0x44`, BQ27220 at `0x55`
 - microSD: shared display SPI bus, MISO GPIO12, CS GPIO8, power GPIO10
@@ -1626,6 +1626,26 @@ For the N16R8 module, GPIO35, GPIO36, and GPIO37 are reserved by Octal PSRAM and
 must not be exposed as runtime GPIO. The generic DevKitC target also reserves
 GPIO38 and GPIO48 because the onboard RGB LED moved between board revisions.
 Use a revision-specific board profile if one of those pins must be exposed.
+
+## GOOUUU ESP32-S3CAM GPIO
+
+GPIO2, GPIO3, GPIO45 and GPIO46 are available for runtime GPIO and PWM. GPIO2
+and GPIO3 also support ADC. GPIO46 supports both input and output on ESP32-S3.
+Configure them explicitly with `gpio mode`, `pwm` or an expansion attachment.
+
+GPIO2 may carry the board's status LED load. GPIO3 and GPIO46 are also labeled
+as onboard switch/shutter signals. Check that circuitry before driving outputs.
+GPIO3, GPIO45 and GPIO46 remain strapping pins during reset. GPIO3 selects a
+JTAG source, GPIO45 can select the flash/PSRAM supply voltage, and GPIO46
+participates in boot-mode and ROM-message selection. External wiring must
+preserve the levels required for boot, including when a peripheral is powered
+before the board. These reset functions are independent of runtime GPIO policy.
+See the [ESP32-S3 datasheet](https://www.espressif.com/documentation/esp32-s3_datasheet_en.pdf)
+for strapping and eFuse overrides.
+
+The runtime GPIO/PWM set is GPIO1-GPIO3, GPIO14, GPIO21, GPIO41, GPIO42 and
+GPIO45-GPIO47. ADC is available on GPIO1-GPIO3 and GPIO14. Camera, USB, PSRAM,
+SDMMC, console UART, BOOT/KEY and WS2812 pin assignments remain reserved.
 
 ## Display Boards
 

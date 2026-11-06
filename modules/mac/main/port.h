@@ -38,6 +38,8 @@ int solar_os_mac_floppy_close(void);
 bool solar_os_mac_floppy_hook(unsigned operation);
 void *solar_os_mac_guest_span(uint32_t address, size_t length);
 void solar_os_mac_input(const solar_os_native_foreground_key_v1_t *key);
+void solar_os_mac_pointer(const solar_os_native_foreground_pointer_v1_t *pointer);
+bool solar_os_mac_set_pointer_speed(const char *value);
 void solar_os_mac_input_reset(void);
 void solar_os_mac_pointer_tick(void);
 void solar_os_mac_snapshot(void);

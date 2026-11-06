@@ -408,14 +408,18 @@ adc = true
 pwm = true
 [[pins]]
 gpio = 2
-policy = "fixed"
+policy = "free"
 role = "status LED; polarity unverified"
 expansion = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 3
-policy = "fixed"
+policy = "free"
 role = "strapping / onboard switch"
 expansion = true
+adc = true
+pwm = true
 [[pins]]
 gpio = 4
 policy = "fixed"
@@ -563,14 +567,16 @@ role = "console UART RX / CH340"
 expansion = true
 [[pins]]
 gpio = 45
-policy = "fixed"
+policy = "free"
 role = "strapping"
 expansion = true
+pwm = true
 [[pins]]
 gpio = 46
-policy = "fixed"
-role = "strapping / input-only / shutter"
+policy = "free"
+role = "strapping / shutter"
 expansion = true
+pwm = true
 [[pins]]
 gpio = 47
 policy = "free"

@@ -7,7 +7,7 @@
 #include "esp_err.h"
 
 #define SOLAR_OS_STREAM_MAX 40
-#define SOLAR_OS_STREAM_ID_MAX 24
+#define SOLAR_OS_STREAM_ID_MAX 48
 #define SOLAR_OS_STREAM_PROVIDER_MAX 20
 #define SOLAR_OS_STREAM_DEVICE_MAX 16
 #define SOLAR_OS_STREAM_UNIT_MAX 16
@@ -90,6 +90,11 @@ typedef struct {
     uint64_t written_units;
     uint32_t overruns;
     uint32_t underruns;
+    /* Optional inclusive bounds for a single native float32 command.
+     * The registry rejects non-finite/out-of-range writes before the provider. */
+    bool has_scalar_range;
+    float scalar_minimum;
+    float scalar_maximum;
 } solar_os_stream_info_t;
 
 typedef struct {
@@ -168,6 +173,12 @@ typedef struct {
     float value;
     uint64_t uptime_ms; /* Acquisition time, not time of reading a cached value. */
 } solar_os_stream_scalar_sample_t;
+/* Optional local scalar-command envelope. A sink checks this monotonic
+ * deadline after any blocking status acquisition and before actuation. */
+typedef struct {
+    float value;
+    uint64_t valid_until_us;
+} solar_os_stream_scalar_command_t;
 typedef esp_err_t (*solar_os_stream_read_scalar_sample_fn)(void *user,
     const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 typedef esp_err_t (*solar_os_stream_csv_header_fn)(void *user,
@@ -197,12 +208,19 @@ typedef struct {
                                solar_os_stream_video_frame_t *frame);
     /* Optional error-reporting close. Failure keeps the handle open. */
     esp_err_t (*close_checked)(void *user, solar_os_stream_handle_t *handle);
+    /* Optional non-consuming observation alongside an exclusive owner.
+     * Preserve the producer's acquisition time and estimator state. */
+    solar_os_stream_read_scalar_sample_fn observe_scalar_sample;
     void *user;
 } solar_os_stream_driver_t;
 
 esp_err_t solar_os_stream_init(void);
 /* No fallback: an untimestamped provider returns ESP_ERR_NOT_SUPPORTED. */
 esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
+/* Pins the provider for this call without opening/claiming the endpoint.
+ * NOT_SUPPORTED means a normal source handle is required instead. */
+esp_err_t solar_os_stream_observe_scalar_sample(const char *id,
     const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver);
 esp_err_t solar_os_stream_unregister(const char *id);
@@ -211,6 +229,7 @@ esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count);
 size_t solar_os_stream_count(void);
 bool solar_os_stream_get(size_t index, solar_os_stream_info_t *info);
 esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info);
+esp_err_t solar_os_stream_set_unit(const char *id, const char *unit);
 const char *solar_os_stream_type_name(solar_os_stream_type_t type);
 const char *solar_os_stream_direction_name(solar_os_stream_direction_t direction);
 const char *solar_os_stream_sharing_name(solar_os_stream_sharing_t sharing);

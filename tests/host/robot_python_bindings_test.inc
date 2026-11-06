@@ -28,6 +28,8 @@ static mp_obj_t object(int type)
 static mp_obj_t number(double value) { mp_obj_t o = object(OBJECT_NUMBER); o->number = value; return o; }
 static mp_obj_t string(const char *value)
 { mp_obj_t o = object(OBJECT_STRING); assert(strlen(value) < sizeof(o->text)); strcpy(o->text, value); return o; }
+static mp_obj_t mp_obj_new_str(const char *value, size_t bytes)
+{ char text[80]; assert(bytes<sizeof(text)); memcpy(text,value,bytes);text[bytes]=0;return string(text); }
 static const char *mp_obj_str_get_str(mp_obj_t value)
 { if (value->type != OBJECT_STRING) python_check_esp(ESP_ERR_INVALID_ARG); return value->text; }
 static double mp_obj_get_float(mp_obj_t value)
@@ -68,9 +70,31 @@ static uint32_t python_u32_from_obj(mp_obj_t v) { double n=mp_obj_get_float(v);i
 #define TAG "test"
 const char *esp_err_to_name(esp_err_t e) { (void)e;return "error"; }
 #include "solar_os_python_robot.inc"
+static void drive_python_check(void)
+{
+    mp_obj_t name=string("base"),s=solaros_robot_diff_drive_status(name);
+    assert(!strcmp(field(s,"odom_frame")->text,"odom") && field(s,"odometry_valid")->number);
+    assert(field(s,"x")->number==0 && field(s,"sample_us")->number>0);
+    solaros_robot_diff_drive_command(name,number(0),number(0));
+}
 int main(void)
 {
     setup();
+    mp_obj_t model_info=solaros_robot_model_load(string(ROBOT_MODEL_FIXTURE));
+    assert(!strcmp(field(model_info,"name")->text,"solbot"));
+    assert(field(model_info,"links")->count==5 && field(model_info,"joints")->count==4);
+    assert(field(model_info,"known_joints")->number==2 && !workers);
+    if (!setjmp(error_jump)) {
+        (void)solaros_robot_model_transform(string("base_link"),string("left_wheel_link"));assert(false);
+    } else assert(last_error==ESP_ERR_INVALID_STATE);
+    solaros_robot_model_set_joint(string("left_wheel_joint"),number(0));
+    mp_obj_t transform=solaros_robot_model_transform(string("base_link"),string("left_wheel_link"));
+    assert(fabs(field(transform,"translation")->values[1]->number-.0350641)<1e-6);
+    mp_obj_t point_args[]={string("base_link"),string("left_wheel_link"),number(0),number(0),number(0)};
+    assert(fabs(solaros_robot_model_point(5,point_args)->values[1]->number-.0350641)<1e-6);
+    assert(solaros_robot_model_vector(5,point_args)->values[1]->number==0);
+    python_robot_destroy();assert(leases==1); /* Shared model survives interpreter cleanup. */
+    solaros_robot_model_unload();assert(!leases);
     mp_obj_t name=string("wheel"),args[]={name};
     mp_obj_t s=solaros_robot_joint_create(1,args);
     assert(!strcmp(field(s,"state")->text,"ready"));
@@ -99,5 +123,11 @@ int main(void)
     solaros_robot_joint_bind_servo(7,calibration);
     python_robot_destroy();
     assert(!solar_os_robot_joint_count() && !leases);
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    solaros_robot_start();assert(workers==1);
+    python_robot_destroy();assert(workers==1); /* Model controllers are shared. */
+    solaros_robot_stop();assert(!workers && !solar_os_robot_joint_count());
+    solaros_robot_model_unload();
+    drive_binding_check=drive_python_check;diff_drive_integration_test();
     teardown();puts("Python robot wrappers and interpreter cleanup passed");return 0;
 }

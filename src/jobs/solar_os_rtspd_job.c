@@ -1,4 +1,5 @@
 #include "solar_os_rtspd_job.h"
+#include "solar_os_wifi.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -99,6 +100,7 @@ typedef struct {
 
 typedef struct {
     bool running;
+    bool wifi_latency_lease;
     volatile bool stop_requested;
     volatile bool worker_done;
     TaskHandle_t worker_task;
@@ -1003,6 +1005,10 @@ static bool rtspd_cleanup(void)
         solar_os_memory_free(rtspd.sources[i].scratch);
         rtspd.sources[i].scratch = NULL;
     }
+    if (rtspd.wifi_latency_lease) {
+        (void)solar_os_wifi_latency_release(RTSPD_OWNER);
+        rtspd.wifi_latency_lease = false;
+    }
     rtspd.running = false;
     return true;
 }
@@ -1090,8 +1096,10 @@ static esp_err_t rtspd_job_start(solar_os_context_t *ctx, int argc, char **argv)
             memset(&scratch->frame, 0, sizeof(scratch->frame));
         }
     }
-    esp_err_t error = ESP_OK;
-    if (options.video) {
+    esp_err_t error = solar_os_wifi_latency_acquire(RTSPD_OWNER);
+    if (error == ESP_OK) rtspd.wifi_latency_lease = true;
+    else if (error == ESP_ERR_INVALID_STATE) error = ESP_OK;
+    if (error == ESP_OK && options.video) {
         error = rtspd_start_reader(RTSPD_VIDEO, rtspd_video_reader);
     }
     if (error == ESP_OK && options.audio[0])

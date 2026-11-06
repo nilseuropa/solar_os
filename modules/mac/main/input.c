@@ -7,6 +7,27 @@ bool solar_os_mac_paused;
 static bool held[128], mouse_mode, click;
 static int dx, dy;
 static uint8_t modifiers;
+static uint8_t pointer_buttons[32]; /* One primary-button bit per source. */
+static bool pointer_click, absolute_anchor;
+static uint8_t absolute_source, absolute_id;
+static int absolute_x, absolute_y;
+static unsigned pointer_speed = 5;
+
+static void move_mouse(int x, int y) { mouseMove(x, y, click || pointer_click); }
+
+bool solar_os_mac_set_pointer_speed(const char *value)
+{
+    unsigned speed = 0;
+    if (!value || !*value) return false;
+    for (; *value; ++value) {
+        if (*value < '0' || *value > '9') return false;
+        speed = speed * 10U + (unsigned)(*value - '0');
+        if (speed > 10U) return false;
+    }
+    if (!speed) return false;
+    pointer_speed = speed;
+    return true;
+}
 
 /* USB HID usages -> Macintosh M0110 letter/punctuation scan codes. */
 static const uint8_t hid_codes[0x3a] = {
@@ -36,18 +57,53 @@ static void set_modifiers(uint8_t next)
     guest_key(0x3b, !(next & 0x11)); /* Control */
     modifiers = next;
 }
-void solar_os_mac_input_reset(void)
+static void reset_keys(void)
 {
     kbdClearQueue();
     for (unsigned i = 0; i < 128; ++i) if (held[i]) guest_key(i, true);
     modifiers = 0; dx = dy = 0; click = false;
     mouseRelease();
+    move_mouse(0, 0);
 }
-void solar_os_mac_pointer_tick(void) { mouseMove(dx, dy, click); }
+static void reset_pointer(void)
+{
+    memset(pointer_buttons, 0, sizeof(pointer_buttons));
+    pointer_click = absolute_anchor = false;
+    mouseRelease();
+    move_mouse(0, 0);
+}
+void solar_os_mac_input_reset(void) { reset_keys(); reset_pointer(); }
+void solar_os_mac_pointer_tick(void) { move_mouse(dx, dy); }
+
+void solar_os_mac_pointer(const solar_os_native_foreground_pointer_v1_t *pointer)
+{
+    if (pointer->reset) { reset_pointer(); return; }
+    int x = 0, y = 0;
+    if (pointer->mode == SOLAR_OS_NATIVE_POINTER_RELATIVE) {
+        x = pointer->delta_x * (int)pointer_speed;
+        y = pointer->delta_y * (int)pointer_speed;
+    } else if (pointer->mode == SOLAR_OS_NATIVE_POINTER_ABSOLUTE) {
+        /* The Plus mouse uses relative quadrature. Treat touch as a touchpad:
+         * a new contact/source anchors without jumping to its screen position. */
+        if (absolute_anchor && absolute_source == pointer->source &&
+            absolute_id == pointer->pointer_id && pointer->action != SOLAR_OS_NATIVE_POINTER_PRESS) {
+            x = pointer->x - absolute_x; y = pointer->y - absolute_y;
+        }
+        absolute_x = pointer->x; absolute_y = pointer->y;
+        absolute_source = pointer->source; absolute_id = pointer->pointer_id;
+        absolute_anchor = pointer->action != SOLAR_OS_NATIVE_POINTER_RELEASE;
+    } else return;
+    uint8_t mask = (uint8_t)(1U << (pointer->source & 7U));
+    if (pointer->buttons & 1U) pointer_buttons[pointer->source >> 3] |= mask;
+    else pointer_buttons[pointer->source >> 3] &= (uint8_t)~mask;
+    pointer_click = false;
+    for (unsigned i = 0; i < sizeof(pointer_buttons); ++i) pointer_click |= pointer_buttons[i] != 0;
+    move_mouse(x, y);
+}
 
 void solar_os_mac_input(const solar_os_native_foreground_key_v1_t *key)
 {
-    if (key->reset) { solar_os_mac_input_reset(); return; }
+    if (key->reset) { reset_keys(); return; }
     bool release = key->action == SOLAR_OS_NATIVE_FOREGROUND_KEY_RELEASE;
     set_modifiers(key->modifiers);
     if (key->usage == 0x3b || key->key == 0x87) { /* F2 */
@@ -56,7 +112,7 @@ void solar_os_mac_input(const solar_os_native_foreground_key_v1_t *key)
     }
     if (key->usage == 0x41 || key->key == 0x8d) { /* F8 */
         if (!release && key->action != SOLAR_OS_NATIVE_FOREGROUND_KEY_REPEAT) {
-            solar_os_mac_input_reset(); mouse_mode = !mouse_mode;
+            reset_keys(); mouse_mode = !mouse_mode;
             solar_os_mac_report(mouse_mode ? "mac: arrows move mouse; Space holds button" : "mac: keyboard mode");
         }
         return;
@@ -68,12 +124,12 @@ void solar_os_mac_input(const solar_os_native_foreground_key_v1_t *key)
     unsigned usage = key->usage;
     if (!usage && mouse_mode) {
         if (key->key >= 0x80 && key->key <= 0x83) {
-            if (!release) mouseMove(key->key == 0x82 ? -6 : key->key == 0x83 ? 6 : 0,
-                key->key == 0x80 ? -6 : key->key == 0x81 ? 6 : 0, click);
+            if (!release) move_mouse(key->key == 0x82 ? -6 : key->key == 0x83 ? 6 : 0,
+                key->key == 0x80 ? -6 : key->key == 0x81 ? 6 : 0);
             return;
         }
         if (key->key == ' ') {
-            if (!release) { click = !click; mouseMove(0, 0, click); }
+            if (!release) { click = !click; move_mouse(0, 0); }
             return;
         }
     }
@@ -82,7 +138,7 @@ void solar_os_mac_input(const solar_os_native_foreground_key_v1_t *key)
     if (usage == 0x60 || (mouse_mode && (usage == 0x52 || key->key == 0x80))) { dy = release ? 0 : -3; return; }
     if (usage == 0x5a || (mouse_mode && (usage == 0x51 || key->key == 0x81))) { dy = release ? 0 : 3; return; }
     if (usage == 0x5d || (mouse_mode && (usage == 0x2c || key->key == ' '))) {
-        click = !release; mouseMove(0, 0, click); return;
+        click = !release; move_mouse(0, 0); return;
     }
     if (usage >= 4 && usage < sizeof(hid_codes) && (hid_codes[usage] || usage == 4)) {
         guest_key(hid_codes[usage], release); return;

@@ -18,6 +18,7 @@ typedef struct {
     uint32_t owner_generation;
     solar_os_camera_sensor_info_t sensor;
     solar_os_camera_config_t config;
+    solar_os_camera_orientation_t orientation;
     solar_os_camera_backend_frame_t backend_frame;
     solar_os_camera_frame_t frame;
     uint32_t capture_count;
@@ -239,7 +240,7 @@ esp_err_t solar_os_camera_start(const solar_os_camera_owner_t *token,
 
     solar_os_camera_sensor_info_t sensor = {0};
     const esp_err_t start_error = camera_state.backend.ops->start(
-        camera_state.backend.ctx, config, &sensor);
+        camera_state.backend.ctx, config, camera_state.orientation, &sensor);
     camera_state.last_error = start_error;
     if (start_error == ESP_OK) {
         camera_state.config = *config;
@@ -380,6 +381,7 @@ esp_err_t solar_os_camera_get_status(solar_os_camera_status_t *status)
         .frame_leased = camera_state.frame_leased,
         .sensor = camera_state.sensor,
         .config = camera_state.config,
+        .orientation = camera_state.orientation,
         .capture_count = camera_state.capture_count,
         .last_error = camera_state.last_error,
     };
@@ -387,6 +389,43 @@ esp_err_t solar_os_camera_get_status(solar_os_camera_status_t *status)
     strlcpy(status->owner, camera_state.owner, sizeof(status->owner));
     xSemaphoreGive(camera_mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_camera_set_orientation(solar_os_camera_orientation_t orientation)
+{
+    if (orientation < SOLAR_OS_CAMERA_ORIENTATION_NORMAL ||
+        orientation > SOLAR_OS_CAMERA_ORIENTATION_180) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t mutex_error = ensure_mutex();
+    if (mutex_error != ESP_OK) return mutex_error;
+    xSemaphoreTake(camera_mutex, portMAX_DELAY);
+    esp_err_t error = ESP_OK;
+    if (!camera_state.backend_registered ||
+        camera_state.backend.ops->set_orientation == NULL) {
+        error = ESP_ERR_NOT_SUPPORTED;
+    } else if (camera_state.initialized) {
+        /* The lock excludes capture/start/stop. A leased JPEG is immutable and
+         * can still be sent while changing the orientation of future frames. */
+        error = camera_state.backend.ops->set_orientation(
+            camera_state.backend.ctx, orientation, &camera_state.orientation);
+    } else {
+        camera_state.orientation = orientation;
+    }
+    camera_state.last_error = error;
+    xSemaphoreGive(camera_mutex);
+    return error;
+}
+
+const char *solar_os_camera_orientation_name(solar_os_camera_orientation_t orientation)
+{
+    switch (orientation) {
+    case SOLAR_OS_CAMERA_ORIENTATION_NORMAL: return "normal";
+    case SOLAR_OS_CAMERA_ORIENTATION_MIRROR: return "mirror";
+    case SOLAR_OS_CAMERA_ORIENTATION_FLIP: return "flip";
+    case SOLAR_OS_CAMERA_ORIENTATION_180: return "180";
+    default: return "unknown";
+    }
 }
 
 const char *solar_os_camera_frame_size_name(

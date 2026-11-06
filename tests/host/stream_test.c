@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -41,6 +42,15 @@ static esp_err_t read_sample(void *user,
     esp_err_t err = read_scalar(user, options, &sample->value);
     sample->uptime_ms = 1000; /* Cached acquisition time must survive the read. */
     return err;
+}
+static esp_err_t observe_sample(void *user,const solar_os_stream_read_options_t *options,
+    solar_os_stream_scalar_sample_t *sample)
+{
+    /* Both single and grouped removal must pin provider lifetime. */
+    const char *ids[]={"sensor0"};
+    assert(solar_os_stream_unregister("sensor0")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_unregister_many(ids,1)==ESP_ERR_INVALID_STATE);
+    return read_sample(user,options,sample);
 }
 
 static esp_err_t write_audio(void *user,
@@ -194,6 +204,52 @@ int main(void)
     assert(solar_os_stream_get_info("sensor0", &info) == ESP_ERR_NOT_FOUND);
     assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_ERR_NOT_FOUND);
 
+    /* Timestamp-only scalar sources also support ordinary scalar readers. */
+    scalar.read_scalar=NULL;
+    scalar.observe_scalar_sample=observe_sample;
+    scalar.info.sharing=SOLAR_OS_STREAM_SHARING_EXCLUSIVE;
+    assert(solar_os_stream_register(&scalar)==ESP_OK);
+    assert(solar_os_stream_open("sensor0","plain-reader",&first)==ESP_OK);
+    solar_os_stream_scalar_sample_t snapshot;
+    assert(solar_os_stream_open("sensor0","competitor",&second)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_observe_scalar_sample("sensor0",NULL,&snapshot)==ESP_OK);
+    assert(snapshot.value==scalar_value && snapshot.uptime_ms==1000);
+    assert(solar_os_stream_get_info("sensor0",&info)==ESP_OK && info.active_handles==1 && !strcmp(info.owner,"plain-reader"));
+    assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_OK && value==scalar_value);
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("sensor0")==ESP_OK);
+    solar_os_stream_driver_t sink={.info={.id="actuator0",.provider="test",.format="f32",
+        .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_SINK,
+        .sharing=SOLAR_OS_STREAM_SHARING_EXCLUSIVE},.write=write_audio,.user=&bytes};
+    assert(solar_os_stream_register(&sink)==ESP_OK);
+    assert(solar_os_stream_open("actuator0","controller",&first)==ESP_OK);
+    assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_stream_write(&first,&scalar_value,sizeof(scalar_value),0,&written)==ESP_OK && written==sizeof(scalar_value));
+    assert(solar_os_stream_open("actuator0","competitor",&second)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("actuator0")==ESP_OK);
+    sink.info.has_scalar_range=true;sink.info.scalar_minimum=-.058f;sink.info.scalar_maximum=.058f;
+    sink.info.scalar_maximum=NAN;
+    assert(solar_os_stream_register(&sink)==ESP_ERR_INVALID_ARG);
+    sink.info.scalar_maximum=-1;
+    assert(solar_os_stream_register(&sink)==ESP_ERR_INVALID_ARG);
+    sink.info.scalar_maximum=.058f;
+    assert(solar_os_stream_register(&sink)==ESP_OK);
+    assert(solar_os_stream_get_info("actuator0",&info)==ESP_OK && info.has_scalar_range && info.scalar_maximum==.058f);
+    assert(solar_os_stream_open("actuator0","controller",&first)==ESP_OK);
+    const float rejected[]={.5f,-.5f,NAN,INFINITY,-INFINITY};
+    size_t bytes_before=bytes;
+    for(size_t i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
+        written=99;
+        assert(solar_os_stream_write(&first,&rejected[i],sizeof(float),0,&written)==ESP_ERR_INVALID_ARG && !written);
+        assert(bytes==bytes_before); /* The provider never receives an invalid command. */
+    }
+    assert(solar_os_stream_write(&first,&scalar_value,1,0,&written)==ESP_ERR_INVALID_ARG && !written);
+    const float accepted[]={-.058f,0,.058f};
+    for(size_t i=0;i<sizeof(accepted)/sizeof(accepted[0]);++i)
+        assert(solar_os_stream_write(&first,&accepted[i],sizeof(float),0,&written)==ESP_OK && written==sizeof(float));
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("actuator0")==ESP_OK);
     puts("stream registry tests: ok");
     return 0;
 }

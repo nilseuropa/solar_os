@@ -102,12 +102,14 @@ solaros.jobs.start(
 
 `bindings()` returns source configuration plus availability, values, timing,
 send counters, and errors. `bind_stream`, `bind_event`, and `bind_control`
-return numeric IDs; `unbind` and `clear` remove definitions. Event edges are
+return numeric IDs; `bind_receive(name, stream, address[, argument])` binds a
+zero-based incoming argument to a scalar sink and returns its ID. `unbind` and
+`clear` remove definitions. Event edges are
 `"rising"`, `"falling"`, or `"both"`; rates are `0.1..100` Hz.
 
 `encode_float()` and `encode_int()` return binary OSC messages that can be sent
 with `solaros.net.udp_send()`. `dispatch(packet)` validates a message or
-immediate bundle and applies the same native parameter routes as the job.
+immediate bundle and applies the same native parameter and receive-stream routes as the job.
 `limits()` reports all public codec and binding bounds.
 
 ## Synthesizer example

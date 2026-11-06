@@ -17,7 +17,7 @@ SOLAR_OS_NATIVE_APP_MANIFEST = {
     .lifecycle_abi = SOLAR_OS_NATIVE_APP_LIFECYCLE_ABI,
     .struct_size = sizeof(solar_os_native_app_manifest_v2_t),
     .app_class = SOLAR_OS_NATIVE_APP_CLASS_GUI,
-    .flags = SOLAR_OS_NATIVE_APP_RESUMABLE,
+    .flags = SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS,
     .worker_stack_bytes = 16U * 1024U, .worker_priority = 1,
     .minimum_internal_bytes = 8U * 1024U,
     .minimum_psram_bytes = 5U * 1024U * 1024U,
@@ -126,6 +126,9 @@ static bool exchanged_frames;
 static void run_guest(uint16_t width, uint16_t height)
 {
     uint64_t now = solar_os_mac_app->time_us(), next_frame = now, next_mouse = now;
+    bool pointer_events = solar_os_mac_app->struct_size >=
+        offsetof(solar_os_native_foreground_api_v1_t, read_pointer) + sizeof(solar_os_mac_app->read_pointer) &&
+        solar_os_mac_app->read_pointer;
     while (!solar_os_mac_app->stop_requested()) {
         if (solar_os_mac_app->suspend_requested()) {
             solar_os_mac_input_reset();
@@ -146,6 +149,15 @@ static void run_guest(uint16_t width, uint16_t height)
             if (solar_os_mac_app->read_key(&key, &available)) solar_os_mac_fail("input read failed");
             if (!available) break;
             solar_os_mac_input(&key);
+        }
+        for (unsigned i = 0; pointer_events && i < 64U; ++i) {
+            solar_os_native_foreground_pointer_v1_t pointer;
+            bool available;
+            int result = solar_os_mac_app->read_pointer(&pointer, &available);
+            if (result == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED) { pointer_events = false; break; }
+            if (result) solar_os_mac_fail("pointer read failed");
+            if (!available) break;
+            solar_os_mac_pointer(&pointer);
         }
         now = solar_os_mac_app->time_us();
         if (now >= next_mouse) {
@@ -172,6 +184,41 @@ static void run_guest(uint16_t width, uint16_t height)
     }
 }
 
+typedef struct {
+    const char *rom, *disk;
+    bool floppy, diagnostic;
+} mac_arguments_t;
+
+static bool option_is(const char *argument, const char *option)
+{
+    size_t length = strlen(option);
+    return strlen(argument) == length && !memcmp(argument, option, length);
+}
+
+static bool parse_arguments(int argc, char **argv, mac_arguments_t *arguments)
+{
+    *arguments = (mac_arguments_t){0};
+    solar_os_mac_set_pointer_speed("5");
+    for (int i = 1; i < argc; ++i) {
+        const char *argument = argv[i];
+        if (option_is(argument, "--pointer-speed")) {
+            if (++i == argc || !solar_os_mac_set_pointer_speed(argv[i])) return false;
+        } else if (option_is(argument, "--floppy")) {
+            if (!arguments->rom || arguments->disk || ++i == argc) return false;
+            arguments->disk = argv[i];
+            if (arguments->disk[0] == '-' && arguments->disk[1] == '-') return false;
+            arguments->floppy = true;
+        } else if (option_is(argument, "--self-test")) {
+            if (arguments->diagnostic) return false;
+            arguments->diagnostic = true;
+        } else if (argument[0] == '-' && argument[1] == '-') return false;
+        else if (!arguments->rom) arguments->rom = argument;
+        else if (!arguments->disk) arguments->disk = argument;
+        else return false;
+    }
+    return arguments->diagnostic ? !arguments->rom && !arguments->disk : arguments->rom != NULL;
+}
+
 int main(int argc, char **argv)
 {
     solar_os_mac_host = solar_os_native_host_v1();
@@ -184,13 +231,12 @@ int main(int argc, char **argv)
     if (!solar_os_mac_app || !solar_os_mac_memory) {
         solar_os_mac_report("mac: compatible foreground and memory services required"); return 1;
     }
-    bool diagnostic = argc == 2 && strlen(argv[1]) == 11U && !memcmp(argv[1], "--self-test", 11);
-    /* strcmp is deliberately avoided: only the standard module imports are needed. */
-    if (argc < 2 || argc > 4 || (argc == 4 &&
-        (strlen(argv[2]) != 8 || memcmp(argv[2], "--floppy", 8)))) {
-        solar_os_mac_report("mac: mac <macplus.rom> [scsi-hd.img | --floppy disk.img] or mac --self-test");
+    mac_arguments_t arguments;
+    if (!parse_arguments(argc, argv, &arguments)) {
+        solar_os_mac_report("mac: mac <macplus.rom> [scsi-hd.img | --floppy disk.img] [--pointer-speed 1..10] or mac --self-test");
         solar_os_mac_app->set_exit_code(1); return 1;
     }
+    bool diagnostic = arguments.diagnostic;
     solar_os_mac_failure = NULL;
     solar_os_mac_ram = solar_os_mac_rom = pixels = NULL;
     exchanged_frames = false;
@@ -203,7 +249,7 @@ int main(int argc, char **argv)
         uint16_t width = 0, height = 0;
         if (solar_os_mac_app->video_dimensions(&width, &height) || !width || !height ||
             width > 1024U || height > 1024U) solar_os_mac_fail("display dimensions unsupported");
-        if (!diagnostic && solar_os_mac_app->resolve_path(argv[1], rom_path, sizeof(rom_path)))
+        if (!diagnostic && solar_os_mac_app->resolve_path(arguments.rom, rom_path, sizeof(rom_path)))
             solar_os_mac_fail("invalid ROM path");
         solar_os_mac_rom = solar_os_mac_memory->alloc(MAC_ROM_SIZE);
         solar_os_mac_ram = solar_os_mac_memory->alloc(MAC_RAM_SIZE);
@@ -222,11 +268,11 @@ int main(int argc, char **argv)
         }
         solar_os_mac_machine_init();
         solar_os_mac_input_reset();
-        if (argc >= 3 && solar_os_mac_app->resolve_path(argv[argc - 1], disk_path, sizeof(disk_path)))
+        if (arguments.disk && solar_os_mac_app->resolve_path(arguments.disk, disk_path, sizeof(disk_path)))
             solar_os_mac_fail("invalid disk path");
-        if (solar_os_mac_disk_open(argc == 3 ? disk_path : NULL))
+        if (solar_os_mac_disk_open(arguments.disk && !arguments.floppy ? disk_path : NULL))
             solar_os_mac_fail("cannot claim SCSI disk image; check its size, writable storage and other mounts");
-        if (solar_os_mac_floppy_open(argc == 4 ? disk_path : NULL))
+        if (solar_os_mac_floppy_open(arguments.floppy ? disk_path : NULL))
             solar_os_mac_fail("floppy needs a Mac Plus v3 ROM and a writable raw 400/800 KiB image");
         uint16_t palette[256] = { [0] = 0xffff, [1] = 0x0000 };
         if (solar_os_mac_app->video_open_ex(width, height, palette, 25, 0)) solar_os_mac_fail("display setup failed");

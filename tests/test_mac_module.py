@@ -7,6 +7,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MacModuleTest(unittest.TestCase):
+    def test_pointer_and_keyboard_mouse_controls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "input"
+            source = ROOT / "modules/mac/main"
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-I", str(ROOT / "include"), "-I", str(source),
+                "-I", str(source / "vendor"),
+                str(ROOT / "tests/host/mac_input_test.c"), str(source / "input.c"),
+                "-o", str(binary),
+            ], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_cpu_display_suspend_and_failure_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = build(Path(directory))

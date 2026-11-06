@@ -19,6 +19,7 @@ class ScriptOscBindingsTest(unittest.TestCase):
         methods = (
             "bindings",
             "bind_stream",
+            "bind_receive",
             "bind_event",
             "bind_control",
             "unbind",
@@ -60,6 +61,8 @@ class ScriptOscBindingsTest(unittest.TestCase):
             "source_errors",
             "last_error",
             "last_error_name",
+            "direction", "argument", "target_available", "target_claimed",
+            "received", "write_errors", "last_receive_ms",
         )
         for field in fields:
             self.assertIn(f'"{field}"', PYTHON_SOURCE)

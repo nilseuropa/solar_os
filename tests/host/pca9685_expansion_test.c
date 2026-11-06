@@ -5,6 +5,7 @@
 #include "solar_os_pca9685.h"
 #include "solar_os_pwm.h"
 #include "solar_os_servo.h"
+#define RAD(x) ((x) * (3.14159265358979323846f / 180.0f))
 #include "solar_os_buses.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
@@ -118,7 +119,7 @@ int main(void)
     }
     solar_os_servo_config_t config = {
         .output = {.provider = "servos0", .output = 0}, .freq_hz = 50,
-        .pulse_min_us = 1000, .pulse_max_us = 2000, .angle_min_deg = -45, .angle_max_deg = 45,
+        .pulse_min_us = 1000, .pulse_max_us = 2000, .angle_min_rad = RAD(-45), .angle_max_rad = RAD(45),
     };
     assert(solar_os_servo_open("arm", "python", &config) == ESP_OK);
     assert(solar_os_servo_set("arm", "python", 0) == ESP_OK);
@@ -130,9 +131,9 @@ int main(void)
     assert(registers[0][0x0b] == 0x10 && registers[0][0x0d] == 0);
     assert(driver->detach("servos0") == ESP_ERR_INVALID_STATE && !oe_level && allocations == 1);
     fail_reg = 0x06; fail_writes = 1;
-    assert(solar_os_servo_set("arm", "python", 20) == ESP_FAIL);
+    assert(solar_os_servo_set("arm", "python", RAD(20)) == ESP_FAIL);
     solar_os_servo_info_t servo;
-    assert(solar_os_servo_status("arm", &servo) == ESP_OK && servo.commanded_angle_deg == 0);
+    assert(solar_os_servo_status("arm", &servo) == ESP_OK && servo.commanded_angle_rad == 0);
     assert(solar_os_servo_disable("arm", "python") == ESP_OK);
     assert(driver->detach("servos0") == ESP_ERR_INVALID_STATE);
     assert(solar_os_pwm_set_output(&output, 60, 50, false) == ESP_ERR_INVALID_STATE);

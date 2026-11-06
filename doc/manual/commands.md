@@ -904,10 +904,23 @@ unzip -l /books/archive.zip
 
 ## Streams, Logs, Ports, And Transfers
 
+`stream write` accepts up to eight distinct scalar stream/value pairs. Without
+`--rate` it writes each value once. With `--rate 1..100`, it keeps the writers
+open and publishes all values each cycle until Ctrl+C, a disconnect, or an error.
+`--duration` limits publishing to 0.001..86400 seconds and requires `--rate`.
+All values are validated and all streams opened before the first sample is
+written. Writes within a cycle are sequential, not an atomic transaction;
+a runtime failure can leave a partially written cycle. Missed periods are
+skipped rather than replayed. Timing is best effort. On exit, writers close
+without sending an extra value; each receiver applies its own hold or timeout
+policy.
+
 | Command | Usage | Description |
 | --- | --- | --- |
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
-| `stream` | `stream status <id>` | Show type, direction, provider, format, owner, and counters for one stream. |
+| `stream` | `stream status <id>` | Show type, direction, provider, format, owner, counters, and any declared scalar command range. |
+| `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
+| `stream` | `stream write <scalar-sink> <value> [<scalar-sink> <value> ...] [--rate 1..100] [--duration seconds]` | Publish native float32 scalar values once or periodically. Values outside a declared command range are rejected with the stream ID, value, allowed range, and unit. Ctrl+C ends periodic publishing. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
 | `stream` | `stream tcp remove <name>` | Remove an unclaimed TCP listener or outbound stream. |
@@ -1276,8 +1289,9 @@ available for the compiled board.
 | `audio` | `audio off` | Stop audio output. |
 | `say` | `say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] [--speed <20..500>] [--drop-if-busy] (--file <path> \| [--] <text...>)` | Queue text for offline speech, or stream a plain UTF-8 text file aloud with live progress. Pitch and speed default to 100. File mode submits bounded chunks through one continuous PicoTTS/audio session, completes paths with Tab, and remains responsive; press Esc or Ctrl+C to stop. Start `speechd` with a PicoTTS voice directory first. |
 | `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
-| `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, current owner and frame lease, capture count, and last error. |
+| `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error. |
 | `camera` | `camera capture <path> [qvga|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
+| `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set sensor orientation: normal, horizontal mirror, vertical flip, or 180° rotation (both). Changes apply to future frames, including active RTSP/web streams, and survive camera stop/start and size changes until reboot or camera detach. No setting is saved. The JPEG path does not support 90°/270° rotation. |
 | `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
 | `expansion` | `expansion status` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
@@ -1316,18 +1330,27 @@ available for the compiled board.
 | `control` | `control bind <name> parameter <path> [pickup=on\|off]` | Bind a control to a typed native-app parameter with optional soft takeover. |
 | `control` | `control bind <name> midi <channel> <cc>` | Bind a control to a MIDI Control Change target. |
 | `control` | `control get\|set <name> [value]` | Read or set a normalized `0..65535` control value. |
-| `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
+| `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. Both commands complete registered parameter paths. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
+| `encoder` | `encoder configure <name> <key> <value>` | Configure PPR, transmission, polarity or filtering for `enc.<name>` velocity feedback. |
+| `motor` | `motor configure <name> polarity\|max_drive\|brake <value>` | Configure the generic motor service and `mot.<name>` drive sink while unclaimed. |
 | `controller` | `controller list` or `controller status <name>` | Inspect feedback controller configuration, state, output, and errors. |
 | `controller` | `controller create <name> pid\|hysteresis` or `controller delete <name>` | Create or remove a named feedback controller. |
 | `controller` | `controller configure <name> <key> <value>` | Set gains, setpoint, output limits, direction, timing, or safe output; see [Feedback controllers](controllers.md). |
-| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>` | Select timestamped measurement input and an owned parameter or PWM pulse output. |
+| `controller` | `controller bind <name> <stream>\|manual parameter:<path>\|pwm:<provider>:<output>\|stream:<sink>` | Select timestamped measurement input and an owned parameter, PWM pulse, or scalar sink output. |
 | `controller` | `controller feed <name> <measurement>` | Publish a manual-source measurement acquired now. |
 | `controller` | `controller step <name> <measurement> <dt-seconds>` | Calculate output for a stopped controller without writing an actuator. |
 | `controller` | `controller manual <name> <output>` or `controller auto <name>` | Select a fixed output or automatic computation. |
+| `controller` | `controller tune <name> [noise-floor [points [timeout-ms]]]` | Automatically find motion, measure step responses and validate candidate PID gains without applying them. Starts the worker when needed; component-owned controllers reject tuning. Inspect with `status`, abort with `stop`. |
 | `controller` | `controller start\|stop\|reset <name>` | Enable a bound controller, stop and release its output, or reset a stopped instance. |
 | `robot` | `robot joint list` or `robot joint status <joint>` | Inspect joints in the optional external robot library. |
+| `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |
+| `robot` | `robot start` or `robot stop` | Start URDF-declared velocity controllers or release them while retaining the model. Stop before replacing or unloading it. |
+| `robot` | `robot model info\|links\|joints\|metadata` | Inspect the resident model and retained SolarOS extension. |
+| `robot` | `robot model set <joint> <position> [<joint> <position> ...]` | Supply model joint positions as one validated batch. |
+| `robot` | `robot model transform <target> <source>` | Query the transform mapping source-frame coordinates into target. |
+| `robot` | `robot model point\|vector <target> <source> <x> <y> <z>` | Transform a point or direction; see [Robot models and transforms](robot-models.md). |
 | `robot` | `robot joint create <joint> velocity\|servo` | Create an inactive joint without claiming hardware. |
 | `robot` | `robot joint configure <joint> <key> <value>` | Configure PPR, gearbox ratio, polarities, limits, timing or control gains. |
 | `robot` | `robot joint motor <joint> <motor> <encoder>` | Bind named devices to a velocity joint. |
@@ -1338,6 +1361,7 @@ available for the compiled board.
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
 | `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |
+| `osc` | `osc bind <name> receive <scalar-sink> <address> [arg=0..7]` | Map one incoming OSC argument to a scalar sink in its native unit. Several bindings may map one message to multiple streams. See [Open Sound Control](osc.md#incoming-stream-bindings). |
 | `osc` | `osc unbind <name>` or `osc clear` | Remove one outbound binding or all outbound bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio scan [name]` | Open the graphical `rfscan` app when included in the firmware. |
@@ -1444,8 +1468,8 @@ available for the compiled board.
 | `pwm` | `pwm off <output>` | Stop a general PWM output. |
 | `servo` | `servo list` | Show names, outputs, enabled state, and owners in a compact list. |
 | `servo` | `servo status [name]` | Show calibration, frequency, inversion, and the last accepted command for all servos or one named servo. |
-| `servo` | `servo open <name> <output> <min-us> <max-us> <min-deg> <max-deg> [freq-hz [inverted:0\|1]]` | Reserve an output without pulses; see [Servo outputs](servo.md). |
-| `servo` | `servo set <name> <angle-deg>` / `servo pulse <name> <pulse-us>` | Command a calibrated angle or pulse width. |
+| `servo` | `servo open <name> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz [inverted:0\|1]]` | Reserve an output without pulses; see [Servo outputs](servo.md). |
+| `servo` | `servo set <name> <angle-rad>` / `servo pulse <name> <pulse-us>` | Command a calibrated angle in radians or a pulse width in microseconds. |
 | `servo` | `servo disable <name>` / `servo close <name>` | Stop pulses, retaining or releasing the reservation. |
 | `i2c` | `i2c [status [bus]]` | Show every named I2C bus, or one selected bus. |
 | `i2c` | `i2c speed [bus] [hz]` | Show or change a named bus clock; defaults to `i2c0` and accepts 1 through 1000000 Hz. |

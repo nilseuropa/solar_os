@@ -19,6 +19,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_net.h"
 #include "solar_os_task.h"
+#include "solar_os_wifi.h"
 
 #define CLIENT_TIMEOUT_US 5000000ULL
 #define CLIENT_AUDIO_STACK 8192U
@@ -605,8 +606,20 @@ esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
     c->status.epoch = 1;
     unlock(c);
     unsigned failures = 0;
+    bool latency_lease = false;
+    char latency_owner[SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
+    snprintf(latency_owner, sizeof(latency_owner), "rtsp:%p", (void *)c);
     esp_err_t err;
     for (;;) {
+        if (!latency_lease) {
+            err = solar_os_wifi_latency_acquire(latency_owner);
+            if (err == ESP_OK) latency_lease = true;
+            /* Other network transports remain usable with Wi-Fi stopped. */
+            else if (err != ESP_ERR_INVALID_STATE) {
+                err = fail(c, err, "cannot acquire low-latency Wi-Fi");
+                break;
+            }
+        }
         c->retryable = false;
         err = run_session(c);
         if (c->cancel || !c->retryable || !c->options.reconnect_attempts) break;
@@ -658,6 +671,7 @@ esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
         c->audio_stop = false;
         unlock(c);
     }
+    if (latency_lease) (void)solar_os_wifi_latency_release(latency_owner);
     lock(c); c->running = false; c->status.reconnecting = false; unlock(c);
     return err;
 }

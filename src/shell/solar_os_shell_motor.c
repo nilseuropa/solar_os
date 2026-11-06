@@ -10,7 +10,8 @@
 
 static void usage(solar_os_shell_io_t *io)
 {
-    solar_os_shell_io_writeln(io, "usage: motor [list] | status <name> | drive <name> <-1..1> | coast|brake|clear <name>");
+    solar_os_shell_io_writeln(io, "usage: motor [list] | status <name> | drive <name> <-1..1> | coast|brake|clear <name>\n"
+        "  motor configure <name> polarity|max_drive|brake <value>");
 }
 
 void solar_os_shell_cmd_motor(solar_os_context_t *ctx, int argc, char **argv)
@@ -40,7 +41,14 @@ void solar_os_shell_cmd_motor(solar_os_context_t *ctx, int argc, char **argv)
             if (status.raw_valid) solar_os_shell_io_printf(io, " control=0x%lx fault=0x%lx",
                 (unsigned long)status.raw_control, (unsigned long)status.raw_fault);
             solar_os_shell_io_writeln(io, "");
+            solar_os_shell_io_printf(io,"  stream=mot.%s claimed=%u polarity=%d max-drive=%.6g brake=%u\n",
+                status.info.name,(unsigned)status.claimed,(int)status.config.polarity,
+                (double)status.config.max_drive,(unsigned)status.config.brake);
         }
+    } else if(argc==5 && !strcmp(argv[1],"configure")) {
+        char *end;errno=0;float value=strtof(argv[4],&end);
+        ret=errno || end==argv[4] || *end || !isfinite(value)?ESP_ERR_INVALID_ARG:
+            solar_os_motor_configure(argv[2],argv[3],value);
     } else if (argc == 4 && strcmp(argv[1], "drive") == 0) {
         char *end;
         errno = 0;

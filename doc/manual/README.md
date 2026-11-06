@@ -239,7 +239,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Networking and security
 
 - [Network interfaces, routing, Wi-Fi, WireGuard, and APIs](network.md) — Connect, inspect, and communicate over installed network services
-- [Open Sound Control](osc.md) — Control live app parameters and publish named stream or control bindings over OSC 1.0 UDP
+- [Open Sound Control](osc.md) — Receive scalar stream commands, control live parameters and publish named OSC bindings over UDP
 - [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
 
 ## Hardware and expansion
@@ -254,6 +254,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
 - [Motor control](motor.md) — Control named motors with normalized drive commands
 - [Robot joints](robot.md) — Use the optional external robot library for calibrated servo and motor/encoder joints
+- [Robot models and transforms](robot-models.md) — Load URDF models, query transforms and run declared joint and differential-drive components
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, temperature, and humidity

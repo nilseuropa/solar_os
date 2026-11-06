@@ -32,6 +32,7 @@ int main(void)
         {"auto", solua_controllers_auto},
         {"reset", solua_controllers_reset},
         {"start", solua_controllers_start},
+        {"tune", solua_controllers_tune},
         {"stop", solua_controllers_stop},
         {"delete", solua_controllers_delete},
         {NULL, NULL}
@@ -47,8 +48,15 @@ int main(void)
         "controllers.feed('loop', 0.3); controllers.start('loop')\n"
         "assert(controllers.status('loop').enabled)\n"
         "assert(not pcall(controllers.step, 'loop', 0, 0.02))\n"
-        "controllers.stop('loop'); controllers.reset('loop'); controllers.delete('loop')\n"
-        "controllers.create('relay', 'hysteresis'); controllers.delete('relay')\n"
+        "controllers.stop('loop'); controllers.reset('loop')\n"
+        "local t = controllers.tune('loop', .01, 3, 2000)\n"
+        "assert(t.tune_state == 'running' and t.tune_required_cycles == 3 and t.tune_kp == 0)\n"
+        "assert(not pcall(controllers.configure, 'loop', 'setpoint', 2))\n"
+        "controllers.stop('loop'); assert(controllers.status('loop').tune_state == 'aborted')\n"
+        "assert(not pcall(controllers.tune, 'loop', .01, 3.5, 2000))\n"
+        "assert(not pcall(controllers.tune, 'loop', .01, 3, 0/0))\n"
+        "controllers.reset('loop'); controllers.delete('loop')\n"
+        "controllers.create('relay', 'hysteresis'); assert(not pcall(controllers.tune, 'relay')); controllers.delete('relay')\n"
         "assert(#controllers.list() == 0)\n"
         "assert(not pcall(controllers.create, 'bad', 'unknown'))\n"
         "assert(not pcall(controllers.status, 'missing'))\n";

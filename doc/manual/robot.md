@@ -9,21 +9,38 @@ packages_any = ["service_robot"]
 # Robot joints
 
 The optional `robot` native library provides rotary servo-position and
-motor/encoder-velocity joints. Joint calibration, feedback conversion, controller
-state and workers live in the external ELF. The firmware provides generic
-device services and a thin shell/Python/Lua adapter. Robot joints do not require
-URDF or a display. Native libraries require ESP32-S3, executable PSRAM, and
-the native-module service.
+motor/encoder-velocity joints through the shell, Python and Lua. Velocity joints
+configure the OS encoder, motor and controller services; standalone controllers
+can use those services without the robot library. Previous device settings are
+restored on disable or stop.
+Robot joints work without URDF or a display. The same library also provides
+[URDF models, transforms and differential drive](robot-models.md). Native
+libraries require ESP32-S3, executable PSRAM and the native-module service.
 
-Install `robot` from a compatible signed module catalog before creating an
+An expanded URDF can also declare motor/encoder velocity controllers in its
+`solar_os` block. Load the model, then use `robot start` to create and enable
+those controllers and `robot stop` to close them. They use the same calibration
+and command watchdog as manually created joints. See [model controller bindings](robot-models.md#solaros-extension).
+
+Enabled motor joints appear under their joint names in `controller list` and
+`controller status <joint>`, with `owner=robot`. Their controller state and gains
+are also visible through `solaros.controllers`. Configure them through the joint
+API or URDF while disabled. `robot stop` removes the model's controller instances
+after hardware cleanup succeeds. A failed stop retains the instance for retry.
+`controller stop <joint>` stops and releases the bound endpoints and causes a
+joint fault. Recover with joint
+disable/enable, or model stop/start. Servo-position joints use the OS servo
+service and do not create a PID instance.
+
+Install `robot` from a compatible signed module catalog before creating a
 joint. Creating the first joint loads the installed library on demand; it does
 not download code. Loading, creating, configuring and binding do not energize
-outputs. `enable` explicitly claims hardware and starts a worker. The adapter
-is included with Python/Lua on supported native-module builds.
+outputs. `enable` explicitly claims hardware and starts control. Python/Lua
+bindings are included on supported native-module builds.
 
 ## Calibration
 
-Each joint owns these conversions:
+Each joint declares this configuration, applied through shared OS services:
 
 - `ppr`: A-channel pulse periods per encoder-shaft revolution, independent of
   decoding. Configure this explicitly for motor joints.
@@ -55,15 +72,14 @@ encoder wrap is accumulated in a 64-bit relative count, assuming fewer than
 constant in seconds; 0 disables filtering. The default is 0.1 seconds.
 
 Motor joints expose relative displacement since enable in `position`, but
-`position_valid` and `referenced` remain false: this version provides no
-homing or absolute position reference. Servo joints expose
+`position_valid` and `referenced` remain false because there is no homing or
+absolute position reference. Servo joints expose
 `commanded_position`; their measured position and velocity remain invalid.
 Motor drive is normalized demand, not torque or measured effort.
 
 ## Shell
 
-Joint operations live under `robot joint`. Other robot-library domains can use
-the same top-level command.
+Joint operations live under `robot joint`.
 
 ```text
 robot joint list
@@ -100,36 +116,30 @@ Feedback and device fault monitoring continue, but the command watchdog is
 not armed and the joint does not regulate velocity yet. An expired queued
 velocity command is discarded on enable. The first fresh `command` arms the
 watchdog, including an explicit zero command. Refresh targets in radians/second
-before their expiry. `disable` stops the worker and releases the
-devices after applying the configured stop behavior. `close` disables and
-destroys the joint, then releases its library lease.
+before their expiry. `disable` stops control and releases the devices after
+applying the configured stop behavior. `close` disables and destroys the joint.
 
 For a positional servo, `servo` specifies its input-shaft calibration. The
 adapter converts joint position to servo-shaft angle as
 `motor_polarity * (target - position_zero) * gear_ratio`. Supply a fresh
 position command in radians before enabling. Servo enable reserves PWM without
-pulses; the first worker update commands the position. Measured joint position
+pulses; the first control update commands the position. Measured joint position
 is unavailable without a feedback sensor. Disabling closes PWM and stops the
 signal; it does not remove actuator power.
 
 ## Control and lifecycle
 
-Velocity joints run the portable PI/PID implementation with private per-joint
-state. The loop reads feedback, converts counts, estimates velocity, ramps the
-velocity setpoint, updates the controller and writes normalized motor demand.
+Velocity joints use the OS PI/PID controller service with calibrated encoder
+feedback, setpoint ramping and normalized motor output.
 `motor_polarity` is applied after the controller; `encoder_polarity` is applied
 to feedback. Saturation, anti-windup and filtered derivative use the common
-controller implementation. Joint loops do not use `job controllers`.
-
-Each enabled joint has one joinable 4 KiB worker. Timing is bounded by provider
-calls and OS scheduling, without a hard real-time guarantee. Device callbacks
-must complete promptly and must not re-enter the robot library. A live joint
-holds a library lease through worker join and hardware cleanup.
+controller implementation. Joint control runs independently of `job controllers`,
+which can run other controller instances alongside it. Timing depends on device
+access and OS scheduling, without a hard real-time guarantee.
 
 Motor claims exclude ordinary drive, coast, brake and clear writes and prevent
 detach. Encoder reference claims permit shared reads but prevent reset and
-detach. Servo outputs use the servo/PWM ownership mechanism. Claim tokens are
-invalid after release and cannot control a newly registered device.
+detach. Servo outputs reserve their PWM output until disabled.
 
 Command expiry stops the output, resets the controller and enters `waiting`
 while retaining device claims and feedback monitoring. A fresh command resumes
@@ -200,8 +210,8 @@ anti-windup remains effective. Polarity is applied after summing these terms.
 mechanism begins to rotate. For example, a breakaway drive of 0.15 means
 rotation starts at about 15% of full-scale drive in that direction. This is an
 observed threshold; it does not measure power, torque, or the drive required
-to sustain rotation. It can differ by direction and load. This version does
-not implement a separate breakaway threshold or startup boost. A breakaway
+to sustain rotation. It can differ by direction and load. There is no separate
+breakaway threshold or startup boost. A breakaway
 observation alone does not calibrate `friction_bias_forward` or
 `friction_bias_reverse`.
 
@@ -210,7 +220,7 @@ less than `velocity_limit`. Commands with absolute value at or below this
 tolerance become a zero target before ramping. Encoder feedback is never
 zeroed by this tolerance. A zero velocity target remains closed-loop and may
 apply corrective drive; use `disable` to stop and release the motor. Mechanical
-backlash and servo pulse deadband are not compensated in this version.
+backlash and servo pulse deadband are not compensated.
 
 Periods accept 10 through 1000 ms. Timeouts and maximum gaps accept the period
 through 60000 ms. PPR, ratio, velocity and acceleration limits must be positive;
@@ -261,14 +271,8 @@ This example commands movement and assumes the specified calibration matches
 the connected mechanism. Lua uses the same names and arguments after
 `local solaros = require("solaros")`.
 
-## Native interfaces
-
-`solar_os_robot_abi.h` defines the optional `robot` library API, version 3. Acquire it
-through the native library service and keep the lease until every joint is
-closed. `solar_os_native_motion_abi.h` defines generic host motor claims,
-timestamped encoder sampling and owned servo operations. Its capability bits
-identify which underlying services are compiled. The robot ELF contains its
-own copy of the portable controller math, compiled from the shared source.
+Native API and build instructions are in the
+[robot library README](../../modules/robot/README.md).
 
 ## Quick reference
 
@@ -277,6 +281,7 @@ and polarities, and bind named motor/encoder or calibrated servo outputs.
 Counts per joint revolution are derived and exposed as read-only status.
 Enable explicitly and refresh commands within their timeout. Expiry stops output
 and waits for a fresh command; hardware and feedback faults require recovery.
-Status distinguishes commanded, relative and measured quantities. Disable joins workers and stops
-outputs before releasing claims; failed cleanup is retryable. Close joints before
-unloading the library. Python and Lua expose the same operations in solaros.robot.
+Status distinguishes commanded, relative and measured quantities. Disable stops
+outputs before releasing hardware; failed cleanup is retryable. Close joints before
+unloading the library. Enabled motor joints also appear in `controller list`
+under their joint names. Python and Lua expose the same operations in solaros.robot.
