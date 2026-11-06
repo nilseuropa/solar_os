@@ -60,6 +60,8 @@ TARGETS += robot_joint_test
 TARGETS += robot_integration_test
 TARGETS += robot_model_test
 ROBOT_MODEL_SOURCES := $(ROOT)/modules/robot/main/model.c $(ROOT)/modules/robot/main/transform.c
+ROBOT_DRIVE_HEADERS := $(ROOT)/include/solar_os_robot_diff_drive.h $(ROOT)/modules/robot/main/diff_drive.inc $(ROOT)/src/services/solar_os_robot_diff_drive.inc
+robot_model_test robot_joint_test robot_integration_test: $(ROBOT_DRIVE_HEADERS)
 MOTION_ENDPOINT_HEADERS := $(wildcard $(ROOT)/src/services/solar_os_encoder_endpoints.inc $(ROOT)/src/services/solar_os_motor_endpoints.inc $(ROOT)/src/services/solar_os_controllers_bound.inc $(ROOT)/src/services/solar_os_controller_stream.inc) $(ROOT)/include/solar_os_native_motion_abi.h $(ROOT)/include/solar_os_native_controllers_abi.h $(ROOT)/src/services/solar_os_stream.h
 MOTION_ENDPOINT_SOURCES := $(ROOT)/src/services/solar_os_stream.c $(ROOT)/src/services/solar_os_parameters.c motion_endpoint_clock.c
 ROBOT_CONTROLLER_SOURCES := $(ROOT)/src/services/solar_os_controllers.c $(ROOT)/src/services/solar_os_controller_tuning.c $(ROOT)/src/services/solar_os_native_controllers.c $(MOTION_ENDPOINT_SOURCES)
@@ -70,6 +72,7 @@ robot_model_test: robot_model_test.c $(ROBOT_MODEL_SOURCES) $(ROOT)/include/sola
 
 robot_integration_test: robot_integration_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/src/services/solar_os_controller_math.c $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c $(ROOT)/src/services/solar_os_native_motion.c $(ROOT)/src/services/solar_os_robot.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) $(ROOT)/modules/robot/main/joint_config.h $(ROOT)/include/solar_os_robot_abi.h robot_controller_stubs.inc
 robot_integration_test: $(ROBOT_CONTROLLER_HEADERS)
+robot_integration_test: diff_drive_integration_test.inc
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Irobot_stubs -Ipwm_stubs -I. -I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services robot_integration_test.c $(filter-out robot_integration_test.c $(ROOT)/modules/robot/main/robot.c,$(filter %.c,$^)) -pthread -lm -o $@
 
 robot_joint_test: robot_joint_test.c $(ROOT)/modules/robot/main/robot.c $(ROOT)/include/solar_os_robot_abi.h $(ROOT)/modules/robot/main/joint_config.h $(ROOT)/src/services/solar_os_controller_math.c $(ROBOT_MODEL_SOURCES) $(ROBOT_CONTROLLER_SOURCES) $(ROOT)/src/services/solar_os_motor.c $(ROOT)/src/services/solar_os_encoder.c robot_controller_stubs.inc

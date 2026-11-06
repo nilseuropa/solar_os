@@ -2,6 +2,7 @@
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_motion_abi.h"
 #include "solar_os_robot_model.h"
+#include "solar_os_robot_diff_drive.h"
 
 #define SOLAR_OS_ROBOT_LIBRARY "robot"
 #define SOLAR_OS_ROBOT_ABI 3U
@@ -85,6 +86,17 @@ typedef struct {
      * READY joint without claiming hardware. Caller owns and must close it. */
     int (*model_binding)(uint32_t model, uint32_t index, solar_os_robot_joint_config_v3_t *out);
     int (*model_create_joint)(uint32_t model, uint32_t index, uint32_t *joint);
+    /* One URDF-declared drive per model. open reserves its wheel joints;
+     * enable follows both joint enables. disable precedes joint cleanup;
+     * close follows it. The model lease pins all drive objects. */
+    int (*model_diff_drive)(uint32_t model, uint32_t index, solar_os_robot_diff_drive_config_t *out);
+    int (*diff_drive_open)(uint32_t model, uint32_t left, uint32_t right,
+        const solar_os_robot_diff_drive_io_t *io,void *context,uint32_t *drive);
+    int (*diff_drive_enable)(uint32_t drive);
+    int (*diff_drive_command)(uint32_t drive, float linear, float angular, uint64_t linear_us, uint64_t angular_us);
+    int (*diff_drive_status)(uint32_t drive, solar_os_robot_diff_drive_status_t *out);
+    int (*diff_drive_disable)(uint32_t drive);
+    int (*diff_drive_close)(uint32_t drive);
 } solar_os_robot_api_v3_t;
 
 #define SOLAR_OS_ROBOT_JOINT_API_SIZE offsetof(solar_os_robot_api_v3_t, model_load)

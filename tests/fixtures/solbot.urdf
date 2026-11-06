@@ -125,5 +125,10 @@
       <param name="acceleration_limit" value="10"/>
       <param name="command_timeout_ms" value="150"/>
     </joint>
+    <diff_drive name="base" left_joint="left_wheel_joint" right_joint="right_wheel_joint">
+      <geometry wheel_radius="0.0145" wheel_separation="0.0701282"/>
+      <odometry frame="odom" base_frame="base_footprint"/>
+      <param name="command_timeout_ms" value="300"/>
+    </diff_drive>
   </solar_os>
 </robot>

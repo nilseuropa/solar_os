@@ -1,9 +1,10 @@
 # Robot library
 
-Optional ESP32-S3 native library implementing URDF models, transforms and calibrated rotary joints. The
-versioned C API is [solar_os_robot_abi.h](../../include/solar_os_robot_abi.h).
+Optional ESP32-S3 native library implementing URDF models, transforms,
+calibrated rotary joints and differential drive. The versioned C API is
+[solar_os_robot_abi.h](../../include/solar_os_robot_abi.h).
 Motor/encoder velocity joints configure and tick bound OS controllers through
-native `controllers` ABI 1's append-only endpoint extension. Encoder scaling,
+native `controllers` ABI 1. Encoder scaling,
 velocity estimation and relative position belong to the encoder service. PID,
 ramping, deadband, friction feedforward and command freshness belong to the
 controller service. Motor polarity, output limits and stop behavior belong to
@@ -27,15 +28,21 @@ block declares motor/encoder velocity controllers; loading validates their
 configuration without creating controllers or claiming hardware. `robot start`
 creates and enables them, waiting with outputs stopped for fresh commands.
 `robot stop` releases model-owned controllers and retains the model. Stop before
-reloading or unloading; failed cleanup retains ownership for retry. Diff-drive
-and odometry execution are not implemented. The shell exposes `robot model load`, `set`, `transform`,
+reloading or unloading; failed cleanup retains ownership for retry. The optional
+diff_drive component converts body velocity to owned wheel commands and
+integrates measured encoder odometry. Its OS frontend publishes command,
+odometry and parameter endpoints. Use `stream write` to publish one command or
+periodically update several command streams; `stream echo` reads feedback.
+The shell exposes `robot model load`, `set`, `transform`,
 `point`, `vector`, inspection and `unload`. Python/Lua provide matching model
 operations. See [Robot models and transforms](../../doc/manual/robot-models.md).
 
 The shell exposes joint operations under `robot joint`. Continuous friction
 feedforward is configured with `friction_bias_forward` and
 `friction_bias_reverse`; an observed breakaway drive is a separate calibration
-quantity. This version does not implement a startup boost.
+quantity. There is no startup boost.
+
+## Native API
 
 The firmware's `motion` ABI supplies generic claims and device access. Its
 thread/time/memory services supply joinable workers, clocks and allocation.
@@ -48,10 +55,26 @@ Command expiry stops output and returns to waiting; a fresh command resumes
 without disable/enable. Hardware and feedback faults remain latched.
 Counts per joint revolution are derived from PPR, the actual decoding factor
 and encoder placement/gear ratio, and are exposed as read-only status.
-The provider API is `robot` ABI 3 with append-only model/transform functions;
-the generic host `motion` ABI remains 1. Joint-only clients retain prefix
-compatibility. Model clients require the extended table. Live model handles
-also prevent provider shutdown and must be closed before releasing a lease.
+The provider API is `robot` ABI 3 with appended model, transform and drive
+functions. Joint-only clients may request `SOLAR_OS_ROBOT_JOINT_API_SIZE`;
+model and drive clients must acquire a table large enough for the functions
+they use. The host `motion` and `controllers` ABIs are version 1.
+
+Native callers can keep up to four model handles, independently of the shared
+shell/Python/Lua model. Close every joint, drive and model before releasing its
+library lease. Model state and parser scratch use the native PSRAM allocator.
+Input XML is consumed synchronously; callers can release it after load.
+Transform functions support aliased input/output, normalize nonzero
+quaternions and reject invalid transforms without changing the output.
+Transform math and scalar streams use float32; odometry pose storage uses
+double precision.
+
+Drive I/O callbacks exchange command and status snapshots with a joint worker.
+Callbacks must not block or call back into robot/controller services, and
+their context must remain valid until `diff_drive_close` succeeds. See
+[solar_os_robot_diff_drive.h](../../include/solar_os_robot_diff_drive.h).
+
+## Build and install
 
 Build against a configured ESP32-S3 firmware SDK:
 

@@ -2,8 +2,8 @@
 id = "robot-models"
 title = "Robot models and transforms"
 section = "hardware"
-summary = "Load URDF models and query link transforms with the optional robot library"
-keywords = "robot model URDF Xacro transform quaternion forward kinematics frames solar_os"
+summary = "Load URDF models, query transforms and run declared joint and differential-drive components"
+keywords = "robot model URDF Xacro transform quaternion forward kinematics frames solar_os diff_drive odometry streams"
 packages_any = ["service_robot"]
 +++
 # Robot models and transforms
@@ -45,19 +45,26 @@ Loading parses and validates the document before replacing the resident model.
 It checks unique link and joint names, parent/child references, a single root,
 connectivity, cycles, duplicate fields, supported joint types, finite numeric
 values, axes and limits. A failed read or parse leaves the previous model intact.
-Loading does not create controllers, attach devices, claim hardware, start
-workers, or enable outputs. Existing independent joint controllers keep running.
+XML errors identify the line, column and offending field, for example:
+
+```text
+line 6, column 5: Unknown param attribute 'valule' on <param name='kd'>
+```
+
+Here the attribute must be `value`. Loading does not create controllers, attach
+devices, claim hardware or enable outputs. Existing independent joint
+controllers keep running.
 
 There is one device-wide resident model shared by the shell, Python and Lua.
 Loading another valid model replaces it and clears the old model's joint states.
-The model holds a native-library lease until explicit unload:
+The model remains available until explicit unload:
 
 ```text
 robot model unload
 ```
 
-Script teardown closes script-owned hardware joints but leaves the shared model
-available. The native library cannot unload while the model holds its lease.
+Ending a script closes its hardware joints but leaves the shared model available.
+Unload the model before unloading the robot library.
 
 ## Joint states and forward kinematics
 
@@ -89,8 +96,8 @@ returns identity even when that frame's pose relative to the root is unknown.
 
 This is current-state forward kinematics. There is no transform history,
 timestamp interpolation, ROS topic publication, external-frame insertion,
-automatic encoder binding, inverse solver, differential-drive execution or
-odometry in the model interface.
+automatic encoder binding or inverse solver in the model interface. The
+separate diff_drive component below supplies measured planar odometry.
 
 ## Transform direction
 
@@ -105,9 +112,7 @@ robot model vector base_link left_wheel_link 1 0 0
 
 `point` applies rotation and translation. `vector` applies rotation only.
 Transform output contains translation in metres and a normalized quaternion in
-`x y z w` order. Composition `A * B` applies B first, then A. Native transform
-functions support aliased input/output, normalize nonzero caller quaternions,
-and reject nonfinite or degenerate transforms without changing the output.
+`x y z w` order. Composition `A * B` applies B first, then A.
 
 For the supplied Solbot model at zero wheel angles, the left wheel centre is
 `[0, 0.0350641, 0]` in `base_link`, and the caster centre is
@@ -115,8 +120,8 @@ For the supplied Solbot model at zero wheel angles, the left wheel centre is
 
 ## SolarOS extension
 
-One optional `<solar_os version="1">` child of `<robot>` declares existing
-rotary motor velocity controllers alongside the standard model:
+One optional `<solar_os version="1">` child of `<robot>` declares rotary motor
+velocity controllers and components alongside the standard model:
 
 ```xml
 <solar_os version="1">
@@ -126,6 +131,7 @@ rotary motor velocity controllers alongside the standard model:
     <transmission gear_ratio="30"/>
     <param name="kp" value="0.04"/>
     <param name="ki" value="0.03"/>
+    <param name="kd" value="0"/>
     <param name="max_drive" value="0.2"/>
     <param name="velocity_limit" value="3"/>
     <param name="command_timeout_ms" value="150"/>
@@ -152,13 +158,14 @@ robot stop
 robot model unload
 ```
 
-`robot start` creates and configures all declared controllers, then enables them
-through the existing joint API. Device availability is checked during enable.
+`robot start` creates, configures and enables the declared controllers and
+components. Device availability is checked at startup.
 Motor joints create named PID instances in the OS controller service. Inspect
-them with `controller list` or `controller status <joint>` (`owner=robot`). The library applies calibration and bindings to shared OS encoder, motor and
-controller services. Their previous settings are restored before release;
+them with `controller list` or `controller status <joint>` (`owner=robot`).
+Calibration and bindings apply to the OS encoder, motor and controller services.
+Their previous settings are restored before release;
 failed cleanup retains the settings/claims for a stop retry.
-Outputs stay stopped until fresh joint commands arrive; the existing command
+Outputs stay stopped until fresh commands arrive; the configured command
 watchdog applies. A startup failure closes every controller created by that
 attempt. If a device stop or lease release fails, ownership is retained: retry
 `robot stop` before starting, replacing or unloading the model.
@@ -179,8 +186,106 @@ Up to eight bindings are allowed; bound joint names must fit 23 bytes.
 
 Verify example calibration, gains and polarities for the mounted hardware.
 Servo controllers remain available through the manual joint API; position and
-prismatic bindings are unsupported here. Diff-drive/odometry declarations are
-retained metadata with reference checks; `robot start` does not execute them.
+prismatic bindings are unsupported here.
+
+## Differential drive
+
+Declare one drive after its two velocity-controller bindings:
+
+```xml
+<diff_drive name="base" left_joint="left_wheel_joint" right_joint="right_wheel_joint">
+  <geometry wheel_radius="0.0145" wheel_separation="0.0701282"/>
+  <odometry frame="odom" base_frame="base_footprint"/>
+  <param name="command_timeout_ms" value="300"/>
+</diff_drive>
+```
+
+Place this block inside `<solar_os version="1">`. One drive is supported per
+model. Loading validates geometry, controller references and frame names. Both
+wheels must have velocity bindings; a wheel cannot belong to another active drive.
+`robot start` activates the drive after enabling its joints. It starts waiting
+for a body command. `robot stop` stops both outputs, releases the joints, and
+removes the component streams and parameters. Close stream readers and writers
+before stopping. If cleanup fails, close those handles and retry `robot stop`.
+
+Commands use forward linear X velocity in m/s and left-turn angular Z velocity
+in rad/s. Wheel commands are `(linear - angular * separation / 2) / radius`
+and `(linear + angular * separation / 2) / radius`, in joint rad/s. If either
+wheel would exceed its velocity limit, both commands are scaled together to
+preserve curvature. Existing joint PID, acceleration, polarity and drive limits
+still apply. Direct commands/disable on a drive-owned wheel are rejected; use
+the body-command streams or `robot stop`.
+
+```text
+stream status diff_drive.base.cmd_linear
+control parameter get diff_drive.base.linear_velocity_limit
+stream write diff_drive.base.cmd_linear 0.02 diff_drive.base.cmd_angular 0 --rate 20 --duration 2
+stream echo diff_drive.base.odom_x --once
+```
+
+This publishes both body-command axes at 20 Hz for two seconds. Without
+`--rate`, `stream write` updates each axis only once. Commands expire after
+the configured timeout; 300 ms is the default. Ending publishing sends no extra
+value, and the drive stops when its command timeout expires. A timeout pauses
+both wheel controllers with output zero, retaining ownership and feedback.
+Fresh body commands resume operation. A wheel feedback/control fault stops the pair and
+latches a drive fault; stop/start the robot to recover.
+
+Two float32 command streams are published:
+
+| Stream | Unit |
+| --- | --- |
+| `diff_drive.base.cmd_linear` | m/s |
+| `diff_drive.base.cmd_angular` | rad/s |
+
+Both are duplex: writing supplies a command, and reading returns the last
+accepted command. Readback is not measured motion; use the odometry streams
+below for feedback. Each accepts one writer and any number of observers.
+`stream status` shows each command's allowed range; an out-of-range
+`stream write` reports the rejected
+value, range and unit without renewing the command timestamp. Both axes must
+have fresh accepted samples before wheel commands are produced. Each axis has
+its own acquisition timestamp: publishing linear repeatedly does not renew a
+stale angular command. Publish both periodically, as in the example above.
+Opening or closing a writer does not itself activate output. Invalid values do
+not renew freshness. These two scalar inputs are not an atomic vector
+transport: a writer can briefly combine a new axis with the previous fresh axis.
+
+Owned parameters appear under `diff_drive.base`: `wheel_radius`,
+`wheel_separation`, `linear_velocity_limit`, `angular_velocity_limit` and
+`command_timeout_ms`. Change them in URDF, then stop/load/start. Optional
+velocity-limit params use m/s and rad/s. Without them, body limits are derived
+from the smaller wheel velocity limit and the geometry. For example, a wheel
+radius of 0.0145 m and a wheel velocity limit of 4 rad/s give a default linear
+limit of 0.058 m/s. `control parameter get` and `set` complete registered paths;
+robot-owned configuration rejects direct changes while the component exists.
+Streams and parameters are created on start, not model load. Component names
+fit 23 bytes.
+
+Odometry uses measured wheel displacement with the configured encoder scaling
+and polarities. Absolute joint referencing is unnecessary. Both wheel samples
+must advance before an update; their average acquisition time timestamps the
+result. Stale or invalid wheel feedback faults the drive.
+Pose integration follows the circular arc between samples, with +X forward
+and counterclockwise yaw. Each start resets pose to zero using the current
+wheel positions as its baseline.
+
+Read-only odometry streams share that acquisition timestamp:
+
+| Stream suffix under `diff_drive.base` | Unit |
+| --- | --- |
+| `odom_x`, `odom_y` | m |
+| `odom_yaw` | rad |
+| `odom_linear` | m/s |
+| `odom_angular` | rad/s |
+
+The scripting status API includes frames, pose, measured velocities, validity
+and sample time.
+The default odometry frame is `odom`; the base defaults to the URDF root. The
+base frame should describe the axle-centred, forward-facing body reference.
+These outputs provide a planar odom-to-base estimate for a bridge; they do not
+insert an external frame into `robot model transform`, publish ROS messages,
+estimate covariance or compensate wheel slip.
 
 ## Python and Lua
 
@@ -195,8 +300,10 @@ Both runtimes expose these functions on `solaros.robot`:
 | `model_transform(target, source)` | `translation` and `rotation` arrays; quaternion order is x,y,z,w. |
 | `model_point(target, source, x, y, z)` | Three coordinates after rotation and translation. |
 | `model_vector(target, source, x, y, z)` | Three coordinates after rotation only. |
-| `start()` | Create/configure/enable the loaded model's velocity controllers. |
-| `stop()` | Close model-owned controllers; retain the model. |
+| `start()` | Start the loaded model's controllers and components. |
+| `stop()` | Stop model-owned controllers and components; retain the model. |
+| `diff_drive_command(name, linear, angular)` | Update both body-command axes atomically, in m/s and rad/s. Rejects competing writes while either command stream has a writer. |
+| `diff_drive_status(name)` | Configuration, state, errors, body commands, wheel targets, measured pose and velocity, validity and sample timestamps. |
 
 Joint records include `name`, `parent`, `child`, numeric `kind`, `position` and
 `position_known`. Kinds are 0 fixed, 1 revolute, 2 continuous and 3 prismatic.
@@ -214,18 +321,10 @@ solaros.robot.model_unload()
 
 Lua uses the same names after `local solaros = require("solaros")`.
 
-## Native API and limits
+## URDF limits
 
-The append-only model and transform functions follow the joint-controller prefix
-in robot ABI 3 (`solar_os_robot_abi.h`). Model clients must acquire the full new
-table size; joint-only clients may request `SOLAR_OS_ROBOT_JOINT_API_SIZE`.
-An older robot ELF cannot satisfy model clients. Update the installed library
-alongside firmware when using the model commands.
-
-Native callers may keep up to four model handles, independently of the one
-shared firmware model. Each handle must be closed while its library lease is
-still held. Model state and parser scratch use the native PSRAM allocator;
-input XML is consumed synchronously and need not stay alive after load.
+Install compatible firmware and a matching robot library to use model and
+component commands.
 
 Limits are 128 KiB XML, 64 links, 63 joints, 63-byte names, 32 XML nesting levels,
 24 attributes per element, 255-byte decoded attribute values, and 32 KiB retained
@@ -233,17 +332,15 @@ SolarOS XML. Oversized input is rejected rather than truncated. The parser accep
 UTF-8, XML comments, processing instructions and predefined/numeric entities.
 DTD and external entities are unsupported. Floating, planar and mimic joints
 are explicitly unsupported. The model uses float transform math and has no
-dependency on ROS libraries.
+dependency on ROS libraries. Native API details are in the
+[robot library README](../../modules/robot/README.md).
 
 ## Quick reference
 
-Use `robot model load <file.urdf>` to load expanded URDF without hardware
-activation. Inspect `info`, `links`, `joints` and `metadata`. Supply movable
-joint positions with `robot model set <joint> <position>`; unknown positions
-block transforms only along the affected path. `robot model transform <target>
-<source>` maps source coordinates into target. `point` includes translation;
-`vector` rotates a direction only. Python/Lua expose matching `solaros.robot.model_*`
-functions. `robot start` enables velocity controllers declared in the version-1
-SolarOS extension; `robot stop` closes them while preserving the model. Stop
-before replacing or unloading a model with owned controllers. `robot model
-unload` releases the shared model. Diff-drive execution is not provided.
+Load expanded URDF with `robot model load <file.urdf>`. Inspect the model and
+supply joint positions with `robot model set` before querying transforms.
+`robot start` activates declared controllers and components; `robot stop`
+releases them while retaining the model. Publish component commands through
+streams, using `stream write <stream> <value> [...] --rate <Hz>` for periodic
+updates. Both differential-drive command axes must stay fresh. Read odometry
+with `stream echo`. Stop the robot before replacing or unloading its model.

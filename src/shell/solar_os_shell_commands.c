@@ -3040,6 +3040,11 @@ void solar_os_shell_cmd_stream(solar_os_context_t *ctx, int argc, char **argv)
                                  info.device[0] != '\0' ? info.device : "-");
         solar_os_shell_io_printf(term, "Format: %s\n", info.format);
         solar_os_shell_io_printf(term, "Unit: %s\n", info.unit[0] != '\0' ? info.unit : "-");
+        if (info.has_scalar_range) {
+            solar_os_shell_io_printf(term, "Allowed range: [%.6g, %.6g]%s%s\n",
+                                     (double)info.scalar_minimum, (double)info.scalar_maximum,
+                                     info.unit[0] != '\0' ? " " : "", info.unit);
+        }
         solar_os_shell_io_printf(term, "Summary: %s\n", info.summary);
         solar_os_shell_io_printf(term, "Handles: %" PRIu32 "\n", info.active_handles);
         solar_os_shell_io_printf(term, "Owner: %s\n",

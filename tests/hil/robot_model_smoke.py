@@ -25,6 +25,11 @@ EXTENSION = '''<solar_os version="1">
     <encoder device="left_encoder" ppr="70" placement="motor" polarity="1"/>
     <transmission gear_ratio="30"/>
   </joint>
+  <joint name="right_wheel_joint" command="velocity">
+    <motor device="right_motor"/>
+    <encoder device="right_encoder" ppr="70" placement="motor"/>
+    <transmission gear_ratio="30"/>
+  </joint>
   <diff_drive name="base" left_joint="left_wheel_joint" right_joint="right_wheel_joint">
     <geometry wheel_radius="0.0145" wheel_separation="0.0701282"/>
     <odometry frame="odom" base_frame="base_footprint"/>

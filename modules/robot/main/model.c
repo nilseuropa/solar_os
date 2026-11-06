@@ -32,6 +32,8 @@ struct solar_os_robot_model {
     model_joint_t joints[SOLAR_OS_ROBOT_MODEL_JOINT_MAX];
     char *extension;
     unsigned binding_count;
+    bool drive_seen, drive_geometry, drive_timeout;
+    solar_os_robot_diff_drive_config_t drive;
     struct {
         solar_os_robot_joint_config_v3_t config;
         uint32_t parameters, elements;
@@ -43,7 +45,7 @@ typedef struct { char name[NAME]; context_t context; int index; } frame_t;
 typedef struct { char name[NAME], value[VALUE]; } attribute_t;
 typedef struct {
     solar_os_robot_model_t *model;
-    const char *xml, *cursor, *end, *extension_start;
+    const char *xml, *cursor, *end, *extension_start, *at, *bad_attribute;
     char *error;
     size_t error_bytes;
     frame_t stack[DEPTH];
@@ -75,12 +77,48 @@ static bool copy_name(char *out, const char *in)
     return true;
 }
 
+/* Keep diagnostics inside the caller's buffer without adding libc formatting
+ * imports to the native library. Location is computed only on failure. */
+static void error_append(parser_t *p, const char *text)
+{
+    if (!p->error || !p->error_bytes || !text) return;
+    size_t used = strlen(p->error), n = strlen(text);
+    if (n >= p->error_bytes - used) n = p->error_bytes - used - 1;
+    memcpy(p->error + used, text, n); p->error[used + n] = 0;
+}
+
+static void error_number(parser_t *p, unsigned value)
+{
+    char digits[11]; unsigned n = 10;
+    digits[n] = 0;
+    do { digits[--n] = (char)('0' + value % 10); value /= 10; } while (value);
+    error_append(p, digits + n);
+}
+
 static int fail(parser_t *p, int code, const char *message)
 {
-    if (p->error && p->error_bytes) {
-        size_t n = strlen(message);
-        if (n >= p->error_bytes) n = p->error_bytes - 1;
-        memcpy(p->error, message, n); p->error[n] = 0;
+    if (!p->error || !p->error_bytes) return code;
+    *p->error = 0;
+    if (p->at) {
+        unsigned line = 1, column = 1;
+        for (const char *s = p->xml; s < p->at; ++s) {
+            if (*s == '\r') { ++line; column = 1; }
+            else if (*s == '\n') { if (s == p->xml || s[-1] != '\r') ++line; column = 1; }
+            else ++column;
+        }
+        error_append(p, "line "); error_number(p, line);
+        error_append(p, ", column "); error_number(p, column);
+        error_append(p, ": ");
+    }
+    error_append(p, message);
+    if (p->bad_attribute && p->depth < DEPTH) {
+        error_append(p, " '"); error_append(p, p->bad_attribute);
+        error_append(p, "' on <"); error_append(p, p->stack[p->depth].name);
+        for (unsigned i = 0; i < p->attrs; ++i) if (eq(p->attributes[i].name, "name")) {
+            error_append(p, " name='"); error_append(p, p->attributes[i].value);
+            error_append(p, "'"); break;
+        }
+        error_append(p, ">");
     }
     return code;
 }
@@ -227,12 +265,13 @@ static int reference(parser_t *p, const char *name, unsigned kind)
     return OK;
 }
 
-static bool allowed_attributes(const parser_t *p, const char *const *names, unsigned count)
+static bool allowed_attributes(parser_t *p, const char *const *names, unsigned count)
 {
+    p->bad_attribute = NULL;
     for (unsigned i=0; i<p->attrs; ++i) {
         unsigned j=0;
         while (j<count && !eq(p->attributes[i].name,names[j])) ++j;
-        if (j==count) return false;
+        if (j==count) { p->bad_attribute = p->attributes[i].name; return false; }
     }
     return true;
 }
@@ -331,12 +370,60 @@ static int start_element(parser_t *p, const char *name, frame_t *f)
             return OK;
         }
         if (parent->context == EXTENSION && eq(name, "diff_drive")) {
+            const char *const names[]={"name","left_joint","right_joint"};
+            if(!allowed_attributes(p,names,3)) return fail(p,ARG,"Unknown diff_drive attribute");
+            if(m->drive_seen) return fail(p,ARG,"Only one diff_drive per model is supported");
+            m->drive_seen=true;
+            solar_os_robot_diff_drive_config_t *d=&m->drive;
+            const char *drive_name=attr(p,"name"),*left=attr(p,"left_joint"),*right=attr(p,"right_joint");
+            if(!drive_name || !*drive_name || strlen(drive_name)>=sizeof(d->name) ||
+               !left || strlen(left)>=sizeof(d->left_joint) || !right || strlen(right)>=sizeof(d->right_joint))
+                return fail(p,ARG,"Invalid diff_drive or wheel name");
+            /* Component names also form parameter/stream path components. */
+            for(const char *s=drive_name;*s;++s) if(!name_char(*s,s==drive_name) || *s==':' || *s=='.')
+                return fail(p,ARG,"Invalid diff_drive name");
+            memcpy(d->name,drive_name,strlen(drive_name)+1);
+            memcpy(d->left_joint,left,strlen(left)+1);memcpy(d->right_joint,right,strlen(right)+1);
+            memcpy(d->odom_frame,"odom",5);d->command_timeout_ms=300;
             int e = reference(p, attr(p, "left_joint"), 2);
             if (e) return e;
             if (eq(attr(p, "left_joint"), attr(p, "right_joint"))) return fail(p, ARG, "Drive wheels must be distinct");
             return reference(p, attr(p, "right_joint"), 2);
         }
-        if (eq(parent->name, "diff_drive") && eq(name, "odometry")) return reference(p, attr(p, "base_frame"), 3);
+        if (eq(parent->name,"diff_drive")) {
+            solar_os_robot_diff_drive_config_t *d=&m->drive;
+            f->context=LEAF;
+            if(eq(name,"geometry")) {
+                const char *const names[]={"wheel_radius","wheel_separation"};
+                if(!allowed_attributes(p,names,2)) return fail(p,ARG,"Unknown drive geometry attribute");
+                if(m->drive_geometry || !numbers(attr(p,"wheel_radius"),&d->wheel_radius,1) ||
+                   !numbers(attr(p,"wheel_separation"),&d->wheel_separation,1) ||
+                   d->wheel_radius<=0 || d->wheel_separation<=0) return fail(p,ARG,"Invalid or duplicate drive geometry");
+                m->drive_geometry=true;return OK;
+            }
+            if(eq(name,"odometry")) {
+                const char *const names[]={"frame","base_frame"};
+                if(!allowed_attributes(p,names,2)) return fail(p,ARG,"Unknown odometry attribute");
+                if(d->base_frame[0] || !copy_name(d->odom_frame,attr(p,"frame")) ||
+                   !copy_name(d->base_frame,attr(p,"base_frame")) || eq(d->odom_frame,d->base_frame))
+                    return fail(p,ARG,"Invalid or duplicate odometry frames");
+                return reference(p,d->base_frame,3);
+            }
+            if(eq(name,"param")) {
+                const char *const names[]={"name","value"};float value;
+                if(!allowed_attributes(p,names,2)) return fail(p,ARG,"Unknown param attribute");
+                const char *key=attr(p,"name");
+                if(!numbers(attr(p,"value"),&value,1) || value<=0) return fail(p,ARG,"Invalid diff_drive parameter");
+                if(eq(key,"linear_velocity_limit") && !d->linear_limit) d->linear_limit=value;
+                else if(eq(key,"angular_velocity_limit") && !d->angular_limit) d->angular_limit=value;
+                else if(eq(key,"command_timeout_ms") && !m->drive_timeout && value>=10 && value<=60000 && value==(float)(uint32_t)value) {
+                    d->command_timeout_ms=(uint32_t)value;m->drive_timeout=true;
+                }
+                else return fail(p,ARG,"Unknown or duplicate diff_drive parameter");
+                return OK;
+            }
+            return fail(p,UNSUPPORTED,"Unsupported diff_drive element");
+        }
         return OK;
     }
     if (eq(name, "solar_os") && parent->context != ROBOT) return fail(p, ARG, "solar_os must be a robot child");
@@ -440,6 +527,7 @@ static int parse_xml(parser_t *p)
 {
     if (starts(p, "\xef\xbb\xbf")) p->cursor += 3;
     while (p->cursor < p->end) {
+        p->at = p->cursor;
         if (*p->cursor != '<') {
             bool text_allowed = p->depth && (p->stack[p->depth-1].context == SKIP ||
                 p->stack[p->depth-1].context == EXTENSION_CHILD);
@@ -544,6 +632,20 @@ static int validate_tree(parser_t *p)
         if (current != root || steps >= m->info.links) return fail(p, ARG, "Disconnected tree or joint cycle");
     }
     copy_name(m->info.root, m->links[root].name);
+    if(m->drive_seen) {
+        if(!m->drive_geometry) return fail(p,ARG,"diff_drive requires wheel geometry");
+        if(!m->drive.base_frame[0]) copy_name(m->drive.base_frame,m->info.root);
+        bool left=false,right=false;
+        for(unsigned i=0;i<m->binding_count;++i) {
+            left|=eq(m->bindings[i].config.name,m->drive.left_joint);
+            right|=eq(m->bindings[i].config.name,m->drive.right_joint);
+            if(eq(m->bindings[i].config.name,m->drive.left_joint) &&
+               m->drive.command_timeout_ms<m->bindings[i].config.period_ms)
+                return fail(p,ARG,"Drive command timeout is shorter than its update period");
+        }
+        if(!left || !right) return fail(p,ARG,"diff_drive wheels require velocity controller bindings");
+        if(eq(m->drive.odom_frame,m->drive.base_frame)) return fail(p,ARG,"Odometry and base frames must differ");
+    }
     for(unsigned i=0;i<m->binding_count;++i) {
         const solar_os_robot_joint_config_v3_t *c=&m->bindings[i].config;
         int index=joint_index(m,c->name);
@@ -573,6 +675,13 @@ int solar_os_robot_model_binding(const solar_os_robot_model_t *m, uint32_t index
     if(index>=m->binding_count) return MISSING;
     *out=m->bindings[index].config;
     return OK;
+}
+
+int solar_os_robot_model_diff_drive(const solar_os_robot_model_t *m,uint32_t index,solar_os_robot_diff_drive_config_t *out)
+{
+    if(!m || !out) return ARG;
+    if(index || !m->drive_seen) return MISSING;
+    *out=m->drive;return OK;
 }
 
 void solar_os_robot_model_destroy(solar_os_robot_model_t *m)
@@ -615,6 +724,8 @@ int solar_os_robot_model_parse(const solar_os_native_memory_api_v1_t *memory, co
     p->model = m; p->xml = p->cursor = xml; p->end = xml + bytes;
     p->error = error; p->error_bytes = error_bytes;
     int e = parse_xml(p);
+    /* Cross-reference/tree failures have no single offending XML token. */
+    p->at = NULL;
     if (!e) e = validate_tree(p);
     memory->free(p);
     if (e) solar_os_robot_model_destroy(m);

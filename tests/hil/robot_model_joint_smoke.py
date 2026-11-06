@@ -2,7 +2,7 @@
 """Exercise URDF-owned wheel controllers on a secured, lifted robot.
 
 Requires matching firmware/robot ELF, attached left/right motors and encoders,
-FTP on /sdcard and an expanded Solbot URDF. --motion is mandatory. Each motion
+FTP on /sdcard and a joint-only Solbot URDF without diff_drive. --motion is mandatory. Each motion
 window lasts at most two seconds at the URDF's existing drive cap (<= 0.2).
 The device script stops model-owned joints in finally; command expiry remains
 active throughout. No calibration or gains are changed.
@@ -24,6 +24,8 @@ import json
 r = solaros.robot
 c = solaros.controllers
 names = ("left_wheel_joint", "right_wheel_joint")
+with open(__MODEL__) as description:
+    assert "<diff_drive" not in description.read(), "Individual-wheel tests require a joint-only URDF without diff_drive"
 motors = ("left", "right")
 aux = __AUX__
 assert len(r.joints()) == 0, "Existing joints must be stopped first"

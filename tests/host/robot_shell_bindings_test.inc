@@ -34,6 +34,11 @@ static const char *run(const char *line)
     memset(&ctx.io,0,sizeof(ctx.io)); solar_os_shell_cmd_robot(&ctx,argc,argv);
     return ctx.io.output;
 }
+static void drive_shell_check(void)
+{
+    assert(strstr(run("robot diff_drive status base"),"usage: robot start|stop | joint|model"));
+    assert(strstr(run("robot diff_drive command base 0 0"),"usage: robot start|stop | joint|model"));
+}
 int main(void)
 {
     setup();
@@ -100,6 +105,7 @@ int main(void)
     assert(strstr(run("robot model unload"),"Run robot stop"));
     assert(strstr(run("robot stop"),"controllers stopped"));
     assert(!*run("robot model unload"));
+    drive_binding_check=drive_shell_check;diff_drive_integration_test();
     teardown(); puts("Robot shell: joint namespace, argument routing, calibration and lifecycle passed");
     return 0;
 }

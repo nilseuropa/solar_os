@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -225,6 +226,28 @@ int main(void)
     assert(solar_os_stream_read_scalar(&first,NULL,&value)==ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_stream_write(&first,&scalar_value,sizeof(scalar_value),0,&written)==ESP_OK && written==sizeof(scalar_value));
     assert(solar_os_stream_open("actuator0","competitor",&second)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_close_ex(&first)==ESP_OK);
+    assert(solar_os_stream_unregister("actuator0")==ESP_OK);
+    sink.info.has_scalar_range=true;sink.info.scalar_minimum=-.058f;sink.info.scalar_maximum=.058f;
+    sink.info.scalar_maximum=NAN;
+    assert(solar_os_stream_register(&sink)==ESP_ERR_INVALID_ARG);
+    sink.info.scalar_maximum=-1;
+    assert(solar_os_stream_register(&sink)==ESP_ERR_INVALID_ARG);
+    sink.info.scalar_maximum=.058f;
+    assert(solar_os_stream_register(&sink)==ESP_OK);
+    assert(solar_os_stream_get_info("actuator0",&info)==ESP_OK && info.has_scalar_range && info.scalar_maximum==.058f);
+    assert(solar_os_stream_open("actuator0","controller",&first)==ESP_OK);
+    const float rejected[]={.5f,-.5f,NAN,INFINITY,-INFINITY};
+    size_t bytes_before=bytes;
+    for(size_t i=0;i<sizeof(rejected)/sizeof(rejected[0]);++i) {
+        written=99;
+        assert(solar_os_stream_write(&first,&rejected[i],sizeof(float),0,&written)==ESP_ERR_INVALID_ARG && !written);
+        assert(bytes==bytes_before); /* The provider never receives an invalid command. */
+    }
+    assert(solar_os_stream_write(&first,&scalar_value,1,0,&written)==ESP_ERR_INVALID_ARG && !written);
+    const float accepted[]={-.058f,0,.058f};
+    for(size_t i=0;i<sizeof(accepted)/sizeof(accepted[0]);++i)
+        assert(solar_os_stream_write(&first,&accepted[i],sizeof(float),0,&written)==ESP_OK && written==sizeof(float));
     assert(solar_os_stream_close_ex(&first)==ESP_OK);
     assert(solar_os_stream_unregister("actuator0")==ESP_OK);
     puts("stream registry tests: ok");

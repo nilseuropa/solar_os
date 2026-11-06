@@ -90,6 +90,11 @@ typedef struct {
     uint64_t written_units;
     uint32_t overruns;
     uint32_t underruns;
+    /* Optional inclusive bounds for a single native float32 command.
+     * The registry rejects non-finite/out-of-range writes before the provider. */
+    bool has_scalar_range;
+    float scalar_minimum;
+    float scalar_maximum;
 } solar_os_stream_info_t;
 
 typedef struct {

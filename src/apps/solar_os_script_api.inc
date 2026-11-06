@@ -103,6 +103,8 @@ SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_point, model_point);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, model_vector, model_vector);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, start, start);
 SOLAR_OS_SCRIPT_API_FUNCTION(robot, stop, stop);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, diff_drive_command, diff_drive_command);
+SOLAR_OS_SCRIPT_API_FUNCTION(robot, diff_drive_status, diff_drive_status);
 SOLAR_OS_SCRIPT_API_MODULE_END(robot);
 #endif
 

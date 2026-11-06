@@ -8,6 +8,7 @@ static int solua_check_esp(lua_State *L,esp_err_t e) { return e==ESP_OK?0:luaL_e
 static void solua_set_str(lua_State *L,int d,const char *k,const char *v) { d=lua_absindex(L,d);lua_pushstring(L,v);lua_setfield(L,d,k); }
 static void solua_set_int(lua_State *L,int d,const char *k,lua_Integer v) { d=lua_absindex(L,d);lua_pushinteger(L,v);lua_setfield(L,d,k); }
 static void solua_set_num(lua_State *L,int d,const char *k,lua_Number v) { d=lua_absindex(L,d);lua_pushnumber(L,v);lua_setfield(L,d,k); }
+static void solua_set_bool(lua_State *L,int d,const char *k,bool v) { d=lua_absindex(L,d);lua_pushboolean(L,v);lua_setfield(L,d,k); }
 static uint32_t solua_optional_u32(lua_State *L,int n,uint32_t fallback) {
     if(lua_isnoneornil(L,n))return fallback;
     lua_Number x=luaL_checknumber(L,n);if(!isfinite(x)||x<0||x>UINT32_MAX||floor(x)!=x)luaL_error(L,"invalid uint32");return (uint32_t)x;
@@ -17,11 +18,17 @@ static uint32_t solua_optional_u32(lua_State *L,int n,uint32_t fallback) {
 #define TAG "test"
 const char *esp_err_to_name(esp_err_t e) { (void)e;return "error"; }
 #include "solar_os_lua_robot.inc"
+static lua_State *drive_lua;
+static void drive_lua_check(void)
+{
+    assert(luaL_dostring(drive_lua,"local s=robot.diff_drive_status('base');assert(s.odom_frame=='odom' and s.odometry_valid and s.x==0 and s.sample_us>0);robot.diff_drive_command('base',0,0)")==LUA_OK);
+}
 int main(void)
 {
     setup();lua_State *L=luaL_newstate();assert(L);luaL_openlibs(L);
     const luaL_Reg api[]={
         {"start",solua_robot_start},{"stop",solua_robot_stop},
+        {"diff_drive_command",solua_robot_diff_drive_command},{"diff_drive_status",solua_robot_diff_drive_status},
         {"model_load",solua_robot_model_load},
         {"model_unload",solua_robot_model_unload},
         {"model_info",solua_robot_model_info},
@@ -69,6 +76,7 @@ int main(void)
     assert(luaL_dostring(L,"robot.start();assert(robot.joint_status('model_wheel').state=='waiting')")==LUA_OK);
     solua_robot_destroy();assert(workers==1);
     assert(luaL_dostring(L,"robot.stop();assert(#robot.joints()==0);robot.model_unload()")==LUA_OK);
+    drive_lua=L;drive_binding_check=drive_lua_check;diff_drive_integration_test();
     lua_close(L);teardown();
     puts("Lua robot API with real interpreter and cleanup passed");return 0;
 }

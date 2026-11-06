@@ -2389,7 +2389,6 @@ static const char * const path_session_focus[] = {"session", "focus"};
 static const char * const path_stream[] = {"stream"};
 static const char * const path_stream_status[] = {"stream", "status"};
 static const char * const path_stream_echo[] = {"stream", "echo"};
-static const char * const path_stream_write[] = {"stream", "write"};
 static const char * const path_stream_echo_options[] = {"stream", "echo", SHELL_COMPLETION_ANY};
 static const char * const stream_echo_options[] = {"--once", "--rate"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
@@ -2738,6 +2737,8 @@ static const char * const path_control_get[] = {"control", "get"};
 static const char * const path_control_set[] = {"control", "set"};
 static const char * const path_control_unbind[] = {"control", "unbind"};
 static const char * const path_control_parameter[] = {"control", "parameter"};
+static const char * const path_control_parameter_get[] = {"control", "parameter", "get"};
+static const char * const path_control_parameter_set[] = {"control", "parameter", "set"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
 static const char * const path_osc[] = {"osc"};
@@ -3716,7 +3717,6 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_stream, stream_subcommands),
     SHELL_COMPLETION_STREAMS(path_stream_status),
     SHELL_COMPLETION_SCALAR_STREAMS(path_stream_echo),
-    SHELL_COMPLETION_SCALAR_SINKS(path_stream_write),
     SHELL_COMPLETION_OPTIONS(path_stream_echo_options, stream_echo_options),
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
     SHELL_COMPLETION_STATIC(path_stream_ble, stream_ble_subcommands),
@@ -3998,6 +3998,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_CONTROLS(path_control_unbind),
     SHELL_COMPLETION_STATIC(path_control_parameter,
                             control_parameter_subcommands),
+    SHELL_COMPLETION_PARAMETERS(path_control_parameter_get),
+    SHELL_COMPLETION_PARAMETERS(path_control_parameter_set),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
     SHELL_COMPLETION_STATIC(path_osc, osc_subcommands),
@@ -7555,6 +7557,27 @@ static void shell_completion_emit_streams(shell_completion_match_t *state, bool 
     }
 }
 
+static bool shell_completion_emit_stream_write(shell_completion_match_t *state,
+                                               const char *const *tokens,size_t token_count)
+{
+    if(token_count<2 || strcmp(tokens[0],"stream") || strcmp(tokens[1],"write"))return false;
+    bool rate=false,duration=false;
+    for(size_t i=2;i<token_count;++i) {
+        if(!strcmp(tokens[i],"--rate") || !strcmp(tokens[i],"--duration")) {
+            bool is_rate=!strcmp(tokens[i],"--rate");
+            if((is_rate && rate) || (!is_rate && duration))return true;
+            if(is_rate)rate=true;else duration=true;
+            if(++i==token_count)return true; /* Numeric option value. */
+        } else {
+            if(!strncmp(tokens[i],"--",2) || ++i==token_count)return true; /* Scalar value. */
+        }
+    }
+    shell_completion_emit_streams(state,true,true);
+    if(!rate)shell_completion_emit(state,"--rate");
+    if(!duration)shell_completion_emit(state,"--duration");
+    return true;
+}
+
 #if SOLAR_OS_PACKAGE_APP_DLP
 static void shell_completion_emit_dlp_streams(shell_completion_match_t *state)
 {
@@ -8802,6 +8825,8 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->io = shell_io(ctx);
     state->prefix = prefix;
     state->print = print;
+
+    if (shell_completion_emit_stream_write(state, tokens, token_count)) return true;
 
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
     if (shell_completion_emit_robot_model(state, tokens, token_count)) return true;

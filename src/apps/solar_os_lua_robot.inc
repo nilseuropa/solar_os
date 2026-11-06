@@ -142,6 +142,21 @@ static int solua_robot_model_load(lua_State *L)
 }
 static int solua_robot_model_unload(lua_State *L)
 { return solua_check_esp(L, solar_os_robot_model_unload()); }
+static int solua_robot_diff_drive_command(lua_State *L)
+{ return solua_check_esp(L,solar_os_robot_diff_drive_command(luaL_checkstring(L,1),(float)luaL_checknumber(L,2),(float)luaL_checknumber(L,3))); }
+static int solua_robot_diff_drive_status(lua_State *L)
+{
+    solar_os_robot_diff_drive_status_t s;
+    (void)solua_check_esp(L,solar_os_robot_diff_drive_status(luaL_checkstring(L,1),&s));
+    lua_newtable(L);int d=lua_gettop(L);
+    solua_set_str(L,d,"name",s.config.name);solua_set_str(L,d,"odom_frame",s.config.odom_frame);solua_set_str(L,d,"base_frame",s.config.base_frame);
+    solua_set_int(L,d,"state",s.state);solua_set_int(L,d,"last_error",s.last_error);solua_set_bool(L,d,"odometry_valid",s.odometry_valid);
+    solua_set_num(L,d,"x",s.x);solua_set_num(L,d,"y",s.y);solua_set_num(L,d,"yaw",s.yaw);
+    solua_set_num(L,d,"linear_velocity",s.linear_velocity);solua_set_num(L,d,"angular_velocity",s.angular_velocity);
+    solua_set_num(L,d,"command_linear",s.command_linear);solua_set_num(L,d,"command_angular",s.command_angular);
+    solua_set_num(L,d,"left_command",s.left_command);solua_set_num(L,d,"right_command",s.right_command);
+    solua_set_int(L,d,"sample_us",(lua_Integer)s.sample_us);return 1;
+}
 static int solua_robot_start(lua_State *L)
 { return solua_check_esp(L, solar_os_robot_start()); }
 static int solua_robot_stop(lua_State *L)

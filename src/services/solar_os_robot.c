@@ -6,6 +6,10 @@
 #include "freertos/semphr.h"
 #include "solar_os_native.h"
 #include "solar_os_memory.h"
+#include "solar_os_stream.h"
+#include "solar_os_parameters.h"
+#include "esp_timer.h"
+#include <math.h>
 
 typedef struct {
     uint32_t lease, joint;
@@ -42,8 +46,11 @@ static esp_err_t result(int e)
     }
 }
 
+#include "solar_os_robot_diff_drive.inc"
+
 static bool model_controllers(void)
 {
+    if(drive_front.id) return true;
     for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(entries[i].model_owned) return true;
     return false;
 }
@@ -220,10 +227,19 @@ esp_err_t solar_os_robot_model_unload(void)
 static esp_err_t stop_model_controllers(void)
 {
     model.started=false;
+    drive_front_accept(false);
+    if(drive_front.id) (void)model.api->diff_drive_disable(drive_front.id);
     esp_err_t err=ESP_OK;
     for(unsigned i=SOLAR_OS_ROBOT_JOINT_MAX;i>0;--i) if(entries[i-1].model_owned) {
         esp_err_t one=close_entry(&entries[i-1]);
         if(err==ESP_OK) err=one;
+    }
+    if(drive_front.id) {
+        esp_err_t one=drive_front_unpublish();if(err==ESP_OK)err=one;
+        if(err==ESP_OK) {
+            err=result(model.api->diff_drive_close(drive_front.id));
+            if(err==ESP_OK)memset(&drive_front,0,sizeof(drive_front));
+        }
     }
     return err;
 }
@@ -264,7 +280,8 @@ esp_err_t solar_os_robot_start(void)
      * velocity outputs stopped until a fresh explicit command arrives. */
     for(unsigned i=0;err==ESP_OK && i<SOLAR_OS_ROBOT_JOINT_MAX;++i)
         if(entries[i].model_owned) err=result(entries[i].api->enable(entries[i].joint));
-    if(err==ESP_OK) model.started=true;
+    if(err==ESP_OK)err=drive_front_start();
+    if(err==ESP_OK) { model.started=true;drive_front_accept(true); }
     else {
         esp_err_t cleanup_error=stop_model_controllers();
         if(cleanup_error!=ESP_OK) err=cleanup_error;

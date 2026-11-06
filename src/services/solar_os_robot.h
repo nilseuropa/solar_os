@@ -34,3 +34,5 @@ esp_err_t solar_os_robot_model_get_extension(char *out, size_t bytes);
  * only model-owned joints. Failed cleanup can be retried and pins the model. */
 esp_err_t solar_os_robot_start(void);
 esp_err_t solar_os_robot_stop(void);
+esp_err_t solar_os_robot_diff_drive_command(const char *name,float linear,float angular);
+esp_err_t solar_os_robot_diff_drive_status(const char *name,solar_os_robot_diff_drive_status_t *out);

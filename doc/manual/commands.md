@@ -904,12 +904,23 @@ unzip -l /books/archive.zip
 
 ## Streams, Logs, Ports, And Transfers
 
+`stream write` accepts up to eight distinct scalar stream/value pairs. Without
+`--rate` it writes each value once. With `--rate 1..100`, it keeps the writers
+open and publishes all values each cycle until Ctrl+C, a disconnect, or an error.
+`--duration` limits publishing to 0.001..86400 seconds and requires `--rate`.
+All values are validated and all streams opened before the first sample is
+written. Writes within a cycle are sequential, not an atomic transaction;
+a runtime failure can leave a partially written cycle. Missed periods are
+skipped rather than replayed. Timing is best effort. On exit, writers close
+without sending an extra value; each receiver applies its own hold or timeout
+policy.
+
 | Command | Usage | Description |
 | --- | --- | --- |
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
-| `stream` | `stream status <id>` | Show type, direction, provider, format, owner, and counters for one stream. |
+| `stream` | `stream status <id>` | Show type, direction, provider, format, owner, counters, and any declared scalar command range. |
 | `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
-| `stream` | `stream write <scalar-sink> <value>` | Send one native float32 scalar value and close the writer. Supports controller setpoints and servo commands in radians; subsequent hold/stop behavior belongs to the endpoint. |
+| `stream` | `stream write <scalar-sink> <value> [<scalar-sink> <value> ...] [--rate 1..100] [--duration seconds]` | Publish native float32 scalar values once or periodically. Values outside a declared command range are rejected with the stream ID, value, allowed range, and unit. Ctrl+C ends periodic publishing. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
 | `stream` | `stream tcp remove <name>` | Remove an unclaimed TCP listener or outbound stream. |
@@ -1319,7 +1330,7 @@ available for the compiled board.
 | `control` | `control bind <name> parameter <path> [pickup=on\|off]` | Bind a control to a typed native-app parameter with optional soft takeover. |
 | `control` | `control bind <name> midi <channel> <cc>` | Bind a control to a MIDI Control Change target. |
 | `control` | `control get\|set <name> [value]` | Read or set a normalized `0..65535` control value. |
-| `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. |
+| `control` | `control parameter get\|set <path> [value]` | Read or set an available native parameter in its declared unit. Both commands complete registered parameter paths. |
 | `control` | `control unbind <name>` | Remove all target bindings owned by one named control. |
 | `control` | `control delete <name>` or `control clear` | Remove one control and its bindings, or remove all controls and bindings. |
 | `encoder` | `encoder configure <name> <key> <value>` | Configure PPR, transmission, polarity or filtering for `enc.<name>` velocity feedback. |

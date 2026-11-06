@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -127,6 +128,15 @@ static bool stream_driver_valid(const solar_os_stream_driver_t *driver)
     }
     if (stream_direction_can_write(driver->info.direction) &&
         driver->write == NULL) {
+        return false;
+    }
+    if (driver->info.has_scalar_range &&
+        (driver->info.type != SOLAR_OS_STREAM_TYPE_SCALAR ||
+         !stream_direction_can_write(driver->info.direction) ||
+         strcmp(driver->info.format, "f32") != 0 ||
+         !isfinite(driver->info.scalar_minimum) ||
+         !isfinite(driver->info.scalar_maximum) ||
+         driver->info.scalar_minimum > driver->info.scalar_maximum)) {
         return false;
     }
     if (driver->info.type == SOLAR_OS_STREAM_TYPE_SCALAR && stream_direction_can_read(driver->info.direction) &&
@@ -693,6 +703,18 @@ esp_err_t solar_os_stream_write(solar_os_stream_handle_t *handle,
             write = entry->driver.write;
             if (write == NULL) {
                 err = ESP_ERR_NOT_SUPPORTED;
+            } else if (entry->driver.info.has_scalar_range) {
+                float value;
+                if (len != sizeof(value)) {
+                    err = ESP_ERR_INVALID_ARG;
+                } else {
+                    memcpy(&value, data, sizeof(value));
+                    if (!isfinite(value) ||
+                        value < entry->driver.info.scalar_minimum ||
+                        value > entry->driver.info.scalar_maximum) {
+                        err = ESP_ERR_INVALID_ARG;
+                    }
+                }
             }
         }
     }

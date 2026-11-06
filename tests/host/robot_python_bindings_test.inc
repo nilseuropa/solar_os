@@ -70,6 +70,13 @@ static uint32_t python_u32_from_obj(mp_obj_t v) { double n=mp_obj_get_float(v);i
 #define TAG "test"
 const char *esp_err_to_name(esp_err_t e) { (void)e;return "error"; }
 #include "solar_os_python_robot.inc"
+static void drive_python_check(void)
+{
+    mp_obj_t name=string("base"),s=solaros_robot_diff_drive_status(name);
+    assert(!strcmp(field(s,"odom_frame")->text,"odom") && field(s,"odometry_valid")->number);
+    assert(field(s,"x")->number==0 && field(s,"sample_us")->number>0);
+    solaros_robot_diff_drive_command(name,number(0),number(0));
+}
 int main(void)
 {
     setup();
@@ -121,5 +128,6 @@ int main(void)
     python_robot_destroy();assert(workers==1); /* Model controllers are shared. */
     solaros_robot_stop();assert(!workers && !solar_os_robot_joint_count());
     solaros_robot_model_unload();
+    drive_binding_check=drive_python_check;diff_drive_integration_test();
     teardown();puts("Python robot wrappers and interpreter cleanup passed");return 0;
 }

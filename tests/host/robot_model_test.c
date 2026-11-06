@@ -178,6 +178,8 @@ static void parser_validation(void)
     const char *metadata =
         "<robot name='meta'><solar_os version='1'><joint name='left' command='velocity'>"
         "<motor device='m'/><encoder device='e' ppr='70'/><transmission gear_ratio='30'/></joint>"
+        "<joint name='right' command='velocity'><motor device='mr'/><encoder device='er' ppr='70'/>"
+        "<transmission gear_ratio='30'/></joint>"
         "<diff_drive name='base' left_joint='left' right_joint='right'>"
         "<geometry wheel_radius='0.0145' wheel_separation='0.0701282'/>"
         "<odometry frame='odom' base_frame='root'/></diff_drive></solar_os>"
@@ -189,7 +191,30 @@ static void parser_validation(void)
     assert(solar_os_robot_model_extension(m,stored,info.extension_bytes+1)==OK);
     assert(strstr(stored,"<motor device='m'/>") && strstr(stored,"<diff_drive"));
     assert(!memcmp(stored,strstr(metadata,"<solar_os"),info.extension_bytes));
+    solar_os_robot_diff_drive_config_t drive;
+    assert(solar_os_robot_model_diff_drive(m,0,&drive)==OK);
+    assert(!strcmp(drive.name,"base") && !strcmp(drive.left_joint,"left") && !strcmp(drive.right_joint,"right"));
+    near(drive.wheel_radius,.0145f);near(drive.wheel_separation,.0701282f);
+    assert(!strcmp(drive.odom_frame,"odom") && !strcmp(drive.base_frame,"root") && drive.command_timeout_ms==300);
+    assert(solar_os_robot_model_diff_drive(m,1,&drive)==MISSING);
     free(stored);solar_os_robot_model_destroy(m);
+    const struct {const char *from,*to;} invalid_drive[]={
+        {"wheel_radius='0.0145'","wheel_radius='0'"},
+        {"wheel_separation='0.0701282'","wheel_separation='nan'"},
+        {"left_joint='left'","left_joint='right'"},
+        {"right_joint='right'","right_joint='missing'"},
+        {"<geometry wheel_radius='0.0145' wheel_separation='0.0701282'/>",""},
+        {"diff_drive name='base'","diff_drive name='base' bogus='1'"},
+        {"frame='odom' base_frame='root'","frame='root' base_frame='root'"},
+        {"</diff_drive>","<param name='typo' value='1'/></diff_drive>"},
+        {"</diff_drive>","<param name='command_timeout_ms' value='10'/></diff_drive>"},
+        {"</diff_drive>","<param name='command_timeout_ms' value='100'/><param name='command_timeout_ms' value='200'/></diff_drive>"},
+    };
+    for(unsigned i=0;i<sizeof(invalid_drive)/sizeof(invalid_drive[0]);++i) {
+        const char *at=strstr(metadata,invalid_drive[i].from);assert(at);char invalid[2048];
+        snprintf(invalid,sizeof(invalid),"%.*s%s%s",(int)(at-metadata),metadata,invalid_drive[i].to,at+strlen(invalid_drive[i].from));
+        reject(invalid);
+    }
     char deep[4096]="<robot name='x'><link name='r'/><gazebo>";
     for(unsigned i=0;i<40;++i)strcat(deep,"<a>");
     for(unsigned i=0;i<40;++i)strcat(deep,"</a>");
@@ -257,11 +282,46 @@ static void binding_validation(void)
     assert(solar_os_robot_model_binding(m,0,&c)==OK && c.encoder_on_output && c.friction_bias_forward==0.3f);
     assert(solar_os_robot_model_binding(m,1,&c)==MISSING);
     solar_os_robot_model_destroy(m);
+    snprintf(xml,sizeof(xml),"%s%s<param name='kd' value='0.005'/>"
+        "<param name='tau' value='0.02'/>%s",prefix,valid,suffix);
+    m=parse(xml);
+    assert(solar_os_robot_model_binding(m,0,&c)==OK);
+    near(c.kd,.005f);near(c.derivative_tau,.02f);
+    solar_os_robot_model_destroy(m);
+}
+
+static void parser_diagnostics(void)
+{
+    const char *xml="<robot name='bound'>\r\n"
+        "  <link name='r'/><link name='w'/>\r\n"
+        "  <joint name='wheel' type='continuous'><parent link='r'/><child link='w'/></joint>\r\n"
+        "  <solar_os version='1'><joint name='wheel' command='velocity'>\r\n"
+        "    <motor device='left'/><encoder device='enc' ppr='70'/><transmission gear_ratio='30'/>\r\n"
+        "    <param name='kd' valule='0.005'/>\r\n"
+        "  </joint></solar_os></robot>";
+    char error[128];solar_os_robot_model_t *m=NULL;
+    assert(solar_os_robot_model_parse(&memory,xml,strlen(xml),&m,error,sizeof(error))==ARG);
+    assert(!m && !allocations);
+    assert(!strcmp(error,"line 6, column 5: Unknown param attribute 'valule' on <param name='kd'>"));
+    puts(error);
+    /* Diagnostics are optional and always bounded, including a one-byte buffer. */
+    for(size_t n=0;n<=strlen(error);++n) {
+        char small[128];memset(small,'X',sizeof(small));
+        assert(solar_os_robot_model_parse(&memory,xml,strlen(xml),&m,small,n)==ARG);
+        assert(!m && !allocations && small[n]=='X');
+        if(n) assert(small[n-1]==0);
+    }
+    assert(solar_os_robot_model_parse(&memory,xml,strlen(xml),&m,NULL,0)==ARG);
+    /* General syntax failures identify their opening token, too. */
+    const char *bad="<robot name='x'>\n  <link name='r' name='s'/></robot>";
+    assert(solar_os_robot_model_parse(&memory,bad,strlen(bad),&m,error,sizeof(error))==ARG);
+    assert(!strcmp(error,"line 2, column 3: Duplicate XML attribute"));
 }
 
 int main(int argc,char **argv)
 {
-    transform_math();kinematics();parser_validation();binding_validation();solbot(argc>1?argv[1]:"../fixtures/solbot.urdf");
+    transform_math();kinematics();parser_validation();binding_validation();parser_diagnostics();
+    solbot(argc>1?argv[1]:"../fixtures/solbot.urdf");
     assert(!allocations);puts("robot model: transform math, URDF validation, unknown state, atomic batches, OOM and Solbot passed");
     return 0;
 }

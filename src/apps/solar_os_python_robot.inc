@@ -184,6 +184,28 @@ static mp_obj_t solaros_robot_model_unload(void)
     python_check_esp(solar_os_robot_model_unload()); return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_robot_model_unload_obj, solaros_robot_model_unload);
+static mp_obj_t solaros_robot_diff_drive_command(mp_obj_t name,mp_obj_t linear,mp_obj_t angular)
+{
+    python_check_esp(solar_os_robot_diff_drive_command(mp_obj_str_get_str(name),(float)mp_obj_get_float(linear),(float)mp_obj_get_float(angular)));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_3(solaros_robot_diff_drive_command_obj,solaros_robot_diff_drive_command);
+static mp_obj_t solaros_robot_diff_drive_status(mp_obj_t name)
+{
+    solar_os_robot_diff_drive_status_t s;
+    python_check_esp(solar_os_robot_diff_drive_status(mp_obj_str_get_str(name),&s));
+    mp_obj_t d=mp_obj_new_dict(0);
+    python_dict_store_cstr(d,"name",s.config.name);
+    python_dict_store_cstr(d,"odom_frame",s.config.odom_frame);python_dict_store_cstr(d,"base_frame",s.config.base_frame);
+    python_dict_store_uint(d,"state",s.state);python_dict_store_int(d,"last_error",s.last_error);
+    python_dict_store_bool(d,"odometry_valid",s.odometry_valid);
+    python_dict_store_float(d,"x",s.x);python_dict_store_float(d,"y",s.y);python_dict_store_float(d,"yaw",s.yaw);
+    python_dict_store_float(d,"linear_velocity",s.linear_velocity);python_dict_store_float(d,"angular_velocity",s.angular_velocity);
+    python_dict_store_float(d,"command_linear",s.command_linear);python_dict_store_float(d,"command_angular",s.command_angular);
+    python_dict_store_float(d,"left_command",s.left_command);python_dict_store_float(d,"right_command",s.right_command);
+    mp_obj_dict_store(d,python_key("sample_us"),python_u64_to_obj(s.sample_us));return d;
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_robot_diff_drive_status_obj,solaros_robot_diff_drive_status);
 static mp_obj_t solaros_robot_start(void)
 { python_check_esp(solar_os_robot_start()); return mp_const_none; }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_robot_start_obj, solaros_robot_start);

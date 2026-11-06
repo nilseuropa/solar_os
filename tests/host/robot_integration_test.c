@@ -323,6 +323,8 @@ static void model_controllers_test(void)
     assert(solar_os_robot_model_unload()==ESP_OK && !leases);
 }
 
+#include "diff_drive_integration_test.inc"
+
 int main(void)
 {
     setup();
@@ -391,6 +393,7 @@ int main(void)
     assert(solar_os_robot_joint_close("wheel")==ESP_OK && !leases);
     assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
     model_controllers_test();
+    diff_drive_integration_test();
     teardown();
     puts("robot integration: native device ABI, claims, encoder scaling, frontend leases and cleanup retry passed");
     return 0;

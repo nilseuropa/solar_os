@@ -17,7 +17,7 @@
 #define PI 3.14159265358979323846
 
 typedef struct {
-    uint32_t id, controller;
+    uint32_t id, controller, drive;
     solar_os_robot_joint_info_v3_t info;
     bool servo_open, busy, ppr_configured, ratio_configured;
     atomic_bool stop;
@@ -36,6 +36,21 @@ static joint_t *joints[SOLAR_OS_ROBOT_JOINT_MAX];
 static uint32_t next_id;
 static struct { uint32_t id; solar_os_robot_model_t *object; } models[SOLAR_OS_ROBOT_MODEL_MAX];
 static uint32_t next_model_id;
+typedef struct {
+    uint32_t id, model, left, right, period_ms, feedback_ms;
+    bool enabled, seeded;
+    float positions[2];
+    uint64_t samples[2], tick_us, enabled_us;
+    solar_os_robot_diff_drive_status_t info;
+    solar_os_robot_diff_drive_io_t io;
+    void *context;
+} drive_t;
+static drive_t drives[SOLAR_OS_ROBOT_MODEL_MAX];
+static uint32_t next_drive_id;
+static void drive_cycle(joint_t *a);
+static void drive_notify(joint_t *a);
+static drive_t *find_drive(uint32_t id)
+{ for(unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i) if(id && drives[i].id==id) return &drives[i];return NULL; }
 
 static bool equal(const char *a, const char *b)
 { if (!a || !b) return false; while (*a && *a == *b) { a++; b++; } return *a == *b; }
@@ -149,8 +164,10 @@ static void worker(void *user)
     while (!atomic_load(&a->stop)) {
         clock_api->sleep_ms(5);
         lock();
+        if(!atomic_load(&a->stop)) drive_cycle(a);
         if (!atomic_load(&a->stop) && (a->info.state == SOLAR_OS_ROBOT_ACTIVE ||
             a->info.state == SOLAR_OS_ROBOT_WAITING)) cycle(a);
+        if(!atomic_load(&a->stop)) drive_notify(a);
         unlock();
     }
 }
@@ -187,7 +204,7 @@ static int configure(uint32_t id, const char *key, float value)
     if (!key || !isfinite(value)) return ARG;
     lock(); joint_t *a = find(id);
     if (!a) { unlock(); return MISSING; }
-    if (a->busy || a->worker || claims(a)) { unlock(); return STATE; }
+    if (a->busy || a->drive || a->worker || claims(a)) { unlock(); return STATE; }
     solar_os_robot_joint_config_v3_t saved = a->info.config, *c = &a->info.config;
     int ret = solar_os_robot_config_set(c, key, value);
     if (!valid(a)) ret = ARG;
@@ -204,7 +221,7 @@ static int bind_motor(uint32_t id, const char *motor, const char *encoder)
 {
     if (!text(motor, 20) || !text(encoder, 20)) return ARG;
     lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
-    if (a && (a->busy || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_MOTOR_VELOCITY)) ret = STATE;
+    if (a && (a->busy || a->drive || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_MOTOR_VELOCITY)) ret = STATE;
     if (ret == OK) {
         copy(a->info.config.motor, motor, 20); copy(a->info.config.encoder, encoder, 20);
         a->info.decoding = 0; a->info.sample_us = 0;
@@ -218,7 +235,7 @@ static int bind_servo(uint32_t id, const solar_os_native_servo_config_v1_t *c)
         c->angle_min >= c->angle_max || !c->frequency_hz || c->frequency_hz > 1000 ||
         !c->pulse_min_us || c->pulse_min_us >= c->pulse_max_us || (uint64_t)c->pulse_max_us * c->frequency_hz >= 1000000) return ARG;
     lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
-    if (a && (a->busy || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_SERVO_POSITION)) ret = STATE;
+    if (a && (a->busy || a->drive || a->worker || claims(a) || a->info.config.kind != SOLAR_OS_ROBOT_SERVO_POSITION)) ret = STATE;
     if (ret == OK) a->info.config.servo = *c;
     unlock(); return ret;
 }
@@ -228,7 +245,7 @@ static int command(uint32_t id, float target)
     lock(); joint_t *a = find(id); int ret = a ? OK : MISSING;
     if (a) {
         const solar_os_robot_joint_config_v3_t *c = &a->info.config;
-        if (a->busy || a->info.state == SOLAR_OS_ROBOT_FAULT) ret = STATE;
+        if (a->busy || a->drive || a->info.state == SOLAR_OS_ROBOT_FAULT) ret = STATE;
         else if (c->kind == SOLAR_OS_ROBOT_MOTOR_VELOCITY ? fabsf(target) > c->velocity_limit :
                  target < c->position_min || target > c->position_max) ret = ARG;
         else if (c->kind == SOLAR_OS_ROBOT_SERVO_POSITION &&
@@ -255,7 +272,7 @@ static int enable(uint32_t id)
 {
     lock(); joint_t *a = find(id);
     if (!a) { unlock(); return MISSING; }
-    if (a->busy || a->worker || claims(a) || a->info.state != SOLAR_OS_ROBOT_READY) { unlock(); return STATE; }
+    if (a->busy || a->drive || a->worker || claims(a) || a->info.state != SOLAR_OS_ROBOT_READY) { unlock(); return STATE; }
     const solar_os_robot_joint_config_v3_t *c = &a->info.config;
     int err = valid(a) ? OK : ARG;
     a->info.velocity_valid = a->info.position_valid = a->info.referenced = 0;
@@ -299,6 +316,8 @@ static int disable(uint32_t id)
 {
     lock(); joint_t *a = find(id);
     if (!a) { unlock(); return MISSING; }
+    drive_t *d=find_drive(a->drive);
+    if(d && d->enabled) { unlock();return STATE; }
     if (a->busy) { unlock(); return STATE; }
     a->busy = true; atomic_store(&a->stop, true);
     void *w = a->worker; unlock();
@@ -323,12 +342,16 @@ static int status(uint32_t id, solar_os_robot_joint_info_v3_t *out)
     }
     unlock(); return a ? OK : MISSING;
 }
+#include "diff_drive.inc"
+
 static int close_joint(uint32_t id)
 {
     int err = disable(id); if (err != OK) return err;
     lock(); joint_t *a = find(id);
     if (!a) { unlock(); return MISSING; }
     if (a->worker || a->busy || claims(a)) { unlock(); return STATE; }
+    drive_t *d=find_drive(a->drive);
+    if(d) { if(d->left==id)d->left=0;if(d->right==id)d->right=0; }
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; i++) if (joints[i] == a) joints[i] = NULL;
     memory->free(a); unlock(); return OK;
 }
@@ -356,6 +379,7 @@ static int model_load(const char *xml, size_t bytes, uint32_t *id, char *error, 
 static int model_close(uint32_t id)
 {
     lock();
+    for(unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i) if(drives[i].id && drives[i].model==id) { unlock();return STATE; }
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; ++i) if (id && models[i].id == id) {
         solar_os_robot_model_t *m = models[i].object;
         models[i].id = 0; models[i].object = NULL;
@@ -381,6 +405,8 @@ static int model_extension(uint32_t id, char *out, size_t bytes)
 { MODEL_CALL(solar_os_robot_model_extension(m, out, bytes)); }
 static int model_binding(uint32_t id, uint32_t index, solar_os_robot_joint_config_v3_t *out)
 { MODEL_CALL(solar_os_robot_model_binding(m, index, out)); }
+static int model_diff_drive(uint32_t id,uint32_t index,solar_os_robot_diff_drive_config_t *out)
+{ MODEL_CALL(solar_os_robot_model_diff_drive(m,index,out)); }
 #undef MODEL_CALL
 
 static int model_create_joint(uint32_t id, uint32_t index, uint32_t *out)
@@ -408,7 +434,10 @@ static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .
     .model_lookup = model_lookup, .model_extension = model_extension,
     .transform_from_rpy = solar_os_robot_transform_from_rpy, .transform_compose = solar_os_robot_transform_compose,
     .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply,
-    .model_binding=model_binding, .model_create_joint=model_create_joint};
+    .model_binding=model_binding, .model_create_joint=model_create_joint,
+    .model_diff_drive=model_diff_drive,.diff_drive_open=drive_open,.diff_drive_enable=drive_enable,
+    .diff_drive_command=drive_command,.diff_drive_status=drive_status,
+    .diff_drive_disable=drive_disable,.diff_drive_close=drive_close};
 
 const solar_os_robot_api_v3_t *solar_os_robot_engine_init(
     const solar_os_native_memory_api_v1_t *m, const solar_os_native_time_api_v1_t *t,
