@@ -2,6 +2,20 @@
 
 ## 4.x
 
+- **4.17.6** — 2026-11-06 — Added URDF robot models, transform queries,
+  hardware bindings and explicit robot start/stop controls. Robot joints now use
+  OS controllers and scaled motor/encoder streams. Added differential-drive
+  command conversion and wheel-feedback odometry configured through URDF.
+  Added automatic PID tuning, controller setpoint streams and servo command
+  streams; servo angles now use radians. Added live scalar `stream echo`,
+  periodic writes to multiple streams and incoming OSC bindings that map
+  message arguments to scalar streams. Improved encoder-status freshness,
+  control and robot command completion, and URDF validation errors. Restored
+  OV5640 capture, improved RTSP streaming reliability and added runtime camera
+  orientation controls. Added Mac pointer controls and shell completion.
+  Fixed return to external display shells and repeated PCF8563 error logging.
+  Enabled runtime GPIO/PWM on GOOUUU GPIO2/3/45/46 and explicitly enabled
+  Sticky battery charging at boot.
 - **4.17.5** — 2026-11-02 — Added a screen keyboard overlay with full,
   symbols, and compact T-Deck punctuation modes, touch and arrow-key navigation,
   and configurable key or edge-swipe activation. Keyboard overlays preserve
