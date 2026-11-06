@@ -10,11 +10,19 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_stream.h"
+#include "solar_os_input.h"
+#include "solar_os_keys.h"
+#include "solar_os_net_session.h"
+#include "solar_os_port.h"
+#include "solar_os_time.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #define OSC_DEFAULT_RATE_HZ 50.0f
 
 static const char *const osc_usage =
     "osc bindings\n"
+    "  osc send <host:port> <address> <value> [value ...] [--rate 1..100] [--duration seconds]\n"
     "  osc bind <name> stream <stream> <address> [rate=hz] [delta=value] "
     "[send=change|always]\n"
     "  osc bind <name> receive <scalar-sink> <address> [arg=0..7]\n"
@@ -39,6 +47,8 @@ static bool osc_parse_float(const char *text, float *value)
     *value = parsed;
     return true;
 }
+
+#include "solar_os_shell_osc_send.inc"
 
 static void osc_print_error(solar_os_shell_io_t *io,
                             const char *operation,
@@ -225,6 +235,8 @@ void solar_os_shell_cmd_osc(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     if (argc == 2 && strcmp(argv[1], "bindings") == 0) {
         osc_list_bindings(io);
+    } else if (argc >= 2 && strcmp(argv[1], "send") == 0) {
+        osc_send_command(ctx, argc, argv);
     } else if (argc >= 2 && strcmp(argv[1], "bind") == 0) {
         osc_bind_command(io, argc, argv);
     } else if (argc == 3 && strcmp(argv[1], "unbind") == 0) {

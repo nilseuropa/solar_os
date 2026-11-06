@@ -1369,6 +1369,7 @@ available for the compiled board.
 | `robot` | `robot joint command <joint> <target>` | Refresh an joint target in radians/second or radians. |
 | `robot` | `robot joint enable\|disable\|close <joint>` | Activate, stop and release, or destroy an joint; see [Robot joints](robot.md). |
 | `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
+| `osc` | `osc send <host:port> <address> <value> [value ...] [--rate 1..100] [--duration seconds]` | Send one to eight float32 arguments in one UDP message, once or periodically; Ctrl+C stops. No running OSC job is required. |
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
 | `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |

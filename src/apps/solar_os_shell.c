@@ -1231,7 +1231,7 @@ static const char * const encoder_keys[] = {"ppr","gear_ratio","polarity","encod
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
 static const char * const osc_subcommands[] = {
-    "bindings", "bind", "unbind", "clear",
+    "bindings", "bind", "unbind", "clear", "send",
 };
 static const char * const osc_source_types[] = {"stream", "control", "receive"};
 static const char * const osc_receive_options[] = {"arg=0","arg=1","arg=2","arg=3","arg=4","arg=5","arg=6","arg=7"};
@@ -7583,6 +7583,32 @@ static bool shell_completion_emit_stream_write(shell_completion_match_t *state,
     return true;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+static bool shell_completion_emit_osc_send(shell_completion_match_t *state,
+    const char *const *tokens, size_t token_count)
+{
+    if (token_count < 2 || strcmp(tokens[0], "osc") || strcmp(tokens[1], "send")) return false;
+    if (token_count < 4) return true; /* Destination and address. */
+    bool rate = false, duration = false; size_t values = 0;
+    for (size_t i = 4; i < token_count; ++i) {
+        if (!strcmp(tokens[i], "--rate") || !strcmp(tokens[i], "--duration")) {
+            bool is_rate = !strcmp(tokens[i], "--rate");
+            if ((is_rate && rate) || (!is_rate && duration)) return true;
+            if (is_rate) rate = true; else duration = true;
+            if (++i == token_count) return true;
+        } else {
+            if (!strncmp(tokens[i], "--", 2)) return true;
+            ++values;
+        }
+    }
+    if (values) {
+        if (!rate) shell_completion_emit(state, "--rate");
+        if (!duration) shell_completion_emit(state, "--duration");
+    }
+    return true;
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_APP_DLP
 static void shell_completion_emit_dlp_streams(shell_completion_match_t *state)
 {
@@ -8832,6 +8858,9 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->print = print;
 
     if (shell_completion_emit_stream_write(state, tokens, token_count)) return true;
+#if SOLAR_OS_PACKAGE_SERVICE_OSC
+    if (shell_completion_emit_osc_send(state, tokens, token_count)) return true;
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
     if (shell_completion_emit_robot_model(state, tokens, token_count)) return true;

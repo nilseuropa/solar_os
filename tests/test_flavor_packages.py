@@ -938,7 +938,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(self.catalog.group_defs["osc"].members, ("job_osc",))
         self.assertEqual(
             self.catalog.package_defs["service_osc"].depends,
-            ("service_controls", "service_streams"),
+            ("service_controls", "service_streams", "service_script_net"),
         )
         self.assertEqual(
             self.catalog.package_defs["job_osc"].depends,
