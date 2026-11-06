@@ -391,8 +391,12 @@ class BoardManifestTest(unittest.TestCase):
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
-            {1, 14, 21, 41, 42, 47},
+            {1, 2, 3, 14, 21, 41, 42, 45, 46, 47},
         )
+        for gpio in (2, 3, 45, 46):
+            self.assertTrue(pins[gpio]["pwm"])
+        self.assertEqual({gpio for gpio,pin in pins.items() if pin.get("adc")}, {1, 2, 3, 14})
+        self.assertNotIn("input-only", pins[46]["role"])
         devices = {device["name"]: device for device in board["devices"]}
         self.assertEqual(
             devices["storage0"]["bindings"],

@@ -1627,6 +1627,26 @@ must not be exposed as runtime GPIO. The generic DevKitC target also reserves
 GPIO38 and GPIO48 because the onboard RGB LED moved between board revisions.
 Use a revision-specific board profile if one of those pins must be exposed.
 
+## GOOUUU ESP32-S3CAM GPIO
+
+GPIO2, GPIO3, GPIO45 and GPIO46 are available for runtime GPIO and PWM. GPIO2
+and GPIO3 also support ADC. GPIO46 supports both input and output on ESP32-S3.
+Configure them explicitly with `gpio mode`, `pwm` or an expansion attachment.
+
+GPIO2 may carry the board's status LED load. GPIO3 and GPIO46 are also labeled
+as onboard switch/shutter signals. Check that circuitry before driving outputs.
+GPIO3, GPIO45 and GPIO46 remain strapping pins during reset. GPIO3 selects a
+JTAG source, GPIO45 can select the flash/PSRAM supply voltage, and GPIO46
+participates in boot-mode and ROM-message selection. External wiring must
+preserve the levels required for boot, including when a peripheral is powered
+before the board. These reset functions are independent of runtime GPIO policy.
+See the [ESP32-S3 datasheet](https://www.espressif.com/documentation/esp32-s3_datasheet_en.pdf)
+for strapping and eFuse overrides.
+
+The runtime GPIO/PWM set is GPIO1-GPIO3, GPIO14, GPIO21, GPIO41, GPIO42 and
+GPIO45-GPIO47. ADC is available on GPIO1-GPIO3 and GPIO14. Camera, USB, PSRAM,
+SDMMC, console UART, BOOT/KEY and WS2812 pin assignments remain reserved.
+
 ## Display Boards
 
 For a board-integrated primary display, enable both `DISPLAY` and `GFX`, include
