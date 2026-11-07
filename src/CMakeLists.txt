@@ -320,6 +320,17 @@ foreach(SOLAR_OS_KEYMAP_PACKAGE IN LISTS SOLAR_OS_KEYMAP_REQUIRED_PACKAGES)
         message(FATAL_ERROR "Custom keymap requires package ${SOLAR_OS_KEYMAP_PACKAGE} in the selected flavor")
     endif()
 endforeach()
+if(SOLAR_OS_PACKAGE_EXPANSION_GPIO_MATRIX)
+    set(SOLAR_OS_KEYBOARD_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_keyboard_button.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SOLAR_OS_KEYBOARD_PATCH}")
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_KEYBOARD_PATCH}"
+        "${SOLAR_OS_PROJECT_DIR}/managed_components/espressif__keyboard_button"
+        RESULT_VARIABLE SOLAR_OS_KEYBOARD_PATCH_RESULT)
+    if(NOT SOLAR_OS_KEYBOARD_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "SolarOS keyboard scanner overlay failed")
+    endif()
+endif()
+
 if(SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES)
     set(SOLAR_OS_NATIVE_ELF_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_native_elf.py")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${SOLAR_OS_NATIVE_ELF_PATCH}")

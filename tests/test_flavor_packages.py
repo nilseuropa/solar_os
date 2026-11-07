@@ -39,6 +39,25 @@ class FlavorPackagesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid flavor name"):
             generate_flavor_config.public_flavor_name("full", "beta flavor")
 
+    def test_gpio_matrix_has_a_keymap_and_requires_expansion_gpio(self):
+        for flavor in ("full", "classic", "writerdeck"):
+            _, _, groups, packages = self.resolve(flavor)
+            enabled = flavor in ("full", "classic")
+            self.assertEqual(packages["expansion_gpio_matrix"], enabled)
+            if not enabled:
+                continue
+            self.assertTrue(packages["service_input_keymap"])
+            requires = generate_flavor_config.collect_requires(self.catalog, groups, packages)
+            self.assertIn("espressif__keyboard_button", requires)
+            for target in ("esp32", "esp32s3"):
+                selected = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+                _, supported = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, {"gpio", "expansion_gpio"})
+                self.assertTrue(supported["expansion_gpio_matrix"])
+                _, unsupported = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, set())
+                self.assertFalse(unsupported["expansion_gpio_matrix"])
+
     def test_radio_scanner_requires_graphics_and_radio_service(self):
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["radio_scanner"])

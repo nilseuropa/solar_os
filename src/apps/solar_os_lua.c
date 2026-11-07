@@ -4371,6 +4371,8 @@ static int solua_expansion_devices(lua_State *L)
 static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
+        "row0", "row1", "row2", "row3", "row4", "row5", "row6", "row7", "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9",
+        "drive", "diodes", "debounce-ms",
         "stream", "timeout-ms", "ready", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
         "mode", "invert", "pull", "filter_ns",
         "spi", "cs", "ce", "i2c", "addr", "alt_addr", "uart", "ps2", "gpio", "irq", "int", "reset",
@@ -4613,6 +4615,24 @@ static int solua_expansion_attach(lua_State *L)
         const char *role;
         solar_os_expansion_binding_kind_t kind;
     } pin_bindings[] = {
+        {"row0", "row0", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row1", "row1", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row2", "row2", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row3", "row3", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row4", "row4", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row5", "row5", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row6", "row6", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"row7", "row7", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col0", "col0", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col1", "col1", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col2", "col2", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col3", "col3", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col4", "col4", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col5", "col5", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col6", "col6", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col7", "col7", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col8", "col8", SOLAR_OS_EXPANSION_BINDING_GPIO},
+        {"col9", "col9", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"gpio", "gpio", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"irq", "irq", SOLAR_OS_EXPANSION_BINDING_GPIO},
         {"int", "int", SOLAR_OS_EXPANSION_BINDING_GPIO},
@@ -4667,6 +4687,7 @@ static int solua_expansion_attach(lua_State *L)
                                     -1);
     }
     static const char *const parameter_bindings[] = {
+        "drive", "diodes", "debounce-ms",
         "min", "center", "max", "deadzone", "timeout-ms", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
         "mode", "invert", "pull", "filter_ns",
     };

@@ -221,6 +221,73 @@ expansion detach battery0
 Use a high-impedance divider suitable for the expected battery voltage. The
 divided voltage must remain inside the ESP32 ADC input range.
 
+## GPIO keyboard matrices
+
+`gpio-matrix` scans a passive switch matrix directly using native ESP32 GPIOs.
+It is included in the `full` and `classic` flavors and requires no keyboard
+controller or GPIO expander. Each row and column uses one available GPIO:
+a 4×4 matrix uses eight pins; an 8×10 matrix uses eighteen.
+
+Assign contiguous, zero-based `row0` through `row7` and `col0` through `col9`
+bindings. Use only pins available on the running board; attachment claims them
+exclusively. For example, this 2×2 matrix uses four free pins on the
+ESP32-S3 DevKitC profile:
+
+```text
+expansion attach gpio-matrix keys0 row0=gpio4 row1=gpio5 col0=gpio6 col1=gpio7
+input keymap keys0 show
+input test keys0
+```
+
+The defaults are `drive=0` (drive rows, sense columns), `debounce-ms=10`, and
+`diodes=0` (enable ghost detection). `drive=1` drives columns and senses rows
+instead. The scanner uses active-low open-drain outputs, releases inactive
+lines, enables input pull-ups, and scans once per millisecond. Sense pins must
+support internal pull-ups; classic ESP32 GPIO34–39 are not supported.
+
+Without diodes, ambiguous rectangles suppress new key presses while preserving
+already-held keys until release. This avoids reporting phantom keys but cannot
+recover every simultaneous combination. If every key has an isolation diode,
+set `diodes=1` to allow all combinations. Diodes must conduct from the sensed
+line towards the driven line; change `drive` to match their orientation.
+
+There is no assumed keyboard layout. The initial profile publishes physical
+press/release events with IDs `1 + row * column_count + col`. Load a source
+keymap to produce characters, shortcuts, modifiers, and layers. For example,
+save this as `/matrix.json` to map the first row to A and Enter:
+
+```json
+{"schema":1,"keys":[{"row":0,"col":0,"usage":4},{"row":0,"col":1,"usage":40}]}
+```
+
+```text
+input keymap keys0 load /matrix.json
+expansion detach keys0
+```
+
+Changing a keymap releases held keys; release and press those switches again.
+Save the device for startup through `expansion` and load the map from a startup
+script to restore the configuration after reboot. Detach stops the scanner,
+releases held keys, and resets the pins before releasing their claims.
+
+Python and Lua accept the same binding names through `solaros.expansion.attach`:
+
+```python
+solaros.expansion.attach("gpio-matrix", "keys0", {
+    "row0": 4, "row1": 5, "col0": 6, "col1": 7, "debounce-ms": 15
+})
+solaros.input.load_keymap("keys0", "/matrix.json")
+```
+
+```lua
+solaros.expansion.attach("gpio-matrix", "keys0", {
+    row0=4, row1=5, col0=6, col1=7, ["debounce-ms"]=15
+})
+solaros.input.load_keymap("keys0", "/matrix.json")
+```
+
+## Other input devices
+
 Other input devices follow the same lifecycle:
 
 ```text

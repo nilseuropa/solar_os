@@ -302,6 +302,11 @@ label = "GPIO keyboard"
 category = "Hardware tools"
 members = ["job_gpio_keys"]
 
+[groups.gpio_matrix]
+label = "GPIO keyboard matrix"
+category = "Hardware tools"
+members = ["expansion_gpio_matrix"]
+
 [groups.handwriting_input]
 label = "Graffiti handwriting input"
 category = "Hardware tools"
@@ -2361,6 +2366,14 @@ sources = [
   "services/solar_os_gpio_keys.c",
   "services/solar_os_gpio_keys_driver.c",
 ]
+capabilities = ["expansion_gpio"]
+
+[packages.expansion_gpio_matrix]
+label = "expansion.gpio-matrix"
+expansion_drivers = ["solar_os_gpio_matrix_expansion_driver"]
+depends = ["service_expansion", "service_resources", "service_input_keymap"]
+sources = ["services/solar_os_gpio_matrix.c", "services/solar_os_gpio_matrix_driver.c"]
+requires = ["espressif__keyboard_button", "esp_driver_gpio"]
 capabilities = ["expansion_gpio"]
 
 [packages.expansion_trackball]

@@ -59,6 +59,7 @@ sump = true
 bridge = true
 daq = true
 gpio_keys = true
+gpio_matrix = true
 handwriting_input = true
 ps2_keyboard = true
 midi = true

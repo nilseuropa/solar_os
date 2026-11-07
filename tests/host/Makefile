@@ -23,6 +23,13 @@ paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/sol
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
 
 TARGETS += input_route_test screen_keyboard_layout_test display_layer_test screen_keyboard_job_test
+TARGETS += gpio_matrix_test
+
+gpio_matrix_test: gpio_matrix_test.c $(wildcard $(ROOT)/src/services/solar_os_gpio_matrix*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) gpio_matrix_stubs/keyboard_button.h
+	$(CC) $(CFLAGS) -include compat.h -Igpio_matrix_stubs -Iinputronic_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) gpio_matrix_test.c \
+		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
 screen_keyboard_job_test: screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c $(ROOT)/src/jobs/solar_os_screen_keyboard_job.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections -I$(ROOT)/components/u8g2/src/clib -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services -I$(ROOT)/src/shell screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c -Wl,--gc-sections -o $@
@@ -1167,13 +1174,15 @@ expansion_registry_test: expansion_registry_test.c \
 		$(ROOT)/src/services/solar_os_ssd1677_driver.c -Wl,--gc-sections -o $@
 
 expansion_command_test: expansion_command_test.c \
+		$(ROOT)/src/services/solar_os_gpio_matrix_driver.c \
+		$(ROOT)/src/shell/solar_os_shell_parse.c \
 		$(ROOT)/src/shell/solar_os_shell_expansion_command.c \
 		$(ROOT)/src/shell/solar_os_shell_expansion_internal.h \
 		$(ROOT)/src/services/solar_os_expansion.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. \
 		-I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/shell expansion_command_test.c \
-		$(ROOT)/src/shell/solar_os_shell_expansion_command.c -o $@
+		$(ROOT)/src/shell/solar_os_shell_expansion_command.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
 audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h $(ROOT)/src/services/solar_os_audio_pcm.c $(ROOT)/src/services/solar_os_audio_pcm.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_AUDIO_CODEC_HOST_TEST -I. -I$(ROOT)/src/services -I$(ROOT)/components/minimp3/include \

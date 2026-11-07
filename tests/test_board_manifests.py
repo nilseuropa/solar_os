@@ -39,6 +39,27 @@ class BoardManifestTest(unittest.TestCase):
         cls.manifest_dir = ROOT / "boards" / "manifests"
         cls.drivers = load_driver_catalog(ROOT / "boards" / "expansion_drivers.toml")
 
+    def test_gpio_matrix_board_profile_preserves_all_eighteen_pins(self):
+        board = load_board_manifest(self.manifest_dir / "esp32_s3_devkitc1_n16r8.toml", self.manifest_dir)
+        pins = [pin["gpio"] for pin in board["pins"] if pin["policy"] == "free"]
+        self.assertGreaterEqual(len(pins), 18)
+        bindings = {f"row{i}": pin for i, pin in enumerate(pins[:8])}
+        bindings.update({f"col{i}": pin for i, pin in enumerate(pins[8:18])})
+        bindings.update({"drive": 1, "diodes": 1, "debounce-ms": 15})
+        for pin in board["pins"]:
+            if pin["gpio"] in pins[:18]:
+                pin["policy"] = "fixed"
+                pin["role"] = "keys0 matrix"
+                pin["adc"] = False
+                pin["pwm"] = False
+        board.setdefault("devices", []).append({"driver": "gpio-matrix", "name": "keys0", "bindings": bindings})
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn('.driver = "gpio-matrix", .name = "keys0"', header)
+        self.assertIn('.role = "col9"', header)
+        self.assertIn('.role = "debounce-ms", .value = 15', header)
+        self.assertIn("expansion_gpio_matrix", required_packages(board, self.drivers))
+
     def test_ssd1680_catalog_has_an_optional_default_panel(self) -> None:
         driver = self.drivers["ssd1680"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))
@@ -749,9 +770,9 @@ bindings = { gpio = 7 }
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
         too_many_bindings = deepcopy(board)
-        for i in range(17):
+        for i in range(25):
             too_many_bindings["devices"][0]["bindings"][f"extra{i}"] = 0
-        with self.assertRaisesRegex(ManifestError, "more than 16 bindings"):
+        with self.assertRaisesRegex(ManifestError, "more than 24 bindings"):
             validate_board(too_many_bindings, self.drivers)
 
     def test_x4_pro_claims_fixed_peripherals_and_neutral_frontlight(self) -> None:
