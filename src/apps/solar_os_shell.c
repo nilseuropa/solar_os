@@ -831,6 +831,8 @@ static const char * const display_orientation_values[] = {"0", "90", "180", "270
 static const char * const display_scale_values[] = {"1", "2", "3", "4"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
+static const char * const setterm_cursor_shapes[] = {"block", "underscore"};
+static const char * const setterm_cursor_modes[] = {"blink", "steady"};
 static const char * const setterm_palette_values[] = {"normal", "inverted"};
 static const char * const setterm_statusbar_values[] = {"show", "hide"};
 static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", "100"};
@@ -1963,6 +1965,8 @@ static const char * const path_setterm_scale[] = {"setterm", "scale"};
 static const char * const path_setterm_display_scale[] = {"setterm", "--display", SHELL_COMPLETION_ANY, "scale"};
 static const char * const path_setterm_font[] = {"setterm", "font"};
 static const char * const path_setterm_textsize[] = {"setterm", "textsize"};
+static const char * const path_setterm_cursor[] = {"setterm", "cursor"};
+static const char * const path_setterm_cursor_mode[] = {"setterm", "cursor", SHELL_COMPLETION_ANY};
 static const char * const path_setterm_palette[] = {"setterm", "palette"};
 static const char * const path_setterm_statusbar[] = {"setterm", "statusbar"};
 static const char * const path_setterm_brightness[] = {"setterm", "brightness"};
@@ -3481,6 +3485,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_display_scale, display_scale_values),
     SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
+    SHELL_COMPLETION_STATIC(path_setterm_cursor, setterm_cursor_shapes),
+    SHELL_COMPLETION_STATIC(path_setterm_cursor_mode, setterm_cursor_modes),
     SHELL_COMPLETION_STATIC(path_setterm_palette, setterm_palette_values),
     SHELL_COMPLETION_STATIC(path_setterm_statusbar, setterm_statusbar_values),
     SHELL_COMPLETION_STATIC(path_setterm_brightness, setterm_brightness_values),

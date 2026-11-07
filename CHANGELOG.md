@@ -12,7 +12,8 @@
   optional periodic sending. Added SSD1680 expansion support for 122x250
   monochrome e-paper displays with rotation, partial/full refresh and automatic
   cleanup. Fixed manual tables to preserve command alternatives and wrap long
-  cell text.
+  cell text. Added global CLI/TUI cursor settings with block or underscore
+  shapes and blinking or steady modes; the default is a blinking block.
 - **4.17.6** — 2026-11-06 — Added URDF robot models, transform queries,
   hardware bindings and explicit robot start/stop controls. Robot joints now use
   OS controllers and scaled motor/encoder streams. Added differential-drive
