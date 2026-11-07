@@ -22,6 +22,7 @@ static uint8_t opcodes[1024];
 static uint8_t rx_gain = 0x94;
 static bool fail_gain;
 static uint8_t gfsk_bw;
+static uint8_t lora_ldro = 0xff;
 
 int64_t esp_timer_get_time(void) { return now_us; }
 void esp_rom_delay_us(uint32_t us) { now_us += us; }
@@ -49,6 +50,7 @@ esp_err_t solar_os_bus_spi_transfer(const char *name, int cs, uint8_t mode,
     }
     assert(!asleep && !stuck_busy);
     if (tx[0] == SX1262_OP_SET_MODULATION_PARAMS && len == 9) gfsk_bw = tx[5];
+    if (tx[0] == SX1262_OP_SET_MODULATION_PARAMS && len == 5) lora_ldro = tx[4];
     if (tx[0] == SX1262_OP_GET_RSSI_INST) {
         assert(len == 3 && tx[1] == 0 && tx[2] == 0);
         rx[1] = 0x24; /* Status is not RSSI. */
@@ -188,6 +190,22 @@ int main(void)
     fail_gain = false;
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_RX) == ESP_OK);
     assert(rx_gain == 0x96);
+    /* Low-data-rate optimize is on wherever a LoRa symbol lasts longer than
+     * 16 ms, as the other LoRa drivers and LoRa peers decide it. */
+    static const struct { uint8_t sf; uint32_t bw_hz; uint8_t ldro; } ldro_cases[] = {
+        {7, 125000, 0}, {10, 125000, 0}, {11, 125000, 1}, {12, 125000, 1},
+        {11, 250000, 0}, {12, 250000, 1}, {12, 500000, 0},
+        {9, 62500, 0}, {10, 62500, 1}, {7, 15600, 0}, {8, 15600, 1},
+        {6, 7800, 0}, {7, 7800, 1},
+    };
+    for (size_t i = 0; i < sizeof(ldro_cases) / sizeof(ldro_cases[0]); i++) {
+        config.spreading_factor = ldro_cases[i].sf;
+        config.rx_bandwidth_hz = ldro_cases[i].bw_hz;
+        lora_ldro = 0xff;
+        assert(sx1262_configure(&dev, &config) == ESP_OK);
+        assert(lora_ldro == ldro_cases[i].ldro);
+    }
+    config.spreading_factor = 7;
     config.modulation = SOLAR_OS_RADIO_MODULATION_GFSK;
     config.rx_bandwidth_hz = 62500;
     assert(sx1262_configure(&dev, &config) == ESP_OK && gfsk_bw == 0x1b);
@@ -206,6 +224,6 @@ int main(void)
     before = transfers;
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_STANDBY) == ESP_ERR_TIMEOUT);
     assert(transfers == before && dev.state == SOLAR_OS_RADIO_STATE_RX);
-    puts("SX1262 sleep/wake, retained configuration, failure retry and packet I/O: ok");
+    puts("SX1262 sleep/wake, retained configuration, failure retry, packet I/O and LoRa low-data-rate optimize: ok");
     return 0;
 }

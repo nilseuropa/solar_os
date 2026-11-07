@@ -378,6 +378,24 @@ static uint8_t sx1262_lora_bandwidth_code(uint32_t bw_hz)
     return 0x06U; /* 500 kHz */
 }
 
+/* The bandwidth a LoRa bandwidth code selects, in Hz, as
+ * sx1262_lora_bandwidth_code() names it. */
+static uint32_t sx1262_lora_bandwidth_hz(uint8_t code)
+{
+    switch (code) {
+    case 0x00U: return 7800U;
+    case 0x08U: return 10400U;
+    case 0x01U: return 15600U;
+    case 0x09U: return 20800U;
+    case 0x02U: return 31250U;
+    case 0x0AU: return 41700U;
+    case 0x03U: return 62500U;
+    case 0x04U: return 125000U;
+    case 0x05U: return 250000U;
+    default: return 500000U;
+    }
+}
+
 static bool sx1262_gfsk_bandwidth(uint32_t requested, uint32_t *actual, uint8_t *code)
 {
     /* Semtech sx126x_gfsk_bw_t encodings; choose the narrowest filter that
@@ -524,10 +542,13 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
                 config->rx_bandwidth_hz != 0 ? config->rx_bandwidth_hz : 125000U);
             const uint8_t cr = (config->coding_rate_denominator >= 5 && config->coding_rate_denominator <= 8)
                 ? (uint8_t)(config->coding_rate_denominator - 4U) : 1U;
+            /* AUTO enables low-data-rate optimize wherever a symbol lasts longer
+             * than 16 ms, the rule the other LoRa drivers use: SF11 and
+             * SF12 at 125 kHz, SF12 at 250 kHz, and more as it narrows. */
+            const uint64_t symbol_us = ((uint64_t)1U << sf) * 1000000ULL /
+                sx1262_lora_bandwidth_hz(bw);
             const uint8_t low_dr_opt = solar_os_radio_low_data_rate(
-                config, bw == 0x00U || bw == 0x08U ||
-                        (bw == 0x01U && sf >= 11U) ||
-                        (bw == 0x02U && sf == 12U)) ? 1U : 0U;
+                config, symbol_us > 16000ULL) ? 1U : 0U;
             const uint8_t params[4] = {sf, bw, cr, low_dr_opt};
             err = sx1262_transact(dev, SX1262_OP_SET_MODULATION_PARAMS, params, sizeof(params), NULL, 0);
         } else {
