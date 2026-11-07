@@ -270,6 +270,7 @@ built-in display controller at startup and are excluded from this list.
 | `spi-dlp` | Display Link Protocol SPI endpoint | `spi=<bus> cs=<pin> [ready=<pin>] [reset=<pin>] [compressed=0\|1]` | Discovers geometry and negotiates a wire pixel format. |
 | `ssd1683` | SSD1683 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3> panel=<0..4> startup-pulse=<0\|1>` | Registers an auxiliary target, or Elecrow's fixed `display0`, with auto, fast, and full refresh modes. Panel 0 auto-detects the 4.2-inch Elecrow revision; 1 is legacy Elecrow, 2 is green-sticker Elecrow, 3 is Waveshare V2, and 4 is Elecrow's 792x272 dual-controller panel. Panels 2, 3, and 4 also accept pulse mode and its runtime tuning controls. `startup-pulse=1` selects pulse at attach when supported; the default is native auto. |
 | `uc8279` | UC8279 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=<1..2>`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects X4 Pro glass and sets its PLL; panel 2 selects X4 Classic glass and preserves the panel's programmed PLL. Both address 600 gates with the visible rows at gates 120..599 and require programmed OTP/MTP waveforms. Active-low BUSY, automatic full cleanup every 20 changed frames, and selectable partial/full refresh. Controller and panel selection are explicit; UC8279 X3 792x528 and other variants require separate profiles. |
+| `ssd1680` | SSD1680 122x250 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<100..4000 khz> rotation=<0..3> panel=0` | Default panel 0 selects 122x250 V4-style monochrome glass with full and partial waveforms in OTP. Active-high BUSY, native auto/partial/full refresh, and full cleanup after five partial updates. Rotation 1 or 3 gives 250x122 landscape. |
 | `ssd1685` | SSD1685 168x384 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=1`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects GDEY029T71H glass, including its source offset and OTP waveforms. Active-high BUSY, 10 MHz maximum SPI clock, full/partial refresh, and automatic full cleanup after five partial updates. Rotation 1 or 3 gives 384x168 landscape. |
 | `uc8179` | UC8179 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin> panel=1`; optional `power=<pin> clock=<khz> rotation=<0..3>` | Panel 1 selects Xteink 800x480 glass with 600 addressed gates and programmed OTP waveforms. Active-low BUSY, automatic full cleanup every 20 changed frames, and selectable partial/full refresh. No controller autodetection; other panel geometries and waveforms need their own profile. |
 | `ssd1677` | SSD1677 800x480 monochrome e-paper | `spi=<bus> cs=<pin> dc=<pin> reset=<pin> busy=<pin>`; optional `power=<pin> clock=<khz> rotation=<0..3> panel=<0,1>` or paired `power_i2c=<bus> power_addr=0x34` through an attached AXP2101 service | Panel 0 preserves the generic differential sequence; panel 1 selects Sticky's matching-plane full OTP refresh. Native auto/partial/full modes and Fastwave pulse mode with per-pixel settling, adaptive cleanup, and native recovery. Native mode releases pulse buffers and its worker. Holds the PMIC attachment while using ALDO3. |
@@ -626,6 +627,35 @@ display test lcd0
 
 Wire a module backlight according to the module board and use suitable current
 limiting when connecting it to 3V3.
+
+### 122x250 monochrome e-paper (SSD1680)
+
+Use `ssd1680` for a four-wire SPI panel with active-high BUSY. The default
+`panel=0` profile is **122 × 250 pixels**, with rotation 0 and a 4 MHz SPI clock.
+It uses the 2.13-inch V4-style monochrome panel's OTP full and partial waveforms.
+Other glass sizes, tri-color panels, and panels requiring a custom RAM LUT need
+their own panel profile.
+
+For example, on an ESP32-S3 DevKitC SPI bus:
+
+```text
+expansion attach ssd1680 epd0 spi=spi0 cs=gpio10 dc=gpio17 reset=gpio16 busy=gpio15
+display mode epd0 refresh=auto
+```
+
+Add `rotation=1` or `rotation=3` for 250 × 122 landscape. An optional `power`
+GPIO controls an active-high panel supply. `clock` accepts 100 through 4000 kHz.
+The `full` firmware flavor includes the driver; custom builds can select the
+`ssd1680` group. The same bindings can define a fixed primary `display0` in a
+board manifest or an auxiliary display attached at runtime.
+
+`refresh=auto` starts with a full refresh, uses the native partial waveform for
+changed images, and performs a full cleanup after five partial updates.
+`refresh=partial` and its `refresh=fast` alias use the same cleanup policy;
+`refresh=full` uses full refreshes. Unchanged visible images are skipped.
+MONO1 raster frames, `display relax`, and display sleep/resume use the common
+display services. The controller's byte padding stays outside the visible
+122 × 250 geometry.
 
 ### GDEY029T71H e-paper (SSD1685)
 
