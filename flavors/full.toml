@@ -157,6 +157,7 @@ st7305 = true
 ili9341 = true
 st7796 = true
 st7789 = true
+gc9a01 = true
 cvbs = true
 vga = true
 ft6336 = true

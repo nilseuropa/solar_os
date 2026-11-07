@@ -60,6 +60,35 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn('.role = "debounce-ms", .value = 15', header)
         self.assertIn("expansion_gpio_matrix", required_packages(board, self.drivers))
 
+    def test_gc9a01_round_panel_as_primary_display(self) -> None:
+        driver = self.drivers["gc9a01"]
+        self.assertEqual(driver.targets, ("esp32", "esp32s3"))
+        self.assertEqual(driver.package, "driver_display_gc9a01")
+        self.assertTrue((ROOT / "boards/drivers" / f"{driver.board_driver}.cmake").is_file())
+        base = load_board_manifest(self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml", self.manifest_dir)
+        profile = profile_from_expansion({
+            "schema": 1,
+            "base": {"board": base["board"]["id"]},
+            "buses": [{"name": "spi0", "protocol": "spi", "sharing": "shared",
+                       "host": "SPI2_HOST", "sclk": 7, "mosi": 8, "miso": 3,
+                       "cs": [9], "max_transfer_size": 4096}],
+            "devices": [{"name": "round0", "driver": "gc9a01", "detachable": True,
+                         "bindings": {"spi": "spi0", "cs": 9, "dc": 10, "reset": 11,
+                                      "bl": 12, "pwm": 1, "rotation": 2, "clock": 20000}}],
+        }, base, self.drivers, "test_round", "Round TFT", "Custom", "Module")
+        board = merge_board_overlay(base, profile)
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "GC9A01"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 240", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 240", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R2", header)
+        self.assertIn('.role = "clock", .value = 20000', header)
+        self.assertIn("driver_display_gc9a01", required_packages(board, self.drivers))
+        board["devices"][0]["bindings"]["clock"] = 40001
+        with self.assertRaises(ManifestError):
+            validate_board(board, self.drivers)
+
     def test_ssd1680_catalog_has_an_optional_default_panel(self) -> None:
         driver = self.drivers["ssd1680"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))

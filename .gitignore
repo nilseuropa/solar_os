@@ -47,6 +47,7 @@ tests/host/power_key_custom_test
 /tests/host/uc8179_expansion_test
 /tests/host/epd_ssd1685_test
 /tests/host/ssd1685_expansion_test
+/tests/host/gc9a01_expansion_test
 /tests/host/expansion_tui_test
 
 /tests/host/epd_uc8279_test

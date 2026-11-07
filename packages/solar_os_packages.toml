@@ -807,6 +807,11 @@ label = "ST7789 display"
 category = "Expansion hardware"
 members = ["driver_display_st7789"]
 
+[groups.gc9a01]
+label = "GC9A01 round display"
+category = "Expansion hardware"
+members = ["driver_display_gc9a01"]
+
 [groups.cvbs]
 label = "PAL composite display"
 category = "Expansion hardware"
@@ -2597,6 +2602,19 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "driver.display-st7789"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_st7789_expansion_driver"]
+depends = ["service_expansion", "service_spi", "driver_pwm_port"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_gc9a01]
+label = "driver.display-gc9a01"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_gc9a01_expansion_driver"]
 depends = ["service_expansion", "service_spi", "driver_pwm_port"]
 sources = [
   "board/solar_os_board_display_expansion.c",

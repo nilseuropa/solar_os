@@ -49,6 +49,7 @@ TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1680_test ssd1680_expansion_test
+TARGETS += gc9a01_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
@@ -404,6 +405,13 @@ cl32_display_test: cl32_display_test.c $(ROOT)/src/services/solar_os_cl32_displa
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
+
+gc9a01_expansion_test: gc9a01_expansion_test.c $(ROOT)/src/services/solar_os_tft_display.c \
+        $(ROOT)/src/services/solar_os_tft_display.h $(ROOT)/src/drivers/tft_ili9341.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib gc9a01_expansion_test.c -o $@
 
 ssd1680_expansion_test: ssd1680_expansion_test.c $(ROOT)/src/services/solar_os_ssd1680.c \
         $(ROOT)/src/services/solar_os_ssd1680_driver.c $(ROOT)/src/drivers/epd_ssd1680.h ssd1680_memory_stubs.h

@@ -223,9 +223,9 @@ class FlavorPackagesTest(unittest.TestCase):
         cases = (
             (board["target"]["mcu"], set(board["build"]["capabilities"]),
              ("expansion_lilygo_pager_keyboard", "driver_display_ili9341",
-              "driver_display_st7796", "driver_display_st7789")),
+              "driver_display_st7796", "driver_display_st7789", "driver_display_gc9a01")),
             ("esp32", {"gfx", "spi", "expansion_gpio"},
-             ("driver_display_ili9341", "driver_display_st7796")),
+             ("driver_display_ili9341", "driver_display_st7796", "driver_display_gc9a01")),
         )
         for target, capabilities, consumers in cases:
             with self.subTest(target=target, capabilities=capabilities):
