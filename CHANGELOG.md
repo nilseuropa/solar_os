@@ -9,7 +9,10 @@
   package manager now opens a saved signed catalog, groups modules into
   folders, and shows confirmation, progress and result popups. Added
   `osc send` for one to eight numeric values in a single message, with
-  optional periodic sending.
+  optional periodic sending. Added SSD1680 expansion support for 122x250
+  monochrome e-paper displays with rotation, partial/full refresh and automatic
+  cleanup. Fixed manual tables to preserve command alternatives and wrap long
+  cell text.
 - **4.17.6** — 2026-11-06 — Added URDF robot models, transform queries,
   hardware bindings and explicit robot start/stop controls. Robot joints now use
   OS controllers and scaled motor/encoder streams. Added differential-drive
