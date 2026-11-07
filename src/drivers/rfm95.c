@@ -526,7 +526,7 @@ static bool rfm95_low_data_rate_optimize(const solar_os_radio_config_t *config)
     const uint64_t symbol_us =
         ((uint64_t)1U << config->spreading_factor) * 1000000ULL /
         config->rx_bandwidth_hz;
-    return symbol_us > 16000ULL;
+    return solar_os_radio_low_data_rate(config, symbol_us > 16000ULL);
 }
 
 static esp_err_t rfm95_configure_power_locked(rfm95_t *dev, int8_t power_dbm)

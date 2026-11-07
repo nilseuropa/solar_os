@@ -336,7 +336,8 @@ public:
         const double symbol_ms =
             (double)(1UL << config_.spreading_factor) * 1000.0 /
             (double)config_.rx_bandwidth_hz;
-        const int low_data_rate = symbol_ms > 16.0 ? 1 : 0;
+        const int low_data_rate =
+            solar_os_radio_low_data_rate(&config_, symbol_ms > 16.0) ? 1 : 0;
         const int header_implicit = 0;
         const int crc = config_.crc_enabled ? 1 : 0;
         const int numerator =

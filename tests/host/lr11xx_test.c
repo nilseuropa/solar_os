@@ -1291,6 +1291,21 @@ static void test_low_data_rate_follows_symbol_time(void)
     }
 }
 
+/* A config that says which way low-data-rate optimize goes is obeyed, at a
+ * setting where the driver's own rule would have chosen the other. */
+static void test_low_data_rate_follows_the_config(void)
+{
+    solar_os_radio_config_t config = lora_config();
+    config.spreading_factor = 11U;
+    config.rx_bandwidth_hz = 125000U;
+    config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_OFF;
+    assert(configure_and_find(&config, LR11XX_OP_SET_MODULATION_PARAMS)->params[3] == 0U);
+
+    config.spreading_factor = 7U;
+    config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_ON;
+    assert(configure_and_find(&config, LR11XX_OP_SET_MODULATION_PARAMS)->params[3] == 1U);
+}
+
 /* The bandwidth reported is the one the part is on, which is the next one
  * up it offers from the one asked for. */
 static void test_bandwidth_reported_as_applied(void)
@@ -1771,6 +1786,7 @@ int main(void)
     test_send_fault_at_every_step();
     test_send_timeout_cleanup();
     test_low_data_rate_follows_symbol_time();
+    test_low_data_rate_follows_the_config();
     test_bandwidth_reported_as_applied();
     test_listening_takes_any_preamble();
     test_uninitialised_device_is_refused();

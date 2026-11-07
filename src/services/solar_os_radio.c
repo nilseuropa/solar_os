@@ -17,11 +17,13 @@
 #define RADIO_PROFILE_NVS_NAMESPACE "radio_prof"
 #define RADIO_PROFILE_NVS_KEY "profiles"
 #define RADIO_PROFILE_MAGIC 0x52504631U
-#define RADIO_PROFILE_VERSION 2U
+#define RADIO_PROFILE_VERSION 3U
 
-/* Version 1 stored this struct verbatim, with two tail-padding bytes. */
+/* Version 1 stored this struct verbatim with two tail-padding bytes, and
+ * version 2 with one; both read as the driver's low-data-rate choice. */
 _Static_assert(sizeof(solar_os_radio_config_t) == 44 &&
-                   offsetof(solar_os_radio_config_t, rx_gain) == 42,
+                   offsetof(solar_os_radio_config_t, rx_gain) == 42 &&
+                   offsetof(solar_os_radio_config_t, low_data_rate) == 43,
                "radio profile v1 layout must remain readable");
 
 typedef struct {
@@ -269,6 +271,9 @@ static esp_err_t radio_validate_config(const solar_os_radio_config_t *config,
         return ESP_ERR_INVALID_ARG;
     }
     if (config->rx_gain >= SOLAR_OS_RADIO_RX_GAIN_COUNT) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (config->low_data_rate > SOLAR_OS_RADIO_LOW_DATA_RATE_ON) {
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
@@ -1187,7 +1192,7 @@ static bool radio_profile_store_valid(const void *data, size_t length)
     const radio_profile_store_t *store = data;
     if (length != sizeof(*store) ||
         store->magic != RADIO_PROFILE_MAGIC ||
-        (store->version != 1U && store->version != RADIO_PROFILE_VERSION) ||
+        (store->version < 1U || store->version > RADIO_PROFILE_VERSION) ||
         store->size != sizeof(*store)) {
         return false;
     }
@@ -1199,6 +1204,7 @@ static bool radio_profile_store_valid(const void *data, size_t length)
         }
         solar_os_radio_config_t config = profile->config;
         if (store->version == 1U) config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_DEFAULT;
+        if (store->version < 3U) config.low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_AUTO;
         if (!radio_profile_name_valid(profile->name) ||
             radio_builtin_profile_find(profile->name) != NULL ||
             radio_validate_config(
@@ -1225,9 +1231,11 @@ static esp_err_t radio_profile_store_load(radio_profile_store_t *store)
     if (error == ESP_ERR_NVS_NOT_FOUND || error == ESP_ERR_NOT_FOUND) {
         radio_profile_store_empty(store); return ESP_OK;
     }
-    if (error == ESP_OK && store->version == 1U) {
+    if (error == ESP_OK && store->version < RADIO_PROFILE_VERSION) {
         for (size_t i = 0; i < SOLAR_OS_RADIO_USER_PROFILE_MAX; i++) {
-            store->profiles[i].config.rx_gain = SOLAR_OS_RADIO_RX_GAIN_DEFAULT;
+            solar_os_radio_config_t *config = &store->profiles[i].config;
+            if (store->version == 1U) config->rx_gain = SOLAR_OS_RADIO_RX_GAIN_DEFAULT;
+            config->low_data_rate = SOLAR_OS_RADIO_LOW_DATA_RATE_AUTO;
         }
         store->version = RADIO_PROFILE_VERSION;
     }
