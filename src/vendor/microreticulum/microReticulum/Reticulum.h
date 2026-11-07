@@ -1,0 +1,239 @@
+/*
+ * Copyright (c) 2023 Chad Attermann
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ */
+
+#pragma once
+
+#include "Transport.h"
+#include "Log.h"
+#include "Type.h"
+#include "Utilities/OS.h"
+#include "Persistence/DestinationEntry.h"
+
+#include <vector>
+#include <map>
+#include <string>
+#include <memory>
+#include <cassert>
+#include <stdint.h>
+
+using namespace RNS::Persistence;
+
+namespace RNS {
+
+	class Reticulum {
+
+	private:
+
+		//z router           = None
+		//z config           = None
+
+		// The default configuration path will be expanded to a directory
+		// named ".reticulum" inside the current users home directory
+		//z userdir          = os.path.expanduser("~")
+		//z configdir        = None
+		//z configpath       = ""
+		//p storagepath      = ""
+		//static std::string _storagepath;
+		static char _storagepath[Type::Reticulum::FILEPATH_MAXSIZE];
+		//p cachepath        = ""
+		//static std::string _cachepath;
+		static char _cachepath[Type::Reticulum::FILEPATH_MAXSIZE];
+
+		static const Reticulum& _instance;
+
+		static bool __transport_enabled;
+        static bool __link_mtu_discovery;
+        static bool __remote_management_enabled;
+		static bool __use_implicit_proof;
+		static bool __allow_probes;
+		static bool __publish_blackhole_enabled;
+#if RNS_NEIGHBOR_PROBING
+		// DIVERGENCE: runtime toggles for passive neighbor-liveness
+		// inference and its optional path-request fallback. The Python
+		// reference plan parses these from the [reticulum] INI block;
+		// microReticulum has no INI parser, so they're exposed as static
+		// accessors only.
+		static bool __neighbor_probing_enabled;
+#endif
+		static bool panic_on_interface_error;
+
+		static uint16_t _persist_interval;
+		static uint16_t _clean_interval;
+
+	public:
+		// Return the currently running Reticulum instance
+		inline static const Reticulum& get_instance() { return _instance; }
+
+	public:
+		Reticulum();
+		Reticulum(Type::NoneConstructor none) {
+			MEMF("Reticulum empty object created, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+		Reticulum(const Reticulum& reticulum) : _object(reticulum._object) {
+			MEMF("Reticulum object copy created, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+		virtual ~Reticulum() {
+			MEMF("Reticulum object destroyed, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+
+		inline Reticulum& operator = (const Reticulum& reticulum) {
+			_object = reticulum._object;
+			MEMF("Reticulum object copy created by assignment, this: %p, data: %p", (void*)this, (void*)_object.get());
+			return *this;
+		}
+		inline explicit operator bool() const {
+			return _object.get() != nullptr;
+		}
+		inline bool operator < (const Reticulum& reticulum) const {
+			return _object.get() < reticulum._object.get();
+		}
+
+	public:
+		void start();
+		void loop();
+		void jobs();
+		void should_persist_data();
+		void persist_data();
+		void clean_caches();
+		void clear_caches();
+		//void __create_default_config();
+		//void rpc_loop();
+		//void get_interface_stats() const;
+		const PathTable& get_path_table() const;
+		const std::map<Bytes, Transport::RateEntry>& get_rate_table() const;
+		bool drop_path(const Bytes& destination);
+		uint16_t drop_all_via(const Bytes& transport_hash);
+		void drop_announce_queues();
+		const std::string get_next_hop_if_name(const Bytes& destination) const;
+		double get_first_hop_timeout(const Bytes& destination) const;
+		const Bytes get_next_hop(const Bytes& destination) const;
+		size_t get_link_count() const;
+		//void get_packet_rssi(const Bytes& packet_hash) const;
+		//void get_packet_snr(const Bytes& packet_hash) const;
+		//void get_packet_q(const Bytes& packet_hash) const;
+
+		/*
+		Returns whether proofs sent are explicit or implicit.
+
+		:returns: True if the current running configuration specifies to use implicit proofs. False if not.
+		*/
+		inline static bool should_use_implicit_proof() { return __use_implicit_proof; }
+
+		/*
+		Returns whether Transport is enabled for the running
+		instance.
+
+		When Transport is enabled, Reticulum will
+		route traffic for other peers, respond to path requests
+		and pass announces over the network.
+
+		:returns: True if Transport is enabled, False if not.
+		*/
+		inline static bool transport_enabled() { return __transport_enabled; }
+		inline static void transport_enabled(bool transport_enabled) { __transport_enabled = transport_enabled; }
+
+		// Whether this instance publishes its local blackhole list over RNS via
+		// Transport's /list request handler. Default false (opt-in); enable per
+		// deployment to let trusted peers query this node's blackhole entries.
+		inline static bool publish_blackhole_enabled() { return __publish_blackhole_enabled; }
+		inline static void publish_blackhole_enabled(bool enabled) { __publish_blackhole_enabled = enabled; }
+
+		/*
+		Returns whether link MTU discovery is enabled for the running
+		instance.
+
+		When link MTU discovery is enabled, Reticulum will
+		automatically upgrade link MTUs to the highest supported
+		value, increasing transfer speed and efficiency.
+
+		:returns: True if link MTU discovery is enabled, False if not.
+		*/
+		inline static bool link_mtu_discovery() { return __link_mtu_discovery; }
+		inline static void link_mtu_discovery(bool link_mtu_discovery) { __link_mtu_discovery = link_mtu_discovery; }
+
+		/*
+		Returns whether remote management is enabled for the
+		running instance.
+
+		When remote management is enabled, authenticated peers
+		can remotely query and manage this instance.
+
+		:returns: True if remote management is enabled, False if not.
+		*/
+		inline static bool remote_management_enabled() { return __remote_management_enabled; }
+		inline static void remote_management_enabled(bool remote_management_enabled) { __remote_management_enabled = remote_management_enabled; }
+
+		inline static bool probe_destination_enabled() { return __allow_probes; }
+		inline static void probe_destination_enabled(bool allow_probes) { __allow_probes = allow_probes; }
+
+#if RNS_NEIGHBOR_PROBING
+		// DIVERGENCE: master toggle for passive neighbor-liveness
+		// inference. Effective only when transport_enabled() is also
+		// true; the local side typically also wants
+		// probe_destination_enabled() so peers can probe it reciprocally.
+		inline static bool neighbor_probing_enabled() { return __neighbor_probing_enabled; }
+		inline static void neighbor_probing_enabled(bool v) { __neighbor_probing_enabled = v; }
+#endif
+
+		// getters/setters
+		inline bool is_connected_to_shared_instance() const { assert(_object); return _object->_is_connected_to_shared_instance; }
+		inline static uint16_t persist_interval() { return _persist_interval; }
+		inline static void persist_interval(uint16_t persist_interval) { _persist_interval = persist_interval; }
+		inline static uint16_t clean_interval() { return _clean_interval; }
+		inline static void clean_interval(uint16_t clean_interval) { _clean_interval = clean_interval; }
+		inline static const char* storagepath() { return _storagepath; }
+		inline static void storagepath(const char* storagepath) { strncpy(_storagepath, storagepath, sizeof(_storagepath)); }
+
+	protected:
+		static bool readTimeOffset();
+		static bool writeTimeOffset();
+
+	private:
+		class Object {
+		public:
+			Object() {
+				MEMF("Reticulum data object created, this: %p", (void*)this);
+			}
+			virtual ~Object() {
+				MEMF("Reticulum data object destroyed, this: %p", (void*)this);
+			}
+		private:
+
+			uint16_t _local_interface_port = 37428;
+			uint16_t _local_control_port   = 37429;
+			bool _share_instance       = true;
+			//p _rpc_listener         = None
+
+			//p _ifac_salt = Reticulum.IFAC_SALT
+
+			bool _is_shared_instance = false;
+			bool _is_connected_to_shared_instance = false;
+			bool _is_standalone_instance = false;
+			//p _jobs_thread = None
+			double _last_data_persist = 0.0;
+			double _last_cache_clean = 0.0;
+			double _last_time_persist = 0.0;
+
+			// CBA
+			double _jobs_last_run = Utilities::OS::time();
+
+		friend class Reticulum;
+		};
+		std::shared_ptr<Object> _object;
+
+	// CBA For access to private static members by Transport class
+	friend class Transport;
+	};
+
+}

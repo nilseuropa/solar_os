@@ -1,0 +1,484 @@
+/*
+ * Copyright (c) 2023 Chad Attermann
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ */
+
+#pragma once
+
+#include "Link.h"
+#include "Interface.h"
+#include "Destination.h"
+#include "Bytes.h"
+#include "Log.h"
+#include "Type.h"
+#include "Utilities/OS.h"
+
+#include <memory>
+#include <cassert>
+#include <functional>
+#include <stdint.h>
+#include <time.h>
+
+namespace RNS {
+
+	class ProofDestination;
+	class PacketReceipt;
+	class Packet;
+
+	class ProofDestination : public Destination {
+	public:
+		ProofDestination(const Packet& packet);
+		// CBA Can't use virtual methods because they are lost in object copies
+		//inline virtual const Bytes encrypt(const Bytes& data) {
+		//	return data;
+		//}
+	};
+
+    /*
+    The PacketReceipt class is used to receive notifications about
+    :ref:`RNS.Packet<api-packet>` instances sent over the network. Instances
+    of this class are never created manually, but always returned from
+    the *send()* method of a :ref:`RNS.Packet<api-packet>` instance.
+    */
+	class PacketReceipt {
+
+	public:
+		class Callbacks {
+		public:
+			using delivery = void(*)(const PacketReceipt& packet_receipt);
+			using timeout = void(*)(const PacketReceipt& packet_receipt);
+			// New std::function-based handler variants added to let
+			// neighbor-probe outcome callbacks capture neighbor_hash by
+			// value. The Python reference already supports captured state
+			// via closures; the C++ port previously exposed only plain
+			// function pointers. Function-pointer setters above remain
+			// (marked deprecated) for source compatibility with existing
+			// out-of-tree firmware.
+			using delivery_handler = std::function<void(const PacketReceipt& packet_receipt)>;
+			using timeout_handler  = std::function<void(const PacketReceipt& packet_receipt)>;
+		public:
+			delivery _delivery = nullptr;
+			timeout _timeout = nullptr;
+			delivery_handler _delivery_fn;
+			timeout_handler  _timeout_fn;
+		friend class PacketReceipt;
+		};
+
+	public:
+		PacketReceipt() : _object(new Object()) {}
+		PacketReceipt(Type::NoneConstructor none) {}
+		PacketReceipt(const PacketReceipt& packet_receipt) : _object(packet_receipt._object) {}
+		PacketReceipt(const Packet& packet);
+
+		inline PacketReceipt& operator = (const PacketReceipt& packet_receipt) {
+			_object = packet_receipt._object;
+			return *this;
+		}
+		inline explicit operator bool() const {
+			return _object.get() != nullptr;
+		}
+		inline bool operator < (const PacketReceipt& packet_receipt) const {
+			return _object.get() < packet_receipt._object.get();
+		}
+		inline bool operator == (const PacketReceipt& packet_receipt) const {
+			return _object.get() == packet_receipt._object.get();
+		}
+
+	public:
+		bool validate_proof_packet(const Packet& proof_packet);
+		//bool validate_link_proof(const Bytes& proof, const Link& link, const Packet& proof_packet = {Type::NONE});
+		bool validate_link_proof(const Bytes& proof, const Link& link);
+		bool validate_link_proof(const Bytes& proof, const Link& link, const Packet& proof_packet);
+		//bool validate_proof(const Bytes& proof, const Packet& proof_packet = {Type::NONE});
+		bool validate_proof(const Bytes& proof);
+		bool validate_proof(const Bytes& proof, const Packet& proof_packet);
+		inline double get_rtt() { assert(_object); return _object->_concluded_at - _object->_sent_at; }
+		inline bool is_timed_out() { assert(_object); return ((_object->_sent_at + _object->_timeout) < Utilities::OS::time()); }
+		void check_timeout();
+
+		// :param timeout: The timeout in seconds.
+		inline void set_timeout(int16_t timeout) { assert(_object); _object->_timeout = timeout; }
+
+		// Deprecated function-pointer setter retained for source compat
+		// with existing firmware; new code should use set_delivery_handler
+		// which accepts a std::function (capture-friendly).
+		/*
+		Sets a function that gets called if a successfull delivery has been proven.
+
+		:param callback: A *callable* with the signature *callback(packet_receipt)*
+		*/
+		RNS_DEPRECATED("use set_delivery_handler (std::function)")
+		inline void set_delivery_callback(Callbacks::delivery callback) {
+			assert(_object);
+			_object->_callbacks._delivery = callback;
+		}
+		/*
+		Sets a function that gets called if the delivery times out.
+
+		:param callback: A *callable* with the signature *callback(packet_receipt)*
+		*/
+		RNS_DEPRECATED("use set_timeout_handler (std::function)")
+		inline void set_timeout_callback(Callbacks::timeout callback) {
+			assert(_object);
+			_object->_callbacks._timeout = callback;
+		}
+
+		// New std::function-based setters accept callables with
+		// captured state (e.g. lambdas closing over neighbor_hash). The
+		// dispatcher in Packet.cpp prefers the handler over the legacy
+		// function-pointer if both are set.
+		inline void set_delivery_handler(Callbacks::delivery_handler handler) {
+			assert(_object);
+			_object->_callbacks._delivery_fn = std::move(handler);
+		}
+		inline void set_timeout_handler(Callbacks::timeout_handler handler) {
+			assert(_object);
+			_object->_callbacks._timeout_fn = std::move(handler);
+		}
+
+		// getters
+		inline const Bytes& hash() const { assert(_object); return _object->_hash; }
+		inline Type::PacketReceipt::Status status() const { assert(_object); return _object->_status; }
+		inline bool proved() const { assert(_object); return _object->_proved; }
+		inline double concluded_at() const { assert(_object); return _object->_concluded_at; }
+		inline const Bytes& truncated_hash() const { assert(_object); return _object->_truncated_hash; }
+		inline const Callbacks& callbacks() const { assert(_object); return _object->_callbacks; }
+
+		// setters
+		inline void status(Type::PacketReceipt::Status status) { assert(_object); _object->_status = status; }
+		inline void proved(bool proved) { assert(_object); _object->_proved = proved; }
+		inline void concluded_at(double concluded_at) { assert(_object); _object->_concluded_at = concluded_at; }
+
+	private:
+		class Object {
+		public:
+			Object() {}
+			virtual ~Object() {}
+		private:
+			Bytes _hash;
+			Bytes _truncated_hash;
+			bool _sent = true;
+			double _sent_at = Utilities::OS::time();
+			bool _proved = false;
+			Type::PacketReceipt::Status _status = Type::PacketReceipt::SENT;
+			Destination _destination = {Type::NONE};
+			Callbacks _callbacks;
+			double _concluded_at = 0;
+			// CBA TODO This shoujld almost certainly not be a reference but we have an issue with circular dependency between Packet and PacketReceipt
+			//Packet _proof_packet = {Type::NONE};
+			int16_t _timeout = 0;
+		friend class PacketReceipt;
+		};
+		std::shared_ptr<Object> _object;
+
+	};
+
+
+	class Packet {
+
+	public:
+		//static constexpr const uint8_t EMPTY_DESTINATION[Type::Reticulum::DESTINATION_LENGTH] = {0};
+		uint8_t EMPTY_DESTINATION[Type::Reticulum::DESTINATION_LENGTH] = {0};
+
+	public:
+		Packet(Type::NoneConstructor none) {
+			MEMF("Packet NONE object created, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+		Packet(const Packet& packet) : _object(packet._object) {
+			MEMF("Packet object copy created, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+		Packet(const Bytes& raw) : _object(new Object(raw)) {
+			MEMF("Packet object created from raw, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}
+
+		// New minimal constructors — store the target + payload only. Use the
+		// fluent setters below to configure optional parameters between
+		// construction and send().
+		Packet(const Destination& destination, const Bytes& data);
+		Packet(const Link& link, const Bytes& data);
+
+		// Deprecated constructors retained as compatibility shims for
+		// out-of-tree firmware. `packet_type` has no default so the two-arg
+		// `Packet(target, data)` resolves unambiguously to the new minimal
+		// constructor; behavior is unchanged for callers that previously
+		// relied on the `packet_type = DATA` default.
+		RNS_DEPRECATED("use fluent API")
+		Packet(
+			const Destination& destination,
+			const Interface& attached_interface,
+			const Bytes& data,
+			Type::Packet::types packet_type,
+			Type::Packet::context_types context = Type::Packet::CONTEXT_NONE,
+			Type::Transport::types transport_type = Type::Transport::BROADCAST,
+			Type::Packet::header_types header_type = Type::Packet::HEADER_1,
+			const Bytes& transport_id = {Bytes::NONE},
+			bool create_receipt = true,
+			Type::Packet::context_flags context_flag = Type::Packet::FLAG_UNSET
+		);
+		RNS_DEPRECATED("use fluent API")
+		Packet(
+			const Destination& destination,
+			const Bytes& data,
+			Type::Packet::types packet_type,
+			Type::Packet::context_types context = Type::Packet::CONTEXT_NONE,
+			Type::Transport::types transport_type = Type::Transport::BROADCAST,
+			Type::Packet::header_types header_type = Type::Packet::HEADER_1,
+			const Bytes& transport_id = {Bytes::NONE},
+			bool create_receipt = true,
+			Type::Packet::context_flags context_flag = Type::Packet::FLAG_UNSET
+		);
+		RNS_DEPRECATED("use fluent API")
+		Packet(
+			const Link& link,
+			const Bytes& data,
+			Type::Packet::types packet_type,
+			Type::Packet::context_types context = Type::Packet::CONTEXT_NONE,
+			Type::Packet::context_flags context_flag = Type::Packet::FLAG_UNSET
+		);
+		virtual ~Packet() {
+			MEMF("Packet object destroyed, this: %p, data: %p", (void*)this, (void*)_object.get());
+		}			
+
+		inline Packet& operator = (const Packet& packet) {
+			_object = packet._object;
+			MEMF("Packet object copy created by assignment, this: %p, data: %p", (void*)this, (void*)_object.get());
+			return *this;
+		}
+		inline explicit operator bool() const {
+			return _object.get() != nullptr;
+		}
+		inline bool operator < (const Packet& packet) const {
+			return _object.get() < packet._object.get();
+		}
+
+	private:
+	/*
+		void setTransportId(const uint8_t* transport_id);
+		void setHeader(const uint8_t* header);
+		void setRaw(const uint8_t* raw, uint16_t len);
+		void setData(const uint8_t* rata, uint16_t len);
+	*/
+
+	public:
+		uint8_t get_packed_flags();
+		void unpack_flags(uint8_t flags);
+		void pack();
+		bool unpack();
+		PacketReceipt receipt_send();
+		bool resend();
+		void prove(const Destination& destination = {Type::NONE});
+
+		// Send-and-return: calls send(), discards the receipt, and returns
+		// *this so the chain can be assigned to a Packet. The const return
+		// blocks any further setters from being chained after send().
+		inline const Packet& send() { receipt_send(); return *this; }
+		ProofDestination generate_proof_destination() const;
+		bool validate_proof_packet(const Packet& proof_packet);
+		bool validate_proof(const Bytes& proof);
+		void update_hash();
+		const Bytes get_hash() const;
+		const Bytes getTruncatedHash() const;
+		const Bytes get_hashable_part() const;
+
+		inline std::string toString() const { if (!_object) return ""; return "{Packet:" + _object->_packet_hash.toHex() + "}"; }
+
+		// getters
+		inline const Destination& destination() const { assert(_object); return _object->_destination; }
+		inline const Link& link() const { assert(_object); return _object->_link; }
+		inline const Interface& attached_interface() const { assert(_object); return _object->_attached_interface; }
+		inline const Interface& receiving_interface() const { assert(_object); return _object->_receiving_interface; }
+		inline Type::Packet::header_types header_type() const { assert(_object); return _object->_header_type; }
+		inline Type::Packet::context_flags context_flag() const { assert(_object); return _object->_context_flag; }
+		inline Type::Transport::types transport_type() const { assert(_object); return _object->_transport_type; }
+		inline Type::Destination::types destination_type() const { assert(_object); return _object->_destination_type; }
+		inline Type::Packet::types packet_type() const { assert(_object); return _object->_packet_type; }
+		inline Type::Packet::context_types context() const { assert(_object); return _object->_context; }
+		inline bool sent() const { assert(_object); return _object->_sent; }
+		inline double sent_at() const { assert(_object); return _object->_sent_at; }
+		inline bool create_receipt() const { assert(_object); return _object->_create_receipt; }
+		inline const PacketReceipt& receipt() const { assert(_object); return _object->_receipt; }
+		inline uint8_t flags() const { assert(_object); return _object->_flags; }
+		inline uint8_t hops() const { assert(_object); return _object->_hops; }
+		inline bool cached() const { assert(_object); return _object->_cached; }
+		inline bool is_outbound_pr() const { assert(_object); return _object->_is_outbound_pr; }
+		inline void is_outbound_pr(bool flag) { assert(_object); _object->_is_outbound_pr = flag; }
+		inline float rssi() const { assert(_object); return _object->_rssi; }
+		inline Packet& rssi(float rssi) { assert(_object); _object->_rssi = rssi; return *this; }
+		inline float snr() const { assert(_object); return _object->_snr; }
+		inline Packet& snr(float snr) { assert(_object); _object->_snr = snr; return *this; }
+		inline float q() const { assert(_object); return _object->_q; }
+		inline Packet& q(float q) { assert(_object); _object->_q = q; return *this; }
+		inline const Bytes& packet_hash() const { assert(_object); return _object->_packet_hash; }
+		inline const Bytes& destination_hash() const { assert(_object); return _object->_destination_hash; }
+		inline const Bytes& transport_id() const { assert(_object); return _object->_transport_id; }
+		inline const Bytes& raw() const { assert(_object); return _object->_raw; }
+		inline const Bytes& data() const { assert(_object); return _object->_data; }
+		// CBA LINK
+		inline const Link& destination_link() const { assert(_object); return _object->_destination_link; }
+		//CBA Following method is only used by Resource to access decrypted resource advertisement form Link. Consider a better way.
+		inline const Bytes& plaintext() const { assert(_object); return _object->_plaintext; }
+		inline bool packed() const { assert(_object); return _object->_packed; }
+		inline bool from_packed() const { assert(_object); return _object->_fromPacked; }
+
+		// Fluent setters — return Packet& for chaining. Setters that change
+		// a flag-contributing field (packet_type/context/context_flag/
+		// transport_type/header_type/destination) recompute _flags so it
+		// stays in sync. Names match the corresponding const getters; the
+		// non-const parameter signature disambiguates.
+
+		// Existing setters (converted in place from void to Packet&)
+		inline Packet& destination(const Destination& destination) { assert(_object); _object->_destination = destination; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& link(const Link& link) { assert(_object); _object->_link = link; return *this; }
+		inline Packet& receiving_interface(const Interface& receiving_interface) { assert(_object); _object->_receiving_interface = receiving_interface; return *this; }
+		inline Packet& sent(bool sent) { assert(_object); _object->_sent = sent; return *this; }
+		inline Packet& sent_at(double sent_at) { assert(_object); _object->_sent_at = sent_at; return *this; }
+		inline Packet& receipt(const PacketReceipt& receipt) { assert(_object); _object->_receipt = receipt; return *this; }
+		inline Packet& hops(uint8_t hops) { assert(_object); _object->_hops = hops; return *this; }
+		inline Packet& cached(bool cached) { assert(_object); _object->_cached = cached; return *this; }
+		inline Packet& transport_id(const Bytes& transport_id) { assert(_object); _object->_transport_id = transport_id; return *this; }
+		//CBA Following method is only used by Link to provide Resource access to decrypted resource advertisement. Consider a better way.
+		inline Packet& plaintext(const Bytes& plaintext) { assert(_object); _object->_plaintext = plaintext; return *this; }
+		// Used by Resource::receive_part to file an incoming packet's raw
+		// payload into the receiver-side assembly buffer.
+		inline Packet& data(const Bytes& data) { assert(_object); _object->_data = data; return *this; }
+
+		// New fluent setters for fields that were previously only settable
+		// via constructor parameters.
+		inline Packet& packet_type(Type::Packet::types value)          { assert(_object); _object->_packet_type    = value; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& context(Type::Packet::context_types value)      { assert(_object); _object->_context        = value; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& context_flag(Type::Packet::context_flags value) { assert(_object); _object->_context_flag   = value; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& transport_type(Type::Transport::types value)    { assert(_object); _object->_transport_type = value; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& header_type(Type::Packet::header_types value)   { assert(_object); _object->_header_type    = value; _object->_flags = get_packed_flags(); return *this; }
+		inline Packet& attached_interface(const Interface& iface)      { assert(_object); _object->_attached_interface = iface; return *this; }
+		inline Packet& create_receipt(bool enabled)                    { assert(_object); _object->_create_receipt = enabled; return *this; }
+
+#ifndef NDEBUG
+		std::string debugString() const;
+		std::string dumpString() const;
+#endif
+
+	private:
+		class Object {
+		public:
+			Object(const Bytes& raw) : _raw(raw) { MEMF("Packet::Data object created from raw, this: %p", (void*)this); }
+			Object(const Destination& destination, const Interface& attached_interface) : _destination(destination), _attached_interface(attached_interface) { MEMF("Packet::Data object created, this: %p", (void*)this); }
+			// CBA LINK
+			//Object(const Destination& destination, const Link& destination_link) : _destination(destination), _destination_link(destination_link) { MEMF("Packet::Data object created, this: %p", (void*)this); }
+			//Object(const Link& link) : _destination(link.destination()), _destination_link(link) { MEMF("Packet::Data object created, this: %p", (void*)this); }
+			virtual ~Object() { MEMF("Packet::Data object destroyed, this: %p", (void*)this); }
+		private:
+			Destination _destination = {Type::NONE};
+
+			// CBA LINK
+			// CBA TODO: Determine if _link (assigned late by Transport) and _destination_link (assigned in constructor) can be one and the same !!!
+			Link _destination_link = {Type::NONE};
+
+			Link _link = {Type::NONE};
+
+			Interface _attached_interface = {Type::NONE};
+			Interface _receiving_interface = {Type::NONE};
+
+			Type::Packet::header_types _header_type = Type::Packet::HEADER_1;
+			Type::Transport::types _transport_type = Type::Transport::BROADCAST;
+			Type::Destination::types _destination_type = Type::Destination::SINGLE;
+			Type::Packet::types _packet_type = Type::Packet::DATA;
+			Type::Packet::context_types _context = Type::Packet::CONTEXT_NONE;
+			Type::Packet::context_flags _context_flag = Type::Packet::FLAG_UNSET;
+
+			uint8_t _flags = 0;
+			uint8_t _hops = 0;
+
+			bool _packed = false;
+			bool _sent = false;
+			bool _create_receipt = false;
+			bool _fromPacked = false;
+			bool _truncated = false;	// whether data was truncated
+			bool _encrypted = false;	// whether data is encrypted
+			bool _cached = false;		// whether packet has been cached
+			bool _is_outbound_pr = false;  // set by Transport::request_path before send(); used by outbound() to fire interface.sent_path_request()
+			PacketReceipt _receipt = {Type::NONE};
+
+			uint16_t _MTU = Type::Reticulum::MTU;
+			double _sent_at = 0;
+
+			// Signal-quality stats stamped by Transport::inbound from the
+			// receiving interface at packet-construction time. NaN means
+			// the receiving interface didn't report this metric.
+			float _rssi = Type::NaN<float>;
+			float _snr  = Type::NaN<float>;
+			float _q    = Type::NaN<float>;
+
+			Bytes _packet_hash;
+			Bytes _ratchet_id;
+			Bytes _destination_hash;
+			Bytes _transport_id;
+
+			Bytes _raw;		// header + ( plaintext | ciphertext-token )
+			Bytes _data;	// plaintext | ciphertext
+
+			Bytes _plaintext;	// used exclusively to relay decrypted resource advertisement form Link to Resource
+
+			Bytes _header;
+			Bytes _ciphertext;
+
+		friend class Packet;
+		};
+		std::shared_ptr<Object> _object;
+
+	};
+
+}
+
+/*
+namespace ArduinoJson {
+	inline bool convertToJson(const RNS::Packet& src, JsonVariant dst) {
+		if (!src) {
+			return dst.set(nullptr);
+		}
+		return dst.set(src.get_hash().toHex());
+	}
+	void convertFromJson(JsonVariantConst src, RNS::Packet& dst);
+	inline bool canConvertFromJson(JsonVariantConst src, const RNS::Packet&) {
+		return src.is<const char*>() && strlen(src.as<const char*>()) == 64;
+	}
+}
+*/
+/*
+namespace ArduinoJson {
+	template <>
+	struct Converter<RNS::Packet> {
+		static bool toJson(const RNS::Packet& src, JsonVariant dst) {
+			if (!src) {
+				return dst.set(nullptr);
+			}
+			TRACEF("<<< Serializing packet hash %s", src.get_hash().toHex().c_str());
+			return dst.set(src.get_hash().toHex());
+		}
+		static RNS::Packet fromJson(JsonVariantConst src) {
+			if (!src.isNull()) {
+				RNS::Bytes hash;
+				hash.assignHex(src.as<const char*>());
+				TRACEF(">>> Deserialized packet hash %s", hash.toHex().c_str());
+				TRACE(">>> Querying transport for cached packet");
+				// Query transport for matching interface
+				return RNS::Packet::get_cached_packet(hash);
+			}
+			else {
+				return {RNS::Type::NONE};
+			}
+		}
+		static bool checkJson(JsonVariantConst src) {
+			return src.is<const char*>() && strlen(src.as<const char*>()) == 64;
+		}
+	};
+}
+*/

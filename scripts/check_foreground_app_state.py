@@ -88,10 +88,14 @@ def lifecycle_bypasses(repository: Path) -> list[str]:
         repository / "src" / "solar_os_jobs.c",
     }
     callback = re.compile(r"->(?:start|stop)\s*\(")
+    vendor = repository / "src" / "vendor"
     for path in sorted((repository / "src").rglob("*")):
         if path.suffix not in {".c", ".cpp"}:
             continue
         if path in allowed:
+            continue
+        # Third-party trees have their own start/stop methods, not apps.
+        if vendor in path.parents:
             continue
         source = path.read_text(encoding="utf-8")
         backend_tables = re.findall(
