@@ -33,8 +33,8 @@ static bool parse_angle(const char *text, float *value)
 static void usage(solar_os_shell_io_t *term)
 {
     solar_os_shell_io_writeln(term, "servo list | status [name]");
-    solar_os_shell_io_writeln(term, "servo open <name> <output> <min-us> <max-us> <min-deg> <max-deg> [freq-hz [inverted:0|1]]");
-    solar_os_shell_io_writeln(term, "servo set <name> <angle-deg> | pulse <name> <pulse-us>");
+    solar_os_shell_io_writeln(term, "servo open <name> <output> <min-us> <max-us> <min-rad> <max-rad> [freq-hz [inverted:0|1]]");
+    solar_os_shell_io_writeln(term, "servo set <name> <angle-rad> | pulse <name> <pulse-us>");
     solar_os_shell_io_writeln(term, "servo disable <name> | close <name>");
 }
 
@@ -49,16 +49,18 @@ static void print_info(solar_os_shell_io_t *term, const solar_os_servo_info_t *i
             info->name, output, info->enabled ? "enabled" : "disabled", info->owner);
         return;
     }
-    solar_os_shell_io_table_printf(term,
-        "%s %s owner=%s %s %" PRIu32 " Hz pulses=%" PRIu32 "..%" PRIu32
-        " us angles=%.3f..%.3f deg%s\r\n",
+    solar_os_shell_io_printf(term,"%s %s owner=%s %s %" PRIu32 " Hz\n",
         info->name, output, info->owner, info->enabled ? "enabled" : "disabled",
-        c->freq_hz, c->pulse_min_us, c->pulse_max_us,
-        c->angle_min_deg, c->angle_max_deg, c->inverted ? " inverted" : "");
+        c->freq_hz);
+    solar_os_shell_io_printf(term,"  pulses=%" PRIu32 "..%" PRIu32 " us angles=%.6g..%.6g rad%s\n",
+        c->pulse_min_us,c->pulse_max_us,
+        c->angle_min_rad, c->angle_max_rad, c->inverted ? " inverted" : "");
     if (info->has_command) {
-        solar_os_shell_io_table_printf(term, "  commanded %.3f deg / %" PRIu32 " us\r\n",
-            info->commanded_angle_deg, info->commanded_pulse_us);
+        solar_os_shell_io_table_printf(term, "  commanded %.6g rad / %" PRIu32 " us\r\n",
+            info->commanded_angle_rad, info->commanded_pulse_us);
     }
+    solar_os_shell_io_printf(term,"  stream=servo.%s unit=rad writable=%u input-claimed=%u closing=%u\n",
+        info->name,(unsigned)info->stream_writable,(unsigned)info->input_claimed,(unsigned)info->closing);
 }
 
 void solar_os_shell_cmd_servo(solar_os_context_t *ctx, int argc, char **argv)
@@ -83,8 +85,8 @@ void solar_os_shell_cmd_servo(solar_os_context_t *ctx, int argc, char **argv)
         if (!solar_os_pwm_parse_output(argv[3], &config.output) ||
             !parse_uint(argv[4], UINT32_MAX, &config.pulse_min_us) ||
             !parse_uint(argv[5], UINT32_MAX, &config.pulse_max_us) ||
-            !parse_angle(argv[6], &config.angle_min_deg) ||
-            !parse_angle(argv[7], &config.angle_max_deg) ||
+            !parse_angle(argv[6], &config.angle_min_rad) ||
+            !parse_angle(argv[7], &config.angle_max_rad) ||
             (argc >= 9 && !parse_uint(argv[8], SOLAR_OS_SERVO_FREQ_MAX_HZ, &config.freq_hz)) ||
             (argc == 10 && !parse_uint(argv[9], 1U, &inverted))) {
             usage(term);
@@ -113,7 +115,7 @@ void solar_os_shell_cmd_servo(solar_os_context_t *ctx, int argc, char **argv)
     if (ret != ESP_OK) {
         solar_os_shell_io_printf(term, "servo: %s\r\n", solar_os_shell_error_text(ret));
         if (ret == ESP_ERR_INVALID_STATE) {
-            solar_os_shell_io_writeln(term, "output already owned or shared PWM timer has another frequency");
+            solar_os_shell_io_writeln(term, "output or command input already owned, cleanup pending, or PWM timer frequency conflicts");
         }
     }
 }

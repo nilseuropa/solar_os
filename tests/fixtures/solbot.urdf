@@ -1,0 +1,134 @@
+<?xml version="1.0"?>
+<robot name="solbot">
+  <material name="chassis"><color rgba="0.16 0.24 0.32 1"/></material>
+  <material name="rubber"><color rgba="0.12 0.12 0.12 1"/></material>
+  <material name="metal"><color rgba="0.65 0.68 0.72 1"/></material>
+
+  <!-- Ground projection of the drive axle; +X forward, +Y left, +Z up. -->
+  <link name="base_footprint"/>
+  <joint name="base_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 0.0145"/>
+  </joint>
+
+  <!-- Axle-centred frame. One box represents the main body assembly. -->
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.033 0 0.0082"/>
+      <mass value="0.190"/>
+      <!-- Uniform 100 x 45 x 15.4 mm box, including the omitted mount mass. -->
+      <inertia ixx="0.0000358175333" ixy="0" ixz="0"
+               iyy="0.0001620883667" iyz="0" izz="0.0001903958333"/>
+    </inertial>
+    <visual>
+      <origin xyz="-0.033 0 0.0082"/>
+      <geometry><box size="0.100 0.045 0.0154"/></geometry>
+      <material name="chassis"/>
+    </visual>
+    <collision>
+      <origin xyz="-0.033 0 0.0082"/>
+      <geometry><box size="0.100 0.045 0.0154"/></geometry>
+    </collision>
+  </link>
+
+  <!-- Both wheel joint axes point along +Y; positive rotation drives forward.
+       Cylinder geometry is rotated from its native Z axis onto the axle. -->
+  <joint name="left_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="left_wheel_link"/>
+    <origin xyz="0 0.0350641 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+  <link name="left_wheel_link">
+    <inertial>
+      <mass value="0.012"/>
+      <inertia ixx="0.00000082119" ixy="0" ixz="0"
+               iyy="0.0000012615" iyz="0" izz="0.00000082119"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.5707963267948966 0 0"/>
+      <geometry><cylinder radius="0.0145" length="0.0138"/></geometry>
+      <material name="rubber"/>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 0"/>
+      <geometry><cylinder radius="0.0145" length="0.0138"/></geometry>
+    </collision>
+  </link>
+
+  <joint name="right_wheel_joint" type="continuous">
+    <parent link="base_link"/>
+    <child link="right_wheel_link"/>
+    <origin xyz="0 -0.0350641 0"/>
+    <axis xyz="0 1 0"/>
+  </joint>
+  <link name="right_wheel_link">
+    <inertial>
+      <mass value="0.012"/>
+      <inertia ixx="0.00000082119" ixy="0" ixz="0"
+               iyy="0.0000012615" iyz="0" izz="0.00000082119"/>
+    </inertial>
+    <visual>
+      <origin rpy="1.5707963267948966 0 0"/>
+      <geometry><cylinder radius="0.0145" length="0.0138"/></geometry>
+      <material name="rubber"/>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 0"/>
+      <geometry><cylinder radius="0.0145" length="0.0138"/></geometry>
+    </collision>
+  </link>
+
+  <!-- A ball caster has no steering fork. Its spherical envelope is fixed in
+       the description; URDF has no native spherical rolling joint. -->
+  <joint name="caster_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="caster_ball_link"/>
+    <origin xyz="-0.0747 0 -0.0085"/>
+  </joint>
+  <link name="caster_ball_link">
+    <inertial>
+      <mass value="0.005"/>
+      <inertia ixx="0.000000072" ixy="0" ixz="0"
+               iyy="0.000000072" iyz="0" izz="0.000000072"/>
+    </inertial>
+    <visual>
+      <geometry><sphere radius="0.006"/></geometry>
+      <material name="metal"/>
+    </visual>
+    <collision>
+      <geometry><sphere radius="0.006"/></geometry>
+    </collision>
+  </link>
+  <!-- SolarOS resolves these devices only on explicit robot start. -->
+  <solar_os version="1">
+    <joint name="left_wheel_joint" command="velocity">
+      <motor device="left" polarity="1"/>
+      <encoder device="left_enc" ppr="70" placement="motor" polarity="1"/>
+      <transmission gear_ratio="30"/>
+      <param name="kp" value="0.04"/>
+      <param name="ki" value="0.03"/>
+      <param name="max_drive" value="0.2"/>
+      <param name="velocity_limit" value="3"/>
+      <param name="acceleration_limit" value="10"/>
+      <param name="command_timeout_ms" value="150"/>
+    </joint>
+    <joint name="right_wheel_joint" command="velocity">
+      <motor device="right" polarity="1"/>
+      <encoder device="right_enc" ppr="70" placement="motor" polarity="1"/>
+      <transmission gear_ratio="30"/>
+      <param name="kp" value="0.04"/>
+      <param name="ki" value="0.03"/>
+      <param name="max_drive" value="0.2"/>
+      <param name="velocity_limit" value="3"/>
+      <param name="acceleration_limit" value="10"/>
+      <param name="command_timeout_ms" value="150"/>
+    </joint>
+    <diff_drive name="base" left_joint="left_wheel_joint" right_joint="right_wheel_joint">
+      <geometry wheel_radius="0.0145" wheel_separation="0.0701282"/>
+      <odometry frame="odom" base_frame="base_footprint"/>
+      <param name="command_timeout_ms" value="300"/>
+    </diff_drive>
+  </solar_os>
+</robot>

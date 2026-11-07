@@ -65,13 +65,13 @@ static int servo_open(const char *name, const char *owner, const solar_os_native
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     solar_os_servo_config_t value = {.output.output = c->output, .freq_hz = c->frequency_hz,
         .pulse_min_us = c->pulse_min_us, .pulse_max_us = c->pulse_max_us,
-        .angle_min_deg = c->angle_min * (180.0f / 3.14159265358979323846f),
-        .angle_max_deg = c->angle_max * (180.0f / 3.14159265358979323846f)};
+        .angle_min_rad = c->angle_min,
+        .angle_max_rad = c->angle_max};
     memcpy(value.output.provider, c->provider, sizeof(c->provider));
-    return result(solar_os_servo_open(name, owner, &value));
+    return result(solar_os_servo_open_private(name, owner, &value));
 }
 static int servo_set(const char *name, const char *owner, float value)
-{ return result(solar_os_servo_set(name, owner, value * (180.0f / 3.14159265358979323846f))); }
+{ return result(solar_os_servo_set(name, owner, value)); }
 static int servo_disable(const char *name, const char *owner) { return result(solar_os_servo_disable(name, owner)); }
 static int servo_close(const char *name, const char *owner) { return result(solar_os_servo_close(name, owner)); }
 #endif

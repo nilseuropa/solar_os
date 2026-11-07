@@ -9,10 +9,11 @@
 #define SOLAR_OS_OSC_PACKET_MAX 512U
 #define SOLAR_OS_OSC_ADDRESS_MAX 96U
 #define SOLAR_OS_OSC_BINDING_NAME_MAX 24U
-#define SOLAR_OS_OSC_SOURCE_NAME_MAX 24U
+#define SOLAR_OS_OSC_SOURCE_NAME_MAX 48U
 #define SOLAR_OS_OSC_BINDING_MAX 16U
 #define SOLAR_OS_OSC_BUNDLE_DEPTH_MAX 2U
 #define SOLAR_OS_OSC_PACKET_UPDATE_MAX 8U
+#define SOLAR_OS_OSC_ARGUMENT_MAX 8U
 #define SOLAR_OS_OSC_RATE_MIN_MILLIHZ 100U
 #define SOLAR_OS_OSC_RATE_MAX_MILLIHZ 100000U
 
@@ -32,6 +33,8 @@ typedef enum {
     SOLAR_OS_OSC_EDGE_BOTH,
 } solar_os_osc_edge_t;
 
+typedef enum { SOLAR_OS_OSC_SEND = 0, SOLAR_OS_OSC_RECEIVE } solar_os_osc_direction_t;
+
 typedef struct {
     char name[SOLAR_OS_OSC_BINDING_NAME_MAX];
     solar_os_osc_source_t source_type;
@@ -42,6 +45,8 @@ typedef struct {
     float delta;
     bool send_always;
     solar_os_osc_edge_t edge;
+    solar_os_osc_direction_t direction;
+    uint32_t argument;
 } solar_os_osc_binding_config_t;
 
 typedef struct {
@@ -58,6 +63,11 @@ typedef struct {
     uint32_t send_errors;
     uint32_t source_errors;
     esp_err_t last_error;
+    bool target_available;
+    bool target_claimed;
+    uint32_t received;
+    uint32_t write_errors;
+    uint64_t last_receive_ms;
 } solar_os_osc_binding_info_t;
 
 typedef struct {
@@ -70,7 +80,10 @@ typedef struct {
 esp_err_t solar_os_osc_bind(const solar_os_osc_binding_config_t *config,
                             uint32_t *binding_id);
 esp_err_t solar_os_osc_unbind(const char *name);
-void solar_os_osc_clear(void);
+esp_err_t solar_os_osc_clear(void);
+/* Release receive writers on worker shutdown without deleting bindings.
+ * Failed closes remain reachable for a later cleanup retry. */
+esp_err_t solar_os_osc_receive_release(void);
 size_t solar_os_osc_binding_count(void);
 bool solar_os_osc_binding_get(size_t index, solar_os_osc_binding_info_t *info);
 bool solar_os_osc_binding_due(const solar_os_osc_binding_info_t *info,

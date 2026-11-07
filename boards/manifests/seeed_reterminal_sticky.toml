@@ -40,8 +40,8 @@ includes = ["solar_os_buttons.h", "solar_os_keys.h"]
 [defines]
 SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"board-power"'
 SOLAR_OS_BOARD_POWER_LATCH_PINS = '{GPIO_NUM_45, GPIO_NUM_46}'
-# Assert the latch and peripheral rails before display or storage access.
-SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}, {.pin = GPIO_NUM_38, .level = 0}}'
+# Assert the latch and peripheral rails; enable charging with active-low CHG_EN.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_45, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_47, .level = 1}, {.pin = GPIO_NUM_10, .level = 1}, {.pin = GPIO_NUM_42, .level = 1}, {.pin = GPIO_NUM_38, .level = 0}, {.pin = GPIO_NUM_39, .level = 0}}'
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677/SSD2677"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "480"

@@ -14,6 +14,7 @@
 #define SOLAR_OS_WIFI_PROFILE_MAX 5
 #define SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX 32
 #define SOLAR_OS_WIFI_LATENCY_OWNER_MAX 32
+#define SOLAR_OS_WIFI_LATENCY_OWNERS_MAX 8
 
 typedef enum {
     SOLAR_OS_WIFI_STATE_OFF,
@@ -119,8 +120,8 @@ esp_err_t solar_os_wifi_connectionless_acquire(const char *owner,
                                                uint8_t requested_channel,
                                                uint8_t *actual_channel);
 esp_err_t solar_os_wifi_connectionless_release(const char *owner);
-/* One latency-sensitive owner can suppress modem sleep. Reacquiring with the
- * same owner is idempotent; release restores the remaining radio policy. */
+/* Independent owners suppress modem sleep until the last owner releases it.
+ * Reacquiring with the same owner is idempotent. */
 esp_err_t solar_os_wifi_latency_acquire(const char *owner);
 esp_err_t solar_os_wifi_latency_release(const char *owner);
 void solar_os_wifi_get_status(solar_os_wifi_status_t *status);

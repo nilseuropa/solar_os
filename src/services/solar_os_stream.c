@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -18,6 +19,7 @@ typedef struct {
     uint32_t generation;
     solar_os_stream_driver_t driver;
     uint32_t active_handles;
+    uint32_t observers;
     char owner[SOLAR_OS_STREAM_OWNER_MAX];
     uint64_t read_units;
     uint64_t written_units;
@@ -120,7 +122,7 @@ static bool stream_driver_valid(const solar_os_stream_driver_t *driver)
         return false;
     }
     if (stream_direction_can_read(driver->info.direction) &&
-        driver->read == NULL && driver->read_scalar == NULL &&
+        driver->read == NULL && driver->read_scalar == NULL && driver->read_scalar_sample == NULL &&
         driver->read_csv == NULL && driver->acquire_frame == NULL) {
         return false;
     }
@@ -128,8 +130,17 @@ static bool stream_driver_valid(const solar_os_stream_driver_t *driver)
         driver->write == NULL) {
         return false;
     }
-    if (driver->info.type == SOLAR_OS_STREAM_TYPE_SCALAR &&
-        driver->read_scalar == NULL) {
+    if (driver->info.has_scalar_range &&
+        (driver->info.type != SOLAR_OS_STREAM_TYPE_SCALAR ||
+         !stream_direction_can_write(driver->info.direction) ||
+         strcmp(driver->info.format, "f32") != 0 ||
+         !isfinite(driver->info.scalar_minimum) ||
+         !isfinite(driver->info.scalar_maximum) ||
+         driver->info.scalar_minimum > driver->info.scalar_maximum)) {
+        return false;
+    }
+    if (driver->info.type == SOLAR_OS_STREAM_TYPE_SCALAR && stream_direction_can_read(driver->info.direction) &&
+        driver->read_scalar == NULL && driver->read_scalar_sample == NULL) {
         return false;
     }
     if (driver->info.type == SOLAR_OS_STREAM_TYPE_AUDIO &&
@@ -229,7 +240,7 @@ esp_err_t solar_os_stream_unregister(const char *id)
         return ESP_ERR_NOT_FOUND;
     }
     stream_entry_t *entry = &streams[index];
-    if (entry->active_handles != 0U) {
+    if (entry->active_handles != 0U || entry->observers != 0U) {
         stream_unlock();
         return ESP_ERR_INVALID_STATE;
     }
@@ -255,7 +266,7 @@ esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count)
     stream_lock();
     for (size_t i=0; i<count; ++i) {
         indexes[i] = stream_find_locked(ids[i]);
-        if (indexes[i] < 0 || streams[indexes[i]].active_handles != 0U) {
+        if (indexes[i] < 0 || streams[indexes[i]].active_handles != 0U || streams[indexes[i]].observers != 0U) {
             err = indexes[i] < 0 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
             stream_unlock();
             return err;
@@ -326,6 +337,17 @@ esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info)
     stream_copy_info_locked(&streams[index], info);
     stream_unlock();
     return ESP_OK;
+}
+
+esp_err_t solar_os_stream_set_unit(const char *id,const char *unit)
+{
+    if(!stream_text_valid(id,SOLAR_OS_STREAM_ID_MAX,true) ||
+        !stream_text_valid(unit,SOLAR_OS_STREAM_UNIT_MAX,false)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err=stream_ensure_init();if(err!=ESP_OK) return err;
+    stream_lock();int index=stream_find_locked(id);
+    if(index<0) err=ESP_ERR_NOT_FOUND;
+    else strlcpy(streams[index].driver.info.unit,unit?unit:"",SOLAR_OS_STREAM_UNIT_MAX);
+    stream_unlock();return err;
 }
 
 const char *solar_os_stream_type_name(solar_os_stream_type_t type)
@@ -681,6 +703,18 @@ esp_err_t solar_os_stream_write(solar_os_stream_handle_t *handle,
             write = entry->driver.write;
             if (write == NULL) {
                 err = ESP_ERR_NOT_SUPPORTED;
+            } else if (entry->driver.info.has_scalar_range) {
+                float value;
+                if (len != sizeof(value)) {
+                    err = ESP_ERR_INVALID_ARG;
+                } else {
+                    memcpy(&value, data, sizeof(value));
+                    if (!isfinite(value) ||
+                        value < entry->driver.info.scalar_minimum ||
+                        value > entry->driver.info.scalar_maximum) {
+                        err = ESP_ERR_INVALID_ARG;
+                    }
+                }
             }
         }
     }
@@ -790,6 +824,7 @@ esp_err_t solar_os_stream_read_scalar(
     stream_entry_t *entry = NULL;
     void *user = NULL;
     solar_os_stream_read_scalar_fn read_scalar = NULL;
+    solar_os_stream_read_scalar_sample_fn read_sample = NULL;
     stream_lock();
     esp_err_t err = stream_get_callbacks(handle, &entry, &user);
     if (err == ESP_OK) {
@@ -798,7 +833,8 @@ esp_err_t solar_os_stream_read_scalar(
             err = ESP_ERR_NOT_SUPPORTED;
         } else {
             read_scalar = entry->driver.read_scalar;
-            if (read_scalar == NULL) {
+            read_sample = entry->driver.read_scalar_sample;
+            if (read_scalar == NULL && read_sample == NULL) {
                 err = ESP_ERR_NOT_SUPPORTED;
             }
         }
@@ -807,7 +843,12 @@ esp_err_t solar_os_stream_read_scalar(
     if (err != ESP_OK) {
         return err;
     }
-    err = read_scalar(user, options, value);
+    if(read_scalar) err = read_scalar(user, options, value);
+    else {
+        solar_os_stream_scalar_sample_t sample;
+        err=read_sample(user,options,&sample);
+        if(err==ESP_OK) *value=sample.value;
+    }
     if (err == ESP_OK) {
         stream_lock();
         if (entry->registered && entry->generation == handle->generation) {
@@ -815,6 +856,25 @@ esp_err_t solar_os_stream_read_scalar(
         }
         stream_unlock();
     }
+    return err;
+}
+
+esp_err_t solar_os_stream_observe_scalar_sample(const char *id,
+    const solar_os_stream_read_options_t *options,solar_os_stream_scalar_sample_t *sample)
+{
+    if(!stream_text_valid(id,SOLAR_OS_STREAM_ID_MAX,true) || !sample) return ESP_ERR_INVALID_ARG;
+    esp_err_t err=stream_ensure_init();if(err!=ESP_OK) return err;
+    stream_lock();int index=stream_find_locked(id);
+    if(index<0) { stream_unlock();return ESP_ERR_NOT_FOUND; }
+    stream_entry_t *entry=&streams[index];
+    solar_os_stream_read_scalar_sample_fn callback=entry->driver.observe_scalar_sample;
+    if(entry->driver.info.type!=SOLAR_OS_STREAM_TYPE_SCALAR ||
+        !stream_direction_can_read(entry->driver.info.direction) || !callback) {
+        stream_unlock();return ESP_ERR_NOT_SUPPORTED;
+    }
+    entry->observers++;void *user=entry->driver.user;stream_unlock();
+    err=callback(user,options,sample);
+    stream_lock();entry->observers--;if(err==ESP_OK) entry->read_units++;stream_unlock();
     return err;
 }
 

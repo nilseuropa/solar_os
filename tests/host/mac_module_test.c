@@ -3,6 +3,7 @@
 #include "ncr.h"
 #include "via.h"
 #include "scc.h"
+#include "mouse.h"
 #include <assert.h>
 #include <stdio.h>
 
@@ -39,6 +40,9 @@ static uint32_t guest_screen, guest_ticks;
 static const char *rom_file, *disk_file;
 static FILE *disk;
 static unsigned disk_closes;
+static unsigned pointer_reads;
+static int pointer_error;
+static bool pointer_pending, pointer_delivered, pointer_verified, pointer_reset_verified;
 
 static void *allocate(size_t n)
 {
@@ -113,6 +117,26 @@ static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available)
 {
     (void)key; *available = false; return 0;
 }
+static int read_pointer(solar_os_native_foreground_pointer_v1_t *pointer, bool *available)
+{
+    pointer_reads++;
+    *available = false;
+    if (pointer_error) return pointer_error;
+    if (pointer_delivered) {
+        bool pressed = (mouseTick() & MOUSE_BTN) != 0;
+        if (suspended_once) { assert(!pressed); pointer_reset_verified = true; }
+        else { assert(pressed); pointer_verified = true; }
+    }
+    if (pointer_pending) {
+        *pointer = (solar_os_native_foreground_pointer_v1_t){
+            .mode = SOLAR_OS_NATIVE_POINTER_RELATIVE, .source = 1,
+            .delta_x = 4, .delta_y = -2, .buttons = 1,
+        };
+        *available = true;
+        pointer_pending = false; pointer_delivered = true;
+    }
+    return 0;
+}
 static void set_exit(int code) { exit_code = code; }
 static int resolve(const char *s, char *out, size_t n)
 {
@@ -172,6 +196,7 @@ static solar_os_native_foreground_api_v1_t app = {
     .set_exit_code = set_exit, .resolve_path = resolve, .file_size = file_size,
     .read_file = read_file, .replace_file = replace_file,
     .disk_open = disk_open, .disk_read = disk_read, .disk_write = disk_write, .disk_close = disk_close,
+    .read_pointer = read_pointer,
 };
 static const solar_os_native_memory_api_v1_t memory = { .abi_version = 1,
     .struct_size = sizeof(memory), .alloc = allocate, .free = release };
@@ -193,6 +218,8 @@ static void reset(void)
     stop_deadline = (uint64_t)stop_after * 40000U;
     fail_allocation = display_error = disk_error = 0;
     suspended_once = saw_guest_counter = false;
+    pointer_reads = 0; pointer_error = 0;
+    pointer_pending = pointer_delivered = pointer_verified = pointer_reset_verified = false;
 }
 static void scsi(const uint8_t *cmd, unsigned n)
 {
@@ -347,6 +374,7 @@ int main(int argc, char **argv)
     app.struct_size = offsetof(solar_os_native_foreground_api_v1_t, read_pointer);
     reset(); diagnostic = true;
     assert(!solar_os_mac_main(2, args) && !exit_code);
+    assert(!pointer_reads); /* Older service tables must never be read past their end. */
     assert(!allocations && frames >= 2 && frames < stop_after && suspends == 1 && resumes == 1 && saw_guest_counter);
     unsigned white = 0, black = 0;
     for (unsigned i = 0; i < 480 * 320; ++i) { white += !last_frame[i]; black += last_frame[i] == 1; }
@@ -368,6 +396,43 @@ int main(int argc, char **argv)
     for (unsigned i = 0; i < 480 * 320; ++i) { white += !last_frame[i]; black += last_frame[i] == 1; }
     assert(white > 60000 && black > 60000);
     app.video_acquire = NULL; app.video_exchange = NULL;
+    assert(pointer_reads);
+    reset(); pointer_pending = true;
+    assert(!solar_os_mac_main(2, args) && !exit_code && !allocations);
+    assert(pointer_verified && pointer_reset_verified && suspends == 1 && resumes == 1);
+    reset(); pointer_error = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    assert(!solar_os_mac_main(2, args) && !exit_code && !allocations && pointer_reads == 1);
+    reset(); pointer_error = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    assert(solar_os_mac_main(2, args) == 1 && exit_code == 1 && !allocations && pointer_reads == 1);
+    reset(); app.read_pointer = NULL;
+    assert(!solar_os_mac_main(2, args) && !exit_code && !allocations && !pointer_reads);
+    app.read_pointer = read_pointer;
+    char *speed_args[][7] = {
+        {"mac", "rom", "--pointer-speed", "2"},
+        {"mac", "--pointer-speed", "10", "rom", "disk"},
+        {"mac", "rom", "--floppy", "disk", "--pointer-speed", "3"},
+        {"mac", "rom", "--pointer-speed", "4", "--floppy", "disk"},
+        {"mac", "rom", "disk", "--pointer-speed", "5"},
+    };
+    const int speed_argc[] = {4, 5, 6, 6, 5};
+    for (unsigned i = 0; i < sizeof(speed_argc) / sizeof(speed_argc[0]); ++i) {
+        reset(); fail_allocation = 1;
+        assert(solar_os_mac_main(speed_argc[i], speed_args[i]) == 1 && !allocations);
+        assert(alloc_attempt == 2); /* Parsed successfully and reached guest allocation. */
+    }
+    char *invalid_speed[] = {"0", "11", "-1", "1.5", "fast", "", "99999999999999"};
+    for (unsigned i = 0; i < sizeof(invalid_speed) / sizeof(invalid_speed[0]); ++i) {
+        char *invalid[] = {"mac", "rom", "--pointer-speed", invalid_speed[i]};
+        reset();
+        assert(solar_os_mac_main(4, invalid) == 1 && exit_code == 1 && !alloc_attempt);
+    }
+    char *missing_speed[] = {"mac", "rom", "--pointer-speed"};
+    reset();
+    assert(solar_os_mac_main(3, missing_speed) == 1 && exit_code == 1 && !alloc_attempt);
+    char *diagnostic_speed[] = {"mac", "--pointer-speed", "2", "--self-test"};
+    reset();
+    assert(!solar_os_mac_main(4, diagnostic_speed) && !exit_code && !allocations);
+    assert(suspends == 1 && resumes == 1);
     if (argc == 3 || argc == 5) {
         if (argc == 5) { selected_width = atoi(argv[3]); selected_height = atoi(argv[4]); }
         stop_after = 1200; reset(); diagnostic = false; rom_file = argv[1]; disk_file = argv[2];

@@ -8,10 +8,10 @@ SolarOS foreground worker. No Arduino, BLE server, board driver, SD mount,
 flash partition or separate emulator task is initialized by this module.
 
 The guest has 4 MiB RAM, a monochrome screen matching the selected display,
-keyboard, keyboard-controlled mouse, and one optional SCSI disk or floppy. Audio and
+keyboard, mouse, and one optional SCSI disk or floppy. Audio and
 LocalTalk are not implemented. The IWM remains a stub; floppy access uses
-the replacement Sony driver described below. Physical touch and pointer
-devices are not exposed by the current foreground input ABI.
+the replacement Sony driver described below. Pointer devices use the SolarOS
+foreground input service; keyboard mouse controls remain available.
 
 ## Build and install
 
@@ -24,8 +24,9 @@ cmake --build build --target typed_elf
 
 Copy `build/solaros_native_mac.app.elf` to `modules/apps/mac.elf` on the
 preferred storage volume. The firmware must provide the foreground service
-through `disk_close`. This module uses lifecycle ABI 2, a 16 KiB worker stack
-and priority 1. Launch admission requires 8 KiB free internal RAM and 5 MiB
+through `disk_close` and recognize the pointer-events manifest flag. Device
+pointer input also requires `read_pointer`. This module uses lifecycle ABI 2,
+a 16 KiB worker stack and priority 1. Launch admission requires 8 KiB free internal RAM and 5 MiB
 free PSRAM after loading the ELF. Guest RAM needs a contiguous 4 MiB block;
 8 MiB PSRAM boards can fail admission or allocation if other apps retain
 large buffers or memory is fragmented. Allocation failure returns to the shell.
@@ -34,6 +35,7 @@ large buffers or memory is fragmented. Allocation failure returns to the shell.
 mac /sdcard/mac/macplus.rom
 mac /sdcard/mac/macplus.rom /sdcard/mac/hd.img
 mac /sdcard/mac/macplus.rom --floppy /sdcard/mac/system.img
+mac /sdcard/mac/macplus.rom --pointer-speed 2
 session create mac display0 /sdcard/mac/macplus.rom --floppy /sdcard/mac/system.img
 mac --self-test
 ```
@@ -78,6 +80,8 @@ Software that assumes the original Mac screen size may have windows or dialogs
 that do not fit smaller displays.
 
 - Letters, punctuation and modifiers use Macintosh keyboard scan codes.
+- Mouse and trackball devices move the guest mouse; the primary button clicks
+  and drags. Touch acts as a touchpad: drag to move and hold the mouse button.
 - Keypad 4/6/8/2 move the mouse; hold keypad 5 to hold its button.
 - F8 toggles mouse mode: arrows move and Space holds the mouse button.
 - F2 saves the guest framebuffer as a `.pbm` sidecar beside the ROM.
@@ -86,6 +90,11 @@ that do not fit smaller displays.
 
 On character-only input sources, each arrow event moves six pixels and Space
 toggles the button because those sources do not supply key-release events.
+
+Relative mouse and trackball deltas default to 5× speed. `--pointer-speed N`
+accepts an integer from 1 to 10, with `1` restoring the original speed. It can
+appear before or after the ROM or disk arguments. Touch movement and keyboard
+mouse controls are unaffected. The speed setting survives suspend and resume.
 
 Suspend retains CPU, RAM, peripheral state, pause state and image claims.
 It releases display and input ownership. Resume clears held inputs and

@@ -13,7 +13,7 @@ agent_reference_sections = true
 Mac is an external foreground app for ESP32-S3 boards with PSRAM, graphics
 and native-module support. It emulates a Macintosh Plus with 4 MiB RAM,
 a monochrome screen matching the selected display, keyboard, mouse and one disk image.
-Audio, networking and physical pointer input are not supported.
+Audio and networking are not supported.
 
 ## Quick reference
 
@@ -26,9 +26,14 @@ stack. Close other large apps if allocation fails.
 mac /sdcard/mac/macplus.rom
 mac /sdcard/mac/macplus.rom /sdcard/mac/hd.img
 mac /sdcard/mac/macplus.rom --floppy /sdcard/mac/system.img
+mac /sdcard/mac/macplus.rom --pointer-speed 2
 session create mac display0 /sdcard/mac/macplus.rom --floppy /sdcard/mac/system.img
 session close ID
 ```
+
+Tab completes ROM and disk paths. After the ROM path, type `--fl` and press Tab
+to complete `--floppy`, then use Tab to complete its image path.
+`--pointer-speed` and its suggested values also complete with Tab.
 
 Supply your own Macintosh Plus ROM and guest disks. A ROM must start with a
 valid 128 KiB Plus v1, v2 or v3 image. Trailing dump data is ignored after
@@ -51,6 +56,12 @@ Software with fixed-size windows or dialogs may not fit smaller displays.
 The app checks for screen changes up to 25 times per second and redraws only
 changed frames, plus a complete frame after resume.
 Keyboard letters, punctuation and modifiers go to the guest.
+Mouse and trackball movement controls the guest mouse; the primary button clicks
+and drags. Touch acts as a touchpad: drag to move and hold the mouse button.
+Relative mouse and trackball movement defaults to 5× speed. Set
+`--pointer-speed N` to an integer from 1 to 10; `1` gives the original speed.
+The option can appear before or after the ROM or disk arguments. Touch movement
+and keyboard mouse controls keep their normal speed.
 
 | Control | Action |
 | --- | --- |

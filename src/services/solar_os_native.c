@@ -25,6 +25,9 @@
 #include "solar_os_native_job_abi.h"
 #include "solar_os_native_media.h"
 #include "solar_os_native_motion.h"
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+#include "solar_os_native_controllers.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble.h"
 #endif
@@ -583,6 +586,10 @@ static const void *native_job_get_service(const char *name,
     }
     const void *motion = solar_os_native_motion_get_service(name, abi_version, minimum_struct_size);
     if (motion != NULL) return motion;
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+    const void *controllers=solar_os_native_controllers_get_service(name,abi_version,minimum_struct_size);
+    if(controllers != NULL) return controllers;
+#endif
     const void *service = solar_os_native_media_get_service(name, abi_version,
                                                            minimum_struct_size);
     if (service != NULL) return service;

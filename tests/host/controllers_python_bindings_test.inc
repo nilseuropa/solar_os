@@ -12,8 +12,8 @@ struct object {
     int type;
     double number;
     char text[80];
-    const char *keys[64];
-    mp_obj_t values[64];
+    const char *keys[96];
+    mp_obj_t values[96];
     size_t count;
 };
 static struct object pool[4096], none;
@@ -38,7 +38,7 @@ static mp_obj_t mp_obj_new_list(size_t n, const mp_obj_t *items)
 static void mp_obj_list_append(mp_obj_t list, mp_obj_t value)
 { assert(list->count < 64); list->values[list->count++] = value; }
 static void store(mp_obj_t dict, const char *key, mp_obj_t value)
-{ assert(dict->count < 64); dict->keys[dict->count] = key; dict->values[dict->count++] = value; }
+{ assert(dict->count < 96); dict->keys[dict->count] = key; dict->values[dict->count++] = value; }
 static void python_dict_store_cstr(mp_obj_t d, const char *k, const char *v) { store(d, k, string(v)); }
 static void python_dict_store_bool(mp_obj_t d, const char *k, bool v) { store(d, k, number(v)); }
 static void python_dict_store_uint(mp_obj_t d, const char *k, uint32_t v) { store(d, k, number(v)); }
@@ -83,6 +83,18 @@ int main(void)
     now = 30; solar_os_controllers_tick(now);
     assert(field(solaros_controllers_status(name), "enabled")->number);
     solaros_controllers_stop(name);
+    solaros_controllers_reset(name);
+    mp_obj_t tune_args[]={name,number(.01),number(3),number(2000)};
+    record=solaros_controllers_tune(4,tune_args);
+    assert(!strcmp(field(record,"tune_state")->text,"running") && field(record,"tune_required_cycles")->number==3);
+    assert(!strcmp(field(record,"tune_reason")->text,"none") && field(record,"tune_kp")->number==0);
+    if(setjmp(error_jump)==0) { solaros_controllers_tune(1,args); assert(false); }
+    assert(last_error==ESP_ERR_INVALID_STATE);
+    solaros_controllers_stop(name);
+    assert(!strcmp(field(solaros_controllers_status(name),"tune_state")->text,"aborted"));
+    tune_args[2]=number(3.5);
+    if(setjmp(error_jump)==0) { solaros_controllers_tune(4,tune_args); assert(false); }
+    assert(last_error==ESP_ERR_INVALID_ARG);
     solaros_controllers_reset(name);
     solaros_controllers_delete(name);
     assert(solaros_controllers_list()->count == 0);

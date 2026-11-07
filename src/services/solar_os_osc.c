@@ -8,6 +8,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_parameters.h"
+#include "solar_os_stream.h"
+#include "solar_os_time.h"
 
 #define OSC_PARAMETER_PREFIX "/solaros/parameter/"
 #define OSC_PARAMETER_NORMALIZED_SUFFIX "/normalized"
@@ -16,12 +18,15 @@ typedef struct {
     bool active;
     solar_os_osc_binding_info_t info;
     float pending_value;
+    bool busy;
+    solar_os_stream_handle_t sink;
 } osc_binding_slot_t;
 
 static EXT_RAM_BSS_ATTR osc_binding_slot_t osc_bindings[SOLAR_OS_OSC_BINDING_MAX];
 static SemaphoreHandle_t osc_mutex;
 static StaticSemaphore_t osc_mutex_storage;
 static uint32_t osc_next_id;
+static esp_err_t osc_receive_close_slot(size_t index, uint32_t id, bool remove);
 
 static esp_err_t osc_ensure_mutex(void)
 {
@@ -102,17 +107,38 @@ esp_err_t solar_os_osc_bind(const solar_os_osc_binding_config_t *config,
         !osc_address_valid(config->address) ||
         config->source_type > SOLAR_OS_OSC_SOURCE_CONTROL ||
         config->value_type > SOLAR_OS_OSC_VALUE_EVENT ||
-        config->edge > SOLAR_OS_OSC_EDGE_BOTH || config->interval_ms == 0U ||
+        config->edge > SOLAR_OS_OSC_EDGE_BOTH ||
+        config->direction > SOLAR_OS_OSC_RECEIVE ||
+        (config->direction == SOLAR_OS_OSC_SEND && config->interval_ms == 0U) ||
+        (config->direction == SOLAR_OS_OSC_RECEIVE &&
+         (config->source_type != SOLAR_OS_OSC_SOURCE_STREAM ||
+          config->value_type != SOLAR_OS_OSC_VALUE_SCALAR ||
+          config->argument >= SOLAR_OS_OSC_ARGUMENT_MAX || config->delta != 0 ||
+          config->send_always || !strncmp(config->address, OSC_PARAMETER_PREFIX, sizeof(OSC_PARAMETER_PREFIX)-1))) ||
         !isfinite(config->delta) || config->delta < 0.0f ||
         (config->source_type == SOLAR_OS_OSC_SOURCE_CONTROL &&
          config->value_type != SOLAR_OS_OSC_VALUE_SCALAR) ||
         osc_ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
+    if(config->direction==SOLAR_OS_OSC_RECEIVE) {
+        solar_os_stream_info_t info;
+        esp_err_t err=solar_os_stream_get_info(config->source,&info);
+        if(err==ESP_OK && (info.type!=SOLAR_OS_STREAM_TYPE_SCALAR ||
+            info.direction==SOLAR_OS_STREAM_DIRECTION_SOURCE || strcmp(info.format,"f32")))return ESP_ERR_NOT_SUPPORTED;
+        if(err!=ESP_OK && err!=ESP_ERR_NOT_FOUND)return err;
+    }
     xSemaphoreTake(osc_mutex, portMAX_DELAY);
     if (osc_binding_find_name_locked(config->name) >= 0) {
         xSemaphoreGive(osc_mutex);
         return ESP_ERR_INVALID_STATE;
+    }
+    if (config->direction == SOLAR_OS_OSC_RECEIVE) {
+        for(size_t i=0;i<SOLAR_OS_OSC_BINDING_MAX;++i)
+            if(osc_bindings[i].active && osc_bindings[i].info.config.direction==SOLAR_OS_OSC_RECEIVE &&
+               !strcmp(osc_bindings[i].info.config.source,config->source)) {
+                xSemaphoreGive(osc_mutex);return ESP_ERR_INVALID_STATE;
+            }
     }
     for (size_t i = 0; i < SOLAR_OS_OSC_BINDING_MAX; i++) {
         if (osc_bindings[i].active) {
@@ -127,6 +153,7 @@ esp_err_t solar_os_osc_bind(const solar_os_osc_binding_config_t *config,
         osc_bindings[i].info.id = osc_next_id;
         osc_bindings[i].info.config = *config;
         osc_bindings[i].info.last_error = ESP_OK;
+        osc_bindings[i].sink = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
         if (binding_id != NULL) {
             *binding_id = osc_next_id;
         }
@@ -145,21 +172,25 @@ esp_err_t solar_os_osc_unbind(const char *name)
     }
     xSemaphoreTake(osc_mutex, portMAX_DELAY);
     const int index = osc_binding_find_name_locked(name);
-    if (index >= 0) {
-        memset(&osc_bindings[index], 0, sizeof(osc_bindings[index]));
-    }
+    uint32_t id=index>=0?osc_bindings[index].info.id:0;
     xSemaphoreGive(osc_mutex);
-    return index >= 0 ? ESP_OK : ESP_ERR_NOT_FOUND;
+    return index >= 0 ? osc_receive_close_slot((size_t)index, id, true) : ESP_ERR_NOT_FOUND;
 }
 
-void solar_os_osc_clear(void)
+esp_err_t solar_os_osc_clear(void)
 {
     if (osc_ensure_mutex() != ESP_OK) {
-        return;
+        return ESP_ERR_NO_MEM;
     }
-    xSemaphoreTake(osc_mutex, portMAX_DELAY);
-    memset(osc_bindings, 0, sizeof(osc_bindings));
-    xSemaphoreGive(osc_mutex);
+    esp_err_t result=ESP_OK;
+    for(size_t i=0;i<SOLAR_OS_OSC_BINDING_MAX;++i) {
+        xSemaphoreTake(osc_mutex,portMAX_DELAY);
+        uint32_t id=osc_bindings[i].active?osc_bindings[i].info.id:0;
+        xSemaphoreGive(osc_mutex);
+        esp_err_t one=id?osc_receive_close_slot(i,id,true):ESP_OK;
+        if(one!=ESP_OK && result==ESP_OK)result=one;
+    }
+    return result;
 }
 
 size_t solar_os_osc_binding_count(void)
@@ -200,7 +231,7 @@ bool solar_os_osc_binding_get(size_t index, solar_os_osc_binding_info_t *info)
 bool solar_os_osc_binding_due(const solar_os_osc_binding_info_t *info,
                               uint64_t now_ms)
 {
-    return info != NULL &&
+    return info != NULL && info->config.direction == SOLAR_OS_OSC_SEND &&
         (info->last_sample_ms == 0U ||
          now_ms - info->last_sample_ms >= info->config.interval_ms);
 }
@@ -392,49 +423,18 @@ static esp_err_t osc_parameter_path(const char *address,
     return ESP_OK;
 }
 
-static esp_err_t osc_dispatch_message(const uint8_t *packet,
-                                      size_t packet_len,
+#include "solar_os_osc_receive.inc"
+
+static esp_err_t osc_dispatch_message(const osc_message_t *message,
                                       solar_os_osc_dispatch_result_t *result)
 {
-    size_t offset = 0U;
-    const char *address = NULL;
-    const char *types = NULL;
-    size_t address_len = 0U;
-    size_t types_len = 0U;
-    esp_err_t err = osc_read_string(packet, packet_len, &offset,
-                                    &address, &address_len);
-    if (err != ESP_OK || address_len == 0U || address[0] != '/') {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    err = osc_read_string(packet, packet_len, &offset, &types, &types_len);
-    if (err != ESP_OK || types_len != 2U || types[0] != ',' ||
-        strchr("fiTF", types[1]) == NULL) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    float value = 0.0f;
-    if (types[1] == 'f' || types[1] == 'i') {
-        if (offset + 4U != packet_len) {
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        const uint32_t raw = osc_read_u32(&packet[offset]);
-        if (types[1] == 'f') {
-            memcpy(&value, &raw, sizeof(value));
-            if (!isfinite(value)) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
-        } else {
-            value = (float)(int32_t)raw;
-        }
-    } else {
-        if (offset != packet_len) {
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        value = types[1] == 'T' ? 1.0f : 0.0f;
-    }
+    const char *address=message->address,*types=message->types;
+    size_t address_len=message->address_len;
+    float value=message->values[0];
 
     char path[SOLAR_OS_PARAMETER_PATH_MAX];
     bool normalized = false;
-    err = osc_parameter_path(address, address_len, path, sizeof(path),
+    esp_err_t err = osc_parameter_path(address, address_len, path, sizeof(path),
                              &normalized);
     if (err == ESP_ERR_NOT_FOUND) {
         result->unknown_paths++;
@@ -475,43 +475,6 @@ static esp_err_t osc_dispatch_message(const uint8_t *packet,
     return err;
 }
 
-static esp_err_t osc_dispatch_element(const uint8_t *packet,
-                                      size_t packet_len,
-                                      uint32_t depth,
-                                      solar_os_osc_dispatch_result_t *result)
-{
-    if (packet_len == 0U || result->messages >= SOLAR_OS_OSC_PACKET_UPDATE_MAX) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    if (packet_len >= 8U && memcmp(packet, "#bundle\0", 8U) == 0) {
-        if (depth >= SOLAR_OS_OSC_BUNDLE_DEPTH_MAX || packet_len < 16U ||
-            osc_read_u32(&packet[8]) != 0U || osc_read_u32(&packet[12]) != 1U) {
-            return ESP_ERR_NOT_SUPPORTED;
-        }
-        size_t offset = 16U;
-        while (offset < packet_len) {
-            if (offset + 4U > packet_len) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
-            const uint32_t element_len = osc_read_u32(&packet[offset]);
-            offset += 4U;
-            if (element_len == 0U || element_len > packet_len - offset) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
-            const esp_err_t err = osc_dispatch_element(&packet[offset],
-                                                       element_len,
-                                                       depth + 1U,
-                                                       result);
-            if (err != ESP_OK) {
-                return err;
-            }
-            offset += element_len;
-        }
-        return offset == packet_len ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
-    }
-    return osc_dispatch_message(packet, packet_len, result);
-}
-
 esp_err_t solar_os_osc_dispatch_packet(
     const uint8_t *packet,
     size_t packet_len,
@@ -522,7 +485,23 @@ esp_err_t solar_os_osc_dispatch_packet(
         return ESP_ERR_INVALID_ARG;
     }
     memset(result, 0, sizeof(*result));
-    return osc_dispatch_element(packet, packet_len, 0U, result);
+    osc_packet_t decoded={0};
+    esp_err_t err=osc_parse_packet(packet,packet_len,0,&decoded);
+    if(err!=ESP_OK)return err;
+    if(osc_ensure_mutex()!=ESP_OK)return ESP_ERR_NO_MEM;
+    bool pinned[SOLAR_OS_OSC_BINDING_MAX]={0};
+    err=osc_receive_pin(&decoded,pinned);
+    if(err!=ESP_OK)return err;
+    for(size_t i=0;i<decoded.count;++i) {
+        err=osc_receive_message(&decoded.messages[i],pinned,result);
+        if(err==ESP_ERR_NOT_FOUND)err=osc_dispatch_message(&decoded.messages[i],result);
+        else ++result->messages;
+        if(err!=ESP_OK)break;
+    }
+    xSemaphoreTake(osc_mutex,portMAX_DELAY);
+    for(size_t i=0;i<SOLAR_OS_OSC_BINDING_MAX;++i)if(pinned[i])osc_bindings[i].busy=false;
+    xSemaphoreGive(osc_mutex);
+    return err;
 }
 
 static esp_err_t osc_encode(const char *address,

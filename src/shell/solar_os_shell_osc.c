@@ -17,6 +17,7 @@ static const char *const osc_usage =
     "osc bindings\n"
     "  osc bind <name> stream <stream> <address> [rate=hz] [delta=value] "
     "[send=change|always]\n"
+    "  osc bind <name> receive <scalar-sink> <address> [arg=0..7]\n"
     "  osc bind <name> stream <event-stream> <address> edge=rising|falling|both "
     "[rate=hz]\n"
     "  osc bind <name> control <control> <address> [rate=hz] "
@@ -59,6 +60,15 @@ static void osc_list_bindings(solar_os_shell_io_t *io)
         if (!solar_os_osc_binding_get(i, &binding)) {
             continue;
         }
+        if(binding.config.direction==SOLAR_OS_OSC_RECEIVE) {
+            solar_os_shell_io_table_printf(io,
+                "%s: receive %s arg=%u -> %s state=%s claimed=%u received=%u write-errors=%u last-receive=%llums error=%s\n",
+                binding.config.name,binding.config.address,(unsigned)binding.config.argument,binding.config.source,
+                binding.target_available?"ready":"missing",(unsigned)binding.target_claimed,
+                (unsigned)binding.received,(unsigned)binding.write_errors,
+                (unsigned long long)binding.last_receive_ms,solar_os_shell_error_text(binding.last_error));
+            continue;
+        }
         const float rate = 1000.0f / (float)binding.config.interval_ms;
         solar_os_shell_io_table_printf(
             io, "%s: %s %s (%s) -> %s rate=%.3gHz",
@@ -97,7 +107,7 @@ static void osc_list_bindings(solar_os_shell_io_t *io)
 static void osc_bind_command(solar_os_shell_io_t *io, int argc, char **argv)
 {
     if (argc < 6 ||
-        (strcmp(argv[3], "stream") != 0 && strcmp(argv[3], "control") != 0)) {
+        (strcmp(argv[3], "stream") != 0 && strcmp(argv[3], "control") != 0 && strcmp(argv[3],"receive") != 0)) {
         solar_os_shell_diag_problem(io, "osc bind", "invalid binding", osc_usage,
                                     NULL);
         return;
@@ -108,6 +118,7 @@ static void osc_bind_command(solar_os_shell_io_t *io, int argc, char **argv)
         .value_type = SOLAR_OS_OSC_VALUE_SCALAR,
         .interval_ms = (uint32_t)lroundf(1000.0f / OSC_DEFAULT_RATE_HZ),
         .edge = SOLAR_OS_OSC_EDGE_BOTH,
+        .direction = !strcmp(argv[3],"receive")?SOLAR_OS_OSC_RECEIVE:SOLAR_OS_OSC_SEND,
     };
     if (strlen(argv[2]) >= sizeof(config.name) ||
         strlen(argv[4]) >= sizeof(config.source) ||
@@ -121,8 +132,16 @@ static void osc_bind_command(solar_os_shell_io_t *io, int argc, char **argv)
     strlcpy(config.source, argv[4], sizeof(config.source));
     strlcpy(config.address, argv[5], sizeof(config.address));
     bool edge_option = false;
+    bool argument_set = false;
     for (int i = 6; i < argc; i++) {
-        if (strncmp(argv[i], "rate=", 5U) == 0) {
+        if(config.direction==SOLAR_OS_OSC_RECEIVE) {
+            size_t argument;
+            if(argument_set || strncmp(argv[i],"arg=",4) ||
+               !solar_os_shell_parse_size_arg(argv[i]+4,0,SOLAR_OS_OSC_ARGUMENT_MAX-1,&argument)) {
+                solar_os_shell_diag_invalid(io,"osc bind","receive option",argv[i],"one arg=0..7",osc_usage,false);return;
+            }
+            config.argument=(uint32_t)argument;argument_set=true;
+        } else if (strncmp(argv[i], "rate=", 5U) == 0) {
             float rate = 0.0f;
             if (!osc_parse_float(argv[i] + 5U, &rate) ||
                 rate * 1000.0f < SOLAR_OS_OSC_RATE_MIN_MILLIHZ ||
@@ -181,9 +200,11 @@ static void osc_bind_command(solar_os_shell_io_t *io, int argc, char **argv)
         if (solar_os_stream_get_info(config.source, &stream) == ESP_OK) {
             const solar_os_stream_type_t expected = edge_option ?
                 SOLAR_OS_STREAM_TYPE_EVENT : SOLAR_OS_STREAM_TYPE_SCALAR;
-            if (stream.type != expected) {
+            if (stream.type != expected || (config.direction==SOLAR_OS_OSC_RECEIVE &&
+                (stream.direction==SOLAR_OS_STREAM_DIRECTION_SOURCE || strcmp(stream.format,"f32")))) {
                 solar_os_shell_diag_problem(
                     io, "osc bind",
+                    config.direction==SOLAR_OS_OSC_RECEIVE?"target is not a writable float32 scalar stream":
                     edge_option ? "source is not an event stream" :
                                   "source is not a scalar stream",
                     osc_usage, NULL);
@@ -214,8 +235,9 @@ void solar_os_shell_cmd_osc(solar_os_context_t *ctx, int argc, char **argv)
             osc_print_error(io, "unbind", err);
         }
     } else if (argc == 2 && strcmp(argv[1], "clear") == 0) {
-        solar_os_osc_clear();
-        solar_os_shell_io_writeln(io, "OSC bindings cleared");
+        esp_err_t err=solar_os_osc_clear();
+        if(err==ESP_OK)solar_os_shell_io_writeln(io, "OSC bindings cleared");
+        else osc_print_error(io,"clear; close failed or binding busy; retry",err);
     } else {
         solar_os_shell_diag_problem(io, "osc", "invalid command", osc_usage,
                                     NULL);

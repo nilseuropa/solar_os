@@ -30,7 +30,7 @@ int main(void)
     lua_State *L = luaL_newstate(); assert(L); luaL_openlibs(L);
     const luaL_Reg api[] = {{"list", solua_motor_list}, {"status", solua_motor_status},
         {"drive", solua_motor_drive}, {"coast", solua_motor_coast},
-        {"brake", solua_motor_brake}, {"clear", solua_motor_clear}, {NULL, NULL}};
+        {"brake", solua_motor_brake}, {"clear", solua_motor_clear}, {"configure",solua_motor_configure}, {NULL, NULL}};
     luaL_newlib(L, api); lua_setglobal(L, "motor");
     const char *script =
         "local motors = motor.list(); assert(#motors == 2)\n"
@@ -39,13 +39,14 @@ int main(void)
         "motor.drive('left', -0.5); local s = motor.status('left')\n"
         "assert(s.mode == 'reverse' and s.drive == -0.5 and s.drive_valid)\n"
         "assert(not s.voltage_valid and not s.raw_valid and s.blocking_faults == 0)\n"
-        "local n = 0; for k, v in pairs(s) do n = n + 1 end; assert(n == 17)\n"
+        "local n = 0; for k, v in pairs(s) do n = n + 1 end; assert(n == 21)\n"
         "motor.brake('left'); motor.clear('left'); motor.coast('right')\n"
         "for _, x in ipairs({1.1, -1.1, math.huge, 0/0, 'bad', {}}) do\n"
         "  assert(not pcall(motor.drive, 'left', x))\n"
         "end\n"
         "assert(not pcall(motor.brake, 'right'))\n"
-        "assert(not pcall(motor.status, 'missing'))\n";
+        "assert(not pcall(motor.status, 'missing'))\n"
+        "motor.configure('left','max_drive',.2);assert(math.abs(motor.status('left').max_drive-.2)<.00001)\n";
     const int ret = luaL_dostring(L, script);
     if (ret != LUA_OK) fprintf(stderr, "Lua: %s\n", lua_tostring(L, -1));
     assert(ret == LUA_OK && a.clears == 1 && a.brakes == 1 && a.value == 0 && b.value == 0);

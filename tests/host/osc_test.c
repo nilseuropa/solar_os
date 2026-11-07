@@ -1,10 +1,16 @@
 #include <assert.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 #include "solar_os_osc.h"
 #include "solar_os_parameters.h"
+#include "solar_os_stream.h"
+
+static uint64_t now_ms=100;
+uint64_t solar_os_time_uptime_ms(void) { return now_ms; }
+esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *time) { (void)time;return ESP_ERR_NOT_SUPPORTED; }
 
 static float test_value;
 
@@ -217,11 +223,14 @@ static void test_bindings(void)
     assert(solar_os_osc_binding_count() == 1U);
 }
 
+#include "osc_receive_test.inc"
+
 int main(void)
 {
     test_codec_and_dispatch();
     test_encoding();
     test_bindings();
+    test_receivers();
     puts("osc tests passed");
     return 0;
 }

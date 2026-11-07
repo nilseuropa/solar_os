@@ -339,7 +339,7 @@ esp_err_t solar_os_bus_i2c_receive(const char *, uint8_t, uint8_t *, size_t);
 typedef int gpio_num_t;
 #define GPIO_MODE_OUTPUT 1
 static int calls, fail_at = -1;
-static const int expected_pins[] = {45, 46, 47, 10, 42, 38};
+static const int expected_pins[] = {45, 46, 47, 10, 42, 38, 39};
 static esp_err_t record(int operation, int pin) {
     assert(operation == calls % 5);
     assert(pin == expected_pins[calls / 5]);
@@ -348,7 +348,7 @@ static esp_err_t record(int operation, int pin) {
 esp_err_t gpio_hold_dis(int pin) { return record(0, pin); }
 esp_err_t gpio_reset_pin(int pin) { return record(1, pin); }
 esp_err_t gpio_sleep_sel_dis(int pin) { return record(2, pin); }
-esp_err_t gpio_set_level(int pin, int level) { assert(level == (pin == 38 ? 0 : 1)); return record(3, pin); }
+esp_err_t gpio_set_level(int pin, int level) { assert(level == (pin == 38 || pin == 39 ? 0 : 1)); return record(3, pin); }
 esp_err_t gpio_set_direction(int pin, int mode) { assert(mode == GPIO_MODE_OUTPUT); return record(4, pin); }
 '''
         source += function + r'''

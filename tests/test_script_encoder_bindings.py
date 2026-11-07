@@ -13,12 +13,12 @@ class EncoderBindingsTest(unittest.TestCase):
         source = (ROOT / f"src/apps/solar_os_{runtime}.c").read_text()
         if runtime == "python":
             functions = ("python_encoder_info",) + tuple(f"solaros_encoder_{name}" for name in
-                         ("list", "status", "read", "reset")) + (
+                         ("list", "status", "read", "reset", "configure")) + (
                          "python_expansion_key_known", "python_expansion_validate_keys",
                          "python_expansion_add_binding", "solaros_expansion_attach")
         else:
             functions = ("solua_push_encoder_info",) + tuple(f"solua_encoder_{name}" for name in
-                         ("list", "status", "read", "reset")) + (
+                         ("list", "status", "read", "reset", "configure")) + (
                          "solua_expansion_key_known", "solua_expansion_validate_keys",
                          "solua_table_optional_string", "solua_table_optional_int",
                          "solua_expansion_add_binding", "solua_expansion_attach")
@@ -35,7 +35,7 @@ class EncoderBindingsTest(unittest.TestCase):
             for include in ("tests/host/pwm_stubs", "tests/host/expansion_stubs", "tests/host",
                             "include", "src", "src/services", "components/lua/lua/src"):
                 command += ["-I", str(ROOT / include)]
-            command += [str(path / "test.c"), str(ROOT / "src/services/solar_os_encoder.c")]
+            command += [str(path / "test.c"), str(ROOT / "src/services/solar_os_encoder.c"), str(ROOT / "src/services/solar_os_stream.c"), str(ROOT / "src/services/solar_os_parameters.c"), str(ROOT / "tests/host/motion_endpoint_clock.c")]
             if runtime == "lua":
                 command += [str(p) for p in lua_dir.glob("*.c") if p.name not in {"lua.c", "luac.c"}]
             try:

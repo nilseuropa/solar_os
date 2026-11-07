@@ -16,6 +16,13 @@ typedef enum {
     SOLAR_OS_CAMERA_FRAME_SIZE_VGA,
 } solar_os_camera_frame_size_t;
 
+typedef enum {
+    SOLAR_OS_CAMERA_ORIENTATION_NORMAL = 0,
+    SOLAR_OS_CAMERA_ORIENTATION_MIRROR = 1,
+    SOLAR_OS_CAMERA_ORIENTATION_FLIP = 2,
+    SOLAR_OS_CAMERA_ORIENTATION_180 = 3,
+} solar_os_camera_orientation_t;
+
 typedef struct {
     solar_os_camera_frame_size_t frame_size;
     uint8_t jpeg_quality;
@@ -24,6 +31,7 @@ typedef struct {
 typedef struct {
     uint16_t product_id;
     char name[SOLAR_OS_CAMERA_SENSOR_NAME_MAX];
+    uint8_t frame_buffer_count;
 } solar_os_camera_sensor_info_t;
 
 typedef struct {
@@ -38,10 +46,16 @@ typedef struct {
 typedef struct {
     esp_err_t (*start)(void *ctx,
                        const solar_os_camera_config_t *config,
+                       solar_os_camera_orientation_t orientation,
                        solar_os_camera_sensor_info_t *sensor);
     esp_err_t (*stop)(void *ctx);
     esp_err_t (*capture)(void *ctx, solar_os_camera_backend_frame_t *frame);
     void (*release)(void *ctx, void *release_token);
+    /* Optional live sensor control. Always report the native sensor's cached
+     * orientation, even on failure. Existing JPEG leases stay valid. */
+    esp_err_t (*set_orientation)(void *ctx,
+                                 solar_os_camera_orientation_t orientation,
+                                 solar_os_camera_orientation_t *applied);
     /* Registry lifecycle hooks run under the camera lock and must not call
      * camera APIs. Failure leaves registration unchanged. */
     esp_err_t (*publish)(void *ctx);
@@ -75,6 +89,7 @@ typedef struct {
     char owner[SOLAR_OS_CAMERA_OWNER_NAME_MAX];
     solar_os_camera_sensor_info_t sensor;
     solar_os_camera_config_t config;
+    solar_os_camera_orientation_t orientation;
     uint32_t capture_count;
     esp_err_t last_error;
 } solar_os_camera_status_t;
@@ -95,5 +110,8 @@ esp_err_t solar_os_camera_release_frame(
     const solar_os_camera_owner_t *token,
     const solar_os_camera_frame_t *frame);
 esp_err_t solar_os_camera_get_status(solar_os_camera_status_t *status);
+/* Runtime control, independent of the capture owner. Preserved across stop/start. */
+esp_err_t solar_os_camera_set_orientation(solar_os_camera_orientation_t orientation);
+const char *solar_os_camera_orientation_name(solar_os_camera_orientation_t orientation);
 const char *solar_os_camera_frame_size_name(
     solar_os_camera_frame_size_t frame_size);

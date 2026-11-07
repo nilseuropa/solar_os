@@ -7,6 +7,7 @@
 #include "solar_os_gpio.h"
 #include "solar_os_pwm.h"
 #include "solar_os_servo.h"
+#define RAD(x) ((x) * (3.14159265358979323846f / 180.0f))
 #include "pwm_port.h"
 
 static ledc_timer_config_t timer;
@@ -97,7 +98,7 @@ int main(void)
     for (size_t i = 0; i < 8; i++) pin_channels[i] = -1;
     solar_os_servo_config_t config = {
         .output = {.provider = "native", .output = 1}, .freq_hz = 50, .pulse_min_us = 1000, .pulse_max_us = 2000,
-        .angle_min_deg = -45, .angle_max_deg = 45,
+        .angle_min_rad = RAD(-45), .angle_max_rad = RAD(45),
     };
     solar_os_servo_info_t info;
     pwm_port_status_t pwm;
@@ -112,7 +113,7 @@ int main(void)
     assert(solar_os_servo_open("other", "lua", &config) == ESP_ERR_INVALID_STATE);
     assert(solar_os_servo_set("arm", "lua", 0) == ESP_ERR_INVALID_STATE);
     assert(solar_os_servo_set("arm", "python", NAN) == ESP_ERR_INVALID_ARG);
-    assert(solar_os_servo_set("arm", "python", 46) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_servo_set("arm", "python", RAD(46)) == ESP_ERR_INVALID_ARG);
     assert(solar_os_servo_pulse("arm", "python", 999) == ESP_ERR_INVALID_ARG);
     assert(solar_os_pwm_set(1, 1000, 50) == ESP_ERR_INVALID_STATE);
     assert(pwm_port_set(1, 50, 50) == ESP_ERR_INVALID_STATE);
@@ -121,9 +122,9 @@ int main(void)
     assert(timer.freq_hz == 50);
     assert_no_claim(2);
 
-    assert(solar_os_servo_set("arm", "python", -45) == ESP_OK);
+    assert(solar_os_servo_set("arm", "python", RAD(-45)) == ESP_OK);
     assert(solar_os_servo_status("arm", &info) == ESP_OK && info.commanded_pulse_us == 1000);
-    assert(solar_os_servo_set("arm", "python", 45) == ESP_OK);
+    assert(solar_os_servo_set("arm", "python", RAD(45)) == ESP_OK);
     assert(solar_os_servo_status("arm", &info) == ESP_OK && info.commanded_pulse_us == 2000);
     assert(solar_os_servo_set("arm", "python", 0) == ESP_OK);
     assert(pwm_port_get(1, &pwm) && pwm.pulse_width_us == 1500);
@@ -135,7 +136,7 @@ int main(void)
 
     fail_update = true;
     const uint32_t before_failure = duties[pwm.channel];
-    assert(solar_os_servo_set("arm", "python", 45) == ESP_FAIL);
+    assert(solar_os_servo_set("arm", "python", RAD(45)) == ESP_FAIL);
     assert(duties[pwm.channel] == before_failure);
     assert(solar_os_servo_status("arm", &info) == ESP_OK && info.commanded_pulse_us == 1501);
     assert_claim(1, "servo:arm");
@@ -159,10 +160,10 @@ int main(void)
 
     config.inverted = true;
     assert(solar_os_servo_open("reverse", "lua", &config) == ESP_OK);
-    assert(solar_os_servo_set("reverse", "lua", -45) == ESP_OK);
+    assert(solar_os_servo_set("reverse", "lua", RAD(-45)) == ESP_OK);
     assert(solar_os_servo_status("reverse", &info) == ESP_OK && info.commanded_pulse_us == 2000);
     assert(solar_os_servo_pulse("reverse", "lua", 1000) == ESP_OK);
-    assert(solar_os_servo_status("reverse", &info) == ESP_OK && info.commanded_angle_deg == 45);
+    assert(solar_os_servo_status("reverse", &info) == ESP_OK && info.commanded_angle_rad == RAD(45));
     config.output.output = 2;
     assert(solar_os_servo_open("second", "lua", &config) == ESP_OK);
     assert(solar_os_servo_release_owner("python") == ESP_OK && solar_os_servo_count() == 2);
@@ -176,9 +177,9 @@ int main(void)
     config.output.output = 0;
     assert(solar_os_servo_open("reserved", "shell", &config) == ESP_ERR_NOT_ALLOWED);
     config.output.output = 1;
-    config.angle_max_deg = INFINITY;
+    config.angle_max_rad = INFINITY;
     assert(solar_os_servo_open("bad", "shell", &config) == ESP_ERR_INVALID_ARG);
-    config.angle_max_deg = 45;
+    config.angle_max_rad = RAD(45);
     config.freq_hz = 1000;
     assert(solar_os_servo_open("bad", "shell", &config) == ESP_ERR_INVALID_ARG);
     config.freq_hz = 50;

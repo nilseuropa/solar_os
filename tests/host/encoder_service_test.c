@@ -5,8 +5,16 @@
 #include <string.h>
 #include "solar_os_encoder.h"
 #include "solar_os_memory.h"
+#include "solar_os_stream.h"
+#include <math.h>
 static int64_t sample_time_us = 1000;
+static int32_t *moving_count;
+static int32_t movement;
 int64_t esp_timer_get_time(void) { return sample_time_us; }
+void vTaskDelay(uint32_t ticks) {
+    sample_time_us+=(int64_t)ticks*1000;
+    if(moving_count) *moving_count=(int32_t)((uint32_t)*moving_count+(uint32_t)movement);
+}
 
 static unsigned allocations;
 static const char *fail_tag;
@@ -123,9 +131,44 @@ int main(void)
     assert(solar_os_encoder_claim("left", &other) == ESP_OK && other != claim);
     assert(solar_os_encoder_release(claim) == ESP_ERR_NOT_FOUND);
     assert(solar_os_encoder_release(other) == ESP_OK);
+    /* A single idle status query measures current motion, without a stream
+     * or a previous query. Raw reads remain immediate. */
+    assert(solar_os_encoder_configure("left","ppr",70)==ESP_OK);
+    assert(solar_os_encoder_configure("left","gear_ratio",30)==ESP_OK);
+    moving_count=&a.value;movement=28; /* x4: 8400 counts/revolution. */
+    int64_t before_time=sample_time_us;
+    assert(solar_os_encoder_read("left",&value)==ESP_OK && sample_time_us==before_time);
+    assert(solar_os_encoder_status("left",&s)==ESP_OK && !s.claimed && s.feedback.valid);
+    assert(s.count==28 && s.feedback.count==28 && s.feedback.timestamp_us==(uint64_t)sample_time_us);
+    assert(fabsf(s.feedback.velocity-1.04719755f)<.00001f && s.feedback.position>0);
+    movement=0;
+    assert(solar_os_encoder_status("left",&s)==ESP_OK && s.feedback.valid && s.feedback.velocity==0);
+    /* Observation does not acquire another handle or mutate the owner's
+     * filter, wrap accumulator, baseline or acquisition time. */
+    solar_os_stream_handle_t handle=SOLAR_OS_STREAM_HANDLE_INIT;
+    assert(solar_os_stream_open("enc.left","controller",&handle)==ESP_OK);
+    solar_os_stream_scalar_sample_t observed;
+    const solar_os_stream_read_options_t window={.window_ms=10};
+    assert(solar_os_stream_read_scalar_sample(&handle,&window,&observed)==ESP_ERR_TIMEOUT);
+    sample_time_us+=20000;a.value+=28;
+    assert(solar_os_stream_read_scalar_sample(&handle,NULL,&observed)==ESP_OK);
+    solar_os_native_encoder_feedback_v1_t previous,after;
+    assert(solar_os_encoder_feedback((uint32_t)handle.private_data[0],&previous)==ESP_OK);
+    sample_time_us+=10000;a.value+=14;
+    assert(solar_os_encoder_status("left",&s)==ESP_OK && s.feedback.valid && s.count==70);
+    assert(solar_os_stream_observe_scalar_sample("enc.left",NULL,&observed)==ESP_OK);
+    assert(observed.value==previous.velocity && observed.uptime_ms==previous.timestamp_us/1000);
+    assert(solar_os_encoder_feedback((uint32_t)handle.private_data[0],&after)==ESP_OK);
+    assert(!memcmp(&previous,&after,sizeof(previous)));
+    solar_os_stream_info_t stream_info;
+    assert(solar_os_stream_get_info("enc.left",&stream_info)==ESP_OK && stream_info.active_handles==1 && !strcmp(stream_info.owner,"controller"));
+    assert(solar_os_encoder_reset("left")==ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_close_ex(&handle)==ESP_OK);
+    assert(solar_os_stream_observe_scalar_sample("enc.left",NULL,&observed)==ESP_ERR_NOT_SUPPORTED);
+    moving_count=NULL;
     a.fail_shutdown = true;
     assert(solar_os_encoder_unregister("left") == ESP_FAIL && solar_os_encoder_count() == 2);
-    assert(solar_os_encoder_read("left", &value) == ESP_OK && value == 0);
+    assert(solar_os_encoder_read("left", &value) == ESP_OK && value == 70);
     a.fail_shutdown = false;
     assert(solar_os_encoder_unregister("left") == ESP_OK);
     assert(solar_os_encoder_unregister("right") == ESP_OK && !allocations && !solar_os_encoder_count());

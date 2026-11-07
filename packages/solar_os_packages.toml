@@ -1060,6 +1060,7 @@ sources = [
   "shell/solar_os_shell_launch.c",
   "shell/solar_os_shell_parse.c",
   "shell/solar_os_shell_commands.c",
+  "shell/solar_os_shell_stream_echo.c",
   "shell/solar_os_shell_vocabulary.c",
   "shell/solar_os_shell_input.c",
   "shell/solar_os_shell_completion.c",
@@ -1183,7 +1184,7 @@ capabilities = ["psram"]
 
 [packages.service_robot]
 label = "service.robot"
-depends = ["service_native_modules"]
+depends = ["service_native_modules", "service_controllers"]
 sources = ["services/solar_os_robot.c", "shell/solar_os_shell_robot.c"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
@@ -1485,10 +1486,12 @@ sources = [
 
 [packages.service_controllers]
 label = "service.controllers"
-depends = ["service_streams", "service_pwm"]
+depends = ["service_streams", "service_pwm", "service_motor", "service_encoder"]
 sources = [
   "services/solar_os_controller_math.c",
+  "services/solar_os_controller_tuning.c",
   "services/solar_os_controllers.c",
+  "services/solar_os_native_controllers.c",
   "shell/solar_os_shell_controllers.c",
 ]
 
@@ -1646,10 +1649,12 @@ sources = [
 
 [packages.service_motor]
 label = "service.motor"
+depends = ["service_streams"]
 sources = ["services/solar_os_motor.c", "shell/solar_os_shell_motor.c"]
 
 [packages.service_encoder]
 label = "service.encoder"
+depends = ["service_streams"]
 sources = ["services/solar_os_encoder.c", "shell/solar_os_shell_encoder.c"]
 requires = ["esp_timer"]
 
@@ -2792,7 +2797,7 @@ requires = ["esp_driver_gpio", "esp_driver_ledc"]
 
 [packages.service_servo]
 label = "service.servo"
-depends = ["service_pwm"]
+depends = ["service_pwm", "service_streams"]
 sources = ["services/solar_os_servo.c", "shell/solar_os_shell_servo.c"]
 
 [packages.service_buttons]
@@ -2894,7 +2899,7 @@ capabilities = ["wifi"]
 
 [packages.service_rtsp_client]
 label = "service.rtsp-client"
-depends = ["service_media", "service_audio", "service_net"]
+depends = ["service_media", "service_audio", "service_net", "service_wifi"]
 sources = ["services/solar_os_rtsp_receiver.c", "services/solar_os_rtsp_client.c", "services/solar_os_rtsp_auth.c"]
 requires = ["nvs_flash"]
 capabilities = ["wifi"]

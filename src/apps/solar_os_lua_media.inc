@@ -271,6 +271,8 @@ static int solua_camera_status(lua_State *L)
     solua_set_str(L, -1, "size", solar_os_camera_frame_size_name(status.config.frame_size));
     solua_set_int(L, -1, "jpeg_quality", status.config.jpeg_quality);
     solua_set_int(L, -1, "capture_count", status.capture_count);
+    solua_set_int(L, -1, "frame_buffer_count", status.sensor.frame_buffer_count);
+    solua_set_str(L, -1, "orientation", solar_os_camera_orientation_name(status.orientation));
     solua_set_str(L, -1, "last_error_name", esp_err_to_name(status.last_error));
     return 1;
 }

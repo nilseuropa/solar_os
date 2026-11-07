@@ -12,6 +12,7 @@
 #include "solar_os_buses.h"
 #include "solar_os_camera.h"
 #include "solar_os_camera_stream.h"
+#include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_resources.h"
 
@@ -103,8 +104,47 @@ static const char *sensor_name(uint16_t product_id)
     return "unknown";
 }
 
+static esp_err_t apply_orientation(sensor_t *sensor,
+                                    solar_os_camera_orientation_t orientation,
+                                    solar_os_camera_orientation_t *applied)
+{
+    if (sensor == NULL) return ESP_ERR_INVALID_RESPONSE;
+    esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    if (sensor->set_hmirror != NULL && sensor->set_vflip != NULL) {
+        const int old_mirror = sensor->status.hmirror;
+        const int old_flip = sensor->status.vflip;
+        const int mirror = (orientation & SOLAR_OS_CAMERA_ORIENTATION_MIRROR) != 0;
+        const int flip = (orientation & SOLAR_OS_CAMERA_ORIENTATION_FLIP) != 0;
+        error = sensor->set_hmirror(sensor, mirror) == 0 &&
+                sensor->set_vflip(sensor, flip) == 0 ? ESP_OK : ESP_FAIL;
+        if (error != ESP_OK) {
+            /* Native setters update cached status before the SCCB write. Try
+             * restoring both controls; still report the original write error. */
+            (void)sensor->set_hmirror(sensor, old_mirror);
+            (void)sensor->set_vflip(sensor, old_flip);
+        }
+    }
+    *applied = (sensor->status.hmirror ? SOLAR_OS_CAMERA_ORIENTATION_MIRROR : 0) |
+        (sensor->status.vflip ? SOLAR_OS_CAMERA_ORIENTATION_FLIP : 0);
+    return error;
+}
+
+static esp_err_t camera_set_orientation(void *ctx,
+                                       solar_os_camera_orientation_t orientation,
+                                       solar_os_camera_orientation_t *applied)
+{
+    camera_esp32_state_t *state = ctx;
+    if (!state->started) return ESP_ERR_INVALID_STATE;
+    const bool shared_sccb = state->i2c_bus[0] != '\0';
+    if (shared_sccb) camera_sccb_lock();
+    const esp_err_t error = apply_orientation(esp_camera_sensor_get(), orientation, applied);
+    if (shared_sccb) camera_sccb_unlock();
+    return error;
+}
+
 static esp_err_t camera_start(void *ctx,
                               const solar_os_camera_config_t *config,
+                              solar_os_camera_orientation_t orientation,
                               solar_os_camera_sensor_info_t *sensor_info)
 {
     camera_esp32_state_t *state = ctx;
@@ -121,7 +161,7 @@ static esp_err_t camera_start(void *ctx,
                                                            &sccb_port);
         if (error != ESP_OK) return error;
     }
-    const camera_config_t native_config = {
+    camera_config_t native_config = {
         .pin_pwdn = state->pins[PIN_PWDN],
         .pin_reset = state->pins[PIN_RESET],
         .pin_xclk = state->pins[PIN_XCLK],
@@ -161,10 +201,54 @@ static esp_err_t camera_start(void *ctx,
         if (shared_sccb) camera_sccb_unlock();
         return ESP_ERR_INVALID_RESPONSE;
     }
+
+    /* OV5640 JPEG capture is unreliable with direct PSRAM DMA on the S3.
+     * Stage DMA internally while keeping JPEG framebuffers in PSRAM.
+     * Restore the configured default if a different sensor is later attached. */
+#if CONFIG_CAMERA_PSRAM_DMA
+    const bool psram_dma = sensor->id.PID != OV5640_PID;
+#else
+    const bool psram_dma = false;
+#endif
+    if (esp_camera_get_psram_mode() != psram_dma) {
+        const esp_err_t mode_error = esp_camera_set_psram_mode(psram_dma);
+        /* Changing DMA mode reinitializes the driver and invalidates sensor. */
+        sensor = mode_error == ESP_OK ? esp_camera_sensor_get() : NULL;
+        if (sensor == NULL) {
+            (void)esp_camera_deinit();
+            if (shared_sccb) camera_sccb_unlock();
+            return mode_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : mode_error;
+        }
+    }
+    if (sensor->id.PID == OV5640_PID) {
+        /* Two buffers keep capture running while the consumer holds a JPEG.
+         * Latest mode bounds the ready queue to one frame. */
+        native_config.fb_count = 2U;
+        native_config.grab_mode = CAMERA_GRAB_LATEST;
+        const esp_err_t configure_error = esp_camera_reconfigure(&native_config);
+        sensor = configure_error == ESP_OK ? esp_camera_sensor_get() : NULL;
+        if (sensor == NULL) {
+            (void)esp_camera_deinit();
+            if (shared_sccb) camera_sccb_unlock();
+            return configure_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : configure_error;
+        }
+    }
+    solar_os_camera_orientation_t applied = orientation;
+    const esp_err_t orientation_error = apply_orientation(sensor, orientation, &applied);
+    if (orientation_error != ESP_OK) {
+        (void)esp_camera_deinit();
+        if (shared_sccb) camera_sccb_unlock();
+        return orientation_error;
+    }
+    SOLAR_OS_LOGI("camera", "%s: %s DMA; buffers=%u storage=psram",
+                  sensor_name(sensor->id.PID),
+                  psram_dma ? "direct PSRAM" : "internal staging",
+                  (unsigned)native_config.fb_count);
     if (shared_sccb) camera_sccb_unlock();
 
     state->started = true;
     sensor_info->product_id = sensor->id.PID;
+    sensor_info->frame_buffer_count = native_config.fb_count;
     strlcpy(sensor_info->name, sensor_name(sensor->id.PID),
             sizeof(sensor_info->name));
     return ESP_OK;
@@ -270,6 +354,7 @@ static esp_err_t camera_attach(const char *name,
     }
     static const solar_os_camera_backend_ops_t operations = {
         .start = camera_start,
+        .set_orientation = camera_set_orientation,
         .stop = camera_stop,
         .capture = camera_capture,
         .release = camera_release,
