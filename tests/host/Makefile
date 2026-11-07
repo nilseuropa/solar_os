@@ -84,7 +84,7 @@ TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
 TARGETS += gt911_test
-TARGETS += sdmmc_expansion_test
+TARGETS += sdmmc_expansion_test sdspi_expansion_test
 TARGETS += axp2101_service_test
 TARGETS += camera_service_test camera_expansion_test media_test mjpeg_test
 TARGETS += http_server_test
@@ -284,6 +284,10 @@ uc8279_expansion_test: uc8279_expansion_test.c $(ROOT)/src/services/solar_os_uc8
 sdmmc_expansion_test: sdmmc_expansion_test.c $(ROOT)/src/services/solar_os_sdmmc.c $(ROOT)/src/services/solar_os_sdmmc_driver.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers sdmmc_expansion_test.c -o $@
+
+sdspi_expansion_test: sdspi_expansion_test.c $(ROOT)/src/services/solar_os_sdspi.c $(ROOT)/src/services/solar_os_sdspi_driver.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers sdspi_expansion_test.c -o $@
 
 gt911_test: gt911_test.c $(ROOT)/src/drivers/gt911.c $(ROOT)/src/drivers/gt911.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iepd_stubs -I. gt911_test.c -o $@
@@ -1470,6 +1474,7 @@ test: $(TARGETS)
 	./x4pro_expansion_test
 	./gt911_test
 	./sdmmc_expansion_test
+	./sdspi_expansion_test
 	./epd_ssd1685_test
 	./ssd1685_expansion_test
 	./epd_uc8179_test
