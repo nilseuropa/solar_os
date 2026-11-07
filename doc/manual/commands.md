@@ -283,7 +283,7 @@ job for periodic polling.
 | `identity` | `identity [status]` | Show the configured user and hostname. |
 | `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
 | `identity` | `identity hostname <name>` | Save the device hostname in NVS; reboot to update Wi-Fi. |
-| `engine` | `engine [status|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
+| `engine` | `engine [status\|reset]` | Print or reset generic engine utilization counters for CPU/SIMD-style backends and vector bulk operations. |
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
 | `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
 | `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
@@ -291,7 +291,7 @@ job for periodic polling.
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
 | `display` | `display split <target> --horizontal\|--vertical <first> <second>`; `display unsplit <target>` | Split one physical target into two equal logical viewports, or remove the split. |
-| `input` | `input [status|keyboard|touch|mouse|joystick|dpad|buttons|gesture]` | List all input sources or filter them by semantic class. |
+| `input` | `input [status\|keyboard\|touch\|mouse\|joystick\|dpad\|buttons\|gesture]` | List all input sources or filter them by semantic class. |
 | `input` | `input test <source>` | Show event counters and the last key, pointer, axis, or gesture event accepted from one source. |
 | `input` | `input calibrate <source> [set <min-x> <max-x> <min-y> <max-y> <width> <height>\|reset]` | Show, save, or reset coordinate calibration for an absolute-pointer source. |
 | `input` | `input emit <key\|chord>` | Emit a local key tap, such as `RIGHT`, `ALT+RIGHT`, `ENTER`, or one literal character, through the normal input-focus path. |
@@ -337,6 +337,7 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
+| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Show or save the global local-terminal cursor style. Defaults to `block blink`. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
@@ -416,9 +417,20 @@ Application lifecycle ABI 2 declares a foreground app manifest and runs
 optional audio are provided by the versioned foreground service. Resumable apps
 retain their ELF and guest state across session switches.
 
-Run `pkg` without arguments to open the package manager. It refreshes the
-signed catalog in a worker, marks installed entries with `*`, and lets you
-inspect, install, remove, or refresh modules without blocking screen redraws.
+Run `pkg` without arguments to open the package manager. It loads the saved
+signed catalog without a network request and checks its signature and host
+compatibility again. Apps, Jobs, Libraries and Drivers appear as collapsible
+folders, including when empty. Arrows navigate the
+tree, Enter opens a folder or module details, and Left returns to the parent.
+Installed entries show `[I]` and incompatible entries show `[!]`.
+
+Press `R` to refresh and save the signed catalog, `I` to install or replace the
+selected module, or `U` to remove it. Install and removal require confirmation.
+Operations show progress popups and a result popup; Esc cancels a download or
+closes a popup. Confirmation defaults to No. The catalog and signature are
+stored under `/modules/.catalog/` on the preferred storage volume. A failed
+refresh leaves the previous catalog available. A catalog for a different host
+firmware version is not used; press `R` after a firmware update.
 After a successful catalog check, `pkg install` completion uses that verified
 catalog. `pkg remove` completion and `pkg installed` read the installed module
 directories directly.
@@ -580,6 +592,7 @@ setterm scale [1..4]
 setterm orientation [0|90|180|270]
 setterm font [mono|compact]
 setterm textsize [8|10|12|14|16|18|20]
+setterm cursor [block|underscore] [blink|steady]
 setterm palette [normal|inverted]
 setterm foreground [#RRGGBB]
 setterm background [#RRGGBB]
@@ -596,6 +609,12 @@ setterm timezone [UTC|UTC+/-offset|Europe/Berlin|POSIX-TZ]
 setterm startup [auto|flash|sd]
 setterm otaurl [url]
 ```
+
+`setterm cursor` saves the global local CLI/TUI style across reboots. Default:
+`block blink`, 500 ms per phase. Omitting the mode preserves it. Typing or moving
+makes the cursor visible. Blocks invert the cell to keep text readable. Apps can
+hide the cursor. Graphical apps and external terminal clients keep their own
+cursors.
 
 `setterm backlight` controls all registered auxiliary lights. It accepts a
 percentage from 0 to 100 (0 turns them off), or `follow` to track the primary
@@ -768,7 +787,7 @@ Compact displays omit icons that do not fit before the clock and unread count.
 | `agent` | `agent`; `agent new`; `agent ask PROMPT...` | Open a new native LLM agent TUI or make one unsaved foreground request. |
 | `agent` | `agent list`; `agent resume SLOT`; `agent delete SLOT` | List, restore, or delete durable local conversation slots. |
 | `agent` | `agent status`; `agent tools` | Inspect provider state, request statistics, typed tools, risk, and policy. |
-| `agent` | `agent config endpoint|model|key|reasoning|tools|max-tools VALUE` | Configure the provider and tool policy. |
+| `agent` | `agent config endpoint\|model\|key\|reasoning\|tools\|max-tools VALUE` | Configure the provider and tool policy. |
 | `agent` | `agent script python\|lua (-c SOURCE \| FILE) [ARGS...]` | Run a bounded script through the agent execution path. |
 | `agent` | `agent forget` | Erase the saved agent configuration. |
 | `jobs` | `jobs` | List registered jobs and their state. |
@@ -776,7 +795,7 @@ Compact displays omit icons that do not fit before the clock and unread count.
 | `job` | `job start <name> [args...]` | Start or restart a job. |
 | `job` | `job stop <name>` | Stop a job. |
 | `session` | `session list` | List display sessions, port shells, and retained port-owned application sessions with their owner. |
-| `session` | `session create shell <port> [--term auto|vt100|ansi|dumb] [--charset utf8|ascii] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
+| `session` | `session create shell <port> [--term auto\|vt100\|ansi\|dumb] [--charset utf8\|ascii] [--size COLSxROWS]` | Start a shell session on a byte-stream port. |
 | `session` | `session create shell <display-target>` | Attach a shell session to a ready display target such as `lcd0`. |
 | `session` | `session create <app> <display-target> [args...]` | Start a foreground application as the active session on a named display. |
 | `session` | `session focus [display-target]` | Show or assign the display that receives BLE keyboard and local board-control input. |
@@ -879,13 +898,13 @@ same job again stops the previous instance and starts it with the new arguments.
 | `ramfs` | `ramfs unmount /path` | Unmount a ramfs mount. |
 | `df` | `df` | Show free space on mounted storage volumes. |
 | `cd` | `cd [path]` | Change current shell directory. |
-| `ls` | `ls [-a] [-h] [path|pattern]` | List files. Hidden files are shown only with `-a`; sizes are human-readable with `-h`. |
-| `cat` | `cat <path|pattern>` | Print a small text file. |
+| `ls` | `ls [-a] [-h] [path\|pattern]` | List files. Hidden files are shown only with `-a`; sizes are human-readable with `-h`. |
+| `cat` | `cat <path\|pattern>` | Print a small text file. |
 | `mkdir` | `mkdir <path> [path...]` | Create directories. |
-| `rm` | `rm [-f|-rf] <path|pattern> [path|pattern...]` | Remove files. `-f` allows directories; `-rf` removes directories recursively. |
-| `mv` | `mv <source|pattern> <dest>` | Rename or move a file or matched set. |
-| `cp` | `cp <source|pattern> <dest>` | Copy a file or matched set. |
-| `zip` | `zip [-0] <archive.zip> <path|pattern> [path|pattern...]` | Create a ZIP archive. `-0` stores without compression. |
+| `rm` | `rm [-f\|-rf] <path\|pattern> [path\|pattern...]` | Remove files. `-f` allows directories; `-rf` removes directories recursively. |
+| `mv` | `mv <source\|pattern> <dest>` | Rename or move a file or matched set. |
+| `cp` | `cp <source\|pattern> <dest>` | Copy a file or matched set. |
+| `zip` | `zip [-0] <archive.zip> <path\|pattern> [path\|pattern...]` | Create a ZIP archive. `-0` stores without compression. |
 | `unzip` | `unzip [-l] <archive.zip> [dest]` | List or extract a ZIP archive. |
 
 Examples:
@@ -919,7 +938,7 @@ policy.
 | --- | --- | --- |
 | `stream` | `stream` or `stream list` | List dynamic typed stream endpoints. |
 | `stream` | `stream status <id>` | Show type, direction, provider, format, owner, counters, and any declared scalar command range. |
-| `stream` | `stream echo <scalar-source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit. Default display rate is 10 Hz; Ctrl+C stops. |
+| `stream` | `stream echo <source> [--once] [--rate 1..100]` | Print scalar samples with acquisition time, age and native unit, or byte/event source CSV records. IMU records contain one timestamp and all axes. Default display rate is 10 Hz; Ctrl+C stops. |
 | `stream` | `stream write <scalar-sink> <value> [<scalar-sink> <value> ...] [--rate 1..100] [--duration seconds]` | Publish native float32 scalar values once or periodically. Values outside a declared command range are rejected with the stream ID, value, allowed range, and unit. Ctrl+C ends periodic publishing. |
 | `stream` | `stream tcp listen <name> <port>` | Register an exclusive duplex byte stream backed by a raw TCP listener. Requires TCP byte-stream support. |
 | `stream` | `stream tcp connect <name> <host> <port>` | Register an exclusive duplex byte stream for an outbound TCP connection. |
@@ -948,10 +967,10 @@ policy.
 | `daq` | `daq stop` | Stop the active data-acquisition job. |
 | `log` | `log status` | Show runtime log ring status. |
 | `log` | `log show [count]` | Print recent SolarOS log entries. |
-| `log` | `log follow [error|warn|info|debug]` | Follow logs in the current shell. |
+| `log` | `log follow [error\|warn\|info\|debug]` | Follow logs in the current shell. |
 | `log` | `log clear` | Clear the runtime log ring. |
-| `log` | `log level [error|warn|info|debug]` | Show or change runtime log level. |
-| `log` | `log sink cdc [on|off]` | Enable or disable CDC mirroring of SolarOS logs. |
+| `log` | `log level [error\|warn\|info\|debug]` | Show or change runtime log level. |
+| `log` | `log sink cdc [on\|off]` | Enable or disable CDC mirroring of SolarOS logs. |
 | `port` | `port list` | List byte-stream ports. |
 | `port` | `port status <name>` | Show port capabilities and owner. |
 | `xfer` | `xfer protocols` | List supported and reserved transfer protocols. |
@@ -1105,14 +1124,14 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `wifi` | `wifi connect [ssid [password]]` | Connect and save/update a station profile. |
 | `wifi` | `wifi disconnect` | Disconnect station mode. |
 | `wifi` | `wifi known` | List remembered station profiles. |
-| `wifi` | `wifi forget [ssid|all]` | Remove one or all remembered station profiles. |
+| `wifi` | `wifi forget [ssid\|all]` | Remove one or all remembered station profiles. |
 | `wifi repeater` | `wifi repeater` | Show L2 IPv4 repeater state, upstream, downstream, learned clients, and forwarding counters. |
 | `wifi repeater` | `wifi repeater on` | Repeat the current or preferred saved network with the same SSID and password on the same IPv4 subnet. |
 | `wifi repeater` | `wifi repeater off` | Stop L2 forwarding and the downstream AP while retaining the upstream station. |
 | `wifi ap` | `wifi ap [status]` | Show SoftAP status. |
-| `wifi ap` | `wifi ap on [ssid [password [open|wpa|wpa2|wpa/wpa2]]]` | Start and save SoftAP settings. |
+| `wifi ap` | `wifi ap on [ssid [password [open\|wpa\|wpa2\|wpa/wpa2]]]` | Start and save SoftAP settings. |
 | `wifi ap` | `wifi ap off` | Stop SoftAP. |
-| `wifi nat` | `wifi nat [status|on|off]` | Advanced control for IPv4 NAT on the SoftAP interface. Prefer `network router`. |
+| `wifi nat` | `wifi nat [status\|on\|off]` | Advanced control for IPv4 NAT on the SoftAP interface. Prefer `network router`. |
 | `wireguard` | `wireguard [status]` | Show profile, tunnel, selected underlay, route, peer, DNS, and kill-switch state without printing key material. |
 | `wireguard` | `wireguard import <file>` | Validate one standard WireGuard client profile and save it in NVS. The source file is not removed. |
 | `wireguard` | `wireguard forget` | Logically remove the saved profile from NVS. Bring the tunnel down first. |
@@ -1141,7 +1160,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | `mqtt publish <topic> <payload> [qos] [retain]` | Publish a message with optional QoS 0–2 and retain flag. |
 | `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit. |
-| `netscan` | `netscan <host|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
+| `netscan` | `netscan <host\|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
 | `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
 
 Wi-Fi is enabled by default when no saved setting exists, including after `nvs
@@ -1250,9 +1269,9 @@ netscan wintermute 22
 | `ota` | `ota upgrade` | Download firmware into the inactive OTA partition and reboot into it. |
 | `ota` | `ota url [url]` | Show or set the OTA base URL. |
 | `ota` | `ota flavor [flavor]` | Show or set target OTA flavor. |
-| `ota` | `ota boot 0|1` | Select an OTA slot and reboot. |
+| `ota` | `ota boot 0\|1` | Select an OTA slot and reboot. |
 | `sshkey` | `sshkey [status]` | Show default SSH key status. |
-| `sshkey` | `sshkey gen [-f] [2048|3072|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`. |
+| `sshkey` | `sshkey gen [-f] [2048\|3072\|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`. |
 | `sshkey` | `sshkey pub` | Print the default public key. |
 | `sshkey` | `sshkey rm` | Remove the default key pair. |
 
@@ -1272,8 +1291,8 @@ available for the compiled board.
 | `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
-| `battery` | `battery min_voltage [V|mV]` | Show or set low-voltage threshold. |
-| `battery` | `battery max_voltage [V|mV]` | Show or set full/external-power shortcut threshold. |
+| `battery` | `battery min_voltage [V\|mV]` | Show or set low-voltage threshold. |
+| `battery` | `battery max_voltage [V\|mV]` | Show or set full/external-power shortcut threshold. |
 | `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio devices` | List registered audio devices and their capture/playback streams. |
 | `audio` | `audio device <id>` | Show one audio device and its native PCM format. |
@@ -1288,9 +1307,9 @@ available for the compiled board.
 | `audio` | `audio loopback [ms] [volume]` | Run microphone-to-speaker loopback. |
 | `audio` | `audio off` | Stop audio output. |
 | `say` | `say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] [--speed <20..500>] [--drop-if-busy] (--file <path> \| [--] <text...>)` | Queue text for offline speech, or stream a plain UTF-8 text file aloud with live progress. Pitch and speed default to 100. File mode submits bounded chunks through one continuous PicoTTS/audio session, completes paths with Tab, and remains responsive; press Esc or Ctrl+C to stop. Start `speechd` with a PicoTTS voice directory first. |
-| `led` | `led [status|on|off|toggle]` | Inspect or control the built-in status LED when available. |
+| `led` | `led [status\|on\|off\|toggle]` | Inspect or control the built-in status LED when available. |
 | `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error. |
-| `camera` | `camera capture <path> [qvga|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
+| `camera` | `camera capture <path> [qvga\|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
 | `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set sensor orientation: normal, horizontal mirror, vertical flip, or 180° rotation (both). Changes apply to future frames, including active RTSP/web streams, and survive camera stop/start and size changes until reboot or camera detach. No setting is saved. The JPEG path does not support 90°/270° rotation. |
 | `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
@@ -1348,6 +1367,7 @@ available for the compiled board.
 | `robot` | `robot model load <file.urdf>` or `robot model unload` | Load a validated URDF model without activating hardware, or release it. |
 | `robot` | `robot start` or `robot stop` | Start URDF-declared velocity controllers or release them while retaining the model. Stop before replacing or unloading it. |
 | `robot` | `robot model info\|links\|joints\|metadata` | Inspect the resident model and retained SolarOS extension. |
+| `robot` | `robot model devices` or `robot model frame <device-or-stream>` | List URDF device/frame bindings or resolve a device or registered stream to its frame. |
 | `robot` | `robot model set <joint> <position> [<joint> <position> ...]` | Supply model joint positions as one validated batch. |
 | `robot` | `robot model transform <target> <source>` | Query the transform mapping source-frame coordinates into target. |
 | `robot` | `robot model point\|vector <target> <source> <x> <y> <z>` | Transform a point or direction; see [Robot models and transforms](robot-models.md). |
@@ -1358,6 +1378,7 @@ available for the compiled board.
 | `robot` | `robot joint command <joint> <target>` | Refresh an joint target in radians/second or radians. |
 | `robot` | `robot joint enable\|disable\|close <joint>` | Activate, stop and release, or destroy an joint; see [Robot joints](robot.md). |
 | `osc` | `osc bindings` | Inspect named outbound OSC bindings and their live source, value, send, and error state. |
+| `osc` | `osc send <host:port> <address> <value> [value ...] [--rate 1..100] [--duration seconds]` | Send one to eight float32 arguments in one UDP message, once or periodically; Ctrl+C stops. No running OSC job is required. |
 | `osc` | `osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change\|always]` | Publish one scalar stream as OSC float32 values in its native unit. |
 | `osc` | `osc bind <name> stream <event-stream> <address> edge=rising\|falling\|both [rate=hz]` | Publish sampled boolean transitions as OSC int32 `0` or `1`. |
 | `osc` | `osc bind <name> control <control> <address> [rate=hz] [send=change\|always]` | Publish one normalized named control as an OSC float32 value from `0.0..1.0`. |
@@ -1365,7 +1386,7 @@ available for the compiled board.
 | `osc` | `osc unbind <name>` or `osc clear` | Remove one outbound binding or all outbound bindings. |
 | `radio` | `radio` | Open the packet-radio TUI with live status and editable common config. |
 | `radio` | `radio scan [name]` | Open the graphical `rfscan` app when included in the firmware. |
-| `radio` | `radio status|list` | List packet radios registered by expansion drivers. |
+| `radio` | `radio status\|list` | List packet radios registered by expansion drivers. |
 | `radio` | `radio status <name>` | Show one packet radio, its capabilities, state, and current config. |
 | `radio` | `radio config <name> [field value]` | Show or update common packet-radio configuration. |
 | `radio` | `radio profile list` | List immutable built-in and persistent user radio profiles. |
@@ -1381,8 +1402,8 @@ available for the compiled board.
 | `meshcore` | `meshcore stream list` or `meshcore stream status [port]` | Inspect trusted peer-bound virtual serial ports carried by encrypted MeshCore direct packets. |
 | `meshcore` | `meshcore stream create <port> <trusted-endpoint-id>` | Register a reliable MeshCore virtual serial port for one exact trusted endpoint. Configure both peers. |
 | `meshcore` | `meshcore stream remove <port>` | Remove an unclaimed MeshCore virtual serial port. |
-| `radio` | `radio state <name> [sleep|standby|rx|tx]` | Show or change radio operating state. |
-| `radio` | `radio send <name> <text|byte...>` | Send one packet. |
+| `radio` | `radio state <name> [sleep\|standby\|rx\|tx]` | Show or change radio operating state. |
+| `radio` | `radio send <name> <text\|byte...>` | Send one packet. |
 | `radio` | `radio recv <name> [timeout-ms]` | Receive one packet and print metadata plus payload. |
 | `gnss` | `gnss [list]` | List registered GNSS receivers and their concrete drivers. |
 | `gnss` | `gnss status [name]` | Show power, fix, fix type, and satellite state for one logical receiver. |
@@ -1448,9 +1469,9 @@ available for the compiled board.
 | `uart` | `uart write [bus] <text>` | Write text through the default or selected named UART bus. |
 | `uart` | `uart read [bus] [ms]` | Read bytes from the default or selected named UART bus. |
 | `gpio` | `gpio status` or `gpio list` | List board GPIOs with free, releasable, or fixed pin policy. |
-| `gpio` | `gpio mode <pin> <in|out> [none|up|down]` | Configure a runtime GPIO. |
+| `gpio` | `gpio mode <pin> <in\|out> [none\|up\|down]` | Configure a runtime GPIO. |
 | `gpio` | `gpio read <pin>` | Read a runtime GPIO. |
-| `gpio` | `gpio write <pin> <0|1>` | Write a runtime GPIO configured as output. |
+| `gpio` | `gpio write <pin> <0\|1>` | Write a runtime GPIO configured as output. |
 | `gpio` | `gpio release <pin>` | Reset a direct GPIO and release its resource claim for a bus or another service. |
 | `onewire` | `onewire [status [bus]]` | Show every registered named 1-Wire bus, or one selected bus. |
 | `onewire` | `onewire reset <bus\|pin>` | Reset a named bus or direct runtime GPIO and report presence. |

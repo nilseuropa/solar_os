@@ -165,6 +165,12 @@ static void multi_write_tests(void) {
     assert(solar_os_stream_unregister("sensor")==ESP_OK && solar_os_stream_unregister("sensor2")==ESP_OK);
     puts("stream write: grouped validation/open, periodic timing, cancellation/disconnect, failures and cleanup retry passed");
 }
+static esp_err_t imu_read(void *ctx,uint32_t timeout,solar_os_imu_sample_t *s) {
+    (void)ctx;assert(timeout==100);
+    if(sample_error!=ESP_OK)return sample_error;
+    *s=(solar_os_imu_sample_t){.timestamp_us=now*1000,.valid=3,.acceleration_m_s2={0,0,9.80665f}};
+    return ESP_OK;
+}
 int main(void) {
     assert(solar_os_stream_register(&driver)==ESP_OK);
     assert(!*run("stream write sensor .5",1) && writes==1 && last_written==.5f);released();
@@ -220,8 +226,18 @@ int main(void) {
     assert(solar_os_stream_unregister("sensor")==ESP_OK);
     driver.info.type=SOLAR_OS_STREAM_TYPE_EVENT;driver.read_scalar_sample=read_source;
     assert(solar_os_stream_register(&driver)==ESP_OK);before=opens;
-    assert(strstr(run("stream echo sensor --once",0),"unsupported") && opens==before);
+    assert(strstr(run("stream echo sensor --once",0),"unsupported") && opens==before+1);released();
     assert(solar_os_stream_unregister("sensor")==ESP_OK);
+    const solar_os_imu_ops_t ops={.read_sample=imu_read};
+    const solar_os_imu_registration_t imu={.name="imu0",.driver="fake",.capabilities=3,.ops=&ops};
+    assert(solar_os_imu_register(&imu)==ESP_OK);
+    s=run("stream echo imu.imu0 --once",1);
+    assert(strstr(s,"sample_us,valid,ax_m_s2") && strstr(s,",3,0,0,9.80665,0,0,0,") && !strstr(s,"stream echo:"));
+    cancelled=false;cancel_at=now+35;
+    s=run("stream echo imu.imu0 --rate 1",1);assert(cancelled && strstr(s,"9.80665"));cancel_at=0;
+    sample_error=ESP_ERR_TIMEOUT;start=now;
+    assert(strstr(run("stream echo imu.imu0 --once",1),"timeout") && now-start>=1000);sample_error=ESP_OK;
+    assert(solar_os_imu_unregister("imu0")==ESP_OK);
     multi_write_tests();
     puts("stream echo: scalar/timestamps, observer ownership, cancellation, validation, timeout and cleanup retry passed");
 }

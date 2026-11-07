@@ -32,6 +32,8 @@ struct solar_os_robot_model {
     model_joint_t joints[SOLAR_OS_ROBOT_MODEL_JOINT_MAX];
     char *extension;
     unsigned binding_count;
+    unsigned device_count;
+    solar_os_robot_model_device_t devices[SOLAR_OS_ROBOT_MODEL_DEVICE_MAX];
     bool drive_seen, drive_geometry, drive_timeout;
     solar_os_robot_diff_drive_config_t drive;
     struct {
@@ -55,6 +57,7 @@ typedef struct {
     char references[3 * SOLAR_OS_ROBOT_MODEL_JOINT_MAX][NAME];
     unsigned reference_kind[3 * SOLAR_OS_ROBOT_MODEL_JOINT_MAX];
     unsigned reference_count;
+    const char *device_at[SOLAR_OS_ROBOT_MODEL_DEVICE_MAX];
 } parser_t;
 
 static bool eq(const char *a, const char *b)
@@ -354,6 +357,19 @@ static int start_element(parser_t *p, const char *name, frame_t *f)
     }
     if (parent->context == EXTENSION || parent->context == EXTENSION_CHILD) {
         f->context = EXTENSION_CHILD;
+        if (parent->context == EXTENSION && eq(name, "device")) {
+            const char *const attrs[] = {"name", "frame"};
+            if (!allowed_attributes(p, attrs, 2)) return fail(p, ARG, "Unknown device binding attribute");
+            if (m->device_count >= SOLAR_OS_ROBOT_MODEL_DEVICE_MAX) return fail(p, ARG, "Too many device frame bindings");
+            solar_os_robot_model_device_t *d = &m->devices[m->device_count];
+            if (!copy_name(d->name, attr(p, "name")) || !copy_name(d->frame, attr(p, "frame")))
+                return fail(p, ARG, "Device binding requires a name and frame");
+            for (unsigned i = 0; i < m->device_count; ++i)
+                if (eq(m->devices[i].name, d->name)) return fail(p, ARG, "Duplicate device frame binding");
+            p->device_at[m->device_count++] = p->at;
+            f->context = LEAF;
+            return OK;
+        }
         if (parent->context == EXTENSION && eq(name, "joint")) {
             const char *const attrs[]={"name","command"};
             if (!allowed_attributes(p,attrs,2)) return fail(p,ARG,"Unknown joint binding attribute");
@@ -632,6 +648,13 @@ static int validate_tree(parser_t *p)
         if (current != root || steps >= m->info.links) return fail(p, ARG, "Disconnected tree or joint cycle");
     }
     copy_name(m->info.root, m->links[root].name);
+    for (unsigned i = 0; i < m->device_count; ++i) {
+        if (link_index(m, m->devices[i].frame) < 0) {
+            p->at = p->device_at[i];
+            p->bad_attribute = NULL;
+            return fail(p, ARG, "Device binding references an unknown frame");
+        }
+    }
     if(m->drive_seen) {
         if(!m->drive_geometry) return fail(p,ARG,"diff_drive requires wheel geometry");
         if(!m->drive.base_frame[0]) copy_name(m->drive.base_frame,m->info.root);
@@ -667,6 +690,24 @@ static int validate_tree(parser_t *p)
             return fail(p, ARG, "Drive wheels need rotary joints");
     }
     return OK;
+}
+
+int solar_os_robot_model_device(const solar_os_robot_model_t *m, uint32_t index, solar_os_robot_model_device_t *out)
+{
+    if (!m || !out) return ARG;
+    if (index >= m->device_count) return MISSING;
+    *out = m->devices[index]; return OK;
+}
+
+int solar_os_robot_model_device_frame(const solar_os_robot_model_t *m, const char *device, char *out, size_t bytes)
+{
+    if (!m || !device || !*device || !out || !bytes) return ARG;
+    for (unsigned i = 0; i < m->device_count; ++i) if (eq(m->devices[i].name, device)) {
+        size_t n = strlen(m->devices[i].frame) + 1;
+        if (n > bytes) return ARG;
+        memcpy(out, m->devices[i].frame, n); return OK;
+    }
+    return MISSING;
 }
 
 int solar_os_robot_model_binding(const solar_os_robot_model_t *m, uint32_t index, solar_os_robot_joint_config_v3_t *out)
@@ -781,6 +822,20 @@ int solar_os_robot_model_set_positions(solar_os_robot_model_t *m, const char *co
         m->joints[indices[i]].info.position = positions[i];
         m->joints[indices[i]].info.position_known = 1;
     }
+    return OK;
+}
+
+int solar_os_robot_model_feedback(solar_os_robot_model_t *m, const char *name,
+    float position, bool valid, bool referenced)
+{
+    if (!m || !name) return ARG;
+    int index = joint_index(m, name);
+    if (index < 0) return MISSING;
+    solar_os_robot_model_joint_info_t *j = &m->joints[index].info;
+    if (j->kind == SOLAR_OS_ROBOT_MODEL_FIXED) return ARG;
+    j->position_known = valid && isfinite(position) &&
+        (referenced || j->kind == SOLAR_OS_ROBOT_MODEL_CONTINUOUS);
+    if (j->position_known) j->position = position;
     return OK;
 }
 

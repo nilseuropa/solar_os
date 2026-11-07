@@ -56,7 +56,7 @@ typedef struct {
 } solar_os_net_session_status_t;
 
 /*
- * A session is owned by one script runtime and is not thread-safe. Handles are
+ * A session is owned by one caller and is not thread-safe. Handles are
  * opaque, generation-checked, and valid only in the session that created them.
  * Destroying a session closes every handle, including on interpreter errors.
  *

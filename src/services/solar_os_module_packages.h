@@ -81,6 +81,10 @@ typedef bool (*solar_os_module_package_visit_fn)(const char *id, void *user);
 
 esp_err_t solar_os_module_packages_init(void);
 
+/* Read the saved signed catalog without network access. Verification and host
+ * compatibility checks run again, and installed flags reflect local files. */
+esp_err_t solar_os_module_catalog_load(solar_os_module_catalog_t **out_catalog,
+                                       char *detail, size_t detail_len);
 esp_err_t solar_os_module_catalog_fetch(solar_os_module_catalog_t **out_catalog,
                                         char *detail,
                                         size_t detail_len);

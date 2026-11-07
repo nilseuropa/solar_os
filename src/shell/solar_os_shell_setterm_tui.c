@@ -29,7 +29,6 @@
 #include "solar_os_tui_widgets.h"
 
 #define SETTERM_TUI_EDIT_MAX 256
-#define SETTERM_TUI_CURSOR_BLINK_MS 500
 
 static solar_os_terminal_t *display_terminal(solar_os_context_t *ctx)
 {
@@ -46,6 +45,7 @@ typedef enum {
     SETTERM_TUI_SCALE,
     SETTERM_TUI_FONT,
     SETTERM_TUI_TEXTSIZE,
+    SETTERM_TUI_CURSOR,
     SETTERM_TUI_PALETTE,
     SETTERM_TUI_FOREGROUND,
     SETTERM_TUI_BACKGROUND,
@@ -77,8 +77,6 @@ typedef struct {
     size_t selected;
     size_t first_visible;
     bool editing;
-    bool cursor_visible;
-    uint32_t last_cursor_blink_ms;
     char edit_text[SETTERM_TUI_EDIT_MAX];
     char original_text[SETTERM_TUI_EDIT_MAX];
     char status[64];
@@ -92,6 +90,7 @@ static const setterm_tui_item_def_t setterm_tui_items[] = {
     [SETTERM_TUI_SCALE] = {.label = "scale"},
     [SETTERM_TUI_FONT] = {.label = "font"},
     [SETTERM_TUI_TEXTSIZE] = {.label = "textsize"},
+    [SETTERM_TUI_CURSOR] = {.label = "cursor"},
     [SETTERM_TUI_PALETTE] = {.label = "palette"},
     [SETTERM_TUI_FOREGROUND] = {.label = "foreground"},
     [SETTERM_TUI_BACKGROUND] = {.label = "background"},
@@ -145,6 +144,14 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
                 solar_os_terminal_text_size_name(solar_os_terminal_text_size(term)),
                 buffer_len);
         break;
+    case SETTERM_TUI_CURSOR: {
+        solar_os_terminal_cursor_shape_t shape;
+        bool blink;
+        solar_os_terminal_get_cursor_preference(&shape, &blink);
+        snprintf(buffer, buffer_len, "%s %s",
+                 solar_os_terminal_cursor_shape_name(shape), blink ? "blink" : "steady");
+        break;
+    }
     case SETTERM_TUI_PALETTE:
         strlcpy(buffer,
                 solar_os_terminal_palette_inverted(term) ? "inverted" : "normal",
@@ -346,7 +353,7 @@ static void setterm_tui_render(void)
                           cursor_col);
     }
 
-    solar_os_tui_set_cursor_visible(tui, setterm_tui.editing && setterm_tui.cursor_visible);
+    solar_os_tui_set_cursor_visible(tui, setterm_tui.editing);
     solar_os_tui_refresh(tui);
 }
 
@@ -382,6 +389,9 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const scale_values[] = {"1", "2", "3", "4"};
     static const char * const font_values[] = {"mono", "compact"};
     static const char * const textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
+    static const char * const cursor_values[] = {
+        "block blink", "block steady", "underscore blink", "underscore steady",
+    };
     static const char * const palette_values[] = {"normal", "inverted"};
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
@@ -409,6 +419,10 @@ static bool setterm_tui_cycle_selected(int direction)
     case SETTERM_TUI_TEXTSIZE:
         return setterm_tui_cycle_value(textsize_values,
                                        sizeof(textsize_values) / sizeof(textsize_values[0]),
+                                       direction);
+    case SETTERM_TUI_CURSOR:
+        return setterm_tui_cycle_value(cursor_values,
+                                       sizeof(cursor_values) / sizeof(cursor_values[0]),
                                        direction);
     case SETTERM_TUI_PALETTE:
         return setterm_tui_cycle_value(palette_values,
@@ -450,12 +464,6 @@ static bool setterm_tui_cycle_selected(int direction)
     default:
         return false;
     }
-}
-
-static void setterm_tui_reset_cursor_blink(void)
-{
-    setterm_tui.cursor_visible = true;
-    setterm_tui.last_cursor_blink_ms = 0;
 }
 
 static int setterm_tui_tokenize(char *line, char **argv, int argv_max)
@@ -540,6 +548,23 @@ static bool setterm_tui_apply_selected(void)
         solar_os_terminal_text_size_t text_size;
         return solar_os_terminal_parse_text_size(setterm_tui.edit_text, &text_size) &&
             solar_os_sessions_set_terminal_text_size(term, text_size) == ESP_OK;
+    }
+    case SETTERM_TUI_CURSOR: {
+        char text[SETTERM_TUI_EDIT_MAX];
+        char *argv[3];
+        strlcpy(text, setterm_tui.edit_text, sizeof(text));
+        const int argc = setterm_tui_tokenize(text, argv, 3);
+        solar_os_terminal_cursor_shape_t shape;
+        bool blink;
+        solar_os_terminal_get_cursor_preference(NULL, &blink);
+        if (argc < 1 || argc > 2 || !solar_os_terminal_parse_cursor_shape(argv[0], &shape))
+            return false;
+        if (argc == 2) {
+            if (strcmp(argv[1], "blink") == 0) blink = true;
+            else if (strcmp(argv[1], "steady") == 0) blink = false;
+            else return false;
+        }
+        return solar_os_terminal_set_cursor_preference(shape, blink) == ESP_OK;
     }
     case SETTERM_TUI_PALETTE:
         if (strcmp(setterm_tui.edit_text, "normal") == 0) {
@@ -633,7 +658,6 @@ static void setterm_tui_begin_edit(void)
             setterm_tui.edit_text,
             sizeof(setterm_tui.original_text));
     setterm_tui.editing = true;
-    setterm_tui_reset_cursor_blink();
     setterm_tui_set_status("");
     setterm_tui_render();
 }
@@ -642,7 +666,6 @@ static void setterm_tui_commit_edit(void)
 {
     if (setterm_tui_apply_selected()) {
         setterm_tui.editing = false;
-        setterm_tui.cursor_visible = false;
         setterm_tui_set_status(
             setterm_tui.selected == SETTERM_TUI_STARTUP
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
@@ -651,7 +674,6 @@ static void setterm_tui_commit_edit(void)
                 ?
                 "saved; reboot to apply" : "saved");
     } else {
-        setterm_tui_reset_cursor_blink();
         setterm_tui_set_status("invalid value");
     }
     setterm_tui_render();
@@ -663,7 +685,6 @@ static void setterm_tui_cancel_edit(void)
             setterm_tui.original_text,
             sizeof(setterm_tui.edit_text));
     setterm_tui.editing = false;
-    setterm_tui.cursor_visible = false;
     setterm_tui_set_status("");
     setterm_tui_render();
 }
@@ -672,8 +693,6 @@ static void setterm_tui_handle_edit_key(char ch)
 {
     const uint8_t key = (uint8_t)ch;
     const size_t len = strlen(setterm_tui.edit_text);
-
-    setterm_tui_reset_cursor_blink();
 
     switch (key) {
     case SOLAR_OS_KEY_ESCAPE:
@@ -750,21 +769,7 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
     }
 
     if (event->type == SOLAR_OS_EVENT_TICK) {
-        if (!setterm_tui.editing) {
-            return false;
-        }
-
-        const uint32_t now_ms = event->data.tick_ms;
-        if (setterm_tui.last_cursor_blink_ms == 0) {
-            setterm_tui.last_cursor_blink_ms = now_ms;
-            return true;
-        }
-        if ((now_ms - setterm_tui.last_cursor_blink_ms) >= SETTERM_TUI_CURSOR_BLINK_MS) {
-            setterm_tui.last_cursor_blink_ms = now_ms;
-            setterm_tui.cursor_visible = !setterm_tui.cursor_visible;
-            solar_os_tui_set_cursor_visible(&setterm_tui.tui, setterm_tui.cursor_visible);
-        }
-        return true;
+        return false;
     }
 
     if (event->type != SOLAR_OS_EVENT_CHAR) {

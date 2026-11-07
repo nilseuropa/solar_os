@@ -28,6 +28,7 @@ typedef enum {
     SOLAR_OS_DOC_RUN_CODE = 1U << 2,
     SOLAR_OS_DOC_RUN_LINK = 1U << 3,
     SOLAR_OS_DOC_RUN_UNDERLINE = 1U << 4,
+    SOLAR_OS_DOC_RUN_TABLE_SEPARATOR = 1U << 5, /* Structural pipe, excluded from cell text. */
 } solar_os_doc_run_style_t;
 
 typedef esp_err_t (*solar_os_doc_asset_read_cb_t)(void *user,

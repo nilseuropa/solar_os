@@ -101,8 +101,17 @@
       <geometry><sphere radius="0.006"/></geometry>
     </collision>
   </link>
+  <!-- Temporary MPU6050 frame until the board is mounted. -->
+  <link name="imu_link"/>
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0.02" rpy="0 0 0"/>
+  </joint>
+
   <!-- SolarOS resolves these devices only on explicit robot start. -->
   <solar_os version="1">
+    <device name="imu0" frame="imu_link"/>
     <joint name="left_wheel_joint" command="velocity">
       <motor device="left" polarity="1"/>
       <encoder device="left_enc" ppr="70" placement="motor" polarity="1"/>

@@ -9,6 +9,13 @@
 #define SOLAR_OS_IMU_NAME_MAX 20
 #define SOLAR_OS_IMU_DRIVER_MAX 24
 
+/* imu.<device> is a shared byte source. Each read returns one 52-byte
+ * imu-v1-le record: uint64 timestamp_us, uint32 valid, then float32 accel[3],
+ * gyro[3], orientation[4] (w,x,y,z), all little endian, without padding. Units and
+ * validity bits match solar_os_imu_sample_t. No frame ID or sampling worker. */
+#define SOLAR_OS_IMU_STREAM_FORMAT "imu-v1-le"
+#define SOLAR_OS_IMU_STREAM_SAMPLE_BYTES 52U
+
 typedef uint32_t solar_os_imu_capabilities_t;
 
 typedef enum {
@@ -22,7 +29,7 @@ typedef struct {
     solar_os_imu_capabilities_t valid;
     float acceleration_m_s2[3];
     float angular_velocity_rad_s[3];
-    float orientation[4];
+    float orientation[4]; /* Quaternion w,x,y,z when ORIENTATION is valid. */
 } solar_os_imu_sample_t;
 
 typedef struct {

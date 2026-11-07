@@ -37,6 +37,10 @@ struct solar_os_terminal {
     size_t cursor_row;
     size_t cursor_col;
     bool cursor_visible;
+    uint32_t cursor_activity_ms;
+    bool rendered_cursor_on;
+    bool rendered_cursor_blink;
+    solar_os_terminal_cursor_shape_t rendered_cursor_shape;
     size_t rows;
     size_t cols;
     solar_os_terminal_vrule_t vrules[SOLAR_OS_TERMINAL_MAX_VRULES];

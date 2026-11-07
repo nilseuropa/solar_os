@@ -26,6 +26,56 @@ paths, or load mesh files. Visual, collision, inertial, material, transmission,
 Gazebo and `ros2_control` elements are accepted as metadata and omitted from the
 in-memory kinematic model. This interface does not render or simulate geometry.
 
+## Device frames
+
+Associate an OS device with a URDF link in the existing extension:
+
+```xml
+<link name="imu_link"/>
+<joint name="imu_joint" type="fixed">
+  <parent link="base_footprint"/>
+  <child link="imu_link"/>
+  <origin xyz="0 0 0.02" rpy="0 0 0"/>
+</joint>
+<solar_os version="1">
+  <device name="imu0" frame="imu_link"/>
+</solar_os>
+```
+
+The example pose is a temporary frame 20 mm above `base_footprint` with zero
+rotation. Replace it with the physical mounting pose when the IMU is mounted.
+Use one `solar_os` block per robot, adding device bindings alongside joint and
+drive declarations. Device names must be unique; frames must name existing
+links. Up to 16 devices can be associated, and several devices can share a frame.
+
+```text
+expansion attach mpu6050 imu0 i2c=i2c0 addr=0x68
+robot model load solbot.urdf
+robot model devices
+robot model frame imu0
+robot model frame imu.imu0
+robot model transform base_footprint imu_link
+imu sample imu0
+stream echo imu.imu0 --once
+```
+
+Frame associations are queryable after model load and require no `robot start`.
+Loading does not attach drivers, claim sensors, or start sampling. Unattached
+devices may be declared so geometry is usable without hardware. A device-name
+query works while detached; a stream-name query resolves a registered stream's
+device. Camera, IMU and future range devices use the same binding syntax.
+Samples remain in the sensor's local coordinates, with no frame ID added to the
+source. Consumers resolve the binding and apply the existing model transform;
+the service does not rotate samples or use measured attitude to move the frame.
+Dynamic paths require current joint state, as other transform queries do.
+
+Python and Lua expose `solaros.robot.model_frame(device_or_stream)`, which returns
+the frame name. Pass it to `solaros.robot.model_transform(target, frame)` for the
+transform. C clients use `solar_os_robot_model_frame()` in the OS frontend or
+the native library's appended `model_device` / `model_device_frame` API entries.
+Older robot libraries can still load models but do not support frame lookup;
+update the library to use these entries.
+
 ## Load and inspect
 
 ```text
@@ -70,7 +120,24 @@ Unload the model before unloading the robot library.
 
 Fixed joints have known positions immediately. Continuous, revolute and
 prismatic joints initially have unknown positions. An unset joint is not assumed
-to have a measured zero position. Supply positions explicitly, for example:
+to have a measured zero position.
+
+After `robot start`, URDF-bound continuous joints use measured encoder positions
+automatically. Transform, point and vector queries and model inspection all use
+the latest joint feedback. Positions are radians relative to the encoder count
+at enable, plus the configured `position_zero`; this does not reset the hardware
+counter or establish an absolute wheel angle. The first valid sample makes the
+position available even while the controller waits for its first command.
+Queries do not command movement.
+
+Missing, stale or faulted feedback makes the bound position unavailable. Stopping
+the joint also clears its model position; restarting establishes a new relative
+reference. Revolute and prismatic joints require referenced position feedback;
+relative encoder counts alone cannot establish their absolute pose. A servo
+command is not measured position feedback.
+
+Supply model state explicitly for unbound joints or while the robot is stopped,
+for example:
 
 ```text
 robot model set left_wheel_joint 0 right_wheel_joint 0
@@ -86,17 +153,20 @@ components own command-limit enforcement. Continuous joints accept finite
 unwrapped angles. A `set` command validates every name and
 value before updating any joint. Duplicate names in one batch are rejected.
 These updates describe a pose; they never command a motor or servo.
+Manual updates to runtime-bound joints are rejected so they cannot replace
+measured state. Stop the robot before supplying a manual pose for those joints.
 
 URDF origins use `Rz(yaw) * Ry(pitch) * Rx(roll)`. Joint motion follows the origin
 in the joint's local axis. The axis defaults to +X and supplied nonzero axes are
 normalized. Transform queries walk the path between the requested links.
-Unknown joints on that path return an invalid-state error. Unknown joints above
+Unknown joints on that path return an invalid-state error naming an affected
+joint in the shell. Unknown joints above
 their common ancestor do not prevent a local lookup. A frame-to-itself lookup
 returns identity even when that frame's pose relative to the root is unknown.
 
 This is current-state forward kinematics. There is no transform history,
-timestamp interpolation, ROS topic publication, external-frame insertion,
-automatic encoder binding or inverse solver in the model interface. The
+timestamp interpolation, ROS topic publication, external-frame insertion or
+inverse solver in the model interface. The
 separate diff_drive component below supplies measured planar odometry.
 
 ## Transform direction

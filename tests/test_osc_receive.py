@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 class OscReceiveTest(unittest.TestCase):
     def test_shell_with_real_streams_and_service(self):
         source = (ROOT / "src/shell/solar_os_shell_osc.c").read_text()
+        source = source.replace('#include "solar_os_shell_osc_send.inc"',
+            (ROOT / "src/shell/solar_os_shell_osc_send.inc").read_text())
         source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
         common = (ROOT / "src/shell/solar_os_shell_common.c").read_text()
         source = production_functions(common, ("solar_os_shell_parse_size_arg",)) + "\n" + source

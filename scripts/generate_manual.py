@@ -256,6 +256,7 @@ def extract_quick_reference(markdown: str, path: Path) -> str:
 
 
 def strip_inline_markdown(text: str) -> str:
+    text = text.replace(r"\|", "|")
     text = re.sub(r"!\[([^]]*)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)

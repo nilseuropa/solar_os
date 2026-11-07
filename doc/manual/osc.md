@@ -117,6 +117,34 @@ hold/stop/watchdog policy applies. Stop OSC before stopping a robot whose
 streams it holds. Failed closes retain the binding and handle for retry with
 `osc unbind` or `osc clear`.
 
+## Sending from the shell
+
+Send one OSC message directly, without bindings or a running OSC job:
+
+```text
+osc send 192.168.1.238:9000 /base/cmd_vel 0.02 0
+```
+
+The destination is an IPv4 address or hostname followed by a UDP port from 1
+to 65535. One to eight finite numeric values are encoded as float32 arguments
+in a single message, in the order supplied. The example sends type tags `,ff`;
+the receive bindings above map its values to linear and angular velocity.
+
+Use the same repeat options as `stream write` when the receiver needs timely
+updates:
+
+```text
+osc send 192.168.1.238:9000 /base/cmd_vel 0.02 0 --rate 20 --duration 2
+```
+
+`--rate` accepts integer rates from 1 to 100 Hz. Without `--duration`, publishing
+continues until Ctrl+C, Esc, app exit, or disconnection. `--duration` accepts
+0.001..86400 seconds and requires `--rate`. Missed periods are skipped rather
+than followed by a catch-up burst. The socket closes on completion, cancellation
+or failure. No extra zero command is sent on exit; the receiver's watchdog or
+hold policy applies. Sending does not change the OSC job or its bindings.
+Tab completes `send` and the unused repeat options after the values.
+
 ## Outgoing bindings
 
 Set one destination when the job starts:
@@ -238,6 +266,7 @@ job start osc [listen=port] [target=host:port] [peer=ipv4]
 job status osc
 job stop osc
 osc bindings
+osc send <host:port> <address> <value> [value ...] [--rate 1..100] [--duration seconds]
 osc bind <name> stream <stream> <address> [rate=hz] [delta=value] [send=change|always]
 osc bind <name> stream <event-stream> <address> edge=rising|falling|both [rate=hz]
 osc bind <name> control <control> <address> [rate=hz] [send=change|always]

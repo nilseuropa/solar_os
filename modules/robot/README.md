@@ -23,7 +23,11 @@ joint configuration or model files. See [Feedback controllers](../../doc/manual/
 The model API loads expanded URDF, validates a fixed/continuous/revolute/prismatic
 joint tree, accepts explicit position updates and computes frame transforms.
 Transform math supports RPY construction, composition, inverse, points and
-directions. Movable joints start unknown. The optional version-1 `solar_os`
+directions. Movable joints start unknown. Model-created continuous joints feed
+their measured relative encoder positions into model queries automatically;
+missing, stale, faulted or stopped feedback invalidates the position. Bounded
+joints require a referenced position. Manual state updates cannot override
+runtime-bound joints. The optional version-1 `solar_os`
 block declares motor/encoder velocity controllers; loading validates their
 configuration without creating controllers or claiming hardware. `robot start`
 creates and enables them, waiting with outputs stopped for fresh commands.
@@ -61,7 +65,8 @@ model and drive clients must acquire a table large enough for the functions
 they use. The host `motion` and `controllers` ABIs are version 1.
 
 Native callers can keep up to four model handles, independently of the shared
-shell/Python/Lua model. Close every joint, drive and model before releasing its
+shell/Python/Lua model. Model-created joints pin their model until closed.
+Close every joint, drive and model before releasing its
 library lease. Model state and parser scratch use the native PSRAM allocator.
 Input XML is consumed synchronously; callers can release it after load.
 Transform functions support aliased input/output, normalize nonzero

@@ -42,7 +42,7 @@ static int worker_start(void **p,void(*fn)(void*),void *arg,uint32_t bytes,uint3
 static int worker_join(void *p) { free(p);workers--;return 0; }
 int solar_os_native_library_acquire(const char *name,uint32_t abi,uint32_t bytes,uint32_t *lease,const void **api)
 { assert(!strcmp(name,"robot") && abi==SOLAR_OS_ROBOT_ABI &&
-    (bytes==sizeof(*provider) || bytes==SOLAR_OS_ROBOT_JOINT_API_SIZE));*api=provider;*lease=++leases;return 0; }
+    (bytes==sizeof(*provider) || bytes==offsetof(solar_os_robot_api_v3_t,model_device) || bytes==SOLAR_OS_ROBOT_JOINT_API_SIZE));*api=provider;*lease=++leases;return 0; }
 int solar_os_native_library_release(uint32_t lease)
 { assert(lease && leases);if(fail_release)return STATE;leases--;return 0; }
 static esp_err_t hw_status(void *ctx,solar_os_motor_status_t *s)
@@ -210,6 +210,65 @@ static void model_parameter_transaction_test(void)
     assert(solar_os_motor_configure("left","max_drive",1)==ESP_OK);
 }
 
+static void model_feedback_test(void)
+{
+    solar_os_robot_transform_t t;
+    solar_os_robot_model_info_t model_info;
+    solar_os_robot_model_joint_info_t joint;
+    solar_os_robot_joint_info_v3_t state;
+    const char *name = "model_wheel";
+    float manual = .7f;
+    assert(solar_os_robot_model_load_xml(model_velocity_fixture,strlen(model_velocity_fixture),NULL,0)==ESP_OK);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    /* Enable seeds the existing encoder counter without resetting hardware.
+     * The prior manual pose is superseded, but no zero measurement is invented. */
+    encoder_count = 12345;
+    assert(solar_os_robot_start()==ESP_OK && encoder_count==12345);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_transform("wheel","wheel",&t)==ESP_OK);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_ERR_INVALID_STATE);
+    assert(provider->model_close(models[0].id)==STATE); /* Runtime joints pin the model. */
+    unsigned writes = drive_calls;
+    encoder_count += 525; time_value += 20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_joint_status(name,&state)==ESP_OK && state.velocity_valid && !state.referenced);
+    assert(state.state==SOLAR_OS_ROBOT_WAITING && !state.command_valid && !motor_value);
+    assert(fabsf(state.position-(float)(PI/2))<1e-5f);
+    assert(solar_os_robot_model_get_info(&model_info)==ESP_OK && model_info.known_joints==1);
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && joint.position_known);
+    assert(fabsf(joint.position-state.position)<1e-5f);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    assert(fabsf(t.rotation[0]-sqrtf(.5f))<1e-5f && fabsf(t.rotation[3]-sqrtf(.5f))<1e-5f);
+    assert(solar_os_robot_model_transform("wheel","root",&t)==ESP_OK && t.rotation[0]<0);
+    float point[3]={0,1,0}, out[3];
+    assert(solar_os_robot_model_apply("root","wheel",point,false,out)==ESP_OK);
+    assert(fabsf(out[1])<1e-5f && fabsf(out[2]-1)<1e-5f);
+    assert(drive_calls==writes); /* Feedback queries and idle sampling do not drive motors. */
+    /* Aging alone invalidates the cached state even if the worker has stalled. */
+    time_value += 100001;
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && !joint.position_known);
+    time_value += 20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_OK);
+    fail_read_from=read_calls+1; time_value+=20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    fail_read_from=0;
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_robot_model_get_info(&model_info)==ESP_OK && !model_info.known_joints);
+    assert(solar_os_robot_model_update(&name,&manual,1)==ESP_OK);
+    assert(solar_os_robot_start()==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    time_value+=20000;
+    lock(); for(unsigned i=0;i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i]) cycle(joints[i]); unlock();
+    assert(solar_os_robot_model_get_joint(0,&joint)==ESP_OK && joint.position_known && !joint.position);
+    assert(solar_os_robot_stop()==ESP_OK);
+    assert(solar_os_robot_model_transform("root","wheel",&t)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_robot_model_unload()==ESP_OK);
+}
+
 static void model_controllers_test(void)
 {
     char error[128];
@@ -325,6 +384,27 @@ static void model_controllers_test(void)
 
 #include "diff_drive_integration_test.inc"
 
+static esp_err_t model_sensor_read(void *ctx,const solar_os_stream_read_options_t *options,float *value)
+{ (void)ctx;(void)options;*value=0;return ESP_OK; }
+
+static void legacy_model_test(void)
+{
+    const solar_os_robot_api_v3_t *current=provider;
+    solar_os_robot_api_v3_t legacy=*current;
+    legacy.struct_size=offsetof(solar_os_robot_api_v3_t,model_device);
+    legacy.model_device=NULL;legacy.model_device_frame=NULL;
+    provider=&legacy;
+    const char *xml="<robot name='legacy'><link name='base'/></robot>";
+    assert(solar_os_robot_model_load_xml(xml,strlen(xml),NULL,0)==ESP_OK);
+    solar_os_robot_model_info_t info;
+    assert(solar_os_robot_model_get_info(&info)==ESP_OK && !strcmp(info.name,"legacy"));
+    char frame[64];solar_os_robot_model_device_t device;
+    assert(solar_os_robot_model_frame("imu0",frame,sizeof(frame))==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_robot_model_get_device(0,&device)==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_robot_model_unload()==ESP_OK);
+    provider=current;
+}
+
 int main(void)
 {
     setup();
@@ -350,7 +430,16 @@ int main(void)
     assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && leases==1);
     assert(solar_os_robot_engine_shutdown()==STATE);
     solar_os_robot_model_info_t mi;
-    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==5 && mi.joints==4);
+    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==6 && mi.joints==5);
+    char sensor_frame[64]; solar_os_robot_model_device_t sensor;
+    assert(solar_os_robot_model_get_device(0,&sensor)==ESP_OK && !strcmp(sensor.name,"imu0"));
+    assert(solar_os_robot_model_frame("imu0",sensor_frame,sizeof(sensor_frame))==ESP_OK && !strcmp(sensor_frame,"imu_link"));
+    solar_os_stream_driver_t sensor_stream={.info={.id="test.sensor",.provider="test",.device="imu0",.format="f32",
+        .type=SOLAR_OS_STREAM_TYPE_SCALAR,.direction=SOLAR_OS_STREAM_DIRECTION_SOURCE},.read_scalar=model_sensor_read};
+    assert(solar_os_stream_register(&sensor_stream)==ESP_OK);
+    assert(solar_os_robot_model_frame("test.sensor",sensor_frame,sizeof(sensor_frame))==ESP_OK && !strcmp(sensor_frame,"imu_link"));
+    assert(solar_os_stream_unregister("test.sensor")==ESP_OK);
+    assert(solar_os_robot_model_frame("test.sensor",sensor_frame,sizeof(sensor_frame))==ESP_ERR_NOT_FOUND);
     assert(solar_os_robot_model_load_xml("<bad/>",6,error,sizeof(error))!=ESP_OK && *error);
     assert(solar_os_robot_model_get_info(&mi)==ESP_OK && !strcmp(mi.name,"solbot") && leases==1);
     const char *positions[]={"left_wheel_joint","right_wheel_joint"};float values[]={0,0};
@@ -393,7 +482,9 @@ int main(void)
     assert(solar_os_robot_joint_close("wheel")==ESP_OK && !leases);
     assert(solar_os_motor_drive("left",0)==ESP_OK && solar_os_encoder_reset("left_enc")==ESP_OK);
     model_controllers_test();
+    model_feedback_test();
     diff_drive_integration_test();
+    legacy_model_test();
     teardown();
     puts("robot integration: native device ABI, claims, encoder scaling, frontend leases and cleanup retry passed");
     return 0;

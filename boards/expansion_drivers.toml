@@ -419,6 +419,32 @@ hint = "gpio"
 role = "irq"
 required = true
 
+[drivers.mpu6050]
+summary = "MPU6050 six-axis IMU"
+package = "mpu6050"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+default_name = "imu0"
+
+[[drivers.mpu6050.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.mpu6050.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68|0x69"
+required = true
+allowed = [0x68, 0x69]
+
+[[drivers.mpu6050.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
 [drivers.qmi8658]
 summary = "QMI8658 six-axis IMU"
 package = "qmi8658"
@@ -2903,6 +2929,87 @@ key = "reset"
 kind = "gpio_line"
 hint = "gpio|controller:line"
 role = "reset"
+
+[drivers.ssd1680]
+summary = "SSD1680 122x250 monochrome e-paper"
+package = "expansion_ssd1680"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_ssd1680"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1680"' }
+early = true
+default_name = "display0"
+
+[[drivers.ssd1680.display_profiles]]
+name = "mono-122x250"
+label = "122x250 monochrome e-paper (V4 OTP)"
+width = 122
+height = 250
+bindings = { panel = 0 }
+rotation = 0
+default = true
+
+[[drivers.ssd1680.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
+[[drivers.ssd1680.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..4000 kHz"
+role = "clock"
+min = 100
+max = 4000
+
+[[drivers.ssd1680.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+[[drivers.ssd1680.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "0: 122x250 monochrome (default)"
+role = "panel"
+allowed = [0]
 
 [drivers.ssd1685]
 summary = "SSD1685 168x384 e-paper"

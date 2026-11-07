@@ -577,6 +577,11 @@ label = "SPI DLP displays"
 category = "Expansion hardware"
 members = ["expansion_spi_dlp"]
 
+[groups.ssd1680]
+label = "SSD1680 e-paper expansion"
+description = "122x250 monochrome panels with native OTP refresh"
+members = ["expansion_ssd1680"]
+
 [groups.ssd1683]
 label = "SSD1683 e-paper display"
 category = "Expansion hardware"
@@ -651,6 +656,11 @@ members = ["st25r3916"]
 label = "BHI260AP IMU"
 category = "Expansion hardware"
 members = ["bhi260ap"]
+
+[groups.mpu6050]
+label = "MPU6050 IMU"
+category = "Expansion hardware"
+members = ["mpu6050"]
 
 [groups.qmi8658]
 label = "QMI8658 IMU"
@@ -1146,7 +1156,7 @@ requires = ["lwip"]
 
 [packages.service_osc]
 label = "service.osc"
-depends = ["service_controls", "service_streams"]
+depends = ["service_controls", "service_streams", "service_script_net"]
 sources = [
   "services/solar_os_osc.c",
   "shell/solar_os_shell_osc.c",
@@ -1666,6 +1676,7 @@ sources = [
 
 [packages.service_imu]
 label = "service.imu"
+depends = ["service_streams"]
 sources = [
   "services/solar_os_imu.c",
   "shell/solar_os_shell_imu.c",
@@ -1837,6 +1848,20 @@ label = "driver.epd_scan_worker"
 targets = ["esp32", "esp32s3"]
 sources = ["drivers/epd_scan_worker.c"]
 requires = ["esp_timer"]
+
+[packages.expansion_ssd1680]
+label = "expansion.ssd1680"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ssd1680_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_ssd1680.c",
+  "services/solar_os_ssd1680.c",
+  "services/solar_os_ssd1680_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 
 [packages.expansion_ssd1683]
 label = "expansion.ssd1683"
@@ -2048,6 +2073,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["expansion_gpio", "expansion_i2c"]
+
+[packages.mpu6050]
+label = "expansion.mpu6050"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_mpu6050_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = ["drivers/mpu6050.c", "services/solar_os_mpu6050.c", "services/solar_os_mpu6050_driver.c"]
+requires = ["esp_timer", "esp_driver_gpio"]
+capabilities = ["i2c"]
 
 [packages.qmi8658]
 label = "expansion.qmi8658"

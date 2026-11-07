@@ -73,7 +73,9 @@ constant in seconds; 0 disables filtering. The default is 0.1 seconds.
 
 Motor joints expose relative displacement since enable in `position`, but
 `position_valid` and `referenced` remain false because there is no homing or
-absolute position reference. Servo joints expose
+absolute position reference. URDF-bound continuous joints use this relative
+position for live model transforms while timestamped feedback is valid; bounded
+model joints still require a referenced position. Servo joints expose
 `commanded_position`; their measured position and velocity remain invalid.
 Motor drive is normalized demand, not torque or measured effort.
 

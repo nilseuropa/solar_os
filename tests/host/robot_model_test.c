@@ -93,6 +93,14 @@ static void kinematics(void)
     assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==STATE);
     assert(solar_os_robot_model_lookup(m,"tip","sensor",&t)==OK);near(t.translation[2],1);
     assert(solar_os_robot_model_lookup(m,"arm","arm",&t)==OK);near(t.rotation[3],1);
+    /* Relative counts cannot establish a bounded joint's absolute pose. */
+    assert(solar_os_robot_model_feedback(m,"rotation",.5f,true,false)==OK);
+    assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==STATE);
+    assert(solar_os_robot_model_feedback(m,"rotation",.5f,true,true)==OK);
+    solar_os_robot_model_joint_info_t feedback_joint;
+    assert(solar_os_robot_model_joint(m,0,&feedback_joint)==OK && feedback_joint.position_known);
+    assert(solar_os_robot_model_feedback(m,"rotation",NAN,true,true)==OK);
+    assert(solar_os_robot_model_joint(m,0,&feedback_joint)==OK && !feedback_joint.position_known);
     const char *names[]={"rotation","slide"};float q[]={1.5707963267948966f,.5f};
     assert(solar_os_robot_model_set_positions(m,names,q,2)==OK);
     assert(solar_os_robot_model_lookup(m,"root","sensor",&t)==OK);
@@ -232,7 +240,7 @@ static void solbot(const char *path)
     solar_os_robot_model_t *m=parse(xml);free(xml);
     solar_os_robot_model_info_t info;assert(solar_os_robot_model_info(m,&info)==OK);
     assert(!strcmp(info.name,"solbot") && !strcmp(info.root,"base_footprint"));
-    assert(info.links==5 && info.joints==4 && info.known_joints==2);
+    assert(info.links==6 && info.joints==5 && info.known_joints==3);
     solar_os_robot_transform_t t;
     assert(solar_os_robot_model_lookup(m,"base_footprint","caster_ball_link",&t)==OK);
     near(t.translation[0],-.0747f);near(t.translation[2],.006f);
@@ -290,6 +298,33 @@ static void binding_validation(void)
     solar_os_robot_model_destroy(m);
 }
 
+static void device_frames(void)
+{
+    const char *prefix="<robot name='s'><solar_os version='1'>";
+    const char *suffix="</solar_os><link name='r'/><link name='imu'/><joint name='mount' type='fixed'>"
+        "<parent link='r'/><child link='imu'/><origin xyz='0 0 0.02'/></joint></robot>";
+    char xml[4096];
+    snprintf(xml,sizeof(xml),"%s<device name='imu0' frame='imu'/>%s",prefix,suffix);
+    solar_os_robot_model_t *m=parse(xml); solar_os_robot_model_device_t device;
+    char frame[64]; solar_os_robot_transform_t t;
+    assert(solar_os_robot_model_device(m,0,&device)==OK && !strcmp(device.name,"imu0") && !strcmp(device.frame,"imu"));
+    assert(solar_os_robot_model_device(m,1,&device)==MISSING);
+    assert(solar_os_robot_model_device_frame(m,"imu0",frame,sizeof(frame))==OK && !strcmp(frame,"imu"));
+    assert(solar_os_robot_model_lookup(m,"r",frame,&t)==OK);near(t.translation[2],.02f);near(t.rotation[3],1);
+    assert(solar_os_robot_model_device_frame(m,"missing",frame,sizeof(frame))==MISSING);
+    assert(solar_os_robot_model_device_frame(m,"imu0",frame,1)==ARG);
+    solar_os_robot_model_destroy(m);
+    const char *bad[]={"<device name='imu0'/>","<device name='imu0' frame='absent'/>",
+        "<device name='imu0' frame='imu' typo='1'/>","<device name='' frame='imu'/>",
+        "<device name='imu0' frame='imu'/><device name='imu0' frame='r'/>",
+        "<device name='imu0' frame='imu'><child/></device>"};
+    for(unsigned i=0;i<sizeof(bad)/sizeof(bad[0]);++i) {
+        snprintf(xml,sizeof(xml),"%s%s%s",prefix,bad[i],suffix);reject(xml);
+    }
+    snprintf(xml,sizeof(xml),"%s<device name='imu0' frame='imu'/><device name='camera0' frame='imu'/>%s",prefix,suffix);
+    m=parse(xml);assert(solar_os_robot_model_device(m,1,&device)==OK);solar_os_robot_model_destroy(m);
+}
+
 static void parser_diagnostics(void)
 {
     const char *xml="<robot name='bound'>\r\n"
@@ -320,7 +355,7 @@ static void parser_diagnostics(void)
 
 int main(int argc,char **argv)
 {
-    transform_math();kinematics();parser_validation();binding_validation();parser_diagnostics();
+    transform_math();kinematics();parser_validation();binding_validation();device_frames();parser_diagnostics();
     solbot(argc>1?argv[1]:"../fixtures/solbot.urdf");
     assert(!allocations);puts("robot model: transform math, URDF validation, unknown state, atomic batches, OOM and Solbot passed");
     return 0;

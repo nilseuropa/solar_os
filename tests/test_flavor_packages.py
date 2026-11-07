@@ -315,6 +315,23 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertFalse(unavailable["expansion_uc8279"])
 
+    def test_ssd1680_expansion_profile_and_package(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(groups["ssd1680"])
+        self.assertTrue(packages["expansion_ssd1680"])
+        for caps, enabled in (
+            ({"gfx", "spi", "expansion_spi", "expansion_gpio"}, True),
+            ({"gfx", "spi", "expansion_spi"}, False),
+            ({"spi", "expansion_spi", "expansion_gpio"}, False),
+            ({"gfx", "spi", "expansion_gpio"}, False),
+        ):
+            _, selected = generate_flavor_config.apply_board_capability_pruning(
+                self.catalog, groups, packages, caps)
+            self.assertEqual(selected["expansion_ssd1680"], enabled)
+        for flavor in ("classic", "writerdeck"):
+            _, _, _, optional = self.resolve(flavor)
+            self.assertFalse(optional["expansion_ssd1680"])
+
     def test_ssd1685_expansion_profile_and_package(self):
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["ssd1685"])
@@ -622,6 +639,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "bq27220": "bq27220",
             "bq25896": "bq25896",
             "qmi8658": "qmi8658",
+            "mpu6050": "mpu6050",
         }
         for group, package in reusable.items():
             with self.subTest(group=group):
@@ -652,6 +670,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "solar_os_bq27220_expansion_driver",
             "solar_os_bq25896_expansion_driver",
             "solar_os_qmi8658_expansion_driver",
+            "solar_os_mpu6050_expansion_driver",
         ):
             self.assertIn(symbol, drivers)
 
@@ -707,6 +726,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "driver_display_ili9341",
             "driver_display_st7796",
             "expansion_ssd1683",
+            "expansion_ssd1680",
             "expansion_ssd1685",
             "expansion_uc8179",
             "expansion_uc8279",
@@ -938,7 +958,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(self.catalog.group_defs["osc"].members, ("job_osc",))
         self.assertEqual(
             self.catalog.package_defs["service_osc"].depends,
-            ("service_controls", "service_streams"),
+            ("service_controls", "service_streams", "service_script_net"),
         )
         self.assertEqual(
             self.catalog.package_defs["job_osc"].depends,

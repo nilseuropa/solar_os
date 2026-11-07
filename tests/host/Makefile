@@ -41,6 +41,7 @@ can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/servic
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
+TARGETS += epd_ssd1680_test ssd1680_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
@@ -396,6 +397,20 @@ cl32_display_test: cl32_display_test.c $(ROOT)/src/services/solar_os_cl32_displa
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
+
+ssd1680_expansion_test: ssd1680_expansion_test.c $(ROOT)/src/services/solar_os_ssd1680.c \
+        $(ROOT)/src/services/solar_os_ssd1680_driver.c $(ROOT)/src/drivers/epd_ssd1680.h ssd1680_memory_stubs.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib ssd1680_expansion_test.c -o $@
+
+epd_ssd1680_test: epd_ssd1680_test.c $(ROOT)/src/drivers/epd_ssd1680.c $(ROOT)/src/drivers/epd_ssd1680.h \
+        $(ROOT)/src/drivers/epd_relax.h ssd1680_memory_stubs.h $(EPD_U8G2_TEST_SOURCES) \
+        $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src -I$(ROOT)/src/services \
+		epd_ssd1680_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
@@ -1030,9 +1045,9 @@ modem_service_test: modem_service_test.c $(ROOT)/src/services/solar_os_modem.c $
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		modem_service_test.c $(ROOT)/src/services/solar_os_modem.c -o $@
 
-imu_service_test: imu_service_test.c $(ROOT)/src/services/solar_os_imu.c $(ROOT)/src/services/solar_os_imu.h
+imu_service_test: imu_service_test.c $(ROOT)/src/services/solar_os_imu.c $(ROOT)/src/services/solar_os_imu.h $(ROOT)/src/services/solar_os_stream.c motion_endpoint_clock.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
-		imu_service_test.c $(ROOT)/src/services/solar_os_imu.c -lm -o $@
+		$(filter %.c,$^) -lm -o $@
 
 bhi260ap_codec_test: bhi260ap_codec_test.c $(ROOT)/src/drivers/bhi260ap_codec.c \
 		$(ROOT)/src/drivers/bhi260ap_codec.h
@@ -1480,6 +1495,8 @@ test: $(TARGETS)
 	./sdmmc_expansion_test
 	./epd_ssd1685_test
 	./ssd1685_expansion_test
+	./epd_ssd1680_test
+	./ssd1680_expansion_test
 	./epd_uc8179_test
 	./uc8179_expansion_test
 	./epd_uc8279_test

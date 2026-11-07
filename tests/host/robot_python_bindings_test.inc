@@ -82,8 +82,9 @@ int main(void)
     setup();
     mp_obj_t model_info=solaros_robot_model_load(string(ROBOT_MODEL_FIXTURE));
     assert(!strcmp(field(model_info,"name")->text,"solbot"));
-    assert(field(model_info,"links")->count==5 && field(model_info,"joints")->count==4);
-    assert(field(model_info,"known_joints")->number==2 && !workers);
+    assert(field(model_info,"links")->count==6 && field(model_info,"joints")->count==5);
+    assert(!strcmp(solaros_robot_model_frame(string("imu0"))->text,"imu_link"));
+    assert(field(model_info,"known_joints")->number==3 && !workers);
     if (!setjmp(error_jump)) {
         (void)solaros_robot_model_transform(string("base_link"),string("left_wheel_link"));assert(false);
     } else assert(last_error==ESP_ERR_INVALID_STATE);
