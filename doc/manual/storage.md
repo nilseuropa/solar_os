@@ -115,8 +115,13 @@ creates a whole-disk FAT filesystem; formatting `sd0pN` preserves the partition
 table and formats only that partition.
 
 SolarOS initializes erased internal storage on first use. If a non-empty
-volume fails to mount, it leaves the contents intact. Format it only when you
-can discard those contents.
+volume fails to mount, SolarOS does not format it, and `disk status` reports
+an unrecognized filesystem: no readable FAT volume. That is usually data left
+by the firmware the board shipped with, since uploading SolarOS does not erase
+the storage partition, but it can also be corruption or a read error. If it
+held SolarOS data, reboot and check again before formatting. Format it only
+when you can discard those contents. If `disk format flash --force` fails,
+reboot and try again.
 
 ## Inspect before writing
 

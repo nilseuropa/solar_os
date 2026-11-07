@@ -125,6 +125,13 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
+An upload writes the firmware but leaves the internal storage partition as it
+was. On a board that shipped with other firmware, erase the whole flash before
+the first upload, with `pio run -e <env> -t erase`, or after installing run
+`disk format flash --force` once. Otherwise `disk status` reports the internal
+volume as an unrecognized filesystem (no readable FAT volume) and SolarOS does
+not use it.
+
 The standard flavor is `full`. All classic ESP32 targets default to `classic`:
 ODROID-GO, ESP32-DevKitC V4 WROVER, Freenove WROVER, and TTGO VGA32.
 E-paper HMI targets default to the compact `writerdeck` profile.

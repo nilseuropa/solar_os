@@ -153,9 +153,16 @@ const char *solar_os_board_storage_mount_point(void)
     return "/sdcard";
 }
 
+static bool flash_unrecognized;
+
 bool flash_storage_is_mounted(void)
 {
-    return true;
+    return !flash_unrecognized;
+}
+
+bool flash_storage_is_unrecognized(void)
+{
+    return flash_unrecognized;
 }
 
 const char *flash_storage_mount_point(void)
@@ -626,6 +633,19 @@ static void assert_sd_reinsertion_recovery(void)
     sd_unmount_error = ESP_OK;
 }
 
+static void assert_flash_unrecognized_block(void)
+{
+    solar_os_storage_block_t block;
+    assert(solar_os_storage_get_block(2, &block));
+    assert(strcmp(block.name, "flash") == 0 && strcmp(block.fs, "FAT") == 0);
+
+    flash_unrecognized = true;
+    assert(solar_os_storage_get_block(2, &block));
+    assert(strcmp(block.name, "flash") == 0 && strcmp(block.fs, "?") == 0);
+    assert(!block.mounted && block.mount_point[0] == '\0');
+    flash_unrecognized = false;
+}
+
 int main(void)
 {
     assert(solar_os_storage_block_count() == 3);
@@ -649,6 +669,7 @@ int main(void)
     assert_storage_discovery();
     assert_discovery_notifications();
     assert_sd_reinsertion_recovery();
+    assert_flash_unrecognized_block();
 
     puts("storage mount tests: ok");
     return 0;

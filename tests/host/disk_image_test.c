@@ -89,6 +89,7 @@ const char *solar_os_board_storage_mount_point(void) { return "/tmp"; }
 esp_err_t solar_os_board_storage_unmount(void) { return ESP_OK; }
 esp_err_t solar_os_board_storage_unmount_volume(const char *p) { (void)p; return ESP_OK; }
 bool flash_storage_is_mounted(void) { return true; }
+bool flash_storage_is_unrecognized(void) { return false; }
 const char *flash_storage_mount_point(void) { return "/flash"; }
 uint8_t flash_storage_logical_volume(void) { return 1; }
 uint64_t flash_storage_size_bytes(void) { return 1024 * 1024; }
