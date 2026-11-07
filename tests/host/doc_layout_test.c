@@ -1,7 +1,9 @@
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "solar_os_doc.h"
 #include "doc_test_support.h"
@@ -256,12 +258,114 @@ static void test_long_block_cooperation(void)
     assert(doc_test_memory_used() == 0);
 }
 
+static void test_table_alternatives_and_wrapping(void)
+{
+    static const char markdown[] =
+        "| Command | Usage | Description |\n"
+        "| --- | --- | --- |\n"
+        "| `agent` | `agent script python\\|lua (-c SOURCE \\| FILE) [ARGS...]` | Run a bounded script through the agent execution path. |\n"
+        "| `agent` | `agent config endpoint|model|key|reasoning|tools|max-tools VALUE` | Configure the provider and tool policy. |\n"
+        "| pipe | plain A\\|B | Keep the literal pipe. |\n"
+        "| | | |\n"
+        "| tail | `longrésuméwithoutspaces` | plain A\\|\n";
+    solar_os_doc_t doc;
+    solar_os_doc_layout_t layout;
+    solar_os_doc_init(&doc);
+    solar_os_doc_layout_init(&layout);
+    assert(solar_os_doc_parse_markdown(&doc, markdown, sizeof(markdown) - 1U, "table.md") == ESP_OK);
+    assert(doc.block_count == 6);
+    assert(strstr(doc.blocks[1].text, "python|lua (-c SOURCE | FILE)") != NULL);
+    assert(strstr(doc.blocks[3].text, "plain A|B") != NULL);
+    for (size_t b = 0; b < doc.block_count; b++) {
+        const solar_os_doc_block_t *block = &doc.blocks[b];
+        size_t separators = 0;
+        for (size_t i = 0; i < block->run_count; i++) {
+            const solar_os_doc_run_t *run = &doc.runs[block->run_start + i];
+            separators += (run->style & SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) != 0;
+        }
+        assert(separators == 2);
+    }
+
+    const size_t parsed_bytes = doc_test_memory_used();
+    for (int failure = 0; failure < 3; failure++) {
+        doc_test_memory_fail_after(failure);
+        assert(solar_os_doc_layout_build(&layout, &doc, 120, 1) == ESP_ERR_NO_MEM);
+        assert(doc_test_memory_used() == parsed_bytes);
+        doc_test_memory_fail_after(-1);
+    }
+
+    const int widths[] = {120, 240, 400};
+    for (size_t w = 0; w < sizeof(widths) / sizeof(widths[0]); w++) {
+        assert(solar_os_doc_layout_build(&layout, &doc, widths[w], 1) == ESP_OK);
+        for (size_t b = 0; b < doc.block_count; b++) {
+            const solar_os_doc_block_t *block = &doc.blocks[b];
+            const size_t len = strlen(block->text);
+            bool seen[256] = {0};
+            assert(len < sizeof(seen));
+            for (size_t i = 0; i < layout.run_count; i++) {
+                const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&layout, i);
+                if (run->block_index != b || run->text_len == 0) {
+                    continue;
+                }
+                assert(run->text_offset + run->text_len <= len);
+                assert(((unsigned char)block->text[run->text_offset] & 0xc0U) != 0x80U);
+                assert(((unsigned char)block->text[run->text_offset + run->text_len] & 0xc0U) != 0x80U);
+                assert(run->x >= 0 && run->x + run->width < widths[w]);
+                for (size_t j = 0; j < run->text_len; j++) {
+                    size_t offset = run->text_offset + j;
+                    assert(!seen[offset]);
+                    seen[offset] = true;
+                    assert(doc.source[run->source_start + j] == block->text[offset]);
+                }
+            }
+            for (size_t i = 0; i < block->run_count; i++) {
+                const solar_os_doc_run_t *run = &doc.runs[block->run_start + i];
+                if ((run->style & SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) != 0) {
+                    continue;
+                }
+                for (size_t j = 0; j < run->text_len; j++) {
+                    const size_t offset = run->text_offset + j;
+                    if (block->text[offset] != ' ') {
+                        assert(seen[offset]);
+                    }
+                }
+            }
+        }
+        size_t script_lines = 0;
+        for (size_t i = 0; i < layout.line_count; i++) {
+            script_lines += solar_os_doc_layout_line(&layout, i)->block_index == 1;
+        }
+        assert(script_lines > 1);
+        assert(solar_os_doc_measure_height(&doc, widths[w], 1) == layout.height);
+    }
+
+    char path[] = "/tmp/solar-os-doc-table-XXXXXX";
+    const int fd = mkstemp(path);
+    assert(fd >= 0);
+    close(fd);
+    assert(solar_os_doc_write_markdown(&doc, path) == ESP_OK);
+    solar_os_doc_t saved;
+    solar_os_doc_init(&saved);
+    assert(solar_os_doc_load_path(&saved, path) == ESP_OK);
+    assert(saved.block_count == doc.block_count);
+    for (size_t b = 0; b < doc.block_count; b++) {
+        assert(strcmp(saved.blocks[b].text, doc.blocks[b].text) == 0);
+    }
+    assert(solar_os_doc_layout_build(&layout, &saved, 240, 1) == ESP_OK);
+    solar_os_doc_free(&saved);
+    unlink(path);
+    solar_os_doc_layout_free(&layout);
+    solar_os_doc_free(&doc);
+    assert(doc_test_memory_used() == 0);
+}
+
 int main(void)
 {
     test_raw_ranges_and_reader_wrapper();
     test_reveal_round_trip();
     test_adjacent_heading_navigation();
     test_long_block_cooperation();
+    test_table_alternatives_and_wrapping();
     puts("document reveal layout tests: ok");
     return 0;
 }

@@ -355,7 +355,7 @@ static esp_err_t doc_append_inline_text(char **out,
     return ESP_OK;
 }
 
-static esp_err_t doc_inline_flush_segment(solar_os_doc_t *doc,
+static esp_err_t doc_inline_append_run(solar_os_doc_t *doc,
                                           solar_os_doc_block_t *block,
                                           char **out,
                                           size_t *out_len,
@@ -387,6 +387,48 @@ static esp_err_t doc_inline_flush_segment(solar_os_doc_t *doc,
     }
     block->run_count++;
     return ESP_OK;
+}
+
+static esp_err_t doc_inline_flush_segment(solar_os_doc_t *doc,
+                                          solar_os_doc_block_t *block,
+                                          char **out,
+                                          size_t *out_len,
+                                          size_t *out_cap,
+                                          const char *text,
+                                          size_t start,
+                                          size_t end,
+                                          size_t source_base,
+                                          uint8_t style)
+{
+    if (block->type == SOLAR_OS_DOC_BLOCK_TABLE_ROW) {
+        for (size_t i = start; i < end; i++) {
+            const bool escaped_pipe = text[i] == '\\' && i + 1U < end && text[i + 1U] == '|';
+            const bool separator = text[i] == '|' && (style & SOLAR_OS_DOC_RUN_CODE) == 0;
+            if (!escaped_pipe && !separator) {
+                if (text[i] == '\\' && i + 1U < end && text[i + 1U] == '\\') {
+                    i++;
+                }
+                continue;
+            }
+            esp_err_t ret = doc_inline_append_run(doc, block, out, out_len, out_cap,
+                                                   text, start, i, source_base, style);
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            if (escaped_pipe) {
+                i++;
+            }
+            ret = doc_inline_append_run(doc, block, out, out_len, out_cap,
+                                         text, i, i + 1U, source_base,
+                                         style | (separator ? SOLAR_OS_DOC_RUN_TABLE_SEPARATOR : 0));
+            if (ret != ESP_OK) {
+                return ret;
+            }
+            start = i + 1U;
+        }
+    }
+    return doc_inline_append_run(doc, block, out, out_len, out_cap,
+                                 text, start, end, source_base, style);
 }
 
 static size_t doc_find_marker(const char *text, size_t len, size_t start, const char *marker)
@@ -898,15 +940,27 @@ static bool doc_parse_table_delimiter(const char *source, size_t start, size_t e
     return saw_dash;
 }
 
-static char *doc_copy_table_row(const char *source, size_t start, size_t end)
+static size_t doc_table_row_start(const char *source, size_t start, size_t end)
 {
     start = doc_trim_start(source, start, end);
-    end = doc_trim_end(source, start, end);
     if (start < end && source[start] == '|') {
         start++;
     }
+    return start;
+}
+
+static char *doc_copy_table_row(const char *source, size_t start, size_t end)
+{
+    start = doc_table_row_start(source, start, end);
+    end = doc_trim_end(source, start, end);
     if (end > start && source[end - 1U] == '|') {
-        end--;
+        size_t escapes = 0;
+        for (size_t i = end - 1U; i > start && source[i - 1U] == '\\'; i--) {
+            escapes++;
+        }
+        if (escapes % 2U == 0) {
+            end--;
+        }
     }
 
     return doc_copy_range(source, start, end);
@@ -1450,7 +1504,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             ret = doc_add_block(doc,
                                 SOLAR_OS_DOC_BLOCK_TABLE_ROW,
                                 1,
-                                line_start,
+                                doc_table_row_start(source, line_start, line_end),
                                 next_line,
                                 doc_copy_table_row(source, line_start, line_end),
                                 SOLAR_OS_DOC_RUN_BOLD);
@@ -1473,13 +1527,14 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
                 ret = doc_add_block(doc,
                                     SOLAR_OS_DOC_BLOCK_TABLE_ROW,
                                     0,
-                                    row_start,
+                                    doc_table_row_start(source, row_start, row_end),
                                     row_next,
                                     doc_copy_table_row(source, row_start, row_end),
                                     SOLAR_OS_DOC_RUN_PLAIN);
                 if (ret != ESP_OK) {
                     return ret;
                 }
+                doc_set_last_raw_range(doc, row_start, row_next);
                 scan = row_next;
             }
             offset = scan;
@@ -1739,9 +1794,34 @@ esp_err_t solar_os_doc_write_markdown(const solar_os_doc_t *doc, const char *pat
         case SOLAR_OS_DOC_BLOCK_RULE:
             ok = fprintf(file, "---\n") >= 0;
             break;
-        case SOLAR_OS_DOC_BLOCK_TABLE_ROW:
-            ok = fprintf(file, "| %s |\n", text) >= 0;
+        case SOLAR_OS_DOC_BLOCK_TABLE_ROW: {
+            ok = fputc('|', file) != EOF;
+            size_t table_run = 0;
+            for (size_t offset = 0; ok && text[offset] != '\0'; offset++) {
+                while (table_run + 1U < block->run_count &&
+                       offset >= doc->runs[block->run_start + table_run].text_offset +
+                                 doc->runs[block->run_start + table_run].text_len) {
+                    table_run++;
+                }
+                if (text[offset] == '|' && block->run_count > 0 &&
+                    (doc->runs[block->run_start + table_run].style &
+                     SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) == 0) {
+                    ok = fputc('\\', file) != EOF;
+                }
+                ok = ok && fputc(text[offset], file) != EOF;
+            }
+            ok = ok && fputs("|\n", file) != EOF;
+            if (ok && block->level != 0) {
+                ok = fputs("| --- ", file) != EOF;
+                for (size_t i = 0; ok && i < block->run_count; i++) {
+                    if ((doc->runs[block->run_start + i].style & SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) != 0) {
+                        ok = fputs("| --- ", file) != EOF;
+                    }
+                }
+                ok = ok && fputs("|\n", file) != EOF;
+            }
             break;
+        }
         case SOLAR_OS_DOC_BLOCK_IMAGE:
             ok = fprintf(file, "![](%s)\n", text) >= 0;
             break;
@@ -2457,14 +2537,12 @@ static esp_err_t doc_layout_rule_block(doc_layout_builder_t *builder,
     return ESP_OK;
 }
 
-static size_t doc_table_cell_count(const char *text)
+static size_t doc_table_cell_count(const solar_os_doc_t *doc,
+                                    const solar_os_doc_block_t *block)
 {
-    if (text == NULL || text[0] == '\0') {
-        return 1U;
-    }
     size_t count = 1U;
-    for (const char *p = text; *p != '\0'; p++) {
-        if (*p == '|') {
+    for (size_t i = 0; i < block->run_count; i++) {
+        if ((doc->runs[block->run_start + i].style & SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) != 0) {
             count++;
         }
     }
@@ -2484,87 +2562,109 @@ static esp_err_t doc_layout_table_row(doc_layout_builder_t *builder,
     const size_t len = strlen(text);
     const uint8_t row_style = block->level != 0 ? SOLAR_OS_DOC_RUN_BOLD : SOLAR_OS_DOC_RUN_PLAIN;
     const doc_style_t style = doc_style_for(layout->zoom, row_style);
-    const size_t cells = doc_table_cell_count(text);
-    const int row_h = style.line_h + 6;
-    size_t line_index = 0;
-    esp_err_t ret = doc_layout_begin_line(builder, block_index, x, *y, &style, &line_index);
-    if (ret != ESP_OK) {
-        return ret;
+    const size_t cells = doc_table_cell_count(doc, block);
+    typedef struct { size_t start, end; } doc_table_cell_t;
+    doc_table_cell_t *ranges = doc_calloc(cells, sizeof(*ranges));
+    if (ranges == NULL) {
+        return ESP_ERR_NO_MEM;
     }
-    doc_layout_line(builder, line_index)->height = row_h;
-    doc_layout_line(builder, line_index)->baseline = style.baseline + 3;
-    doc_layout_line(builder, line_index)->width = width;
+    size_t cell = 0;
+    for (size_t i = 0; i < block->run_count; i++) {
+        const solar_os_doc_run_t *run = &doc->runs[block->run_start + i];
+        if ((run->style & SOLAR_OS_DOC_RUN_TABLE_SEPARATOR) != 0) {
+            ranges[cell++].end = run->text_offset;
+            ranges[cell].start = run->text_offset + run->text_len;
+        }
+    }
+    ranges[cell].end = len;
+    for (cell = 0; cell < cells; cell++) {
+        while (ranges[cell].end > ranges[cell].start &&
+               isspace((unsigned char)text[ranges[cell].end - 1U])) {
+            ranges[cell].end--;
+        }
+    }
 
-    size_t cell_start = 0;
-    for (size_t cell = 0; cell < cells; cell++) {
-        size_t cell_end = cell_start;
-        while (cell_end < len && text[cell_end] != '|') {
-            cell_end++;
+    esp_err_t ret = ESP_OK;
+    bool more;
+    do {
+        solar_os_work_checkpoint(&builder->work);
+        size_t line_index = 0;
+        ret = doc_layout_begin_line(builder, block_index, x, *y, &style, &line_index);
+        if (ret != ESP_OK) {
+            break;
         }
-
-        size_t trim_start = cell_start;
-        while (trim_start < cell_end && isspace((unsigned char)text[trim_start])) {
-            trim_start++;
-        }
-        size_t trim_end = cell_end;
-        while (trim_end > trim_start && isspace((unsigned char)text[trim_end - 1U])) {
-            trim_end--;
-        }
-
-        const int cell_x = x + (int)(((int64_t)width * (int64_t)cell) / (int64_t)cells);
-        const int next_x = x + (int)(((int64_t)width * (int64_t)(cell + 1U)) / (int64_t)cells);
-        int available = (next_x - cell_x) - (DOC_TABLE_CELL_PAD * 2);
-        if (available < style.char_w) {
-            available = style.char_w;
-        }
-        size_t draw_len = trim_end > trim_start ? trim_end - trim_start : 0;
-        const size_t max_chars = (size_t)(available / style.char_w);
-        if (draw_len > max_chars) {
-            draw_len = max_chars;
-        }
-        if (draw_len > 0) {
+        more = false;
+        for (cell = 0; cell < cells; cell++) {
+            doc_table_cell_t *range = &ranges[cell];
+            while (range->start < range->end && isspace((unsigned char)text[range->start])) {
+                range->start++;
+            }
+            const int cell_x = x + (int)(((int64_t)width * (int64_t)cell) / (int64_t)cells);
+            const int next_x = x + (int)(((int64_t)width * (int64_t)(cell + 1U)) / (int64_t)cells);
+            int available = next_x - cell_x - DOC_TABLE_CELL_PAD * 2;
+            if (available < style.char_w) {
+                available = style.char_w;
+            }
+            size_t end = range->start + (size_t)(available / style.char_w);
+            if (end > range->end) {
+                end = range->end;
+            } else if (end < range->end) {
+                /* Prefer a word boundary, but split long command tokens too. */
+                size_t word = end;
+                while (word > range->start && !isspace((unsigned char)text[word])) {
+                    word--;
+                }
+                if (word > range->start) {
+                    end = word;
+                }
+                while (end > range->start &&
+                       ((unsigned char)text[end] & 0xc0U) == 0x80U) {
+                    end--;
+                }
+                if (end == range->start) {
+                    end++;
+                    while (end < range->end && ((unsigned char)text[end] & 0xc0U) == 0x80U) {
+                        end++;
+                    }
+                }
+            }
             int text_x = cell_x + DOC_TABLE_CELL_PAD;
-            ret = doc_layout_add_text_range(builder,
-                                            doc,
-                                            block,
-                                            block_index,
-                                            line_index,
-                                            trim_start,
-                                            trim_start + draw_len,
-                                            &text_x,
-                                            *y + 3,
-                                            layout->zoom,
-                                            row_style);
+            ret = doc_layout_add_text_range(builder, doc, block, block_index, line_index,
+                                            range->start, end, &text_x, *y + 3,
+                                            layout->zoom, row_style);
             if (ret != ESP_OK) {
-                return ret;
+                break;
+            }
+            range->start = end;
+            more |= end < range->end;
+        }
+        if (ret != ESP_OK) {
+            break;
+        }
+        if (doc_layout_line(builder, line_index)->run_count == 0) {
+            ret = doc_layout_add_run(builder,
+                                     line_index,
+                                     block_index,
+                                     block->run_start,
+                                     0,
+                                     0,
+                                     block->source_start,
+                                     block->source_end,
+                                     row_style,
+                                     layout->zoom,
+                                     x,
+                                     *y,
+                                     NULL);
+            if (ret != ESP_OK) {
+                break;
             }
         }
-
-        cell_start = cell_end < len ? cell_end + 1U : len;
-    }
-
-    if (doc_layout_line(builder, line_index)->run_count == 0) {
-        ret = doc_layout_add_run(builder,
-                                 line_index,
-                                 block_index,
-                                 block->run_start,
-                                 0,
-                                 0,
-                                 block->source_start,
-                                 block->source_end,
-                                 row_style,
-                                 layout->zoom,
-                                 x,
-                                 *y,
-                                 NULL);
-        if (ret != ESP_OK) {
-            return ret;
-        }
-    }
-    doc_layout_line(builder, line_index)->height = row_h;
-    doc_layout_line(builder, line_index)->width = width;
-    *y += row_h;
-    return ESP_OK;
+        doc_layout_line(builder, line_index)->height = style.line_h + 6;
+        doc_layout_line(builder, line_index)->width = width;
+        *y += doc_layout_line(builder, line_index)->height;
+    } while (more);
+    doc_free(ranges);
+    return ret;
 }
 
 static esp_err_t doc_layout_image_block(doc_layout_builder_t *builder,
@@ -3068,11 +3168,13 @@ static void doc_draw_gray_scaled(solar_os_gfx_t *gfx,
 
 static void doc_render_table_grid(solar_os_gfx_t *gfx,
                                   const solar_os_doc_t *doc,
-                                  const solar_os_doc_layout_line_t *line,
+                                  const solar_os_doc_layout_t *layout,
+                                  size_t line_index,
                                   const solar_os_doc_view_t *view)
 {
+    const solar_os_doc_layout_line_t *line = solar_os_doc_layout_line(layout, line_index);
     const solar_os_doc_block_t *block = &doc->blocks[line->block_index];
-    const size_t cells = doc_table_cell_count(block->text);
+    const size_t cells = doc_table_cell_count(doc, block);
     const int x = view->x + line->x;
     const int y = view->y + line->y - view->scroll_y;
     const int w = view->width;
@@ -3081,7 +3183,16 @@ static void doc_render_table_grid(solar_os_gfx_t *gfx,
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     solar_os_gfx_fill_rect(gfx, x, y, w, h);
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, x, y, w, h);
+    if (line_index == 0 ||
+        solar_os_doc_layout_line(layout, line_index - 1U)->block_index != line->block_index) {
+        solar_os_gfx_line(gfx, x, y, x + w - 1, y);
+    }
+    if (line_index + 1U == layout->line_count ||
+        solar_os_doc_layout_line(layout, line_index + 1U)->block_index != line->block_index) {
+        solar_os_gfx_line(gfx, x, y + h - 1, x + w - 1, y + h - 1);
+    }
+    solar_os_gfx_line(gfx, x, y, x, y + h - 1);
+    solar_os_gfx_line(gfx, x + w - 1, y, x + w - 1, y + h - 1);
     for (size_t cell = 1; cell < cells; cell++) {
         const int col_x = x + (int)(((int64_t)w * (int64_t)cell) / (int64_t)cells);
         solar_os_gfx_line(gfx, col_x, y, col_x, y + h - 1);
@@ -3164,7 +3275,7 @@ static void doc_render_line_decor(solar_os_gfx_t *gfx,
                           screen_y + (line->height / 2));
         break;
     case SOLAR_OS_DOC_BLOCK_TABLE_ROW:
-        doc_render_table_grid(gfx, doc, line, view);
+        doc_render_table_grid(gfx, doc, layout, line_index, view);
         break;
     case SOLAR_OS_DOC_BLOCK_PRE:
         if (doc_layout_is_first_line_of_block(layout, line_index)) {

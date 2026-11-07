@@ -16,6 +16,26 @@ SPEC.loader.exec_module(generate_manual)
 
 
 class ManualReleaseLimitTest(unittest.TestCase):
+    def test_manual_tables_escape_literal_pipes_for_github(self):
+        for path in (REPOSITORY / "doc/manual").glob("*.md"):
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if not line.startswith("|"):
+                    continue
+                for code in re.findall(r"`([^`]+)`", line):
+                    with self.subTest(path=path.name, line=number):
+                        self.assertNotRegex(code, r"(?<!\\)\|")
+
+    def test_agent_command_keeps_alternatives_and_description(self):
+        pages = generate_manual.load_pages(
+            REPOSITORY / "doc/manual",
+            REPOSITORY / "packages/solar_os_packages.toml",
+        )
+        agent = next(page for page in pages if page["id"] == "command.agent")
+        self.assertIn("agent config endpoint|model|key|reasoning|tools|max-tools VALUE", agent["body"])
+        self.assertIn("agent script python|lua (-c SOURCE | FILE) [ARGS...]", agent["body"])
+        self.assertIn("Configure the provider and tool policy.", agent["body"])
+        self.assertNotIn(r"\|", agent["body"])
+
     def test_embedded_manual_is_a_small_setup_guide_and_topic_directory(self):
         pages = generate_manual.load_pages(
             REPOSITORY / "doc/manual",
