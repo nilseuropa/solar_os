@@ -2,6 +2,14 @@
 
 ## 4.x
 
+- **4.17.7** — 2026-11-07 — Added MPU6050 expansion support and shared
+  IMU streams with timestamped, multi-axis `stream echo` output. Added URDF
+  device-to-frame bindings with shell and Python/Lua lookups. Robot model
+  transforms now follow live encoder feedback for continuous joints. The
+  package manager now opens a saved signed catalog, groups modules into
+  folders, and shows confirmation, progress and result popups. Added
+  `osc send` for one to eight numeric values in a single message, with
+  optional periodic sending.
 - **4.17.6** — 2026-11-06 — Added URDF robot models, transform queries,
   hardware bindings and explicit robot start/stop controls. Robot joints now use
   OS controllers and scaled motor/encoder streams. Added differential-drive
