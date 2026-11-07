@@ -15,6 +15,9 @@ reclaimers before final failure. Task admission reclaims before its launch lock.
 for capability-constrained SDK and driver allocations; zero disables the region.
 Ordinary SDK PSRAM allocations can overflow into the managed region. DMA,
 ISR, and stronger alignment requirements retain their capability-heap path.
+Default `malloc()`, `calloc()`, and `realloc()` requests above the configured
+internal-allocation threshold try both PSRAM regions before falling back to
+internal SRAM.
 `SOLAR_OS_PSRAM_BULK_MIN_BYTES` defaults to 64 KiB. Smaller policy allocations
 prefer the capability heap and overflow at the resident end when needed.
 `mem` reports aggregate free PSRAM, its largest block, and managed-region status.

@@ -13,6 +13,7 @@
 #include "freertos/portmacro.h"
 #include "freertos/semphr.h"
 #include "freertos/idf_additions.h"
+#include "sdkconfig.h"
 #include "solar_os_log.h"
 
 void __real_heap_caps_free(void *ptr);
@@ -207,13 +208,28 @@ void *IRAM_ATTR __wrap_heap_caps_realloc(void *ptr, size_t size, uint32_t caps)
     return next;
 }
 
-/* Large unconstrained SDK objects share bulk storage. Known resident owners
- * use the resident end; small overflow also stays there. Ordinary small SDK
- * objects retain their capability-heap path. */
+static bool IRAM_ATTR memory_default_prefers_external(size_t size)
+{
+#if defined(CONFIG_SPIRAM_USE_MALLOC) && CONFIG_SPIRAM_USE_MALLOC
+    return size > CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL &&
+        managed_caps(MALLOC_CAP_SPIRAM);
+#else
+    (void)size;
+    return false;
+#endif
+}
+
+/* Try both PSRAM regions before the SDK can satisfy an unconstrained request
+ * from internal SRAM. Preserve its configured small-allocation preference and
+ * internal fallback when PSRAM is exhausted. */
 void *IRAM_ATTR __wrap_heap_caps_malloc_default(size_t size)
 {
     if (size >= SOLAR_OS_PSRAM_BULK_MIN_BYTES && managed_caps(MALLOC_CAP_SPIRAM))
         return memory_external_alloc(size, false, false, "sdk.pinned");
+    if (memory_default_prefers_external(size)) {
+        void *pointer = memory_external_alloc(size, false, false, "sdk.pinned");
+        if (pointer) return pointer;
+    }
     void *pointer = __real_heap_caps_malloc_default(size);
     if (!pointer && size && managed_caps(MALLOC_CAP_SPIRAM))
         pointer = memory_external_alloc(size, false, false, "sdk.pinned");
@@ -228,6 +244,10 @@ void *IRAM_ATTR __wrap_heap_caps_realloc_default(void *ptr, size_t size)
         (uintptr_t)ptr < memory_arena.end) ||
         (size >= SOLAR_OS_PSRAM_BULK_MIN_BYTES && managed_caps(MALLOC_CAP_SPIRAM)))
         return __wrap_heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (memory_default_prefers_external(size)) {
+        void *next = __wrap_heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (next) return next;
+    }
     void *next = __real_heap_caps_realloc_default(ptr, size);
     if (!next && managed_caps(MALLOC_CAP_SPIRAM)) {
         size_t old = __real_heap_caps_get_allocated_size(ptr);

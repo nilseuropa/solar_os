@@ -6,6 +6,7 @@
 #include <string.h>
 #include "solar_os_memory.h"
 #include <esp_heap_caps.h>
+#include "sdkconfig.h"
 
 typedef struct raw {
     struct raw *next;
@@ -84,8 +85,20 @@ void *__real_heap_caps_aligned_alloc(size_t a, size_t n, uint32_t c) { return he
 void *__real_heap_caps_aligned_calloc(size_t a, size_t n, size_t s, uint32_t c)
 { void *p = heap_caps_aligned_alloc(a, n * s, c); if (p) memset(p, 0, n * s); return p; }
 void *__real_heap_caps_realloc(void *p, size_t n, uint32_t c) { return heap_caps_realloc(p, n, c); }
-void *__real_heap_caps_malloc_default(size_t n) { return heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
-void *__real_heap_caps_realloc_default(void *p, size_t n) { return heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+void *__real_heap_caps_malloc_default(size_t n)
+{
+    void *p = NULL;
+    if (n > CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)
+        p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : heap_caps_malloc(n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
+void *__real_heap_caps_realloc_default(void *p, size_t n)
+{
+    void *next = NULL;
+    if (n > CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL)
+        next = heap_caps_realloc(p, n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return next ? next : heap_caps_realloc(p, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+}
 size_t __real_heap_caps_get_allocated_size(const void *p) { return heap_caps_get_allocated_size(p); }
 void *__wrap_heap_caps_malloc_default(size_t);
 void *__wrap_heap_caps_realloc_default(void *, size_t);
@@ -132,6 +145,13 @@ int main(int argc, char **argv)
         assert(!solar_os_memory_buffer_destroy(buffer));
         assert(solar_os_memory_buffer_unpin(buffer));
         assert(solar_os_memory_buffer_destroy(buffer));
+        assert(!used_internal && !raws);
+        void *sdk = __wrap_heap_caps_malloc_default(1024);
+        assert(sdk && !solar_os_memory_is_external(sdk));
+        memset(sdk, 0x63, 1024);
+        sdk = __wrap_heap_caps_realloc_default(sdk, 2048);
+        assert(sdk && !solar_os_memory_is_external(sdk) && ((unsigned char *)sdk)[1023] == 0x63);
+        __wrap_free(sdk);
         assert(!used_internal && !raws);
         assert(!solar_os_memory_alloc(INTERNAL_BYTES + 1U, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "test.oom"));
         puts("no-PSRAM handles: fixed internal fallback, pin lifetime and recoverable OOM passed");
@@ -203,6 +223,55 @@ int main(int argc, char **argv)
     __wrap_free(cache_off);
     solar_os_memory_get_status(&after);
     assert(after.arena.free == before.arena.free);
+
+    /* Small SDK requests must try managed PSRAM before the SDK's successful
+     * internal fallback when its separate PSRAM heap is exhausted. */
+    small = __wrap_heap_caps_malloc_default(1024);
+    assert(small); memset(small, 0x59, 1024);
+    solar_os_memory_get_status(&after);
+    void *sdk_fill = heap_caps_malloc(after.external_sdk.free, external_caps);
+    assert(sdk_fill);
+    size_t internal_before = used_internal;
+    bulk = __wrap_heap_caps_malloc_default(4096);
+    assert(bulk && solar_os_memory_is_external(bulk));
+    assert(used_internal == internal_before);
+    grown = __wrap_heap_caps_realloc_default(small, 8192);
+    assert(grown && solar_os_memory_is_external(grown));
+    assert(((unsigned char *)grown)[1023] == 0x59 && used_internal == internal_before);
+    __wrap_free(bulk); __wrap_free(grown);
+    /* Preserve the configured internal preference and cache/ISR bypass. */
+#if CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL > 0
+    small = __wrap_heap_caps_malloc_default(CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+    assert(small && !solar_os_memory_is_external(small));
+    memset(small, 0x67, CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL);
+    small = __wrap_heap_caps_realloc_default(small, CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL / 2U);
+    assert(small && !solar_os_memory_is_external(small) && ((unsigned char *)small)[0] == 0x67);
+    __wrap_free(small);
+#endif
+    test_isr = 1;
+    small = __wrap_heap_caps_malloc_default(4096);
+    test_isr = 0;
+    assert(small && !solar_os_memory_is_external(small));
+    __wrap_free(small);
+    test_cache_disabled = 1;
+    small = __wrap_heap_caps_malloc_default(4096);
+    test_cache_disabled = 0;
+    assert(small && !solar_os_memory_is_external(small));
+    __wrap_free(small);
+    /* Only genuine exhaustion of both PSRAM regions permits internal fallback. */
+    solar_os_memory_get_status(&after);
+    void *arena_fill = solar_os_memory_alloc(after.arena.largest,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "test.exhaustion");
+    assert(arena_fill);
+    small = __wrap_heap_caps_malloc_default(4096);
+    assert(small && !solar_os_memory_is_external(small));
+    memset(small, 0x68, 4096);
+    small = __wrap_heap_caps_realloc_default(small, 8192);
+    assert(small && !solar_os_memory_is_external(small) && ((unsigned char *)small)[4095] == 0x68);
+    __wrap_free(small); __wrap_free(arena_fill);
+    __wrap_free(sdk_fill);
+    solar_os_memory_get_status(&after);
+    assert(after.arena.free == before.arena.free && after.external.free == before.external.free);
 
     /* SDK capacity remains usable when a request cannot fit the managed gap. */
     solar_os_memory_get_status(&after);
