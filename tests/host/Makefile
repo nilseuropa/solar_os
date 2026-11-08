@@ -15,6 +15,20 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
+TARGETS += usb_hid_input_test usb_service_test cdc_lifecycle_test
+
+cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(wildcard usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
+usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		usb_hid_input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c \
+		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
+
+usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
 TARGETS += paged_array_test
@@ -1387,6 +1401,9 @@ test: $(TARGETS)
 	./json_scan_test
 	./keys_test
 	./input_test
+	./usb_hid_input_test
+	./usb_service_test
+	./cdc_lifecycle_test
 	./touch_gesture_test
 	./unistroke_test
 	./graffiti_test

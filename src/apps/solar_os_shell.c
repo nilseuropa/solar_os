@@ -660,6 +660,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
     {"camera", "camera status and JPEG capture", solar_os_shell_cmd_camera},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+    {"usb", "USB device/host mode and HID input", solar_os_shell_cmd_usb},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
     {"adc", "read expansion analog inputs", solar_os_shell_cmd_adc},
 #endif
@@ -1371,6 +1374,12 @@ static const char * const uart_subcommands[] = {
 };
 
 static const char * const uart_mode_values[] = {"raw", "line"};
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+static const char * const usb_subcommands[] = {"status", "devices", "mode"};
+static const char * const usb_modes[] = {"device", "host"};
+static const char * const path_usb[] = {"usb"};
+static const char * const path_usb_mode[] = {"usb", "mode"};
+#endif
 static const char * const uart_baud_values[] = {"9600", "115200", "230400", "921600"};
 static const char * const uart_read_ms_values[] = {"0", "100", "500", "1000"};
 
@@ -3983,6 +3992,10 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_camera_orientation, camera_orientation_values),
     SHELL_COMPLETION_PATH(path_camera_capture, false),
     SHELL_COMPLETION_STATIC(path_camera_capture_file, camera_frame_sizes),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+    SHELL_COMPLETION_STATIC(path_usb, usb_subcommands),
+    SHELL_COMPLETION_STATIC(path_usb_mode, usb_modes),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMU
     SHELL_COMPLETION_STATIC(path_imu, imu_subcommands),

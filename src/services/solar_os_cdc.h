@@ -16,4 +16,6 @@ typedef struct {
 } solar_os_cdc_status_t;
 
 esp_err_t solar_os_cdc_init(void);
+/* Refuses an owned cdc0; blocks new opens while the driver is stopped. */
+esp_err_t solar_os_cdc_deinit(void);
 void solar_os_cdc_get_status(solar_os_cdc_status_t *status);

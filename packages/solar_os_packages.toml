@@ -14,7 +14,7 @@ members = [
 [groups.hardware_shell]
 label = "Hardware shell commands"
 category = "System"
-members = ["system_shell"]
+members = ["system_shell", "service_usb_host"]
 
 [groups.filesystem]
 label = "Filesystem commands"
@@ -1425,6 +1425,19 @@ capabilities = ["ble"]
 label = "service.hid"
 sources = ["services/solar_os_hid.c"]
 capabilities = ["cdc"]
+
+[packages.service_usb_host]
+label = "service.usb-host"
+depends = ["service_resources"]
+sources = [
+  "drivers/usb_host_port.c",
+  "services/solar_os_usb.c",
+  "services/solar_os_usb_hid_input.c",
+  "shell/solar_os_shell_usb.c",
+]
+requires = ["usb", "espressif__usb_host_hid", "esp_pm"]
+capabilities = ["usb_host"]
+targets = ["esp32s3"]
 
 [packages.service_sd]
 label = "service.sd"

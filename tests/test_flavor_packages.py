@@ -83,6 +83,15 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertNotIn("gameboy", groups, flavor)
             self.assertNotIn("app_gameboy", packages, flavor)
 
+    def test_usb_host_requires_explicit_board_eligibility(self):
+        _, _, groups, packages = self.resolve("full")
+        _, supported = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"usb_host"})
+        self.assertTrue(supported["service_usb_host"])
+        _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"cdc"})
+        self.assertFalse(cdc_only["service_usb_host"])
+
     def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)

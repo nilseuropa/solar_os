@@ -1,4 +1,8 @@
 dependencies:
+  espressif/usb_host_hid:
+    version: "==1.2.1"
+    rules:
+      - if: "target == esp32s3"
   espressif/keyboard_button:
     version: "==1.0.2"
   idf:

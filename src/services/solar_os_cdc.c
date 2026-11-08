@@ -42,7 +42,11 @@ static esp_err_t cdc_port_read_cb(void *user,
                                   size_t *read_len)
 {
     (void)user;
-    return cdc_port_read(data, len, timeout_ms, read_len);
+    cdc_lock();
+    const esp_err_t ret = cdc_initialized ?
+        cdc_port_read(data, len, timeout_ms, read_len) : ESP_ERR_INVALID_STATE;
+    cdc_unlock();
+    return ret;
 }
 
 static esp_err_t cdc_port_write_cb(void *user,
@@ -51,7 +55,20 @@ static esp_err_t cdc_port_write_cb(void *user,
                                    size_t *written)
 {
     (void)user;
-    return cdc_port_write(data, len, written);
+    cdc_lock();
+    const esp_err_t ret = cdc_initialized ?
+        cdc_port_write(data, len, written) : ESP_ERR_INVALID_STATE;
+    cdc_unlock();
+    return ret;
+}
+
+static esp_err_t cdc_port_open_cb(void *user)
+{
+    (void)user;
+    cdc_lock();
+    const bool enabled = cdc_initialized;
+    cdc_unlock();
+    return enabled ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 static esp_err_t cdc_register_stream_port(void)
@@ -62,6 +79,7 @@ static esp_err_t cdc_register_stream_port(void)
         .capabilities = SOLAR_OS_PORT_CAP_READ | SOLAR_OS_PORT_CAP_WRITE,
         .read = cdc_port_read_cb,
         .write = cdc_port_write_cb,
+        .open = cdc_port_open_cb,
         .user = NULL,
     };
 
@@ -69,6 +87,29 @@ static esp_err_t cdc_register_stream_port(void)
     return ret == ESP_ERR_INVALID_STATE ? ESP_OK : ret;
 }
 #endif
+
+esp_err_t solar_os_cdc_deinit(void)
+{
+#if !SOLAR_OS_BOARD_HAS_CDC
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    cdc_lock();
+    if (!cdc_initialized) {
+        cdc_unlock();
+        return ESP_OK;
+    }
+    /* Unregister rejects owners, including racing opens. Once removed, the
+     * callbacks cannot acquire the driver while we uninstall it. */
+    esp_err_t ret = solar_os_port_unregister(SOLAR_OS_CDC_PORT_NAME);
+    if (ret == ESP_OK || ret == ESP_ERR_NOT_FOUND) {
+        ret = cdc_port_deinit();
+        if (ret == ESP_OK) cdc_initialized = false;
+        else (void)cdc_register_stream_port();
+    }
+    cdc_unlock();
+    return ret;
+#endif
+}
 
 esp_err_t solar_os_cdc_init(void)
 {

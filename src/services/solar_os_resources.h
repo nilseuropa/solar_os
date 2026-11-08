@@ -21,6 +21,7 @@ typedef enum {
     SOLAR_OS_RESOURCE_UART_PORT,
     SOLAR_OS_RESOURCE_I2S_PORT,
     SOLAR_OS_RESOURCE_CAMERA_PORT,
+    SOLAR_OS_RESOURCE_USB_PORT,
 } solar_os_resource_kind_t;
 
 typedef struct {
