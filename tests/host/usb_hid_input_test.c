@@ -3,6 +3,7 @@
 #undef main
 
 #include "solar_os_usb_hid_input.h"
+#include "usb_receiver_fixture.h"
 
 int main(void)
 {
@@ -81,6 +82,29 @@ int main(void)
     assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
     assert(pointer.buttons == 0 && pointer.action == SOLAR_OS_INPUT_POINTER_RELEASE);
     solar_os_input_source_close(replacement);
+
+    assert(solar_os_usb_hid_input_open(&mouse, "usb-mouse1", 2) == ESP_OK);
+    assert(solar_os_usb_hid_mouse_parse_descriptor(usb_receiver_mouse_descriptor,
+        sizeof(usb_receiver_mouse_descriptor), &mouse.mouse_layout) == ESP_OK);
+    const uint8_t receiver_motion[] = {1, 1, 0xed, 0xff, 0, 0};
+    assert(solar_os_usb_hid_input_report(&mouse, receiver_motion, sizeof(receiver_motion)) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
+    assert(pointer.buttons == 1 && pointer.delta_x == -19 && pointer.delta_y == -1);
+    assert(pointer.action == SOLAR_OS_INPUT_POINTER_PRESS);
+    const uint8_t consumer[] = {2, 0, 0}, system[] = {3, 0};
+    assert(solar_os_usb_hid_input_report(&mouse, consumer, sizeof(consumer)) == ESP_OK);
+    assert(solar_os_usb_hid_input_report(&mouse, system, sizeof(system)) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer, 1) == 0 && mouse.buttons == 1);
+    const uint8_t release[] = {1, 0, 0, 0, 0, 0};
+    assert(solar_os_usb_hid_input_report(&mouse, release, sizeof(release)) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
+    assert(pointer.buttons == 0 && pointer.action == SOLAR_OS_INPUT_POINTER_RELEASE);
+    assert(solar_os_usb_hid_input_report(&mouse, receiver_motion, sizeof(receiver_motion)) == ESP_OK);
+    assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
+    assert(solar_os_usb_hid_input_report(&mouse, receiver_motion, 3) == ESP_ERR_INVALID_SIZE);
+    assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
+    assert(pointer.buttons == 0 && pointer.action == SOLAR_OS_INPUT_POINTER_RELEASE);
+    solar_os_usb_hid_input_close(&mouse);
     assert(solar_os_input_source_count() == 0);
     puts("USB HID input tests: ok");
     return 0;

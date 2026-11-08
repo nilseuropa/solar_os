@@ -108,10 +108,21 @@ esp_err_t solar_os_usb_hid_input_report(solar_os_usb_hid_input_t *input,
     if (input->protocol == SOLAR_OS_USB_HID_KEYBOARD) {
         ret = keyboard_report(input, data, length);
     } else if (input->protocol == SOLAR_OS_USB_HID_MOUSE) {
-        if (length < 3) ret = ESP_ERR_INVALID_SIZE;
+        uint8_t buttons = 0;
+        int16_t x = 0, y = 0;
+        if (input->mouse_layout.valid) {
+            ret = solar_os_usb_hid_mouse_decode(&input->mouse_layout, data, length, &buttons, &x, &y);
+            /* Consumer/system reports share the endpoint, but are not pointer releases. */
+            if (ret == ESP_ERR_NOT_FOUND) return ESP_OK;
+        } else if (length < 3) ret = ESP_ERR_INVALID_SIZE;
         else {
-            const uint8_t buttons = data[0] & 7U;
-            if (buttons == input->buttons && data[1] == 0 && data[2] == 0) return ESP_OK;
+            buttons = data[0] & 7U;
+            x = (int8_t)data[1];
+            y = (int8_t)data[2];
+            ret = ESP_OK;
+        }
+        if (ret == ESP_OK) {
+            if (buttons == input->buttons && x == 0 && y == 0) return ESP_OK;
             solar_os_input_pointer_action_t action = SOLAR_OS_INPUT_POINTER_MOVE;
             if (buttons != input->buttons) action = (buttons & ~input->buttons) ?
                 SOLAR_OS_INPUT_POINTER_PRESS : SOLAR_OS_INPUT_POINTER_RELEASE;
@@ -119,8 +130,8 @@ esp_err_t solar_os_usb_hid_input_report(solar_os_usb_hid_input_t *input,
                 .mode = SOLAR_OS_INPUT_POINTER_RELATIVE,
                 .action = action,
                 .buttons = buttons,
-                .delta_x = (int8_t)data[1],
-                .delta_y = (int8_t)data[2],
+                .delta_x = x,
+                .delta_y = y,
             };
             ret = solar_os_input_write_pointer(input->source, &event);
             if (ret == ESP_OK) input->buttons = buttons;

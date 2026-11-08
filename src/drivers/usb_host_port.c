@@ -13,6 +13,11 @@
 #include "usb/hid_host.h"
 #include "usb/usb_host.h"
 
+/* Supplied by the generated HID component patch. The event task continues
+ * servicing control completions while disconnect cleanup is deferred. */
+void solar_os_usb_hid_setup_begin(void);
+void solar_os_usb_hid_setup_end(void);
+
 #define USB_STOP_TIMEOUT_MS 10000U
 #define USB_POLL_MS 20U
 
@@ -52,9 +57,13 @@ static void interface_event(hid_host_device_handle_t handle,
         if (ret == ESP_OK) ret = input_callback(USB_HOST_PORT_REPORT,
             &interface->info, report, length);
         interface->info.reports++;
-        if (ret != ESP_OK) interface->info.errors++;
+        if (ret != ESP_OK) {
+            interface->info.errors++;
+            interface->info.last_error = ret;
+        }
     } else if (event == HID_HOST_INTERFACE_EVENT_TRANSFER_ERROR) {
         interface->info.errors++;
+        interface->info.last_error = ESP_ERR_INVALID_RESPONSE;
         interface->info.ready = false;
         (void)input_callback(USB_HOST_PORT_RESET, &interface->info, NULL, 0);
     } else if (event == HID_HOST_INTERFACE_EVENT_DISCONNECTED) {
@@ -68,6 +77,7 @@ static void interface_event(hid_host_device_handle_t handle,
         if (ret == ESP_OK) memset(interface, 0, sizeof(*interface));
         else {
             interface->info.errors++;
+            interface->info.last_error = ret;
             interface->close_pending = true;
         }
     }
@@ -90,6 +100,8 @@ static void open_interface(hid_host_device_handle_t handle)
     if (hid_host_device_get_params(handle, &params) != ESP_OK) return;
     if (params.sub_class != HID_SUBCLASS_BOOT_INTERFACE ||
         (params.proto != HID_PROTOCOL_KEYBOARD && params.proto != HID_PROTOCOL_MOUSE)) return;
+    hid_host_dev_info_t device_info = {0};
+    (void)hid_host_get_device_info(handle, &device_info);
 
     lock();
     usb_interface_t *interface = NULL;
@@ -102,6 +114,8 @@ static void open_interface(hid_host_device_handle_t handle)
     interface->info = (usb_host_port_interface_t){
         .slot = (uint8_t)(interface - interfaces),
         .address = params.addr, .interface = params.iface_num, .protocol = params.proto,
+        .vendor_id = device_info.VID, .product_id = device_info.PID,
+        .report_protocol = 0xff,
     };
     unlock();
 
@@ -115,13 +129,41 @@ static void open_interface(hid_host_device_handle_t handle)
         unlock();
         return;
     }
-    if (ret == ESP_OK) ret = hid_class_request_set_protocol(handle, HID_REPORT_PROTOCOL_BOOT);
-    /* SET_IDLE is optional on some otherwise valid boot keyboards. */
-    if (ret == ESP_OK && params.proto == HID_PROTOCOL_KEYBOARD) {
-        (void)hid_class_request_set_idle(handle, 0, 0);
+    /* Some receivers acknowledge boot mode but never send mouse input in it.
+     * Prefer a descriptor we can decode; retain boot fallback for legacy mice. */
+    solar_os_usb_hid_mouse_layout_t mouse_layout = {0};
+    hid_report_protocol_t selected_protocol = HID_REPORT_PROTOCOL_BOOT;
+    if (params.proto == HID_PROTOCOL_MOUSE) {
+        size_t descriptor_length = 0;
+        const uint8_t *descriptor = hid_host_get_report_descriptor(handle, &descriptor_length);
+        if (descriptor != NULL && solar_os_usb_hid_mouse_parse_descriptor(descriptor,
+            descriptor_length, &mouse_layout) == ESP_OK) selected_protocol = HID_REPORT_PROTOCOL_REPORT;
+    }
+    esp_err_t idle_error = ESP_ERR_NOT_FINISHED;
+    esp_err_t protocol_error = ESP_ERR_NOT_FINISHED;
+    hid_report_protocol_t report_protocol = (hid_report_protocol_t)0xff;
+    for (unsigned attempt = 0; attempt < 2; attempt++) {
+        report_protocol = (hid_report_protocol_t)0xff;
+        protocol_error = ESP_ERR_NOT_FINISHED;
+        ret = hid_class_request_set_protocol(handle, selected_protocol);
+        if (ret == ESP_OK) {
+            protocol_error = hid_class_request_get_protocol(handle, &report_protocol);
+            if (protocol_error == ESP_OK && report_protocol != selected_protocol) ret = ESP_ERR_NOT_SUPPORTED;
+        }
+        if (ret == ESP_OK || selected_protocol == HID_REPORT_PROTOCOL_BOOT) break;
+        selected_protocol = HID_REPORT_PROTOCOL_BOOT;
+        memset(&mouse_layout, 0, sizeof(mouse_layout));
+    }
+    if (ret == ESP_OK) {
+        /* SET_IDLE/GET_PROTOCOL stalls remain optional-device diagnostics. */
+        idle_error = hid_class_request_set_idle(handle, 0, 0);
     }
     lock();
     if (interface->handle != handle) { unlock(); return; }
+    interface->info.idle_error = idle_error;
+    interface->info.protocol_error = protocol_error;
+    interface->info.mouse_layout = mouse_layout;
+    if (protocol_error == ESP_OK) interface->info.report_protocol = (uint8_t)report_protocol;
     if (ret == ESP_OK && !atomic_load(&stop_worker)) {
         ret = input_callback(USB_HOST_PORT_OPEN, &interface->info, NULL, 0);
         interface->info.ready = ret == ESP_OK;
@@ -133,11 +175,11 @@ static void open_interface(hid_host_device_handle_t handle)
         if (interface->handle == handle) {
             interface->info.ready = false;
             interface->info.errors++;
+            interface->info.last_error = ret;
             (void)input_callback(USB_HOST_PORT_CLOSE, &interface->info, NULL, 0);
         }
         unlock();
-        /* Leave the HID handle tracked until physical/root-port disconnect.
-         * That keeps control-transfer and disconnect ownership in the driver. */
+        /* Leave failed setup tracked until physical/root-port disconnect. */
     }
 }
 
@@ -147,7 +189,11 @@ static void connection_task(void *arg)
     while (!atomic_load(&stop_worker)) {
         hid_host_device_handle_t handle;
         if (xQueueReceive(connections, &handle, pdMS_TO_TICKS(USB_POLL_MS)) == pdTRUE &&
-            !atomic_load(&stop_worker)) open_interface(handle);
+            !atomic_load(&stop_worker)) {
+            solar_os_usb_hid_setup_begin();
+            if (!atomic_load(&stop_worker)) open_interface(handle);
+            solar_os_usb_hid_setup_end();
+        }
     }
     atomic_store(&worker_done, true);
     solar_os_task_delete(NULL);

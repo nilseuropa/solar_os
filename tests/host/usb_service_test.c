@@ -14,6 +14,7 @@ static bool fail_pm, cdc_ready = true, cdc_busy, active, partial_start;
 static esp_err_t start_error, stop_error, cdc_error;
 static unsigned starts;
 static usb_host_port_callback_t callback;
+static solar_os_usb_hid_input_t *opened_input;
 
 esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name,
                               esp_pm_lock_handle_t *handle)
@@ -59,9 +60,14 @@ size_t usb_host_port_interfaces(usb_host_port_interface_t *out, size_t capacity)
 { (void)out; (void)capacity; return 0; }
 
 esp_err_t solar_os_usb_hid_input_open(solar_os_usb_hid_input_t *input, const char *name, uint8_t protocol)
-{ (void)input; (void)name; (void)protocol; return ESP_OK; }
+{ (void)name; memset(input, 0, sizeof(*input)); input->protocol = protocol; opened_input = input; return ESP_OK; }
 esp_err_t solar_os_usb_hid_input_report(solar_os_usb_hid_input_t *input, const uint8_t *data, size_t length)
-{ (void)input; (void)data; (void)length; return ESP_OK; }
+{
+    assert(input == opened_input && input->mouse_layout.valid);
+    assert(input->mouse_layout.report_id == 1 && input->mouse_layout.report_bytes == 6);
+    assert(data[0] == 1 && length == 6);
+    return ESP_OK;
+}
 void solar_os_usb_hid_input_reset(solar_os_usb_hid_input_t *input) { (void)input; }
 void solar_os_usb_hid_input_close(solar_os_usb_hid_input_t *input) { (void)input; }
 
@@ -115,6 +121,18 @@ int main(void)
     start_error = ESP_OK; partial_start = false;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
     assert(active && !cdc_ready && pm_locks == 2 && callback);
+    usb_host_port_interface_t mouse = {
+        .slot = 1, .protocol = SOLAR_OS_USB_HID_MOUSE,
+        .mouse_layout = {.valid = true, .numbered = true, .report_id = 1, .report_bytes = 6},
+    };
+    assert(callback(USB_HOST_PORT_OPEN, &mouse, NULL, 0) == ESP_OK);
+    const uint8_t report[] = {1, 0, 0xed, 0xff, 0, 0};
+    assert(callback(USB_HOST_PORT_REPORT, &mouse, report, sizeof(report)) == ESP_OK);
+    assert(callback(USB_HOST_PORT_CLOSE, &mouse, NULL, 0) == ESP_OK);
+    memset(&mouse.mouse_layout, 0, sizeof(mouse.mouse_layout));
+    assert(callback(USB_HOST_PORT_OPEN, &mouse, NULL, 0) == ESP_OK);
+    assert(!opened_input->mouse_layout.valid); /* Boot fallback cannot retain the previous report layout. */
+    assert(callback(USB_HOST_PORT_CLOSE, &mouse, NULL, 0) == ESP_OK);
     status(SOLAR_OS_USB_MODE_HOST);
     unsigned previous_starts = starts;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK && starts == previous_starts);

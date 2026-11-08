@@ -21,6 +21,12 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
                 "usb: %s owns cdc0; release it before switching modes\n", cdc.port_owner);
             else solar_os_shell_io_printf(io, "usb mode: %s\n", solar_os_shell_error_text(ret));
         }
+        solar_os_usb_status_t status;
+        solar_os_usb_get_status(&status);
+        solar_os_shell_io_printf(io, "USB mode: %s\n", solar_os_usb_mode_name(status.mode));
+        if (status.rollback_error != ESP_OK) solar_os_shell_io_printf(io,
+            "Restore error: %s; retry usb mode device\n", solar_os_shell_error_text(status.rollback_error));
+        return;
     } else if (!(argc == 1 || (argc == 2 &&
         (strcmp(argv[1], "status") == 0 || strcmp(argv[1], "devices") == 0)))) {
         solar_os_shell_io_printf(io, "usage: %s\n", usage);
@@ -53,5 +59,18 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
             interface->address, interface->interface, source,
             interface->ready ? "ready" : "error", (unsigned long)interface->reports,
             (unsigned long)interface->errors);
+        if (interface->last_error != ESP_OK) solar_os_shell_io_printf(io,
+            "%s: %s\n", source, solar_os_shell_error_text(interface->last_error));
+        if (argc == 2 && strcmp(argv[1], "devices") == 0) {
+            const char *protocol = interface->report_protocol == 0 ? "boot" :
+                interface->report_protocol == 1 ? "report" : "unverified";
+            solar_os_shell_io_printf(io,
+                "%s: VID:PID=%04x:%04x protocol=%s\n", source,
+                interface->vendor_id, interface->product_id, protocol);
+            if (interface->protocol_error != ESP_OK) solar_os_shell_io_printf(io,
+                "  Protocol check: %s\n", solar_os_shell_error_text(interface->protocol_error));
+            if (interface->idle_error != ESP_OK) solar_os_shell_io_printf(io,
+                "  Idle setup: %s\n", solar_os_shell_error_text(interface->idle_error));
+        }
     }
 }

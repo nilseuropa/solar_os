@@ -49,10 +49,20 @@ input test usb-kbd0
 usb mode device
 ```
 
+`usb mode host` enables hosting and confirms the selected mode. Enumeration
+continues asynchronously; use `usb status` or `usb devices` afterward to inspect
+the interfaces that have appeared. Mode changes do not list devices.
+
 `usb devices` lists opened keyboard/mouse interfaces, including their address,
 interface number, readiness, report count, and errors. Input source names are
 `usb-kbdN` or `usb-mouseN`, with `N` identifying the interface slot. A composite
 keyboard/mouse may occupy multiple slots. Unsupported interfaces are left idle.
+
+`usb devices` also shows each interface's USB VID:PID, the protocol reported
+by the device, and any protocol-check or idle-setup error. A rejected protocol
+request prevents the interface from being marked ready after fallback. Devices that
+reject the optional protocol check or idle setup can still receive input;
+their protocol is shown as unverified when it could not be read back.
 
 Keyboards supply physical HID usages, modifiers, press/release events, and
 normal SolarOS key repeat. Use `setterm keyboard us` or `de` for text layout.
@@ -60,10 +70,17 @@ Mice supply relative movement and the primary, secondary, and middle buttons.
 Applications and Python/Lua scripts use the existing input APIs and focus
 routing. Unplugging a peripheral releases its held input and removes its source.
 
-The initial implementation selects HID boot protocol. General report-protocol
-devices, NKRO layouts, media keys, gamepads, mouse wheels, and external hubs
-are outside this interface. Boot-capable keyboards can operate in their boot
-mode even if they also offer other report layouts.
+Interfaces must advertise keyboard or mouse boot capability. Keyboards use
+boot protocol. For mice, SolarOS prefers report protocol when the HID descriptor
+contains a supported relative pointer layout, then falls back to boot protocol
+if that layout is unavailable or the receiver rejects report mode. This also
+supports receivers that accept boot mode but send mouse input only in report mode.
+
+Mouse report layouts can use report IDs, packed buttons, and signed X/Y fields
+up to 16 bits. SolarOS uses one relative pointer report per interface and ignores
+other report IDs, including media and system controls. Only the primary,
+secondary, and middle buttons are routed. NKRO keyboard layouts, media keys,
+gamepads, mouse wheels, absolute pointers, and external hubs remain unsupported.
 
 ## Power and recovery
 

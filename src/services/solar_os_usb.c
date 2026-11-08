@@ -33,7 +33,9 @@ static esp_err_t input_event(usb_host_port_event_t event,
         snprintf(name, sizeof(name), "usb-%s%u",
             interface->protocol == SOLAR_OS_USB_HID_KEYBOARD ? "kbd" : "mouse",
             interface->slot);
-        return solar_os_usb_hid_input_open(input, name, interface->protocol);
+        const esp_err_t ret = solar_os_usb_hid_input_open(input, name, interface->protocol);
+        if (ret == ESP_OK) input->mouse_layout = interface->mouse_layout;
+        return ret;
     }
     case USB_HOST_PORT_REPORT:
         return solar_os_usb_hid_input_report(input, data, length);

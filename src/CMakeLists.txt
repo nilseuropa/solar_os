@@ -574,7 +574,7 @@ idf_component_register(
 
 if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)
     # Keep the pinned managed component pristine. Compile a generated copy
-    # with the two lifecycle mutex leaks fixed for repeated role switching.
+    # with lifecycle mutex cleanup and transfer-error checks.
     idf_component_get_property(SOLAR_OS_USB_HID_DIR espressif__usb_host_hid COMPONENT_DIR)
     idf_component_get_property(SOLAR_OS_USB_HID_LIB espressif__usb_host_hid COMPONENT_LIB)
     set(SOLAR_OS_USB_HID_PATCH "${SOLAR_OS_PROJECT_DIR}/scripts/patch_usb_hid.py")
@@ -586,7 +586,7 @@ if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)
         "${SOLAR_OS_USB_HID_SOURCE}" "${SOLAR_OS_USB_HID_GENERATED}"
         RESULT_VARIABLE SOLAR_OS_USB_HID_PATCH_RESULT)
     if(NOT SOLAR_OS_USB_HID_PATCH_RESULT EQUAL 0)
-        message(FATAL_ERROR "SolarOS USB HID lifecycle patch failed")
+        message(FATAL_ERROR "SolarOS USB HID patch failed")
     endif()
     set_property(TARGET ${SOLAR_OS_USB_HID_LIB} PROPERTY SOURCES "${SOLAR_OS_USB_HID_GENERATED}")
 endif()
