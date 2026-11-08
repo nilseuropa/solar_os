@@ -2,6 +2,7 @@
 
 #include <stdatomic.h>
 #include <string.h>
+#include "esp_attr.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -30,7 +31,8 @@ typedef struct {
 
 static SemaphoreHandle_t guard;
 static QueueHandle_t connections;
-static usb_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
+/* Task-only bookkeeping; USB DMA buffers remain owned by the SDK. */
+static EXT_RAM_BSS_ATTR usb_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
 static usb_host_port_callback_t input_callback;
 static bool host_installed;
 static bool hid_installed;

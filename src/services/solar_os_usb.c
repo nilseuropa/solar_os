@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "esp_attr.h"
 #include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
@@ -17,7 +18,8 @@ static solar_os_usb_mode_t current_mode = SOLAR_OS_USB_MODE_DEVICE;
 static bool sleep_prepared;
 static bool resources_held;
 static esp_err_t last_error, rollback_error;
-static solar_os_usb_hid_input_t inputs[USB_HOST_PORT_INTERFACE_MAX];
+/* Decoded input state is accessed only from serialized task callbacks. */
+static EXT_RAM_BSS_ATTR solar_os_usb_hid_input_t inputs[USB_HOST_PORT_INTERFACE_MAX];
 #if CONFIG_PM_ENABLE
 static esp_pm_lock_handle_t apb_lock, sleep_lock;
 #endif
