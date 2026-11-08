@@ -2,6 +2,15 @@
 
 ## 4.x
 
+- **4.17.8** — 2026-11-08 — Added GPIO matrix keyboard and GC9A01 SPI
+  display expansion support. Added runtime USB host mode for keyboards,
+  relative mice and standard HID joysticks/gamepads on SolarTerm and ESP32-S3
+  DevKitC-1 N16R8, with external 5 V peripheral power. Added mouse and joystick
+  report descriptor decoding and USB device/protocol diagnostics. Game Boy now
+  automatically detects joysticks and supports axes, hats and buttons with a
+  stick dead zone and hot-plug handling. Reduced USB host internal SRAM use
+  by 5.4 KiB by moving HID state to PSRAM. Fixed SDK allocation fallback to
+  prefer managed PSRAM before consuming internal SRAM.
 - **4.17.7** — 2026-11-07 — Added MPU6050 expansion support and shared
   IMU streams with timestamped, multi-axis `stream echo` output. Added URDF
   device-to-frame bindings with shell and Python/Lua lookups. Robot model

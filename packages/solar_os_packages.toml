@@ -14,7 +14,7 @@ members = [
 [groups.hardware_shell]
 label = "Hardware shell commands"
 category = "System"
-members = ["system_shell"]
+members = ["system_shell", "service_usb_host"]
 
 [groups.filesystem]
 label = "Filesystem commands"
@@ -301,6 +301,11 @@ members = ["job_daq"]
 label = "GPIO keyboard"
 category = "Hardware tools"
 members = ["job_gpio_keys"]
+
+[groups.gpio_matrix]
+label = "GPIO keyboard matrix"
+category = "Hardware tools"
+members = ["expansion_gpio_matrix"]
 
 [groups.handwriting_input]
 label = "Graffiti handwriting input"
@@ -801,6 +806,11 @@ members = ["driver_display_st7796"]
 label = "ST7789 display"
 category = "Expansion hardware"
 members = ["driver_display_st7789"]
+
+[groups.gc9a01]
+label = "GC9A01 round display"
+category = "Expansion hardware"
+members = ["driver_display_gc9a01"]
 
 [groups.cvbs]
 label = "PAL composite display"
@@ -1415,6 +1425,22 @@ capabilities = ["ble"]
 label = "service.hid"
 sources = ["services/solar_os_hid.c"]
 capabilities = ["cdc"]
+
+[packages.service_usb_host]
+label = "service.usb-host"
+depends = ["service_resources"]
+sources = [
+  "drivers/usb_host_port.c",
+  "drivers/usb_hid_report.c",
+  "drivers/usb_hid_mouse_report.c",
+  "drivers/usb_hid_joystick_report.c",
+  "services/solar_os_usb.c",
+  "services/solar_os_usb_hid_input.c",
+  "shell/solar_os_shell_usb.c",
+]
+requires = ["usb", "espressif__usb_host_hid", "esp_pm"]
+capabilities = ["usb_host"]
+targets = ["esp32s3"]
 
 [packages.service_sd]
 label = "service.sd"
@@ -2363,6 +2389,14 @@ sources = [
 ]
 capabilities = ["expansion_gpio"]
 
+[packages.expansion_gpio_matrix]
+label = "expansion.gpio-matrix"
+expansion_drivers = ["solar_os_gpio_matrix_expansion_driver"]
+depends = ["service_expansion", "service_resources", "service_input_keymap"]
+sources = ["services/solar_os_gpio_matrix.c", "services/solar_os_gpio_matrix_driver.c"]
+requires = ["espressif__keyboard_button", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_trackball]
 label = "expansion.trackball"
 expansion_drivers = ["solar_os_trackball_expansion_driver"]
@@ -2584,6 +2618,19 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "driver.display-st7789"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_st7789_expansion_driver"]
+depends = ["service_expansion", "service_spi", "driver_pwm_port"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_gc9a01]
+label = "driver.display-gc9a01"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_gc9a01_expansion_driver"]
 depends = ["service_expansion", "service_spi", "driver_pwm_port"]
 sources = [
   "board/solar_os_board_display_expansion.c",

@@ -22,6 +22,8 @@ static void gameboy_audio_write(uint16_t address, uint8_t value);
 #define GAMEBOY_ROM_BANK_BYTES (16U * 1024U)
 #define FRAME_PERIOD_US 16743ULL
 #define INPUT_PULSE_US 140000ULL
+#define JOYSTICK_ENGAGE 10000
+#define JOYSTICK_RELEASE 7000
 #define SOLAR_OS_STORAGE_PATH_MAX 160U
 
 typedef struct {
@@ -38,6 +40,7 @@ typedef struct {
     uint64_t release_at[8], next_frame_us, stats_started, emulation_us;
     uint32_t frames, timing_rebases;
     uint8_t buttons_source;
+    uint8_t joystick_source, joystick_axes[2];
     jmp_buf fault;
 } gameboy_state_t;
 static gameboy_state_t *state;
@@ -50,7 +53,7 @@ SOLAR_OS_NATIVE_APP_MANIFEST = {
     .lifecycle_abi = SOLAR_OS_NATIVE_APP_LIFECYCLE_ABI,
     .struct_size = sizeof(solar_os_native_app_manifest_v2_t),
     .app_class = SOLAR_OS_NATIVE_APP_CLASS_GUI,
-    .flags = SOLAR_OS_NATIVE_APP_RESUMABLE,
+    .flags = SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_AXIS_EVENTS,
     .worker_stack_bytes = 8192U,
     .worker_priority = 2U,
     .minimum_internal_bytes = 16U * 1024U,
@@ -258,6 +261,16 @@ static void *hot_alloc(size_t size) {
     return buffer ? buffer : memory->alloc(size);
 }
 static uint8_t button(const solar_os_native_foreground_key_v1_t *key) {
+    if (state->joystick_source && key->source == state->joystick_source &&
+        !key->usage && !key->key) {
+        switch (key->physical_key) {
+        case 1: case 3: return JOYPAD_A;
+        case 2: case 4: return JOYPAD_B;
+        case 9: return JOYPAD_SELECT;
+        case 10: return JOYPAD_START;
+        default: return 0;
+        }
+    }
     if (state->buttons_source && key->source == state->buttons_source) {
         if (key->key == '\n' || key->key == '\r')
             return JOYPAD_A;
@@ -279,6 +292,7 @@ static uint8_t button(const solar_os_native_foreground_key_v1_t *key) {
 static void clear_inputs(void) {
     memset(state->held, 0, sizeof(state->held));
     memset(state->release_at, 0, sizeof(state->release_at));
+    memset(state->joystick_axes, 0, sizeof(state->joystick_axes));
     state->core->direct.joypad = 0xff;
 }
 static void held_key(const solar_os_native_foreground_key_v1_t *key, uint8_t mask) {
@@ -308,7 +322,41 @@ static void held_key(const solar_os_native_foreground_key_v1_t *key, uint8_t mas
     state->held[empty].key = key->key;
     state->held[empty].mask = mask;
 }
+static void joystick_input(void) {
+    if (app->struct_size < offsetof(solar_os_native_foreground_api_v1_t, joystick_source) +
+        sizeof(app->joystick_source) || !app->joystick_source || !app->read_axis)
+        return;
+    uint8_t source = app->joystick_source();
+    if (source != state->joystick_source) {
+        for (size_t i = 0; i < 32U; ++i)
+            if (state->held[i].source == state->joystick_source)
+                state->held[i].mask = 0;
+        memset(state->joystick_axes, 0, sizeof(state->joystick_axes));
+        state->joystick_source = source;
+    }
+    solar_os_native_foreground_axis_v1_t axis;
+    bool available;
+    while (app->read_axis(&axis, &available) == SOLAR_OS_NATIVE_OK && available) {
+        if (axis.reset) {
+            memset(state->joystick_axes, 0, sizeof(state->joystick_axes));
+            continue;
+        }
+        if (!source || axis.source != source || axis.axis > SOLAR_OS_NATIVE_AXIS_Y)
+            continue;
+        uint8_t negative = axis.axis == SOLAR_OS_NATIVE_AXIS_X ? JOYPAD_LEFT : JOYPAD_UP;
+        uint8_t positive = axis.axis == SOLAR_OS_NATIVE_AXIS_X ? JOYPAD_RIGHT : JOYPAD_DOWN;
+        uint8_t previous = state->joystick_axes[axis.axis];
+        /* Separate engage/release thresholds prevent chatter at the dead zone. */
+        if (axis.value <= -JOYSTICK_ENGAGE || (previous == negative && axis.value < -JOYSTICK_RELEASE))
+            state->joystick_axes[axis.axis] = negative;
+        else if (axis.value >= JOYSTICK_ENGAGE || (previous == positive && axis.value > JOYSTICK_RELEASE))
+            state->joystick_axes[axis.axis] = positive;
+        else
+            state->joystick_axes[axis.axis] = 0;
+    }
+}
 static void input(void) {
+    joystick_input();
     solar_os_native_foreground_key_v1_t key;
     bool available;
     while (app->read_key(&key, &available) == SOLAR_OS_NATIVE_OK && available) {
@@ -317,6 +365,7 @@ static void input(void) {
             continue;
         }
         bool board = state->buttons_source && key.source == state->buttons_source;
+        bool joystick = state->joystick_source && key.source == state->joystick_source;
         bool release = key.action == SOLAR_OS_NATIVE_FOREGROUND_KEY_RELEASE;
         if (!release && !board) {
             if (key.key == 'q' || key.key == SOLAR_OS_KEY_ESCAPE ||
@@ -358,10 +407,11 @@ static void input(void) {
                 if (mask & (1U << bit))
                     state->release_at[bit] = app->time_us() + INPUT_PULSE_US;
         }
-        if (board) {
+        if (board || joystick) {
             uint8_t pressed = 0;
             for (unsigned i = 0; i < 32U; i++)
-                pressed |= state->held[i].mask;
+                if (state->held[i].source == key.source)
+                    pressed |= state->held[i].mask;
             if ((pressed & (JOYPAD_START | JOYPAD_SELECT)) == (JOYPAD_START | JOYPAD_SELECT))
                 state->exit = true;
         }
@@ -516,7 +566,7 @@ int main(int argc, char **argv) {
             app->sleep_ms(5);
             continue;
         }
-        uint8_t pressed = 0;
+        uint8_t pressed = state->joystick_axes[0] | state->joystick_axes[1];
         for (unsigned i = 0; i < 32U; i++)
             pressed |= state->held[i].mask;
         for (unsigned bit = 0; bit < 8; bit++)

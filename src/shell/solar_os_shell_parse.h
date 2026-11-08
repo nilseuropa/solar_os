@@ -1,5 +1,9 @@
 #pragma once
 
+/* Includes a complete 8x10 GPIO matrix attachment and its scan options. */
+#define SOLAR_OS_SHELL_COMMAND_LINE_MAX 384
+#define SOLAR_OS_SHELL_COMMAND_ARG_MAX 32
+
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

@@ -179,6 +179,12 @@ bool cdc_port_is_ready(void)
     return ready;
 }
 
+esp_err_t cdc_port_deinit(void)
+{
+    /* Runtime role switching is only supported by the Serial/JTAG profile. */
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 bool cdc_port_is_connected(void)
 {
     return ready && mounted;

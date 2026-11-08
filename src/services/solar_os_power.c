@@ -1,5 +1,9 @@
 #include "solar_os_power.h"
 #include "solar_os_backlight.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+#include "solar_os_usb.h"
+#endif
 
 #include <string.h>
 
@@ -293,11 +297,18 @@ esp_err_t solar_os_power_apply_runtime_policy(void)
 
 esp_err_t solar_os_power_begin_explicit_sleep(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+    const esp_err_t usb_err = solar_os_usb_prepare_sleep();
+    if (usb_err != ESP_OK) return usb_err;
+#endif
     power_status.explicit_sleep_active = true;
     const esp_err_t err = solar_os_power_apply_runtime_policy();
     if (err != ESP_OK) {
         power_status.explicit_sleep_active = false;
         (void)solar_os_power_apply_runtime_policy();
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+        (void)solar_os_usb_resume();
+#endif
     }
     return err;
 }
@@ -305,7 +316,12 @@ esp_err_t solar_os_power_begin_explicit_sleep(void)
 esp_err_t solar_os_power_end_explicit_sleep(void)
 {
     power_status.explicit_sleep_active = false;
-    return solar_os_power_apply_runtime_policy();
+    const esp_err_t ret = solar_os_power_apply_runtime_policy();
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+    const esp_err_t usb_err = solar_os_usb_resume();
+    if (usb_err != ESP_OK) return usb_err;
+#endif
+    return ret;
 }
 
 esp_err_t solar_os_power_begin_suspend(void)

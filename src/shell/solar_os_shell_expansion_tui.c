@@ -21,6 +21,7 @@
 #include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_expansion_internal.h"
+#include "solar_os_shell_parse.h"
 #include "solar_os_stream.h"
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
@@ -29,7 +30,7 @@
 #define EXPANSION_TUI_VALUE_MAX 32
 #define EXPANSION_TUI_MANUAL_MAX 192
 #define EXPANSION_TUI_FORM_SPEC_MAX 24
-#define EXPANSION_TUI_STARTUP_COMMAND_MAX 192
+#define EXPANSION_TUI_STARTUP_COMMAND_MAX SOLAR_OS_SHELL_COMMAND_LINE_MAX
 
 typedef enum {
     EXPANSION_TUI_VIEW_DEVICES,

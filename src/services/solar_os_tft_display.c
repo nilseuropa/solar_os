@@ -47,6 +47,13 @@ typedef struct {
 
 static tft_device_t *device;
 
+typedef struct {
+    uint32_t clock_hz;
+    uint8_t rotation;
+    bool bgr;
+    bool invert;
+} gc9a01_options_t;
+
 static bool role_is(const solar_os_expansion_binding_t *binding, const char *role)
 {
     return binding != NULL && strcmp(binding->role, role) == 0;
@@ -61,7 +68,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 int *backlight,
                                 int *power,
                                 bool *backlight_active_high,
-                                bool *backlight_pwm)
+                                bool *backlight_pwm,
+                                gc9a01_options_t *options)
 {
     bool have_spi = false;
     bool have_cs = false;
@@ -106,6 +114,26 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
                    role_is(binding, "pwm")) {
             *backlight_pwm = binding->value != 0;
+        } else if (options != NULL &&
+                   binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "clock") &&
+                   binding->value >= 100 && binding->value <= 40000) {
+            options->clock_hz = (uint32_t)binding->value * 1000U;
+        } else if (options != NULL &&
+                   binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "rotation") &&
+                   binding->value >= 0 && binding->value <= 3) {
+            options->rotation = (uint8_t)binding->value;
+        } else if (options != NULL &&
+                   binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "bgr") &&
+                   (binding->value == 0 || binding->value == 1)) {
+            options->bgr = binding->value != 0;
+        } else if (options != NULL &&
+                   binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
+                   role_is(binding, "invert") &&
+                   (binding->value == 0 || binding->value == 1)) {
+            options->invert = binding->value != 0;
         } else {
             return ESP_ERR_INVALID_ARG;
         }
@@ -240,7 +268,8 @@ static esp_err_t attach_tft(const char *name,
                             const solar_os_expansion_binding_t *bindings,
                             size_t binding_count,
                             bool st7796,
-                            bool st7789)
+                            bool st7789,
+                            bool gc9a01)
 {
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int cs = -1;
@@ -250,6 +279,12 @@ static esp_err_t attach_tft(const char *name,
     int power = -1;
     bool active_high = true;
     bool pwm = false;
+    gc9a01_options_t options = {
+        .clock_hz = 40000000U,
+        .rotation = 0,
+        .bgr = true,
+        .invert = true,
+    };
     if (device != NULL || name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_STATE;
     }
@@ -262,7 +297,8 @@ static esp_err_t attach_tft(const char *name,
                                        &backlight,
                                        &power,
                                        &active_high,
-                                       &pwm),
+                                       &pwm,
+                                       gc9a01 ? &options : NULL),
                         "tft",
                         "invalid bindings");
     device = heap_caps_calloc(1, sizeof(*device), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -270,7 +306,7 @@ static esp_err_t attach_tft(const char *name,
         return ESP_ERR_NO_MEM;
     }
     strlcpy(device->spi_bus, spi_bus, sizeof(device->spi_bus));
-    const tft_ili9341_config_t config = {
+    tft_ili9341_config_t config = {
         .spi_bus = device->spi_bus,
         .cs_pin = cs,
         .dc_pin = dc,
@@ -294,6 +330,7 @@ static esp_err_t attach_tft(const char *name,
         .row_offset = SOLAR_OS_BOARD_DISPLAY_ROW_OFFSET,
         .st7796 = st7796,
         .st7789 = st7789,
+        .gc9a01 = gc9a01,
 #ifdef SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR
         .invert_color = SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR != 0,
 #else
@@ -311,6 +348,22 @@ static esp_err_t attach_tft(const char *name,
         .rotation = U8G2_R1,
 #endif
     };
+    if (gc9a01) {
+        /* Runtime expansions must not inherit the primary board's geometry,
+         * offsets, IPS settings or backlight-dimmer wiring. */
+        const u8g2_cb_t *const rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
+        config.width = 240;
+        config.height = 240;
+        config.col_offset = 0;
+        config.row_offset = 0;
+        config.spi_clock_hz = options.clock_hz;
+        config.madctl = options.bgr ? 0x08 : 0x00;
+        config.invert_color = options.invert;
+        config.rotation = rotations[options.rotation];
+        config.power_active_high = true;
+        config.backlight_pulse_steps = 0;
+        config.backlight_step_percent = 0;
+    }
     esp_err_t ret = tft_ili9341_init(&device->driver, &config);
     if (ret != ESP_OK) {
         heap_caps_free(device);
@@ -322,9 +375,9 @@ static esp_err_t attach_tft(const char *name,
     device->display = (solar_os_board_display_t) {
         .ops = &display_ops,
         .driver = &device->driver,
-        .driver_name = st7796 ? "st7796" : (st7789 ? "st7789" : "ili9341"),
+        .driver_name = gc9a01 ? "gc9a01" : (st7796 ? "st7796" : (st7789 ? "st7789" : "ili9341")),
         .u8g2 = u8g2,
-        .controller = st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341"),
+        .controller = gc9a01 ? "GC9A01" : (st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341")),
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
@@ -352,21 +405,28 @@ static esp_err_t attach_ili9341(const char *name,
                                 const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false, false);
+    return attach_tft(name, bindings, binding_count, false, false, false);
 }
 
 static esp_err_t attach_st7796(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, true, false);
+    return attach_tft(name, bindings, binding_count, true, false, false);
 }
 
 static esp_err_t attach_st7789(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false, true);
+    return attach_tft(name, bindings, binding_count, false, true, false);
+}
+
+static esp_err_t attach_gc9a01(const char *name,
+                               const solar_os_expansion_binding_t *bindings,
+                               size_t binding_count)
+{
+    return attach_tft(name, bindings, binding_count, false, false, true);
 }
 
 static esp_err_t detach(const char *name)
@@ -436,5 +496,33 @@ const solar_os_expansion_driver_t solar_os_st7789_expansion_driver = {
     .binding_specs = binding_specs,
     .binding_spec_count = sizeof(binding_specs) / sizeof(binding_specs[0]),
     .attach = attach_st7789,
+    .detach = detach,
+};
+
+static const int rotation_values[] = {0, 1, 2, 3};
+static const solar_os_expansion_binding_spec_t gc9a01_binding_specs[] = {
+    {.key = "spi", .value_hint = "bus", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .required = true},
+    {.key = "cs", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .required = true},
+    {.key = "dc", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .required = true},
+    {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset"},
+    {.key = "bl", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "bl"},
+    {.key = "power", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "power"},
+    {.key = "active", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "active", .allowed_values = bool_values, .allowed_value_count = 2},
+    {.key = "pwm", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "pwm", .allowed_values = bool_values, .allowed_value_count = 2},
+    {.key = "clock", .value_hint = "100..40000 kHz", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "clock", .has_value_range = true, .min_value = 100, .max_value = 40000},
+    {.key = "rotation", .value_hint = "0|1|2|3", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "rotation", .allowed_values = rotation_values, .allowed_value_count = 4},
+    {.key = "bgr", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "bgr", .allowed_values = bool_values, .allowed_value_count = 2},
+    {.key = "invert", .value_hint = "0|1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "invert", .allowed_values = bool_values, .allowed_value_count = 2},
+};
+
+const solar_os_expansion_driver_t solar_os_gc9a01_expansion_driver = {
+    .name = "gc9a01",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_DISPLAY,
+    .summary = "240x240 round color TFT",
+    .required_capabilities = TFT_CAPABILITIES,
+    .early = true,
+    .binding_specs = gc9a01_binding_specs,
+    .binding_spec_count = sizeof(gc9a01_binding_specs) / sizeof(gc9a01_binding_specs[0]),
+    .attach = attach_gc9a01,
     .detach = detach,
 };

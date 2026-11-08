@@ -39,6 +39,56 @@ class BoardManifestTest(unittest.TestCase):
         cls.manifest_dir = ROOT / "boards" / "manifests"
         cls.drivers = load_driver_catalog(ROOT / "boards" / "expansion_drivers.toml")
 
+    def test_gpio_matrix_board_profile_preserves_all_eighteen_pins(self):
+        board = load_board_manifest(self.manifest_dir / "esp32_s3_devkitc1_n16r8.toml", self.manifest_dir)
+        pins = [pin["gpio"] for pin in board["pins"] if pin["policy"] == "free"]
+        self.assertGreaterEqual(len(pins), 18)
+        bindings = {f"row{i}": pin for i, pin in enumerate(pins[:8])}
+        bindings.update({f"col{i}": pin for i, pin in enumerate(pins[8:18])})
+        bindings.update({"drive": 1, "diodes": 1, "debounce-ms": 15})
+        for pin in board["pins"]:
+            if pin["gpio"] in pins[:18]:
+                pin["policy"] = "fixed"
+                pin["role"] = "keys0 matrix"
+                pin["adc"] = False
+                pin["pwm"] = False
+        board.setdefault("devices", []).append({"driver": "gpio-matrix", "name": "keys0", "bindings": bindings})
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn('.driver = "gpio-matrix", .name = "keys0"', header)
+        self.assertIn('.role = "col9"', header)
+        self.assertIn('.role = "debounce-ms", .value = 15', header)
+        self.assertIn("expansion_gpio_matrix", required_packages(board, self.drivers))
+
+    def test_gc9a01_round_panel_as_primary_display(self) -> None:
+        driver = self.drivers["gc9a01"]
+        self.assertEqual(driver.targets, ("esp32", "esp32s3"))
+        self.assertEqual(driver.package, "driver_display_gc9a01")
+        self.assertTrue((ROOT / "boards/drivers" / f"{driver.board_driver}.cmake").is_file())
+        base = load_board_manifest(self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml", self.manifest_dir)
+        profile = profile_from_expansion({
+            "schema": 1,
+            "base": {"board": base["board"]["id"]},
+            "buses": [{"name": "spi0", "protocol": "spi", "sharing": "shared",
+                       "host": "SPI2_HOST", "sclk": 7, "mosi": 8, "miso": 3,
+                       "cs": [9], "max_transfer_size": 4096}],
+            "devices": [{"name": "round0", "driver": "gc9a01", "detachable": True,
+                         "bindings": {"spi": "spi0", "cs": 9, "dc": 10, "reset": 11,
+                                      "bl": 12, "pwm": 1, "rotation": 2, "clock": 20000}}],
+        }, base, self.drivers, "test_round", "Round TFT", "Custom", "Module")
+        board = merge_board_overlay(base, profile)
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn('#define SOLAR_OS_BOARD_DISPLAY_CONTROLLER "GC9A01"', header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_WIDTH 240", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_HEIGHT 240", header)
+        self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R2", header)
+        self.assertIn('.role = "clock", .value = 20000', header)
+        self.assertIn("driver_display_gc9a01", required_packages(board, self.drivers))
+        board["devices"][0]["bindings"]["clock"] = 40001
+        with self.assertRaises(ManifestError):
+            validate_board(board, self.drivers)
+
     def test_ssd1680_catalog_has_an_optional_default_panel(self) -> None:
         driver = self.drivers["ssd1680"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))
@@ -749,9 +799,9 @@ bindings = { gpio = 7 }
         self.assertIn(".miso_pin = GPIO_NUM_NC", header)
 
         too_many_bindings = deepcopy(board)
-        for i in range(17):
+        for i in range(25):
             too_many_bindings["devices"][0]["bindings"][f"extra{i}"] = 0
-        with self.assertRaisesRegex(ManifestError, "more than 16 bindings"):
+        with self.assertRaisesRegex(ManifestError, "more than 24 bindings"):
             validate_board(too_many_bindings, self.drivers)
 
     def test_x4_pro_claims_fixed_peripherals_and_neutral_frontlight(self) -> None:

@@ -33,6 +33,14 @@ Start, and Backspace/Delete is Select. Character-only input pulses buttons for
 buttons input source, Enter is A, Space is B, the app-exit button is Start and
 Escape is Select; pressing Start and Select together exits.
 
+The first ready joystick is used automatically, including when connected after
+launch. X/Y control directions with a dead zone (engage at 10000, release at
+7000 on the normalized -32767..32767 range). Hats/D-pads also control directions.
+Buttons 1/3 are A, 2/4 are B, 9 is Select, and 10 is Start; pressing joystick
+Start and Select together exits. Unplugging releases its controls. Keyboard
+and board controls remain available. This module requires host firmware with
+native axis-event support.
+
 Session switching retains guest CPU, RAM, cartridge RAM, pause state and APU
 state. Display and audio are released for the other foreground app. Resume
 clears held inputs and rebases frame timing. Closing writes modified cartridge

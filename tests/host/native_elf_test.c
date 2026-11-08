@@ -161,9 +161,11 @@ static void test_foreground_manifest(void)
     assert(info.foreground && !strcmp(info.app.id, "test-app"));
     assert(!strcmp(info.app.file_extensions, ".gb .nib"));
     assert(info.app.worker_stack_bytes == 4096U && info.app.worker_priority == 2U);
-    put_u32(data, 528U, SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS);
+    put_u32(data, 528U, SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS |
+                        SOLAR_OS_NATIVE_APP_AXIS_EVENTS);
     assert(solar_os_native_elf_validate(data, sizeof(data), 94U, &info, NULL, 0U) == ESP_OK);
     assert(info.app.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS);
+    assert(info.app.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS);
     const char *bad_extensions[] = {"gb", ".", ".GB", ".gb/", ".gb ", ".gb  .nib"};
     for (size_t i = 0U; i < sizeof(bad_extensions) / sizeof(bad_extensions[0]); ++i) {
         make_foreground_elf(data);

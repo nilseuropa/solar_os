@@ -15,6 +15,30 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
+TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test cdc_lifecycle_test
+
+USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
+USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
+
+usb_hid_mouse_report_test: usb_hid_mouse_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
+
+usb_hid_joystick_report_test: usb_hid_joystick_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_joystick_fixture.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
+
+cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(wildcard usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
+usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+		usb_hid_input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c \
+		$(ROOT)/src/services/solar_os_input.c $(USB_HID_CODEC_SOURCES) \
+		$(ROOT)/src/services/solar_os_keys.c -o $@
+
+usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
 TARGETS += paged_array_test
@@ -23,6 +47,13 @@ paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/sol
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services $^ -o $@
 
 TARGETS += input_route_test screen_keyboard_layout_test display_layer_test screen_keyboard_job_test
+TARGETS += gpio_matrix_test
+
+gpio_matrix_test: gpio_matrix_test.c $(wildcard $(ROOT)/src/services/solar_os_gpio_matrix*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) gpio_matrix_stubs/keyboard_button.h
+	$(CC) $(CFLAGS) -include compat.h -Igpio_matrix_stubs -Iinputronic_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) gpio_matrix_test.c \
+		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
 screen_keyboard_job_test: screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c $(ROOT)/src/jobs/solar_os_screen_keyboard_job.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections -I$(ROOT)/components/u8g2/src/clib -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services -I$(ROOT)/src/shell screen_keyboard_job_test.c $(ROOT)/src/services/solar_os_screen_keyboard_layout.c -Wl,--gc-sections -o $@
@@ -42,6 +73,7 @@ TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1680_test ssd1680_expansion_test
+TARGETS += gc9a01_expansion_test
 TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_test uc8279_expansion_test
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
@@ -397,6 +429,13 @@ cl32_display_test: cl32_display_test.c $(ROOT)/src/services/solar_os_cl32_displa
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
 		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $< -o $@
+
+gc9a01_expansion_test: gc9a01_expansion_test.c $(ROOT)/src/services/solar_os_tft_display.c \
+        $(ROOT)/src/services/solar_os_tft_display.h $(ROOT)/src/drivers/tft_ili9341.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers -I$(ROOT)/src/board \
+		-I$(ROOT)/components/u8g2/src/clib gc9a01_expansion_test.c -o $@
 
 ssd1680_expansion_test: ssd1680_expansion_test.c $(ROOT)/src/services/solar_os_ssd1680.c \
         $(ROOT)/src/services/solar_os_ssd1680_driver.c $(ROOT)/src/drivers/epd_ssd1680.h ssd1680_memory_stubs.h
@@ -1167,13 +1206,15 @@ expansion_registry_test: expansion_registry_test.c \
 		$(ROOT)/src/services/solar_os_ssd1677_driver.c -Wl,--gc-sections -o $@
 
 expansion_command_test: expansion_command_test.c \
+		$(ROOT)/src/services/solar_os_gpio_matrix_driver.c \
+		$(ROOT)/src/shell/solar_os_shell_parse.c \
 		$(ROOT)/src/shell/solar_os_shell_expansion_command.c \
 		$(ROOT)/src/shell/solar_os_shell_expansion_internal.h \
 		$(ROOT)/src/services/solar_os_expansion.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. \
 		-I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/shell expansion_command_test.c \
-		$(ROOT)/src/shell/solar_os_shell_expansion_command.c -o $@
+		$(ROOT)/src/shell/solar_os_shell_expansion_command.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
 
 audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c $(ROOT)/src/services/solar_os_audio_codec.h $(ROOT)/src/services/solar_os_audio_pcm.c $(ROOT)/src/services/solar_os_audio_pcm.h esp_err.h
 	$(CC) $(CFLAGS) -DSOLAR_OS_AUDIO_CODEC_HOST_TEST -I. -I$(ROOT)/src/services -I$(ROOT)/components/minimp3/include \
@@ -1370,6 +1411,9 @@ test: $(TARGETS)
 	./json_scan_test
 	./keys_test
 	./input_test
+	./usb_hid_input_test
+	./usb_service_test
+	./cdc_lifecycle_test
 	./touch_gesture_test
 	./unistroke_test
 	./graffiti_test

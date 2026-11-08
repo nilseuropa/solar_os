@@ -45,6 +45,10 @@ class DisplayProfilesTest(unittest.TestCase):
             ("ssd1677", {"rotation": 3}, (480, 800)),
             ("uc8179", {"panel": 1, "rotation": 1}, (480, 800)),
             ("uc8279", {"panel": 2}, (800, 480)),
+            ("gc9a01", {}, (240, 240)),
+            ("gc9a01", {"rotation": 1}, (240, 240)),
+            ("gc9a01", {"rotation": 2}, (240, 240)),
+            ("gc9a01", {"rotation": 3}, (240, 240)),
         ):
             with self.subTest(driver=driver, bindings=bindings):
                 self.assertEqual(self.geometry(driver, bindings), expected)

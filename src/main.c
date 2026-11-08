@@ -32,6 +32,9 @@
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+#include "solar_os_usb.h"
+#endif
 #if SOLAR_OS_PACKAGE_JOB_SCREEN_KEYBOARD
 #include "solar_os_screen_keyboard_job.h"
 #endif
@@ -833,6 +836,10 @@ static esp_err_t shutdown_step(solar_os_shutdown_stage_t stage, void *user)
         return solar_os_jobs_prepare_shutdown(&os_ctx);
     case SOLAR_OS_SHUTDOWN_RADIOS: {
         esp_err_t err = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+        err = solar_os_usb_prepare_sleep();
+        if (err != ESP_OK) return err;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
         if (board_has(SOLAR_OS_BOARD_CAP_BLE) && solar_os_ble_keyboard_enabled_for_current_boot()) {
             err = solar_os_ble_keyboard_prepare_sleep(BLE_SLEEP_DISCONNECT_TIMEOUT_MS);
@@ -979,6 +986,7 @@ static void enter_sleep(const char *reason, bool deep_sleep)
                       "%s: explicit sleep power policy failed: %s",
                       reason,
                       esp_err_to_name(err));
+        return;
     }
 
     (void)esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);

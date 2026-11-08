@@ -42,6 +42,11 @@ esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle
  * owned by the common input service. */
 esp_err_t solar_os_input_keymap_process(solar_os_input_keymap_handle_t handle,
     uint16_t physical, bool pressed, bool *published);
+/* Snapshot producers apply releases first, then presses in priority order:
+ * 0 = layer selector, 1 = modifiers/Caps, 2 = ordinary keys. Requires the
+ * producer's hardware lock, as does process(). */
+unsigned solar_os_input_keymap_press_priority(solar_os_input_keymap_handle_t handle,
+    uint16_t physical);
 void solar_os_input_keymap_release_all(solar_os_input_keymap_handle_t handle);
 
 /* Existing sources without a registered profile return capabilities=0. */

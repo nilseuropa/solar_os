@@ -39,6 +39,25 @@ class FlavorPackagesTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid flavor name"):
             generate_flavor_config.public_flavor_name("full", "beta flavor")
 
+    def test_gpio_matrix_has_a_keymap_and_requires_expansion_gpio(self):
+        for flavor in ("full", "classic", "writerdeck"):
+            _, _, groups, packages = self.resolve(flavor)
+            enabled = flavor in ("full", "classic")
+            self.assertEqual(packages["expansion_gpio_matrix"], enabled)
+            if not enabled:
+                continue
+            self.assertTrue(packages["service_input_keymap"])
+            requires = generate_flavor_config.collect_requires(self.catalog, groups, packages)
+            self.assertIn("espressif__keyboard_button", requires)
+            for target in ("esp32", "esp32s3"):
+                selected = generate_flavor_config.apply_target_pruning(self.catalog, packages, target)
+                _, supported = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, {"gpio", "expansion_gpio"})
+                self.assertTrue(supported["expansion_gpio_matrix"])
+                _, unsupported = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, set())
+                self.assertFalse(unsupported["expansion_gpio_matrix"])
+
     def test_radio_scanner_requires_graphics_and_radio_service(self):
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["radio_scanner"])
@@ -63,6 +82,15 @@ class FlavorPackagesTest(unittest.TestCase):
                              flavor)
             self.assertNotIn("gameboy", groups, flavor)
             self.assertNotIn("app_gameboy", packages, flavor)
+
+    def test_usb_host_requires_explicit_board_eligibility(self):
+        _, _, groups, packages = self.resolve("full")
+        _, supported = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"usb_host"})
+        self.assertTrue(supported["service_usb_host"])
+        _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, {"cdc"})
+        self.assertFalse(cdc_only["service_usb_host"])
 
     def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
         for flavor in ("full", "classic", "writerdeck"):
@@ -204,9 +232,9 @@ class FlavorPackagesTest(unittest.TestCase):
         cases = (
             (board["target"]["mcu"], set(board["build"]["capabilities"]),
              ("expansion_lilygo_pager_keyboard", "driver_display_ili9341",
-              "driver_display_st7796", "driver_display_st7789")),
+              "driver_display_st7796", "driver_display_st7789", "driver_display_gc9a01")),
             ("esp32", {"gfx", "spi", "expansion_gpio"},
-             ("driver_display_ili9341", "driver_display_st7796")),
+             ("driver_display_ili9341", "driver_display_st7796", "driver_display_gc9a01")),
         )
         for target, capabilities, consumers in cases:
             with self.subTest(target=target, capabilities=capabilities):

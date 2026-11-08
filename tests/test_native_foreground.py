@@ -80,7 +80,8 @@ class NativeForegroundTest(unittest.TestCase):
                  "solar_os_native_foreground_entry", "solar_os_native_foreground_owner",
                  "solar_os_native_foreground_claim", "solar_os_native_foreground_release",
                  "foreground_admit", "foreground_request_stop", "foreground_stop", "foreground_suspend", "foreground_resume",
-                 "foreground_read_pointer", "foreground_queue_pointer")
+                 "foreground_read_pointer", "foreground_queue_pointer",
+                 "foreground_read_axis", "foreground_queue_axis", "foreground_joystick_source")
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "foreground.inc").write_text(production_functions(source, names))
             binary = Path(tmp, "lifecycle")

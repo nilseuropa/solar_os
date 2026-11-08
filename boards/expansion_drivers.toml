@@ -133,6 +133,148 @@ kind = "gpio"
 hint = "gpio"
 role = "irq"
 
+[drivers.gpio-matrix]
+keyboard = true
+summary = "Direct GPIO keyboard matrix"
+package = "expansion_gpio_matrix"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio"]
+default_name = "keyboard0"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row0"
+kind = "gpio"
+hint = "gpio"
+role = "row0"
+required = true
+
+[[drivers.gpio-matrix.bindings]]
+key = "row1"
+kind = "gpio"
+hint = "gpio"
+role = "row1"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row2"
+kind = "gpio"
+hint = "gpio"
+role = "row2"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row3"
+kind = "gpio"
+hint = "gpio"
+role = "row3"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row4"
+kind = "gpio"
+hint = "gpio"
+role = "row4"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row5"
+kind = "gpio"
+hint = "gpio"
+role = "row5"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row6"
+kind = "gpio"
+hint = "gpio"
+role = "row6"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row7"
+kind = "gpio"
+hint = "gpio"
+role = "row7"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col0"
+kind = "gpio"
+hint = "gpio"
+role = "col0"
+required = true
+
+[[drivers.gpio-matrix.bindings]]
+key = "col1"
+kind = "gpio"
+hint = "gpio"
+role = "col1"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col2"
+kind = "gpio"
+hint = "gpio"
+role = "col2"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col3"
+kind = "gpio"
+hint = "gpio"
+role = "col3"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col4"
+kind = "gpio"
+hint = "gpio"
+role = "col4"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col5"
+kind = "gpio"
+hint = "gpio"
+role = "col5"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col6"
+kind = "gpio"
+hint = "gpio"
+role = "col6"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col7"
+kind = "gpio"
+hint = "gpio"
+role = "col7"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col8"
+kind = "gpio"
+hint = "gpio"
+role = "col8"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col9"
+kind = "gpio"
+hint = "gpio"
+role = "col9"
+
+[[drivers.gpio-matrix.bindings]]
+key = "drive"
+kind = "parameter"
+hint = "0=rows,1=columns"
+role = "drive"
+min = 0
+max = 1
+
+[[drivers.gpio-matrix.bindings]]
+key = "diodes"
+kind = "parameter"
+hint = "0=absent,1=present"
+role = "diodes"
+min = 0
+max = 1
+
+[[drivers.gpio-matrix.bindings]]
+key = "debounce-ms"
+kind = "parameter"
+hint = "1..100"
+role = "debounce-ms"
+min = 1
+max = 100
+
 [drivers.tca8418]
 summary = "Generic TCA8418 matrix keyboard"
 package = "tca8418"
@@ -1750,6 +1892,84 @@ hint = "0|1"
 allowed = [0, 1]
 [[drivers.st7789.bindings]]
 key = "pwm"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+
+[drivers.gc9a01]
+summary = "240x240 round color TFT"
+package = "driver_display_gc9a01"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_gc9a01"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"GC9A01"' }
+early = true
+default_name = "display0"
+
+[[drivers.gc9a01.display_profiles]]
+name = "round-240x240"
+label = '1.28-inch round 240x240 TFT'
+width = 240
+height = 240
+rotation = 0
+default = true
+
+[[drivers.gc9a01.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..40000 kHz"
+min = 100
+max = 40000
+[[drivers.gc9a01.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0|1|2|3"
+allowed = [0, 1, 2, 3]
+[[drivers.gc9a01.bindings]]
+key = "bgr"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "invert"
 kind = "parameter"
 hint = "0|1"
 allowed = [0, 1]

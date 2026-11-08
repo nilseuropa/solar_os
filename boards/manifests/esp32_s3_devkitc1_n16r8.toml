@@ -21,7 +21,7 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "gfx", "cdc", "uart", "i2c", "spi", "wifi", "ble",
+  "psram", "simd", "gfx", "cdc", "usb_host", "uart", "i2c", "spi", "wifi", "ble",
   "key", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
   "expansion_i2s",
@@ -554,12 +554,12 @@ pwm = true
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "USB D-/CDC"
+role = "USB D-/CDC or host"
 expansion = true
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "USB D+/CDC"
+role = "USB D+/CDC or host"
 expansion = true
 [[pins]]
 gpio = 21

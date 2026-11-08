@@ -155,6 +155,12 @@ names to GPIO numbers. `cs` requires `spi`; `addr` and `alt_addr` require
 DRV8830 attachments also accept integer `max_mv` to configure the voltage
 represented by full normalized motor drive. See [Motor control](motor.md).
 
+`gpio-matrix` accepts integer GPIO bindings `row0`..`row7` and `col0`..`col9`,
+with contiguous indices starting at zero on each side. Optional integer
+`drive`, `diodes`, and `["debounce-ms"]` configure scanning. Load a source keymap
+with `solaros.input.load_keymap(name, path)` to assign characters and modifiers.
+See [GPIO keyboard matrices](expansion.md#gpio-keyboard-matrices).
+
 `pcnt-encoder` requires integer `a`, `b`, and `mode` (1, 2, or 4). Optional
 integer `invert`, `pull`, and `filter_ns` configure its inputs.
 See [Encoder counts](encoder.md).

@@ -342,6 +342,7 @@ The current capability flags are:
 | `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
 | `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
 | `CDC` | USB Serial/JTAG CDC byte-stream port `cdc0`. The dormant TinyUSB composite driver can add keyboard, mouse, and gamepad HID reports when explicitly enabled. |
+| `USB_HOST` | Runtime switching between native USB CDC and boot keyboard/mouse hosting through the ESP32-S3 internal PHY. Requires `CDC`, externally powered USB peripherals, and host wiring on GPIO19/20. Enabled on SolarTerm and S3 DevKitC-1 N16R8. See [USB host input](usb.host.md). |
 | `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
 | `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |

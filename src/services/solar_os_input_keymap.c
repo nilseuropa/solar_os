@@ -197,6 +197,26 @@ esp_err_t solar_os_input_keymap_info(const char *name, solar_os_input_keymap_inf
     return ESP_OK;
 }
 
+unsigned solar_os_input_keymap_press_priority(solar_os_input_keymap_handle_t handle,
+    uint16_t physical)
+{
+    keymap_provider_t *p = acquire_handle(handle);
+    if (p == NULL) return 2U;
+    const unsigned slot = solar_os_input_keymap_find_slot(&p->data->map, physical);
+    solar_os_input_keymap_key_t key = p->data->map.keys[0][slot];
+    unsigned priority = 2U;
+    if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) priority = 0U;
+    else {
+        const solar_os_input_keymap_key_t symbol = p->data->map.keys[1][slot];
+        if (p->data->state.layer_key != 0U &&
+            (symbol.usage != 0U || symbol.key != 0U || symbol.shifted_key != 0U || symbol.flags != 0U))
+            key = symbol;
+        if ((key.usage >= 0xe0U && key.usage <= 0xe7U) || key.usage == 0x39U) priority = 1U;
+    }
+    release_reference(p);
+    return priority;
+}
+
 esp_err_t solar_os_input_keymap_process(solar_os_input_keymap_handle_t handle,
     uint16_t physical, bool pressed, bool *published)
 {

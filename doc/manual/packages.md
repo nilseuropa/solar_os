@@ -15,6 +15,11 @@ A **package** supplies a particular app, job, service, or driver.
 Required dependencies are included automatically; unsupported packages are
 removed for the selected board.
 
+The `hardware_shell` group includes `service.usb-host` on boards with the
+`USB_HOST` capability. Hosting remains off at boot; use `usb mode host` to
+activate it. USB HID peripheral output remains the separate dormant
+`service.hid` package. See [USB host input](usb.host.md).
+
 ## Inspect the running image
 
 ```text

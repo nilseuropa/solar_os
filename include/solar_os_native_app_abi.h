@@ -10,6 +10,7 @@
 #define SOLAR_OS_NATIVE_APP_MANIFEST_SYMBOL "solar_os_native_app_manifest"
 #define SOLAR_OS_NATIVE_APP_RESUMABLE (1U << 0)
 #define SOLAR_OS_NATIVE_APP_POINTER_EVENTS (1U << 1)
+#define SOLAR_OS_NATIVE_APP_AXIS_EVENTS (1U << 2)
 #define SOLAR_OS_NATIVE_APP_CLASS_TUI 2U
 #define SOLAR_OS_NATIVE_APP_CLASS_GUI 3U
 
@@ -68,6 +69,18 @@ typedef struct {
     uint8_t source, pointer_id, buttons, mode, action;
     bool reset;
 } solar_os_native_foreground_pointer_v1_t;
+#define SOLAR_OS_NATIVE_AXIS_X 0U
+#define SOLAR_OS_NATIVE_AXIS_Y 1U
+#define SOLAR_OS_NATIVE_AXIS_Z 2U
+#define SOLAR_OS_NATIVE_AXIS_RX 3U
+#define SOLAR_OS_NATIVE_AXIS_RY 4U
+#define SOLAR_OS_NATIVE_AXIS_RZ 5U
+typedef struct {
+    int32_t delta;
+    int16_t value;
+    uint8_t source, axis;
+    bool reset;
+} solar_os_native_foreground_axis_v1_t;
 typedef struct {
     uint16_t year;
     uint8_t month, day, weekday, hour, minute, second;
@@ -162,6 +175,12 @@ typedef struct {
      * APIs, blocking waits or retained pointers to its released data. Register
      * once from the guest worker; the host unregisters before module unload. */
     int (*set_memory_reclaimer)(size_t (*reclaim)(void *user), void *user);
+    /* Opt-in display-routed axes. Queue loss or session switches produce a
+     * reset; release held axes on reset. USB HID values use -32767..32767.
+     * joystick_source returns the first ready joystick, or zero if absent.
+     * Recheck it to handle hot-plug; source IDs are not permanent identities. */
+    int (*read_axis)(solar_os_native_foreground_axis_v1_t *axis, bool *available);
+    uint8_t (*joystick_source)(void);
 } solar_os_native_foreground_api_v1_t;
 
 static inline bool solar_os_native_foreground_has_exchange(
