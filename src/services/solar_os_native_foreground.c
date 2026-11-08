@@ -22,6 +22,7 @@
 #include "solar_os_storage.h"
 #include "solar_os_disk_image.h"
 #include "solar_os_task.h"
+#include "solar_os_queue.h"
 #include "solar_os_shell.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
@@ -52,6 +53,8 @@ typedef struct {
     QueueHandle_t keys;
     QueueHandle_t pointers;
     atomic_bool pointer_reset;
+    QueueHandle_t axes;
+    atomic_bool axis_reset;
     atomic_bool done, input_reset, stop_requested, redraw_requested;
     /* Owned by the guest worker; reset is requested through input_reset. */
     foreground_key_pulse_t key_pulses[FOREGROUND_KEY_PULSE_MAX];
@@ -367,6 +370,47 @@ static uint8_t foreground_buttons_source(void)
         }
     }
     return state->buttons_source;
+}
+
+static int foreground_read_axis(solar_os_native_foreground_axis_v1_t *axis, bool *available)
+{
+    foreground_state_t *state = foreground_current();
+    if (!foreground_caller()) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    if (!axis || !available) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *available = false;
+    if (!state->axes) return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    if (atomic_exchange(&state->axis_reset, false)) {
+        memset(axis, 0, sizeof(*axis));
+        axis->reset = true;
+        *available = true;
+    } else *available = xQueueReceive(state->axes, axis, 0) == pdTRUE;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void foreground_queue_axis(foreground_state_t *state, const solar_os_input_axis_event_t *event)
+{
+    if (!state->axes || atomic_load(&state->done) ||
+        atomic_load(&state->suspend_requested)) return;
+    solar_os_native_foreground_axis_v1_t axis = {
+        .source = event->source, .axis = (uint8_t)event->axis,
+        .value = event->value, .delta = event->delta,
+    };
+    if (xQueueSend(state->axes, &axis, 0) != pdTRUE) {
+        xQueueReset(state->axes);
+        atomic_store(&state->axis_reset, true);
+    }
+}
+
+static uint8_t foreground_joystick_source(void)
+{
+    if (!foreground_caller()) return 0U;
+    for (size_t i = 0U; i < solar_os_input_source_count(); ++i) {
+        solar_os_input_source_info_t source;
+        if (solar_os_input_source_get(i, &source) && source.ready &&
+            source.source_class == SOLAR_OS_INPUT_SOURCE_JOYSTICK)
+            return source.source;
+    }
+    return 0U;
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
@@ -810,6 +854,7 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
     .disk_write = foreground_disk_write, .disk_sync = foreground_disk_sync,
     .disk_close = foreground_disk_close,
     .read_pointer = foreground_read_pointer, .calendar_read = foreground_calendar_read,
+    .read_axis = foreground_read_axis, .joystick_source = foreground_joystick_source,
     .video_acquire = foreground_video_acquire, .video_exchange = foreground_video_exchange,
     .cooperate = foreground_cooperate,
     .set_memory_reclaimer = foreground_set_memory_reclaimer,
@@ -920,6 +965,7 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
     atomic_init(&state->worker, NULL);
     atomic_init(&state->input_reset, false);
     atomic_init(&state->pointer_reset, false);
+    atomic_init(&state->axis_reset, false);
     atomic_init(&state->stop_requested, false);
     atomic_init(&state->redraw_requested, false);
     atomic_init(&state->resumable,
@@ -944,10 +990,14 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
     state->keys = xQueueCreate(64U, sizeof(solar_os_native_foreground_key_v1_t));
     if (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS)
         state->pointers = xQueueCreate(32U, sizeof(solar_os_native_foreground_pointer_v1_t));
-    if (!state->keys || ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS) && !state->pointers)) {
+    if (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS)
+        state->axes = solar_os_queue_create(32U, sizeof(solar_os_native_foreground_axis_v1_t));
+    if (!state->keys || ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS) && !state->pointers) ||
+        ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS) && !state->axes)) {
         if (state->keys) vQueueDelete(state->keys);
         if (state->pointers) vQueueDelete(state->pointers);
-        state->keys = state->pointers = NULL;
+        if (state->axes) solar_os_queue_delete(state->axes);
+        state->keys = state->pointers = state->axes = NULL;
         atomic_store(&state->done, true);
         atomic_store(&((foreground_slot_t *)state->slot)->active, false);
         return ESP_ERR_NO_MEM;
@@ -960,6 +1010,8 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
         vQueueDelete(state->keys); state->keys = NULL;
         if (state->pointers) vQueueDelete(state->pointers);
         state->pointers = NULL;
+        if (state->axes) solar_os_queue_delete(state->axes);
+        state->axes = NULL;
         solar_os_context_set_streaming_graphics_active(ctx, false);
         atomic_store(&((foreground_slot_t *)state->slot)->active, false);
         return ESP_ERR_NO_MEM;
@@ -998,6 +1050,8 @@ static void foreground_stop(solar_os_context_t *ctx)
     state->keys = NULL;
     if (state->pointers) vQueueDelete(state->pointers);
     state->pointers = NULL;
+    if (state->axes) solar_os_queue_delete(state->axes);
+    state->axes = NULL;
     atomic_store(&((foreground_slot_t *)state->slot)->active, false);
 }
 
@@ -1022,6 +1076,8 @@ static void foreground_suspend(solar_os_context_t *ctx)
     atomic_store(&state->input_reset, true);
     if (state->pointers) xQueueReset(state->pointers);
     atomic_store(&state->pointer_reset, true);
+    if (state->axes) xQueueReset(state->axes);
+    atomic_store(&state->axis_reset, true);
     solar_os_context_set_streaming_graphics_active(ctx, false);
 }
 
@@ -1040,6 +1096,8 @@ static void foreground_resume(solar_os_context_t *ctx)
     atomic_store(&state->input_reset, true);
     if (state->pointers) xQueueReset(state->pointers);
     atomic_store(&state->pointer_reset, true);
+    if (state->axes) xQueueReset(state->axes);
+    atomic_store(&state->axis_reset, true);
     solar_os_context_set_streaming_graphics_active(ctx, true);
     atomic_store(&state->suspend_requested, false);
     const uint64_t deadline = foreground_time_us() + FOREGROUND_STOP_WAIT_US;
@@ -1109,6 +1167,11 @@ static bool foreground_event(solar_os_context_t *ctx, const solar_os_event_t *ev
         foreground_queue_pointer(state, &event->data.pointer);
         return true;
     }
+    if (event->type == SOLAR_OS_EVENT_AXIS) {
+        if (!state->axes) return false;
+        foreground_queue_axis(state, &event->data.axis);
+        return true;
+    }
     if (event->type == SOLAR_OS_EVENT_RESUME) {
         /* An overlay can hide frames that the guest considers unchanged. */
         if (!atomic_load(&state->done)) atomic_store(&state->redraw_requested, true);
@@ -1165,6 +1228,7 @@ static esp_err_t foreground_prepare_slot(const char *path,
         .app_class = (solar_os_app_class_t)manifest.app_class,
         .flags = SOLAR_OS_APP_FLAG_KEY_EVENTS |
             ((manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS) ? SOLAR_OS_APP_FLAG_POINTER_EVENTS : 0U) |
+            ((manifest.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS) ? SOLAR_OS_APP_FLAG_AXIS_EVENTS : 0U) |
             ((manifest.flags & SOLAR_OS_NATIVE_APP_RESUMABLE) ? SOLAR_OS_APP_FLAG_RESUMABLE : 0U),
         .start = foreground_start, .stop = foreground_stop, .suspend = foreground_suspend,
         .resume = foreground_resume, .event = foreground_event,

@@ -10,6 +10,19 @@ static uint64_t now;
 static unsigned allocations, allocate_calls, fail_at, presents, suspends, opens, closes, writes,
     keys;
 static unsigned scenario;
+static struct {
+    solar_os_native_foreground_axis_v1_t event;
+    uint64_t at;
+} stick_events[16];
+static struct {
+    solar_os_native_foreground_key_v1_t event;
+    uint64_t at;
+} controller_keys[16];
+static unsigned stick_count, stick_read, controller_count, controller_read;
+static uint64_t controller_stop, controller_attach, controller_detach;
+static uint8_t controller_source;
+static unsigned joystick_queries;
+static bool controller_suspend;
 static bool audio, lock, save_exists, stop, hot_fail, save_fail;
 static int exit_code;
 static solar_os_native_foreground_audio_render_v1_t render;
@@ -46,6 +59,8 @@ static void sleep_ms(uint32_t ms) {
     }
 }
 static bool stop_requested(void) {
+    if (scenario == 11)
+        return now > controller_stop + 5000000ULL * suspends;
     if (scenario == 5)
         return now > 350000U;
     if (scenario == 6)
@@ -60,7 +75,10 @@ static bool stop_requested(void) {
         return now > 300000U;
     return stop || now > 2200000ULL + 5000000ULL * suspends;
 }
-static bool suspend_requested(void) { return scenario == 1 && !suspends && now > 500000; }
+static bool suspend_requested(void) {
+    return (scenario == 1 && !suspends && now > 500000) ||
+           (scenario == 11 && controller_suspend && !suspends && now > 100000);
+}
 static int suspend_app(void) {
     assert(!lock);
     audio = false;
@@ -71,6 +89,11 @@ static int suspend_app(void) {
 static int raw_read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
     memset(key, 0, sizeof(*key));
     *available = false;
+    if (scenario == 11 && controller_read < controller_count && now >= controller_keys[controller_read].at) {
+        *key = controller_keys[controller_read++].event;
+        *available = true;
+        return 0;
+    }
     if (scenario == 1 && now > 100000 && keys == 0) {
         key->key = 'p';
         keys++;
@@ -136,6 +159,15 @@ static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available) {
 #else
     return raw_read_key(key, available);
 #endif
+}
+static int read_axis(solar_os_native_foreground_axis_v1_t *axis, bool *available) {
+    *available = scenario == 11 && stick_read < stick_count && now >= stick_events[stick_read].at;
+    if (*available) *axis = stick_events[stick_read++].event;
+    return 0;
+}
+static uint8_t joystick_source(void) {
+    joystick_queries++;
+    return now >= controller_attach && now < controller_detach ? controller_source : 0;
 }
 static int file_size(const char *path, uint32_t *size) {
     if (!strcmp(path, "/sdcard/cart.gb")) {
@@ -232,7 +264,7 @@ static const solar_os_native_memory_api_v1_t memory = {.abi_version = 1,
                                                        .alloc = alloc,
                                                        .free = release,
                                                        .alloc_internal = alloc_internal};
-static const solar_os_native_foreground_api_v1_t app = {.abi_version = 1,
+static solar_os_native_foreground_api_v1_t app = {.abi_version = 1,
                                                         .struct_size = sizeof(app),
                                                         .time_us = time_us,
                                                         .sleep_ms = sleep_ms,
@@ -276,6 +308,15 @@ static void setup(unsigned mode) {
     assert(!allocations);
     now = allocate_calls = presents = suspends = opens = closes = writes = keys = 0;
     scenario = mode;
+    stick_count = stick_read = controller_count = controller_read = joystick_queries = 0;
+    controller_source = 0;
+    controller_suspend = false;
+    controller_attach = 0;
+    controller_detach = UINT64_MAX;
+    controller_stop = 150000;
+    app.struct_size = sizeof(app);
+    app.read_axis = read_axis;
+    app.joystick_source = joystick_source;
     fail_at = 0;
     stop = hot_fail = save_fail = audio = lock = save_exists = false;
     exit_code = -1;
@@ -300,7 +341,87 @@ static int run(void) {
     assert(!allocations && !audio && !render && !lock);
     return result;
 }
+static void controller_setup(void) {
+    setup(11);
+    controller_source = 3;
+    /* Poll both hardware joypad rows into battery RAM using the real CPU. */
+    const uint8_t poll[] = {
+        0x3e,0x20,0xe0,0x00,0xf0,0x00,0x2f,0xe6,0x0f,0xea,0x01,0xa0,
+        0x3e,0x10,0xe0,0x00,0xf0,0x00,0x2f,0xe6,0x0f,0xea,0x02,0xa0,
+        0x18,0xe6,
+    };
+    memcpy(rom + 0x15a, poll, sizeof(poll));
+}
+static void axis_at(uint64_t at, uint8_t source, uint8_t axis, int16_t value, bool reset) {
+    assert(stick_count < 16);
+    stick_events[stick_count].at = at;
+    stick_events[stick_count++].event = (solar_os_native_foreground_axis_v1_t){
+        .source=source, .axis=axis, .value=value, .reset=reset};
+}
+static void key_at(uint64_t at, uint8_t source, uint16_t physical, uint16_t usage, uint8_t key, bool release) {
+    assert(controller_count < 16);
+    controller_keys[controller_count].at = at;
+    controller_keys[controller_count++].event = (solar_os_native_foreground_key_v1_t){
+        .source=source, .physical_key=physical, .usage=usage, .key=key,
+        .action=release ? SOLAR_OS_NATIVE_FOREGROUND_KEY_RELEASE : SOLAR_OS_NATIVE_FOREGROUND_KEY_PRESS};
+}
+static void expect_controller(uint8_t pressed) {
+    assert(!run() && writes == 1);
+    uint8_t actual = save[1] | (save[2] << 4);
+    if (actual != pressed) fprintf(stderr, "joypad expected %02x, got %02x\n", pressed, actual);
+    assert(actual == pressed);
+}
+static void joystick_tests(void) {
+    /* Every face/system button reaches the expected real guest input bit. */
+    const uint8_t buttons[] = {1,2,3,4,9,10};
+    const uint8_t masks[] = {0x10,0x20,0x10,0x20,0x40,0x80};
+    for (unsigned i = 0; i < sizeof(buttons); ++i) {
+        controller_setup(); key_at(70000,3,buttons[i],0,0,false);
+        expect_controller(masks[i]);
+        controller_setup(); key_at(70000,3,buttons[i],0,0,false);
+        key_at(100000,3,buttons[i],0,0,true); expect_controller(0);
+    }
+    controller_setup(); axis_at(70000,3,0,32767,false); axis_at(70000,3,1,-32767,false);
+    expect_controller(0x05); /* Right + Up diagonal. */
+    controller_setup(); axis_at(70000,3,0,-32767,false); axis_at(70000,3,1,32767,false);
+    expect_controller(0x0a); /* Left + Down diagonal. */
+    controller_setup(); axis_at(70000,3,0,9999,false); axis_at(70000,3,1,-255,false);
+    expect_controller(0); /* Idle drift and sub-threshold movement. */
+    controller_setup(); axis_at(70000,3,0,10000,false); axis_at(100000,3,0,8000,false);
+    expect_controller(1); /* Hysteresis retains an engaged direction. */
+    controller_setup(); axis_at(70000,3,0,10000,false); axis_at(100000,3,0,7000,false);
+    expect_controller(0);
+    controller_setup(); axis_at(70000,3,0,32767,false); axis_at(100000,3,0,-32767,false);
+    expect_controller(2); /* Direct reversal releases the previous direction. */
+    controller_setup(); axis_at(70000,3,0,32767,false); axis_at(100000,0,0,0,true);
+    expect_controller(0); /* Queue-loss reset releases analog controls. */
+    controller_setup(); axis_at(70000,3,0,32767,false); key_at(70000,3,1,0,0,false);
+    controller_detach = 100000; expect_controller(0); /* No stuck controls on unplug. */
+    controller_setup(); axis_at(70000,3,0,32767,false); key_at(70000,3,1,0,0,false);
+    controller_suspend = true; expect_controller(0); assert(suspends == 1);
+    controller_setup(); controller_attach = 70000;
+    axis_at(80000,3,0,-32767,false); key_at(80000,3,2,0,0,false);
+    expect_controller(0x22); /* Hot-plug after launch. */
+    controller_setup(); key_at(70000,3,1,0,0,false); key_at(70000,1,0x1b,0x1b,'x',false);
+    key_at(100000,3,1,0,0,true); expect_controller(0x20); /* Keyboard stays held independently. */
+    controller_setup(); key_at(70000,3,1,0,0,false); key_at(70000,1,0x1b,0x1b,'x',false);
+    controller_detach = 100000; expect_controller(0x20); /* Unplug leaves keyboard controls held. */
+    controller_setup(); axis_at(70000,3,0,32767,false); key_at(70000,3,1,0,0,false);
+    axis_at(100000,0,0,0,true); expect_controller(0x10); /* Axis loss preserves button state. */
+    controller_setup(); axis_at(70000,3,0,32767,false); key_at(100000,0,0,0,0,false);
+    controller_keys[0].event.reset = true; expect_controller(0); /* Key reset clears all held input. */
+    controller_setup(); key_at(70000,3,0x100,0x52,SOLAR_OS_KEY_UP,false);
+    key_at(70000,3,0x103,0x4f,SOLAR_OS_KEY_RIGHT,false); expect_controller(0x05);
+    controller_setup(); axis_at(70000,4,0,32767,false); axis_at(70000,3,2,32767,false);
+    key_at(70000,4,1,0,0,false); key_at(70000,3,5,0,0,false); expect_controller(0);
+    controller_setup(); key_at(70000,3,9,0,0,false); key_at(70000,3,10,0,0,false);
+    assert(!run() && now < controller_stop); /* Controller-only exit chord. */
+    controller_setup(); app.struct_size = offsetof(solar_os_native_foreground_api_v1_t, read_axis);
+    key_at(70000,1,0x1d,0x1d,'z',false); expect_controller(0x10);
+    assert(!joystick_queries && !stick_read); /* Size-gated host API access. */
+}
 int main(void) {
+    joystick_tests();
     setup(0);
     assert(!run() && exit_code == 0 && presents > 10 && writes == 1 && save[0] == 0x42);
     unsigned count = allocate_calls;
