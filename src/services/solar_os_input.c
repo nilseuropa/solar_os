@@ -583,6 +583,11 @@ static bool input_source_has_releases_locked(solar_os_input_source_t source)
             &input_pointer_queue[(input_pointer_queue_head + i) % INPUT_POINTER_QUEUE_MAX];
         if (event->source == source && event->action == SOLAR_OS_INPUT_POINTER_RELEASE) return true;
     }
+    for (size_t i = 0; i < input_axis_queue_count; i++) {
+        const solar_os_input_axis_event_t *event =
+            &input_axis_queue[(input_axis_queue_head + i) % INPUT_AXIS_QUEUE_MAX];
+        if (event->source == source && event->value == 0) return true;
+    }
     return false;
 }
 
@@ -1361,7 +1366,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
         input_axis_queue_head =
             (input_axis_queue_head + 1U) % INPUT_AXIS_QUEUE_MAX;
         input_axis_queue_count--;
-        if (event.source != source) {
+        if (event.source != source || event.value == 0) {
             (void)input_axis_queue_push_locked(&event);
         }
     }
@@ -1449,7 +1454,7 @@ void solar_os_input_source_close(solar_os_input_source_t source)
                 break;
             }
         }
-        if (!another_axis_source) {
+        if (!another_axis_source && input_axis_queue_count == 0) {
             axis_queue_to_free = input_axis_queue;
             input_axis_queue = NULL;
             input_axis_queue_head = 0;
@@ -2666,6 +2671,7 @@ size_t solar_os_input_read_axis_events(solar_os_input_axis_event_t *events,
         return 0;
     }
 
+    solar_os_input_axis_event_t *queue_to_free = NULL;
     portENTER_CRITICAL(&input_lock);
     size_t count = 0;
     while (input_axis_queue != NULL && count < event_count &&
@@ -2677,8 +2683,20 @@ size_t solar_os_input_read_axis_events(solar_os_input_axis_event_t *events,
     }
     if (input_axis_queue_count == 0) {
         input_axis_queue_head = 0;
+        bool has_source = false;
+        for (size_t i = 0; i < INPUT_SOURCE_MAX; i++) {
+            if (input_sources[i].active && (input_sources[i].capabilities & SOLAR_OS_INPUT_CAP_AXIS_EVENTS)) {
+                has_source = true;
+                break;
+            }
+        }
+        if (!has_source) {
+            queue_to_free = input_axis_queue;
+            input_axis_queue = NULL;
+        }
     }
     portEXIT_CRITICAL(&input_lock);
+    solar_os_memory_free(queue_to_free);
     return count;
 }
 

@@ -15,22 +15,28 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
-TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_service_test cdc_lifecycle_test
+TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test cdc_lifecycle_test
 
-usb_hid_mouse_report_test: usb_hid_mouse_report_test.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.h usb_receiver_fixture.h
+USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
+USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
+
+usb_hid_mouse_report_test: usb_hid_mouse_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
+
+usb_hid_joystick_report_test: usb_hid_joystick_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_joystick_fixture.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
 
 cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(wildcard usb_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
-usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.h usb_receiver_fixture.h
+usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		usb_hid_input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c \
-		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/drivers/usb_hid_mouse_report.c \
+		$(ROOT)/src/services/solar_os_input.c $(USB_HID_CODEC_SOURCES) \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
-usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(ROOT)/src/drivers/usb_hid_mouse_report.h $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
+usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 TARGETS += can_twai_test

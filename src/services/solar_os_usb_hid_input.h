@@ -2,10 +2,9 @@
 
 #include "solar_os_input.h"
 #include "usb_hid_mouse_report.h"
+#include "usb_hid_joystick_report.h"
 
-/* Boot protocol values from the USB HID specification. */
-#define SOLAR_OS_USB_HID_KEYBOARD 1U
-#define SOLAR_OS_USB_HID_MOUSE 2U
+#define SOLAR_OS_USB_HID_HAT_PHYSICAL_BASE 0x100U
 
 typedef struct {
     solar_os_input_source_t source;
@@ -16,6 +15,10 @@ typedef struct {
     uint8_t buttons;
     bool caps_lock;
     solar_os_usb_hid_mouse_layout_t mouse_layout;
+    solar_os_usb_hid_joystick_layout_t joystick_layout;
+    int16_t axes[SOLAR_OS_USB_HID_JOYSTICK_AXIS_MAX];
+    uint16_t joystick_buttons;
+    uint8_t axes_valid, directions;
 } solar_os_usb_hid_input_t;
 
 esp_err_t solar_os_usb_hid_input_open(solar_os_usb_hid_input_t *input,

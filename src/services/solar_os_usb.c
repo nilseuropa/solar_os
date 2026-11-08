@@ -31,10 +31,14 @@ static esp_err_t input_event(usb_host_port_event_t event,
     case USB_HOST_PORT_OPEN: {
         char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
         snprintf(name, sizeof(name), "usb-%s%u",
-            interface->protocol == SOLAR_OS_USB_HID_KEYBOARD ? "kbd" : "mouse",
+            interface->protocol == SOLAR_OS_USB_HID_KEYBOARD ? "kbd" :
+                interface->protocol == SOLAR_OS_USB_HID_MOUSE ? "mouse" : "joy",
             interface->slot);
         const esp_err_t ret = solar_os_usb_hid_input_open(input, name, interface->protocol);
-        if (ret == ESP_OK) input->mouse_layout = interface->mouse_layout;
+        if (ret == ESP_OK) {
+            input->mouse_layout = interface->mouse_layout;
+            if (interface->joystick_layout != NULL) input->joystick_layout = *interface->joystick_layout;
+        }
         return ret;
     }
     case USB_HOST_PORT_REPORT:

@@ -2,9 +2,9 @@
 id = "usb.host"
 title = "USB host input"
 section = "hardware"
-summary = "Use USB keyboards and mice through the ESP32-S3 internal PHY"
+summary = "Use USB keyboards, mice, and HID joysticks through the ESP32-S3 internal PHY"
 aliases = ["usb-host"]
-keywords = "usb host hid keyboard mouse cdc otg phy power"
+keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power"
 packages_any = ["service_usb_host"]
 +++
 # USB host input
@@ -53,10 +53,10 @@ usb mode device
 continues asynchronously; use `usb status` or `usb devices` afterward to inspect
 the interfaces that have appeared. Mode changes do not list devices.
 
-`usb devices` lists opened keyboard/mouse interfaces, including their address,
+`usb devices` lists supported HID interfaces, including their address,
 interface number, readiness, report count, and errors. Input source names are
-`usb-kbdN` or `usb-mouseN`, with `N` identifying the interface slot. A composite
-keyboard/mouse may occupy multiple slots. Unsupported interfaces are left idle.
+`usb-kbdN`, `usb-mouseN`, or `usb-joyN`, with `N` identifying the interface slot.
+A composite device may occupy multiple slots. Unsupported interfaces are ignored.
 
 `usb devices` also shows each interface's USB VID:PID, the protocol reported
 by the device, and any protocol-check or idle-setup error. A rejected protocol
@@ -70,7 +70,7 @@ Mice supply relative movement and the primary, secondary, and middle buttons.
 Applications and Python/Lua scripts use the existing input APIs and focus
 routing. Unplugging a peripheral releases its held input and removes its source.
 
-Interfaces must advertise keyboard or mouse boot capability. Keyboards use
+Keyboard and mouse interfaces must advertise boot capability. Keyboards use
 boot protocol. For mice, SolarOS prefers report protocol when the HID descriptor
 contains a supported relative pointer layout, then falls back to boot protocol
 if that layout is unavailable or the receiver rejects report mode. This also
@@ -80,7 +80,42 @@ Mouse report layouts can use report IDs, packed buttons, and signed X/Y fields
 up to 16 bits. SolarOS uses one relative pointer report per interface and ignores
 other report IDs, including media and system controls. Only the primary,
 secondary, and middle buttons are routed. NKRO keyboard layouts, media keys,
-gamepads, mouse wheels, absolute pointers, and external hubs remain unsupported.
+mouse wheels, absolute pointers, and external hubs remain unsupported.
+
+## Joysticks and gamepads
+
+Standard USB HID Joystick and Game Pad application collections are identified
+from their report descriptors. These interfaces do not need boot capability.
+One controller application is supported per interface, with controls spread
+across up to eight report IDs and input reports up to 64 bytes.
+
+| Control | SolarOS input |
+| --- | --- |
+| X, Y, Z, Rx, Ry, Rz | Axis events normalized to −32767…32767; the declared midpoint is zero |
+| Four-way or eight-way hat | Up/down/left/right key presses and releases; diagonals hold two keys |
+| Separate HID D-pad directions | The same directional keys when no hat is present |
+| Buttons 1…16 | Key events with `physical_key` 1…16 and `key=0`, `usage=0` |
+
+Signed and unsigned absolute axis fields up to 32 bits and packed button fields
+are supported. Other report IDs are ignored without releasing controls held by
+the controller. Hats use physical IDs `0x100`…`0x103` for up, down, left, right.
+Out-of-range hat values are neutral. Extra axes and buttons are ignored.
+
+Axis-aware applications and Python/Lua scripts use the existing input events.
+Buttons do not produce text characters; applications can map their physical
+button numbers to actions. No automatic analog-stick-to-arrow mapping or
+dead zone is applied. Unplugging releases held buttons/directions and queues
+neutral axis values before removing the source.
+
+```text
+usb mode host
+usb devices
+input joystick
+input test usb-joy0
+```
+
+This supports standard HID reports. Vendor-specific controller protocols such
+as XInput, force feedback, and controller LEDs require separate drivers.
 
 ## Power and recovery
 
@@ -99,9 +134,9 @@ demand and released when hosting stops.
 
 ## Quick reference
 
-`usb status` shows the current mode and errors. `usb devices` lists boot
-keyboard/mouse interfaces. Arrange external 5 V peripheral power and host
+`usb status` shows the current mode and errors. `usb devices` lists supported
+keyboard, mouse, and joystick interfaces. Arrange external 5 V peripheral power and host
 wiring on GPIO19/20, then run `usb mode host` from a display, UART, or network
 shell. Release any `cdc0` owner first. Use `usb mode device` to restore native
-CDC/JTAG or retry recovery. Keyboard and mouse sources appear as `usb-kbdN`
-and `usb-mouseN` in `input sources`. Every reboot starts in device mode.
+CDC/JTAG or retry recovery. Sources appear as `usb-kbdN`, `usb-mouseN`, and
+`usb-joyN` in `input sources`. Every reboot starts in device mode.

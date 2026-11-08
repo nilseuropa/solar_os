@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "usb_hid_mouse_report.h"
+#include "usb_hid_joystick_report.h"
 
 #define USB_HOST_PORT_INTERFACE_MAX 8U
 
@@ -21,6 +22,8 @@ typedef struct {
     esp_err_t idle_error;
     esp_err_t last_error;
     solar_os_usb_hid_mouse_layout_t mouse_layout;
+    /* Borrowed configuration, valid only during the serialized input callback. */
+    const solar_os_usb_hid_joystick_layout_t *joystick_layout;
     bool ready;
     uint32_t reports;
     uint32_t errors;

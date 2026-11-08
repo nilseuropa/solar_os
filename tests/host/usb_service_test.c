@@ -129,6 +129,16 @@ int main(void)
     const uint8_t report[] = {1, 0, 0xed, 0xff, 0, 0};
     assert(callback(USB_HOST_PORT_REPORT, &mouse, report, sizeof(report)) == ESP_OK);
     assert(callback(USB_HOST_PORT_CLOSE, &mouse, NULL, 0) == ESP_OK);
+    solar_os_usb_hid_joystick_layout_t joystick_layout = {.valid = true, .numbered = true, .report_count = 1};
+    joystick_layout.reports[0].id = 7;
+    usb_host_port_interface_t joystick = {
+        .slot = 2, .protocol = SOLAR_OS_USB_HID_JOYSTICK, .joystick_layout = &joystick_layout,
+    };
+    assert(callback(USB_HOST_PORT_OPEN, &joystick, NULL, 0) == ESP_OK);
+    assert(opened_input->protocol == SOLAR_OS_USB_HID_JOYSTICK);
+    assert(opened_input->joystick_layout.valid && opened_input->joystick_layout.reports[0].id == 7);
+    assert(&opened_input->joystick_layout != &joystick_layout); /* Driver configuration is copied, not borrowed. */
+    assert(callback(USB_HOST_PORT_CLOSE, &joystick, NULL, 0) == ESP_OK);
     memset(&mouse.mouse_layout, 0, sizeof(mouse.mouse_layout));
     assert(callback(USB_HOST_PORT_OPEN, &mouse, NULL, 0) == ESP_OK);
     assert(!opened_input->mouse_layout.valid); /* Boot fallback cannot retain the previous report layout. */

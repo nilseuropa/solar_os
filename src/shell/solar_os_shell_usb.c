@@ -46,7 +46,7 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     }
     solar_os_shell_io_writeln(io, "Host power: external 5 V required; no software VBUS switch");
     if (status.interface_count == 0) {
-        solar_os_shell_io_writeln(io, "No boot keyboard/mouse interfaces");
+        solar_os_shell_io_writeln(io, "No supported HID interfaces");
         return;
     }
     solar_os_shell_io_table_writeln(io, "ADDR IF SOURCE     STATE   REPORTS ERRORS");
@@ -54,7 +54,9 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
         const usb_host_port_interface_t *interface = &status.interfaces[i];
         char source[16];
         snprintf(source, sizeof(source), "usb-%s%u",
-            interface->protocol == 1 ? "kbd" : "mouse", interface->slot);
+            interface->protocol == SOLAR_OS_USB_HID_KEYBOARD ? "kbd" :
+                interface->protocol == SOLAR_OS_USB_HID_MOUSE ? "mouse" :
+                interface->protocol == SOLAR_OS_USB_HID_JOYSTICK ? "joy" : "hid", interface->slot);
         solar_os_shell_io_table_printf(io, "%4u %2u %-10s %-7s %7lu %6lu\n",
             interface->address, interface->interface, source,
             interface->ready ? "ready" : "error", (unsigned long)interface->reports,

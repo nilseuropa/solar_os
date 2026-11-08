@@ -257,14 +257,14 @@ typedef void *hid_host_device_handle_t;
 typedef struct { uint8_t addr, iface_num, sub_class, proto; } hid_host_dev_params_t;
 typedef struct { uint16_t VID, PID; } hid_host_dev_info_t;
 typedef struct { void (*callback)(void); void *callback_arg; } hid_host_device_config_t;
-typedef struct { hid_host_device_handle_t handle; usb_host_port_interface_t info; bool close_pending; } usb_interface_t;
+typedef struct { hid_host_device_handle_t handle; usb_host_port_interface_t info; solar_os_usb_hid_joystick_layout_t joystick_layout; bool close_pending; } usb_interface_t;
 static usb_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
 static atomic_bool stop_worker;
 static hid_host_dev_params_t params;
-static esp_err_t set_error, report_set_error, idle_error, query_error, start_error;
+static esp_err_t set_error, report_set_error, idle_error, query_error, start_error, close_error;
 static hid_report_protocol_t observed_protocol;
-static int idle_calls, starts, opened, closed, descriptor_calls, selections[4], selected_count;
-static bool descriptor_available, descriptor_supported;
+static int idle_calls, starts, opened, closed, descriptor_calls, selections[4], selected_count, queries, closes;
+static bool descriptor_available, descriptor_supported, joystick_supported;
 static void lock(void) { }
 static void unlock(void) { }
 static void interface_event(void) { }
@@ -295,17 +295,35 @@ esp_err_t solar_os_usb_hid_mouse_parse_descriptor(const uint8_t *data, size_t le
     *layout = (solar_os_usb_hid_mouse_layout_t){.valid = true, .numbered = true, .report_id = 1};
     return ESP_OK;
 }
+esp_err_t solar_os_usb_hid_joystick_parse_descriptor(const uint8_t *data, size_t length,
+    solar_os_usb_hid_joystick_layout_t *layout) {
+    assert(data && length == 1);
+    if (!joystick_supported) return ESP_ERR_NOT_SUPPORTED;
+    *layout = (solar_os_usb_hid_joystick_layout_t){.valid = true, .numbered = true, .report_count = 1};
+    layout->reports[0].id = 1;
+    return ESP_OK;
+}
+static esp_err_t hid_host_device_close(void *h) {
+    assert(h); closes++;
+    if (close_error == ESP_OK) memset(interfaces, 0, sizeof(interfaces));
+    return close_error;
+}
 static esp_err_t hid_class_request_set_idle(void *h, uint8_t duration, uint8_t report) {
     assert(h && duration == 0 && report == 0); idle_calls++; return idle_error;
 }
 static esp_err_t hid_class_request_get_protocol(void *h, hid_report_protocol_t *protocol) {
-    assert(h); *protocol = observed_protocol; return query_error;
+    assert(h); queries++; *protocol = observed_protocol; return query_error;
 }
 static esp_err_t hid_host_device_start(void *h) { assert(h); starts++; return start_error; }
 static esp_err_t input_callback(usb_host_port_event_t event,
     const usb_host_port_interface_t *info, const uint8_t *report, size_t length) {
     assert(info == &interfaces[0].info && report == NULL && length == 0);
-    if (event == USB_HOST_PORT_OPEN) opened++;
+    if (event == USB_HOST_PORT_OPEN) {
+        opened++;
+        if (info->protocol == SOLAR_OS_USB_HID_JOYSTICK) {
+            assert(info->joystick_layout == &interfaces[0].joystick_layout && info->joystick_layout->valid);
+        }
+    }
     if (event == USB_HOST_PORT_CLOSE) closed++;
     return ESP_OK;
 }
@@ -313,11 +331,12 @@ static esp_err_t input_callback(usb_host_port_event_t event,
 static void reset(uint8_t protocol) {
     memset(interfaces, 0, sizeof(interfaces));
     params = (hid_host_dev_params_t){1, 1, HID_SUBCLASS_BOOT_INTERFACE, protocol};
-    set_error = report_set_error = idle_error = query_error = start_error = ESP_OK;
+    set_error = report_set_error = idle_error = query_error = start_error = close_error = ESP_OK;
     observed_protocol = HID_REPORT_PROTOCOL_BOOT;
-    idle_calls = starts = opened = closed = descriptor_calls = selected_count = 0;
+    idle_calls = starts = opened = closed = descriptor_calls = selected_count = queries = closes = 0;
     descriptor_available = false;
     descriptor_supported = true;
+    joystick_supported = false;
 }
 int main(void) {
     for (uint8_t protocol = HID_PROTOCOL_KEYBOARD; protocol <= HID_PROTOCOL_MOUSE; protocol++) {
@@ -373,6 +392,21 @@ int main(void) {
     assert(interfaces[0].info.ready && interfaces[0].info.mouse_layout.valid);
     assert(interfaces[0].info.report_protocol == 0xff && selected_count == 1);
 
+    reset(0); params.sub_class = 0; descriptor_available = joystick_supported = true;
+    set_error = report_set_error = query_error = idle_error = ESP_ERR_NOT_SUPPORTED;
+    open_interface(&params);
+    assert(interfaces[0].info.ready && interfaces[0].info.protocol == SOLAR_OS_USB_HID_JOYSTICK);
+    assert(interfaces[0].info.report_protocol == 1 && interfaces[0].info.protocol_error == ESP_OK);
+    assert(selected_count == 0 && queries == 0 && idle_calls == 1 && starts == 1 && opened == 1);
+
+    reset(0); params.sub_class = 0; descriptor_available = true;
+    open_interface(&params);
+    assert(closes == 1 && starts == 0 && opened == 0 && interfaces[0].handle == NULL);
+
+    reset(0); params.sub_class = 0; descriptor_available = true; close_error = ESP_FAIL;
+    open_interface(&params);
+    assert(closes == 1 && starts == 0 && !interfaces[0].info.ready && interfaces[0].info.errors == 1);
+    assert(interfaces[0].info.last_error == ESP_FAIL);
 }
 ''')
 
