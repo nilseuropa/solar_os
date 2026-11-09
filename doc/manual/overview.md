@@ -48,7 +48,7 @@ explains how to choose or build an image.
 
 [SolarWriter](boards.md#solarwriter) combines the CrowPanel 5.79-inch wide
 e-paper display with ICS-43432 capture, shared PCM5102A/MAX98357A playback,
-switched audio power, a MAX17048G battery gauge, and a DS3231MZ RTC on its
+audio supplies enabled by default, a MAX17048G battery gauge, and a DS3231MZ RTC on its
 v0.1 I/O board. Its fixed attachments use the same reusable
 expansion drivers available on other compatible boards.
 

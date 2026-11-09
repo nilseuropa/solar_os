@@ -18,8 +18,8 @@ SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
 SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_8"
 SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_9"
 SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "3000U"
-# Hold shared audio inputs low before disabling BOOST_EN; keep USB VBUS off.
-SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{GPIO_NUM_14, 0}, {GPIO_NUM_15, 0}, {GPIO_NUM_16, 0}, {GPIO_NUM_21, 0}, {GPIO_NUM_18, 0}}'
+# Hold audio inputs and USB VBUS enable low before enabling the shared rails.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{GPIO_NUM_14, 0}, {GPIO_NUM_15, 0}, {GPIO_NUM_16, 0}, {GPIO_NUM_18, 0}, {GPIO_NUM_21, 1}}'
 
 [[buses]]
 name = "i2c0"
@@ -30,11 +30,11 @@ sda = 8
 scl = 9
 speed_hz = 100000
 
-# v0.1 I/O board: one transport owns the shared clocks and audio power rails.
+# v0.1 I/O board: shared clocks; board boot keeps GPIO21 enabled independently.
 [[devices]]
 driver = "ics43432"
 name = "audio0"
-bindings = { i2s = 1, bck = 14, ws = 15, din = 17, dout = 16, slot = 1, power = 21 }
+bindings = { i2s = 1, bck = 14, ws = 15, din = 17, dout = 16, slot = 1 }
 
 [[devices]]
 driver = "max17048"

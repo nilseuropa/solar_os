@@ -20,7 +20,7 @@ The current tree includes these board targets:
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
-| `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, ICS-43432 microphone, shared PCM5102A line output and MAX98357A speaker output, switched audio power on GPIO21, MAX17048G fuel gauge, DS3231MZ RTC, microSD, and CH340/UART console. GPIO18/19/20/38 belong to the I/O board's USB host wiring. |
+| `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, ICS-43432 microphone, shared PCM5102A line output and MAX98357A speaker output, DAC/amp power enabled by default on GPIO21, MAX17048G fuel gauge, DS3231MZ RTC, microSD, and CH340/UART console. GPIO18/19/20/38 belong to the I/O board's USB host wiring. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `qdtech_es3c28p` | `qdtech_es3c28p` | [QDtech ES3C28P 2.8-inch ESP32-S3 Touch Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Capacitive-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, FT6336 pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `qdtech_es3n28p` | `qdtech_es3n28p` | [QDtech ES3N28P 2.8-inch ESP32-S3 Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Non-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
@@ -1083,12 +1083,10 @@ The following connections are fixed in this target:
 U5 pins 11–14 supply regulated **3.3 V** and pins 7–10 are GND. The microphone
 and RTC use the always-on 3.3 V supply. The DAC uses switched `+3V3_AUDIO`,
 and the amplifier uses `+5V_BOOST`. Both switched rails follow GPIO21.
-The audio driver holds BCK, WS, and playback data low while these rails are
-off, enables power before starting I2S, and allows 20 ms for the supplies to
-settle. Power remains enabled while either capture or playback is open,
-because both outputs receive the microphone's shared clocks. After the last
-stream closes, I2S stops and its output pins go low before power is removed.
-At boot, these I2S outputs and GPIO21 start low; GPIO18 holds USB VBUS off.
+At boot, BCK, WS, playback data, and USB VBUS enable GPIO18 are driven low
+before GPIO21 goes high. The DAC and boost supplies remain enabled by default,
+including while audio is idle. Opening or closing audio streams leaves GPIO21
+high. GPIO18 is a separate USB-only control and holds USB VBUS off at boot.
 
 The battery connects to J405 and the CrowPanel BAT connector through J406.
 MAX17048 VDD and CELL sense the battery rail; ALRT is unconnected. The gauge
@@ -1270,8 +1268,8 @@ The RTC backup supply uses an 11 mF supercapacitor charged through a diode and
 GPIO18, GPIO19, GPIO20, and GPIO38 are reserved for the USB-C host circuit and
 are not available as general GPIO, ADC, or PWM. USB host operation, VBUS
 switching, and overcurrent handling are not integrated in this profile. The
-USB connector shares the 5 V boost with the speaker; future host power control
-must coordinate with the audio owner of GPIO21. Qwiic shares `i2c0`; this
+USB connector shares the enabled 5 V boost with the speaker; GPIO18 controls
+its VBUS switch independently of audio. Qwiic shares `i2c0`; this
 assembled board exposes no unallocated runtime-safe GPIOs on U5.
 
 Build with `pio run -e solar_writer`. The target uses the same 8 MB OTA and

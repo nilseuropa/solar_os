@@ -234,7 +234,7 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual(devices["audio0"]["driver"], "ics43432")
         self.assertEqual(devices["audio0"]["bindings"],
                          {"i2s": 1, "bck": 14, "ws": 15, "din": 17, "dout": 16,
-                          "slot": 1, "power": 21})
+                          "slot": 1})
         self.assertEqual(devices["battery0"]["driver"], "max17048")
         self.assertEqual(devices["battery0"]["bindings"], {"i2c": "i2c0", "addr": 0x36})
         self.assertEqual(devices["rtc0"]["driver"], "ds3231")
@@ -253,6 +253,9 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual([pin["label"] for pin in power], ["3V3"] * 4)
         header = generate_header(board, self.drivers)
         self.assertIn("SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH 3000U", header)
+        self.assertIn("#define SOLAR_OS_BOARD_BOOT_OUTPUTS "
+                      "{{GPIO_NUM_14, 0}, {GPIO_NUM_15, 0}, {GPIO_NUM_16, 0}, "
+                      "{GPIO_NUM_18, 0}, {GPIO_NUM_21, 1}}", header)
         self.assertNotIn("SOLAR_OS_BOARD_PIN_AUDIO_JACK_DETECT", header)
         self.assertIn('SOLAR_OS_BOARD_USER_GPIO_LIST ""', header)
         self.assertIn("expansion_inmp441", required_packages(board, self.drivers))
