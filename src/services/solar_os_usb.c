@@ -6,7 +6,10 @@
 #include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "solar_os_board_caps.h"
+#if SOLAR_OS_BOARD_HAS_CDC
 #include "solar_os_cdc.h"
+#endif
 #include "solar_os_resources.h"
 #include "solar_os_sync_dynamic.h"
 #include "solar_os_usb_hid_input.h"
@@ -125,6 +128,18 @@ static esp_err_t acquire_resources(void)
     return ret;
 }
 
+static esp_err_t set_cdc_enabled(bool enabled)
+{
+#if SOLAR_OS_BOARD_HAS_CDC
+    /* Driver installation explicitly selects the internal PHY. */
+    return enabled ? solar_os_cdc_init() : solar_os_cdc_deinit();
+#else
+    /* USB-UART consoles do not use the native PHY. Device mode is idle. */
+    (void)enabled;
+    return ESP_OK;
+#endif
+}
+
 /* Caller holds mode_mutex. A failed teardown retains the PHY, claims and PM
  * locks; device mode must never be installed on top of a live host stack. */
 static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
@@ -133,7 +148,7 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
     if (mode == SOLAR_OS_USB_MODE_DEVICE) {
         esp_err_t ret = usb_host_port_stop();
         if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
-        ret = solar_os_cdc_init(); /* Driver install explicitly selects the internal PHY. */
+        ret = set_cdc_enabled(true);
         current_mode = ret == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
         release_resources();
         return ret;
@@ -142,19 +157,19 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
     esp_err_t ret = acquire_resources();
     if (ret != ESP_OK) {
         if (current_mode == SOLAR_OS_USB_MODE_SUSPENDED) {
-            rollback_error = solar_os_cdc_init();
+            rollback_error = set_cdc_enabled(true);
             current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
             release_resources();
         }
         return ret;
     }
-    ret = solar_os_cdc_deinit();
+    ret = set_cdc_enabled(false);
     if (ret != ESP_OK) { release_resources(); return ret; }
     ret = usb_host_port_start(input_event);
     if (ret == ESP_OK) { current_mode = SOLAR_OS_USB_MODE_HOST; return ESP_OK; }
     rollback_error = usb_host_port_stop();
     if (rollback_error == ESP_OK) {
-        rollback_error = solar_os_cdc_init();
+        rollback_error = set_cdc_enabled(true);
         release_resources();
     }
     current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;

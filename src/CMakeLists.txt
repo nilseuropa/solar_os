@@ -150,7 +150,6 @@ function(solar_os_require_capability capability dependency)
 endfunction()
 
 solar_os_require_capability(DISPLAY GFX)
-solar_os_require_capability(USB_HOST CDC)
 solar_os_require_capability(DISPLAY_BRIGHTNESS DISPLAY)
 solar_os_require_capability(EXPANSION_I2C I2C)
 solar_os_require_capability(EXPANSION_SPI SPI)
@@ -476,8 +475,9 @@ endif()
 solar_os_require_board_driver("${SOLAR_OS_BOARD_HAS_CDC}" CDC SOLAR_OS_BOARD_CDC_DRIVER)
 if(SOLAR_OS_BOARD_HAS_USB_HOST AND
         (NOT IDF_TARGET STREQUAL "esp32s3" OR
-         NOT SOLAR_OS_BOARD_CDC_DRIVER STREQUAL "usb_serial_jtag"))
-    message(FATAL_ERROR "USB_HOST requires ESP32-S3 with the USB Serial/JTAG CDC driver")
+         (SOLAR_OS_BOARD_HAS_CDC AND
+          NOT SOLAR_OS_BOARD_CDC_DRIVER STREQUAL "usb_serial_jtag")))
+    message(FATAL_ERROR "USB_HOST requires ESP32-S3 and, when CDC is enabled, the USB Serial/JTAG CDC driver")
 endif()
 solar_os_require_board_driver("${SOLAR_OS_BOARD_HAS_DISPLAY}" DISPLAY SOLAR_OS_BOARD_DISPLAY_DRIVER)
 solar_os_require_board_driver("${SOLAR_OS_BOARD_HAS_UART}" UART SOLAR_OS_BOARD_UART_DRIVER)

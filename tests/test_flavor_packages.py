@@ -92,6 +92,30 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog, groups, packages, {"cdc"})
         self.assertFalse(cdc_only["service_usb_host"])
 
+    def test_usb_host_selection_for_all_board_profiles(self):
+        from solaros_board_manifest import load_board_manifest
+
+        manifest_dir = REPOSITORY / "boards" / "manifests"
+        _, _, groups, packages = self.resolve("full")
+        for path in sorted(manifest_dir.glob("*.toml")):
+            board = load_board_manifest(path, manifest_dir)
+            target = board["target"]["mcu"]
+            # These S3 boards route the native pair to fixed internal devices,
+            # without a usable USB connector or expansion-header pair.
+            eligible = target == "esp32s3" and path.stem not in {
+                "seeed_reterminal_sticky", "thinknode_m9",
+            }
+            with self.subTest(board=path.stem):
+                selected = generate_flavor_config.apply_target_pruning(
+                    self.catalog, packages, target)
+                _, selected = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, set(board["build"]["capabilities"]))
+                self.assertEqual(selected["service_usb_host"], eligible)
+                if eligible:
+                    pins = {pin["gpio"]: pin for pin in board["pins"]}
+                    for pin in (19, 20):
+                        self.assertIn("USB", pins[pin]["role"])
+
     def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)

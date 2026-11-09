@@ -22,7 +22,7 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "gfx", "uart", "sd", "i2c", "spi", "wifi",
+  "psram", "simd", "display", "gfx", "usb_host", "uart", "sd", "i2c", "spi", "wifi",
   "ble", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
   "expansion_i2s", "key", "buttons", "status_led",
@@ -379,7 +379,7 @@ pwm = true
 [[pins]]
 gpio = 19
 policy = "free"
-role = "expansion / USB D- capable"
+role = "expansion / USB host D-"
 expansion = true
 user = true
 adc = true
@@ -387,7 +387,7 @@ pwm = true
 [[pins]]
 gpio = 20
 policy = "free"
-role = "expansion / USB D+ capable"
+role = "expansion / USB host D+"
 expansion = true
 user = true
 adc = true

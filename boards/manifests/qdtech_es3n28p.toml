@@ -27,7 +27,7 @@ drivers = [
 capabilities = [
   "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness",
-  "cdc", "uart", "sd", "i2c", "spi", "battery", "audio",
+  "cdc", "usb_host", "uart", "sd", "i2c", "spi", "battery", "audio",
   "audio_input", "wifi", "ble", "gpio", "adc", "pwm",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_adc", "expansion_pwm", "expansion_i2s", "key",
@@ -346,11 +346,11 @@ role = "unpopulated touch reset footprint"
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "USB D-"
+role = "USB D-/CDC or host"
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "USB D+"
+role = "USB D+/CDC or host"
 [[pins]]
 gpio = 21
 policy = "free"

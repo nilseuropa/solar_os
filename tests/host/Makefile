@@ -15,7 +15,7 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
-TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test cdc_lifecycle_test
+TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test usb_service_no_cdc_test cdc_lifecycle_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -37,7 +37,11 @@ usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
 usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
-	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -include compat.h -Iusb_stubs -I. \
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
+usb_service_no_cdc_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
@@ -1413,6 +1417,7 @@ test: $(TARGETS)
 	./input_test
 	./usb_hid_input_test
 	./usb_service_test
+	./usb_service_no_cdc_test
 	./cdc_lifecycle_test
 	./touch_gesture_test
 	./unistroke_test

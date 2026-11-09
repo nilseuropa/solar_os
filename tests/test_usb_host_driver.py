@@ -35,6 +35,23 @@ def run_c(source):
 
 
 class UsbHostDriverTest(unittest.TestCase):
+    def test_usb_command_is_declared_without_camera_support(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            (path / "solar_os.h").write_text(
+                "typedef struct solar_os_context solar_os_context_t;\n")
+            (path / "solar_os_config.h").write_text(
+                "#define SOLAR_OS_PACKAGE_SERVICE_USB_HOST 1\n"
+                "#define SOLAR_OS_PACKAGE_SERVICE_CAMERA 0\n")
+            (path / "test.c").write_text(
+                '#include "solar_os_shell_commands.h"\n'
+                "void (*usb_command)(solar_os_context_t *, int, char **) = solar_os_shell_cmd_usb;\n")
+            result = subprocess.run(
+                ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+                 "-I", str(path), "-I", str(ROOT / "src/shell"), str(path / "test.c")],
+                capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_control_completion_status_is_preserved(self):
         source = PATCH.patched_source(FIXTURE.read_text())
         run_c(r'''

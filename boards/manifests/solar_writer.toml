@@ -104,14 +104,14 @@ pwm = false
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "USB host D- (reserved)"
+role = "USB host D-"
 user = false
 adc = false
 pwm = false
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "USB host D+ (reserved)"
+role = "USB host D+"
 user = false
 adc = false
 pwm = false

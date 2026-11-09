@@ -1,5 +1,6 @@
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
+#include "solar_os_board_caps.h"
 #include "solar_os_cdc.h"
 #include "solar_os_usb.h"
 
@@ -41,7 +42,11 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     if (status.rollback_error != ESP_OK) solar_os_shell_io_printf(io,
         "Restore error: %s; retry usb mode device\n", solar_os_shell_error_text(status.rollback_error));
     if (status.mode == SOLAR_OS_USB_MODE_DEVICE) {
+#if SOLAR_OS_BOARD_HAS_CDC
         solar_os_shell_io_writeln(io, "Native USB: CDC / Serial-JTAG");
+#else
+        solar_os_shell_io_writeln(io, "Native USB: idle; no CDC port in this board profile");
+#endif
         return;
     }
     solar_os_shell_io_writeln(io, "Host power: external 5 V required; no software VBUS switch");
