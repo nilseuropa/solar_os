@@ -15,13 +15,13 @@ expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S; runtime SPI3 routing on GP
 [devices.solar_writer]
 display = "792×272 dual-SSD1683 e-paper."
 keyboard = "Rotary, menu, and exit controls; attach an external keyboard for typing."
-sound = "INMP441 microphone; shared PCM5102 line output and MAX98357 speaker output."
+sound = "ICS-43432 microphone; shared PCM5102A stereo line output and MAX98357A speaker output; switched DAC and amplifier power."
 storage = "microSD over SPI."
 connectivity = "Wi-Fi, BLE, and CH340 USB-to-UART console."
-power = "LC709203F fuel gauge."
-sensors = "DS3231 RTC."
-expansion = "I2C, SPI, UART, GPIO, ADC, PWM, and I2S. GPIO21 is reserved for jack detection."
-notes = "Assembled SolarWriter configuration based on the Elecrow CrowPanel 5.79-inch; the listed audio, RTC, and fuel-gauge hardware must be fitted."
+power = "MAX17048G fuel gauge; solar charger and switched 5 V boost on the I/O board."
+sensors = "DS3231MZ RTC with supercapacitor backup."
+expansion = "Shared I2C through Qwiic. GPIO18/19/20/38 are reserved for USB host wiring; GPIO21 controls audio power."
+notes = "Elecrow CrowPanel 5.79-inch with the SolarWriter v0.1 I/O board. The USB-C host connector requires separate firmware integration."
 
 [devices.freenove_esp32_s3_display_4_0]
 display = "480×320 ST7796 LCD with brightness control."

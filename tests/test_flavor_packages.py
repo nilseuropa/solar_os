@@ -519,7 +519,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(enabled["service_ps2"])
         self.assertTrue(enabled["service_resources"])
 
-    def test_solar_writer_rtc_survives_writerdeck_pruning(self):
+    def test_solar_writer_fixed_peripherals_survive_writerdeck_pruning(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
         manifest_dir = REPOSITORY / "boards/manifests"
         board = load_board_manifest(manifest_dir / "solar_writer.toml", manifest_dir)
@@ -535,11 +535,14 @@ class FlavorPackagesTest(unittest.TestCase):
         groups, selected = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, selected, set(board["build"]["capabilities"])
         )
-        for package in ("driver_ds3231", "service_rtc", "service_i2c", "service_expansion"):
+        for package in ("driver_ds3231", "service_rtc", "service_i2c", "service_expansion",
+                        "expansion_inmp441", "service_audio", "max17048", "service_battery"):
             self.assertTrue(selected[package], package)
         sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
         self.assertIn("drivers/rtc_ds3231.c", sources)
         self.assertIn("services/solar_os_ds3231_driver.c", sources)
+        self.assertIn("services/solar_os_inmp441_driver.c", sources)
+        self.assertIn("services/solar_os_max17048_driver.c", sources)
 
     def test_cl32_keeps_both_display_backends_in_writerdeck(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages

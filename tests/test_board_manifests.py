@@ -224,17 +224,19 @@ class BoardManifestTest(unittest.TestCase):
                 validate_board(board, self.drivers)
             device["bindings"][key] = original
 
-    def test_solar_writer_preserves_wiring_and_reserves_jack_detect(self) -> None:
+    def test_solar_writer_v01_hardware_and_pin_ownership(self) -> None:
         board = load_board_manifest(self.manifest_dir / "solar_writer.toml", self.manifest_dir)
         validate_board(board, self.drivers)
         self.assertEqual(board["board"]["name"], "SolarWriter")
         self.assertEqual(board["target"]["platformio_board"], "solar_writer")
         devices = {device["name"]: device for device in board["devices"]}
         self.assertEqual(devices["display0"]["bindings"]["startup-pulse"], 1)
+        self.assertEqual(devices["audio0"]["driver"], "ics43432")
         self.assertEqual(devices["audio0"]["bindings"],
-                         {"i2s": 1, "bck": 14, "ws": 15, "din": 17, "dout": 16, "slot": 1})
-        self.assertEqual(devices["battery0"]["bindings"]["addr"], 0x0b)
-        self.assertEqual(devices["battery0"]["bindings"]["capacity"], 3000)
+                         {"i2s": 1, "bck": 14, "ws": 15, "din": 17, "dout": 16,
+                          "slot": 1, "power": 21})
+        self.assertEqual(devices["battery0"]["driver"], "max17048")
+        self.assertEqual(devices["battery0"]["bindings"], {"i2c": "i2c0", "addr": 0x36})
         self.assertEqual(devices["rtc0"]["driver"], "ds3231")
         self.assertEqual(devices["rtc0"]["bindings"], {"i2c": "i2c0", "addr": 0x68})
         self.assertEqual({"display0", "storage0", "audio0", "battery0", "rtc0"}, set(devices))
@@ -243,7 +245,7 @@ class BoardManifestTest(unittest.TestCase):
         bus = next(bus for bus in board["buses"] if bus["name"] == "i2c0")
         self.assertEqual((bus["sda"], bus["scl"], bus["speed_hz"]), (8, 9, 100000))
         for pin in board["pins"]:
-            if pin["gpio"] in (8, 9, 14, 15, 16, 17, 21):
+            if pin["gpio"] in (8, 9, 14, 15, 16, 17, 18, 19, 20, 21, 38):
                 self.assertEqual(pin["policy"], "fixed")
                 self.assertFalse(pin.get("user", False))
                 self.assertFalse(pin.get("pwm", False))
@@ -251,10 +253,11 @@ class BoardManifestTest(unittest.TestCase):
         self.assertEqual([pin["label"] for pin in power], ["3V3"] * 4)
         header = generate_header(board, self.drivers)
         self.assertIn("SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH 3000U", header)
-        self.assertIn("SOLAR_OS_BOARD_PIN_AUDIO_JACK_DETECT GPIO_NUM_21", header)
-        self.assertIn("SOLAR_OS_BOARD_USER_GPIO_LIST \"18 19 20 38\"", header)
+        self.assertNotIn("SOLAR_OS_BOARD_PIN_AUDIO_JACK_DETECT", header)
+        self.assertIn('SOLAR_OS_BOARD_USER_GPIO_LIST ""', header)
         self.assertIn("expansion_inmp441", required_packages(board, self.drivers))
-        self.assertIn("lc709203f", required_packages(board, self.drivers))
+        self.assertIn("max17048", required_packages(board, self.drivers))
+        self.assertNotIn("lc709203f", required_packages(board, self.drivers))
         self.assertIn("driver_ds3231", required_packages(board, self.drivers))
         self.assertIn('.driver = "ds3231", .name = "rtc0"', header)
         cmake = generate_cmake(board, self.drivers)
