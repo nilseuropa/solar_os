@@ -31,6 +31,21 @@ static const solar_os_expansion_binding_spec_t specs[] = {
      .has_value_range = true,
      .min_value = 0,
      .max_value = 1},
+    {.key = "power",
+     .value_hint = "gpio",
+     .kind = SOLAR_OS_EXPANSION_BINDING_GPIO,
+     .role = "power"},
+};
+
+const solar_os_expansion_driver_t solar_os_ics43432_expansion_driver = {
+    .name = "ics43432",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_AUDIO,
+    .summary = "ICS-43432 microphone with optional I2S playback",
+    .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_I2S,
+    .binding_specs = specs,
+    .binding_spec_count = sizeof(specs) / sizeof(specs[0]),
+    .attach = solar_os_ics43432_attach,
+    .detach = solar_os_inmp441_detach,
 };
 
 const solar_os_expansion_driver_t solar_os_inmp441_expansion_driver = {

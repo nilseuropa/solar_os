@@ -768,7 +768,7 @@ category = "Expansion hardware"
 members = ["expansion_audio_pdm"]
 
 [groups.inmp441]
-label = "INMP441 microphone and shared I2S playback"
+label = "INMP441 / ICS-43432 microphone and shared I2S playback"
 category = "Expansion hardware"
 members = ["expansion_inmp441"]
 
@@ -2524,7 +2524,7 @@ capabilities = ["expansion_i2s"]
 [packages.expansion_inmp441]
 label = "expansion.inmp441"
 targets = ["esp32", "esp32s3"]
-expansion_drivers = ["solar_os_inmp441_expansion_driver"]
+expansion_drivers = ["solar_os_inmp441_expansion_driver", "solar_os_ics43432_expansion_driver"]
 depends = ["service_audio", "service_expansion"]
 sources = [
   "drivers/inmp441.c",

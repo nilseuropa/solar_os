@@ -333,7 +333,8 @@ built-in display controller at startup and are excluded from this list.
 | `audio-pdm` | PDM microphone input on ESP32-S3 | `i2s=i2s0 clk=<pin> din=<pin>`; optional `power=<pin> slot=0\|1` | Registers `<name>.capture` as exclusive 16 kHz, signed 16-bit mono PCM. Power and DMA are enabled on stream open and released on close; slot 0 selects the left microphone channel. Sticky binds `mic0`. |
 | `esp32-camera` | DVP JPEG camera | `d0=<pin>` through `d7=<pin>`, `vsync=<pin> href=<pin> pclk=<pin> xclk=<pin>`; either `i2c=<bus>` or `siod=<pin> sioc=<pin>`; optional `pwdn=<pin> reset=<pin>` | ESP32-S3 with PSRAM; claims GPIOs and the single DVP capture peripheral. Named SCCB buses can be shared with other devices; direct-pin SCCB reserves the configured I2C controller. Registers the device name as an exclusive typed video source. Capture starts only on use. Busy owners or frames prevent detach. |
 | `pcm1808` | PCM1808 four-wire I2S ADC | `mclk=<pin> bck=<pin> ws=<pin> dout=<pin>` | Requires `expansion_i2s`, claims four GPIOs and a runtime I2S controller, then registers a 16 kHz stereo capture device and stream. One instance can be attached. |
-| `inmp441` | Three-wire I2S microphone, optional shared playback | `i2s=<port> bck=<pin> ws=<pin> din=<pin>`; optional `slot=0\|1 dout=<pin>` | Registers mono 16 kHz capture. With `dout`, also registers stereo playback on the same clocks and controller. One instance can be attached. |
+| `inmp441` | INMP441 I2S microphone, optional shared playback | `i2s=<port> bck=<pin> ws=<pin> din=<pin>`; optional `slot=0\|1 dout=<pin> power=<pin>` | Registers mono 16 kHz capture. With `dout`, also registers stereo playback on the same clocks and controller. Optional active-high power is sequenced around both streams. Shares one instance with `ics43432`. |
+| `ics43432` | ICS-43432 I2S microphone, optional shared playback | Same bindings as `inmp441` | Uses the shared 32-bit Philips-I2S transport, right or left capture slot, and optional DAC/amp power switching. Included in the `inmp441` package group. |
 | `es7210` | ES7210 I2S microphone array | `i2c=<bus> i2s=<port> mclk=<pin> bck=<pin> ws=<pin> din=<pin>` | Requires I2C and `expansion_i2s`, claims its bindings, then registers a 16 kHz stereo capture device and stream with microphone-gain control. One instance can be attached. |
 | `pcm5102` | PCM5102A three-wire I2S DAC | `i2s=<port> bck=<pin> din=<pin> rck=<pin>` | Requires `expansion_i2s`, claims the selected runtime I2S controller and three GPIOs, then registers a 16 kHz stereo playback device and stream. One instance can be attached. |
 | `i2s-output` | Generic I2S DAC or speaker amplifier | `i2s=<port> bck=<pin> din=<pin> rck=<pin>` | Claims the selected runtime I2S controller and registers the same 16 kHz stereo playback device and stream for an integrated or external Philips-I2S receiver without assuming a specific DAC. |
@@ -489,7 +490,7 @@ wire is required. Detach removes the provider but leaves the gauge operating
 so battery tracking continues. Select the `lc709203f` firmware group on boards
 with expansion I2C.
 
-### INMP441 I2S microphone
+### INMP441 and ICS-43432 I2S microphones
 
 Power the microphone from 3.3 V, connect its SCK/WS/SD to `bck`/`ws`/`din`,
 and tie L/R to ground or 3.3 V. It needs no MCLK or I2C connection.
@@ -497,6 +498,8 @@ and tie L/R to ground or 3.3 V. It needs no MCLK or I2C connection.
 The default is 0. The driver reads 24-bit microphone data in 32-bit Philips-I2S
 slots and exports its most significant 16 bits as mono PCM at 16 kHz.
 Startup samples are discarded before capture opens.
+Use driver `ics43432` for ICS-43432 hardware with the same bindings. For that
+microphone, tie CONFIG to GND and LR low for slot 0 or high for slot 1.
 
 ```text
 expansion attach inmp441 mic0 i2s=i2s1 bck=gpio14 ws=gpio15 din=gpio17 slot=1
@@ -521,6 +524,13 @@ Detach an existing `pcm5102`/`i2s-output` attachment before attaching this
 combined configuration. The clocks, pins, and I2S controller have one owner.
 Close both capture and playback streams before detaching. Select the
 `inmp441` firmware group on boards with `expansion_i2s`.
+
+Both drivers accept optional `power=<gpio>` for an active-high DAC/amplifier
+power switch. The driver enables power and waits 20 ms before starting I2S.
+Power stays on while either stream is open, including capture-only use of
+shared clocks. On final close, it stops I2S and drives BCK, WS, and DOUT low
+before disabling power. Keep the microphone powered from an always-on supply
+when its clocks are shared with the switched outputs.
 
 ### PCM1808 I2S audio input
 
