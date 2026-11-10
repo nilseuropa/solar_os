@@ -2,18 +2,23 @@
 
 ## Unreleased
 
-- Player, WebRadio, VPlay, and RTSP remember their own playback volume,
-  independently of global volume. Player and WebRadio also restore their
-  last visualization. Changed settings are saved when the app exits.
-
-- Media players share M3U/M3U8 playlists, with migration of saved Player and
-  WebRadio lists. VPlay and RTSP have persistent playlists, Tab navigation,
-  and common transport controls. RTSP supports local live pause, and WebRadio
-  advances after finite MP3 playback. VPlay and RTSP open their playlist UI
-  without arguments and support adding and removing entries in the app.
-
 ## 4.x
 
+- **4.17.9** — 2026-11-10 — Expanded USB host support to ESP32-S3 targets
+  with accessible native USB data lines. Added one FAT12/16/32 USB flash or
+  UFI/CBI floppy drive at `/usb0`, with automatic mounting, removable-media
+  detection, and safe unmounting. Shell path completion now includes mounted
+  volume roots such as `/usb0/`. External 5 V peripheral power is required.
+  Player, WebRadio, VPlay, and RTSP now share M3U/M3U8 playlists; existing Player
+  and WebRadio lists migrate automatically. VPlay and RTSP add saved playlists,
+  in-app entry management, and Tab navigation; launching either without arguments
+  opens its playlist. RTSP adds local live pause, and WebRadio advances after
+  finite MP3 playback. All four players save their own volume on exit; Player
+  and WebRadio also restore their visualization. Added reusable ICS-43432 audio
+  expansion support and updated SolarWriter for its v0.1 I/O board, including
+  microphone, shared line/speaker output, battery gauge, RTC, and audio power
+  enabled by default. Writerdeck now omits the screen keyboard, Bridge/DAQ,
+  IRC, legacy gateway services, and speech synthesis. Refreshed the user manuals.
 - **4.17.8** — 2026-11-08 — Added GPIO matrix keyboard and GC9A01 SPI
   display expansion support. Added runtime USB host mode for keyboards,
   relative mice and standard HID joysticks/gamepads on SolarTerm and ESP32-S3

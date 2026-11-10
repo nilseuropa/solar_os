@@ -403,7 +403,7 @@ UTF-8, XML comments, processing instructions and predefined/numeric entities.
 DTD and external entities are unsupported. Floating, planar and mimic joints
 are explicitly unsupported. The model uses float transform math and has no
 dependency on ROS libraries. Native API details are in the
-[robot library README](../../modules/robot/README.md).
+[robot library README](https://github.com/nilseuropa/solar_os/blob/main/modules/robot/README.md).
 
 ## Quick reference
 

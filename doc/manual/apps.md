@@ -1863,11 +1863,10 @@ writer [file.md]
 
 Without a path, Writer opens an untitled document and asks for a path on the
 first save. Existing files larger than 256 KiB are rejected without changing
-them. Saves use a synced same-directory staging file, backup rename, verified
-replacement, and rollback. Cursor, scroll anchor, and zoom metadata plus idle
-recovery snapshots live centrally under `/.writer` or the active persistent
-storage root. Writer offers a differing recovery snapshot when the document is
-opened again. Recovery uses `R` to recover, `D` to discard the snapshot, or `C`
+them. If saving fails, Writer preserves the previous saved file. Cursor
+position, zoom, and recovery snapshots are stored under `.writer` on the active
+persistent storage root. Writer offers a differing recovery snapshot when the
+document is opened again. Recovery uses `R` to recover, `D` to discard the snapshot, or `C`
 to cancel; the unsaved-changes dialog similarly uses `S`, `D`, and `C`.
 
 Controls:

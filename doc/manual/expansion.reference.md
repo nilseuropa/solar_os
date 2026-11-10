@@ -1031,8 +1031,7 @@ FSK-family and OOK packet payloads are limited to 64 bytes by the modem FIFO;
 LoRa payloads may contain up to 255 bytes. Fixed length zero selects the
 FSK/OOK unlimited FIFO-stream mode used by services such as POCSAG.
 
-The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
-binding can still be reserved for future interrupt-driven operation.
+The driver polls the radio status registers, so DIO0/IRQ wiring is optional.
 
 ### SSD1306 or SH1106 on SolarTerm
 

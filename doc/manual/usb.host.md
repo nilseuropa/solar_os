@@ -4,7 +4,7 @@ title = "USB host"
 section = "hardware"
 summary = "Use USB input devices and one FAT flash or UFI/CBI floppy drive through the ESP32-S3 internal PHY"
 aliases = ["usb-host"]
-keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive fat usb0"
+keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
 packages_any = ["service_usb_host", "service_usb_storage"]
 +++
 # USB host
@@ -55,8 +55,9 @@ ground to a suitable USB host connector. The following target profiles enable
 
 USB–UART consoles remain available during hosting. On the SIM7670G board,
 set the hardware switches so the native data pair is isolated from the
-onboard hub, modem, and PC before connecting a peripheral directly. This HID
-service does not provide USB modem support.
+onboard hub, modem, and PC before connecting a peripheral directly. USB host
+mode supports the HID and storage devices described here; it does not provide
+USB modem support.
 
 On CrowPanel, GPIO19/20 remain general expansion pins outside host mode.
 Release any GPIO, ADC, PWM, or bus owner before enabling hosting. The host
@@ -117,6 +118,13 @@ request prevents the interface from being marked ready after fallback. Devices t
 reject the optional protocol check or idle setup can still receive input;
 their protocol is shown as unverified when it could not be read back.
 
+With USB storage included, `usb status` and `usb devices` also show the drive's
+VID:PID, capacity, mount state, open-file count, transport, and write protection.
+An empty floppy drive appears as `no disk`; use `disk lsblk` to inspect mounted
+USB storage and `ls /usb0` to browse its files.
+
+## Keyboards and mice
+
 Keyboards supply physical HID usages, modifiers, press/release events, and
 normal SolarOS key repeat. Use `setterm keyboard us` or `de` for text layout.
 Mice supply relative movement and the primary, secondary, and middle buttons.
@@ -175,7 +183,9 @@ as XInput, force feedback, and controller LEDs require separate drivers.
 Host mode holds the APB clock and prevents automatic CPU light sleep. Display
 suspend keeps USB active, so keyboard input can resume the display. Explicit
 sleep stops hosting and releases its input before sleeping, then re-enumerates
-devices on wake or cancelled sleep. USB is not an explicit-sleep wake source.
+devices on wake or cancelled sleep. Close files on `/usb0` and unmount disk
+images backed by USB files first: open files prevent mode changes and explicit
+sleep. USB is not an explicit-sleep wake source.
 The external peripheral supply remains under hardware control.
 
 Switching to device mode disables the USB root port, drains HID disconnects,
@@ -184,15 +194,16 @@ On UART-only boards, device mode leaves the native USB host idle.
 A failed host startup
 attempts to restore device mode. A failed cleanup retains USB ownership and
 reports `fault`; retry `usb mode device`. Restarting also returns to device
-mode. USB tasks, queues, peripheral buffers, and power locks are created on
-demand and released when hosting stops.
+mode.
 
 ## Quick reference
 
-`usb status` shows the current mode and errors. `usb devices` lists supported
-keyboard, mouse, and joystick interfaces. Arrange external 5 V peripheral power and host
-wiring on GPIO19/20, then run `usb mode host` from a display, UART, or network
-shell. Release any `cdc0` or GPIO19/20 owner first. Use `usb mode device` to
-stop hosting and restore native CDC/JTAG where available, or retry recovery.
-Sources appear as `usb-kbdN`, `usb-mouseN`, and
-`usb-joyN` in `input sources`. Every reboot starts in device mode.
+Arrange external 5 V peripheral power and host wiring on GPIO19/20, then run
+`usb mode host` from a display, UART, or network shell. Release any `cdc0` or
+GPIO19/20 owner first. `usb status` shows the mode and errors; `usb devices`
+lists supported input interfaces and, with `service.usb-storage`, one connected
+FAT USB flash or UFI/CBI floppy drive. Input sources appear as `usb-kbdN`,
+`usb-mouseN`, and `usb-joyN`; storage mounts at `/usb0` and appears in
+`disk lsblk`. Close USB files and run `disk umount usb0` before unplugging.
+Use `usb mode device` to stop hosting and restore native CDC/JTAG where
+available, or retry recovery. Every reboot starts in device mode.

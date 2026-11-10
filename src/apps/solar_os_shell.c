@@ -6170,6 +6170,47 @@ static bool shell_path_entry_matches(const char *name, const char *prefix, bool 
     return starts_with(name, prefix);
 }
 
+static bool shell_path_completion_mount_entry(const shell_path_completion_work_t *work,
+                                               size_t index,
+                                               solar_os_storage_mount_info_t *mount)
+{
+    return strcmp(work->base_arg, "/") == 0 &&
+           solar_os_storage_get_mount(index, mount) &&
+           mount->mount_point[0] == '/' && mount->mount_point[1] != '\0' &&
+           strchr(mount->mount_point + 1, '/') == NULL;
+}
+
+static bool shell_path_completion_is_mount(const shell_path_completion_work_t *work,
+                                            const char *name)
+{
+    if (strcmp(work->base_arg, "/") != 0) {
+        return false;
+    }
+    solar_os_storage_mount_info_t mount;
+    for (size_t i = 0; i < solar_os_storage_mount_count(); i++) {
+        if (shell_path_completion_mount_entry(work, i, &mount) &&
+            strcmp(mount.mount_point + 1, name) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void shell_path_completion_add_match(shell_path_completion_work_t *work,
+                                             const char *name,
+                                             bool is_dir,
+                                             size_t *count,
+                                             bool *match_is_dir)
+{
+    if (++*count == 1) {
+        strlcpy(work->match_name, name, sizeof(work->match_name));
+        strlcpy(work->common_prefix, name, sizeof(work->common_prefix));
+        *match_is_dir = is_dir;
+    } else {
+        shell_update_common_prefix(work->common_prefix, sizeof(work->common_prefix), name);
+    }
+}
+
 static void shell_print_path_matches(solar_os_context_t *ctx,
                                      const shell_path_completion_work_t *work,
                                      const char *prefix,
@@ -6178,14 +6219,12 @@ static void shell_print_path_matches(solar_os_context_t *ctx,
 {
     solar_os_shell_io_t *io = shell_io(ctx);
     DIR *dir = opendir(work->dir_path);
-    if (dir == NULL) {
-        return;
-    }
 
     solar_os_shell_io_newline(io);
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (!shell_path_entry_matches(entry->d_name, prefix, prefix_has_wildcards)) {
+    while (dir != NULL && (entry = readdir(dir)) != NULL) {
+        if (!shell_path_entry_matches(entry->d_name, prefix, prefix_has_wildcards) ||
+            shell_path_completion_is_mount(work, entry->d_name)) {
             continue;
         }
 
@@ -6196,7 +6235,17 @@ static void shell_print_path_matches(solar_os_context_t *ctx,
 
         shell_print_path_match(io, work->dir_path, entry->d_name);
     }
-    closedir(dir);
+    if (dir != NULL) {
+        closedir(dir);
+    }
+    solar_os_storage_mount_info_t mount;
+    for (size_t i = 0; i < solar_os_storage_mount_count(); i++) {
+        if (shell_path_completion_mount_entry(work, i, &mount) &&
+            shell_path_entry_matches(mount.mount_point + 1, prefix, prefix_has_wildcards)) {
+            solar_os_shell_io_write(io, mount.mount_point + 1);
+            solar_os_shell_io_write(io, "/\n");
+        }
+    }
 
     shell_prompt(ctx);
     shell_replace_input(ctx, work->original);
@@ -6247,21 +6296,19 @@ static void shell_complete_path(solar_os_context_t *ctx,
         work->base_arg[0] = '\0';
     }
 
-    if (resolve_path(ctx, dir_to_resolve, work->dir_path, sizeof(work->dir_path)) != ESP_OK) {
+    if (resolve_path(ctx, dir_to_resolve, work->dir_path, sizeof(work->dir_path)) != ESP_OK &&
+        strcmp(work->base_arg, "/") != 0) {
         solar_os_memory_free(work);
         return;
     }
 
     DIR *dir = opendir(work->dir_path);
-    if (dir == NULL) {
-        solar_os_memory_free(work);
-        return;
-    }
 
     const bool prefix_has_wildcards = shell_arg_has_wildcards(prefix);
     struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (!shell_path_entry_matches(entry->d_name, prefix, prefix_has_wildcards)) {
+    while (dir != NULL && (entry = readdir(dir)) != NULL) {
+        if (!shell_path_entry_matches(entry->d_name, prefix, prefix_has_wildcards) ||
+            shell_path_completion_is_mount(work, entry->d_name)) {
             continue;
         }
 
@@ -6270,19 +6317,20 @@ static void shell_complete_path(solar_os_context_t *ctx,
             continue;
         }
 
-        match_count++;
-        if (match_count == 1) {
-            strlcpy(work->match_name, entry->d_name, sizeof(work->match_name));
-            strlcpy(work->common_prefix, entry->d_name, sizeof(work->common_prefix));
-            match_is_dir = entry_is_dir;
-        } else {
-            shell_update_common_prefix(work->common_prefix,
-                                       sizeof(work->common_prefix),
-                                       entry->d_name);
+        shell_path_completion_add_match(work, entry->d_name, entry_is_dir,
+                                         &match_count, &match_is_dir);
+    }
+    if (dir != NULL) {
+        closedir(dir);
+    }
+    solar_os_storage_mount_info_t mount;
+    for (size_t i = 0; i < solar_os_storage_mount_count(); i++) {
+        if (shell_path_completion_mount_entry(work, i, &mount) &&
+            shell_path_entry_matches(mount.mount_point + 1, prefix, prefix_has_wildcards)) {
+            shell_path_completion_add_match(work, mount.mount_point + 1, true,
+                                             &match_count, &match_is_dir);
         }
     }
-
-    closedir(dir);
 
     if (match_count == 0) {
         solar_os_memory_free(work);

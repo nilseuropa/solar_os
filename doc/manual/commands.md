@@ -16,9 +16,8 @@ the running image.
 
 ## Shell Conventions
 
-Tables fit the current shell width on display and port shells. Long rows are
-clipped at the right edge; trailing values or columns can be omitted. Widen the
-terminal to see more columns. One cell is reserved to prevent automatic wrapping.
+Tables fit the terminal width on display and port shells. Wide rows may be
+clipped; widen a port terminal to see missing columns.
 
 Paths are resolved relative to the current shell directory. The default storage
 volume is presented as `/`. On SD-backed boards, the primary SD card volume also
@@ -1288,7 +1287,7 @@ available for the compiled board.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `usb` | `usb [status\|devices\|mode <device\|host>]` | See [USB](usb.host.md). |
+| `usb` | `usb [status\|devices\|mode <device\|host>]` | Switch USB mode or inspect devices. See [USB host](usb.host.md). |
 | `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |

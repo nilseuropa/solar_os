@@ -342,7 +342,7 @@ The current capability flags are:
 | `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
 | `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
 | `CDC` | USB Serial/JTAG CDC byte-stream port `cdc0`. The dormant TinyUSB composite driver can add keyboard, mouse, and gamepad HID reports when explicitly enabled. |
-| `USB_HOST` | USB HID keyboard, mouse, and joystick hosting through the ESP32-S3 internal PHY. Enabled on targets with accessible native D−/D+ signals on GPIO19/20. Native CDC is optional and is stopped while hosting; USB–UART consoles remain available. Arrange suitable 5 V peripheral power. See [USB host input](usb.host.md) for target access points and exclusions. |
+| `USB_HOST` | USB keyboard, mouse, joystick, and storage hosting through the ESP32-S3 internal PHY. Storage requires `service.usb-storage` and supports one FAT flash or UFI/CBI floppy drive at `/usb0`. Enabled on targets with accessible native D−/D+ signals on GPIO19/20. Native CDC stops while hosting; USB–UART consoles remain available. Arrange suitable 5 V peripheral power. See [USB host](usb.host.md) for wiring and exclusions. |
 | `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
 | `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |
@@ -900,7 +900,7 @@ network shell to switch modes. The USB-C port is wired as a power sink and
 does not supply 5 V to peripherals, including when running on battery. Host
 operation requires a suitable externally powered data adapter with regulated
 5 V peripheral power and common ground; a passive USB-C adapter alone is
-insufficient. See [USB host input](usb.host.md) for wiring and commands.
+insufficient. See [USB host](usb.host.md) for wiring and commands.
 
 Build the target with:
 
@@ -979,7 +979,7 @@ claim native USB Serial/JTAG CDC. USB host input uses GPIO19 D− and GPIO20 D+
 on U5 with an external connector and regulated 5 V peripheral power; the
 USB–UART console remains available. These pins remain general expansion GPIOs
 outside host mode and must be released before running `usb mode host`.
-See [USB host input](usb.host.md). The BAT connector supplies the board but the
+See [USB host](usb.host.md). The BAT connector supplies the board but the
 published schematic does not provide a battery-voltage ADC path, so the target
 does not advertise the `BATTERY` capability.
 
@@ -1286,7 +1286,7 @@ GPIO18 stays low and peripherals require suitable external 5 V power. The
 USB connector shares the enabled 5 V boost with the speaker; GPIO18 controls
 its VBUS switch independently of audio. Qwiic shares `i2c0`; this
 assembled board exposes no unallocated runtime-safe GPIOs on U5. See
-[USB host input](usb.host.md) for connections and mode switching.
+[USB host](usb.host.md) for connections and mode switching.
 
 Build with `pio run -e solar_writer`. The target uses the same 8 MB OTA and
 serial partition layouts as the base CrowPanel.

@@ -105,6 +105,8 @@ replacement disk. An explicitly unmounted disk stays unmounted until
 File commands and scripts use ordinary `/usb0/...` paths. Check `usb status`
 for connection, mount, open-handle, and error information. See `help usb.host`
 for native USB wiring, external 5 V power, and USB console restrictions.
+Shell Tab completion includes the mounted `/usb0/` root, its directories, and
+filenames. Paths containing spaces are quoted automatically.
 
 ## Disk images
 
