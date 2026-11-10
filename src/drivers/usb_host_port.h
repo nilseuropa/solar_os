@@ -42,6 +42,8 @@ typedef esp_err_t (*usb_host_port_callback_t)(usb_host_port_event_t event,
     const usb_host_port_interface_t *interface, const uint8_t *data, size_t length);
 
 esp_err_t usb_host_port_start(usb_host_port_callback_t callback);
+/* Enable enumeration only after all host class drivers are installed. */
+esp_err_t usb_host_port_enable(void);
 esp_err_t usb_host_port_stop(void);
 bool usb_host_port_is_active(void);
 size_t usb_host_port_interfaces(usb_host_port_interface_t *interfaces, size_t capacity);

@@ -13,6 +13,10 @@
 #include "solar_os_resources.h"
 #include "solar_os_sync_dynamic.h"
 #include "solar_os_usb_hid_input.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+#include "solar_os_usb_storage.h"
+#endif
 
 #define USB_OWNER "usb-host"
 
@@ -146,6 +150,10 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
 {
     if (mode == current_mode && mode == SOLAR_OS_USB_MODE_HOST) return ESP_OK;
     if (mode == SOLAR_OS_USB_MODE_DEVICE) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+        esp_err_t storage_ret = solar_os_usb_storage_stop();
+        if (storage_ret != ESP_OK) return storage_ret;
+#endif
         esp_err_t ret = usb_host_port_stop();
         if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
         ret = set_cdc_enabled(true);
@@ -166,7 +174,15 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
     ret = set_cdc_enabled(false);
     if (ret != ESP_OK) { release_resources(); return ret; }
     ret = usb_host_port_start(input_event);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (ret == ESP_OK) ret = solar_os_usb_storage_start();
+#endif
+    if (ret == ESP_OK) ret = usb_host_port_enable();
     if (ret == ESP_OK) { current_mode = SOLAR_OS_USB_MODE_HOST; return ESP_OK; }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    rollback_error = solar_os_usb_storage_stop();
+    if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
+#endif
     rollback_error = usb_host_port_stop();
     if (rollback_error == ESP_OK) {
         rollback_error = set_cdc_enabled(true);
@@ -214,6 +230,10 @@ esp_err_t solar_os_usb_prepare_sleep(void)
     esp_err_t ret = ESP_OK;
     if (current_mode == SOLAR_OS_USB_MODE_FAULT) ret = ESP_ERR_INVALID_STATE;
     else if (!sleep_prepared && current_mode != SOLAR_OS_USB_MODE_DEVICE) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+        ret = solar_os_usb_storage_stop();
+        if (ret != ESP_OK) { last_error = ret; xSemaphoreGive(mode_mutex); return ret; }
+#endif
         ret = usb_host_port_stop();
         if (ret == ESP_OK) {
             current_mode = SOLAR_OS_USB_MODE_SUSPENDED;

@@ -356,12 +356,18 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t callback)
         ret = ESP_ERR_NO_MEM;
         goto fail;
     }
-    ret = usb_host_lib_set_root_port_power(true);
-    if (ret != ESP_OK) goto fail;
-    root_powered = true;
     return ESP_OK;
 fail:
     (void)usb_host_port_stop();
+    return ret;
+}
+
+esp_err_t usb_host_port_enable(void)
+{
+    if (!host_installed) return ESP_ERR_INVALID_STATE;
+    if (root_powered) return ESP_OK;
+    esp_err_t ret = usb_host_lib_set_root_port_power(true);
+    if (ret == ESP_OK) root_powered = true;
     return ret;
 }
 

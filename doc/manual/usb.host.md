@@ -1,13 +1,13 @@
 +++
 id = "usb.host"
-title = "USB host input"
+title = "USB host"
 section = "hardware"
-summary = "Use USB keyboards, mice, and HID joysticks through the ESP32-S3 internal PHY"
+summary = "Use USB input devices and one FAT flash or UFI/CBI floppy drive through the ESP32-S3 internal PHY"
 aliases = ["usb-host"]
-keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power"
-packages_any = ["service_usb_host"]
+keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive fat usb0"
+packages_any = ["service_usb_host", "service_usb_storage"]
 +++
-# USB host input
+# USB host
 
 ESP32-S3 targets with accessible native USB D−/D+ signals support explicit
 runtime USB mode switching when `service.usb-host` is compiled. Access may be
@@ -18,6 +18,20 @@ Every boot starts in device mode. Boards with native CDC expose their
 CDC/Serial-JTAG port in this mode; boards with only a UART console leave the
 native USB host idle. The selected mode is volatile and is not saved across
 a restart. Native CDC support is not required for hosting.
+
+## USB storage
+
+With `service.usb-storage`, a single directly connected BOT/SCSI USB flash
+drive mounts at `/usb0` after `usb mode host`. UFI/CBI USB floppy drives
+(subclass `04h`, protocol `00h`) are supported as well. FAT12, FAT16, and FAT32 are
+supported; exFAT and NTFS are not. Use `usb devices` and `disk lsblk` to inspect
+the drive. Close files, then run `disk umount usb0` before unplugging it.
+Use `disk mount usb0` to remount a drive that is still connected. USB media is
+never automatically formatted. Empty floppy drives report `no disk`, and a
+write-protected disk is shown as such in `usb status`. See `help storage` for
+disk insertion, removal, and sleep behavior.
+If a drive stops responding, close its files and run `usb mode device` followed
+by `usb mode host` to reconnect it.
 
 ## Connect hardware
 

@@ -15,6 +15,18 @@ static esp_err_t start_error, stop_error, cdc_error;
 static unsigned starts;
 static usb_host_port_callback_t callback;
 static solar_os_usb_hid_input_t *opened_input;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+static bool storage_active;
+static esp_err_t storage_start_error, storage_stop_error;
+esp_err_t solar_os_usb_storage_start(void)
+{ assert(active); storage_active = storage_start_error == ESP_OK; return storage_start_error; }
+esp_err_t solar_os_usb_storage_stop(void)
+{
+    if (storage_active && storage_stop_error != ESP_OK) return storage_stop_error;
+    storage_active = false;
+    return ESP_OK;
+}
+#endif
 
 esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name,
                               esp_pm_lock_handle_t *handle)
@@ -53,8 +65,19 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t cb)
 }
 esp_err_t usb_host_port_stop(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    assert(!storage_active);
+#endif
     if (stop_error != ESP_OK && active) return stop_error;
     active = false;
+    return ESP_OK;
+}
+esp_err_t usb_host_port_enable(void)
+{
+    assert(active);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    assert(storage_active);
+#endif
     return ESP_OK;
 }
 bool usb_host_port_is_active(void) { return active; }
@@ -159,6 +182,14 @@ int main(void)
     assert(callback(USB_HOST_PORT_CLOSE, &mouse, NULL, 0) == ESP_OK);
     status(SOLAR_OS_USB_MODE_HOST);
     unsigned previous_starts = starts;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    storage_stop_error = ESP_ERR_INVALID_STATE;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_usb_prepare_sleep() == ESP_ERR_INVALID_STATE);
+    assert(active && storage_active && !cdc_ready && pm_locks == 2);
+    assert(!status(SOLAR_OS_USB_MODE_HOST).sleep_prepared);
+    storage_stop_error = ESP_OK;
+#endif
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK && starts == previous_starts);
     stop_error = ESP_ERR_TIMEOUT;
     assert(solar_os_usb_prepare_sleep() == ESP_ERR_TIMEOUT);
@@ -186,6 +217,13 @@ int main(void)
         assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
         assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
     }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    storage_start_error = ESP_ERR_NO_MEM;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_DEVICE);
+    assert(!active && !storage_active && device_ready() && pm_locks == 0);
+    storage_start_error = ESP_OK;
+#endif
     assert(solar_os_usb_prepare_sleep() == ESP_OK);
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);
     assert(solar_os_usb_resume() == ESP_OK);

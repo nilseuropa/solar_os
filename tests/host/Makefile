@@ -16,6 +16,8 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test usb_service_no_cdc_test cdc_lifecycle_test
+TARGETS += usb_service_storage_test
+TARGETS += storage_usb_mounts_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -43,6 +45,11 @@ usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)
 usb_service_no_cdc_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
+usb_service_storage_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
 TARGETS += paged_array_test
@@ -830,8 +837,9 @@ gameboy_support_test: gameboy_support_test.c $(GAMEBOY_DIR)/solar_os_gameboy_rom
 		$(GAMEBOY_DIR)/solar_os_gameboy_video.c \
 		$(GAMEBOY_DIR)/apu.c -o $@
 
-storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h esp_log.h ff.h solar_os_board.h
+storage_mounts_test storage_usb_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h esp_log.h ff.h solar_os_board.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
+		$(if $(filter storage_usb_mounts_test,$@),-DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1,) \
 		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
 		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose,--wrap=rename -o $@
@@ -1412,12 +1420,14 @@ test: $(TARGETS)
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
+	./storage_usb_mounts_test
 	./json_scan_test
 	./keys_test
 	./input_test
 	./usb_hid_input_test
 	./usb_service_test
 	./usb_service_no_cdc_test
+	./usb_service_storage_test
 	./cdc_lifecycle_test
 	./touch_gesture_test
 	./unistroke_test

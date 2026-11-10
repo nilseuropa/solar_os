@@ -88,9 +88,11 @@ class FlavorPackagesTest(unittest.TestCase):
         _, supported = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"usb_host"})
         self.assertTrue(supported["service_usb_host"])
+        self.assertTrue(supported["service_usb_storage"])
         _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"cdc"})
         self.assertFalse(cdc_only["service_usb_host"])
+        self.assertFalse(cdc_only["service_usb_storage"])
 
     def test_usb_host_selection_for_all_board_profiles(self):
         from solaros_board_manifest import load_board_manifest
@@ -111,6 +113,7 @@ class FlavorPackagesTest(unittest.TestCase):
                 _, selected = generate_flavor_config.apply_board_capability_pruning(
                     self.catalog, groups, selected, set(board["build"]["capabilities"]))
                 self.assertEqual(selected["service_usb_host"], eligible)
+                self.assertEqual(selected["service_usb_storage"], eligible)
                 if eligible:
                     pins = {pin["gpio"]: pin for pin in board["pins"]}
                     for pin in (19, 20):
