@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stop the ESP32-S3 camera output clock after camera shutdown and failed
+  initialization, preventing the sensor from continuing to stream while idle.
+  Use weak camera-clock drive on GOOUUU ESP32-S3CAM to keep Wi-Fi responsive
+  during video capture without reducing the 20 MHz sensor clock.
+
 ## 4.x
 
 - **4.17.9** — 2026-11-10 — Expanded USB host support to ESP32-S3 targets

@@ -1311,7 +1311,7 @@ available for the compiled board.
 | `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error. |
 | `camera` | `camera capture <path> [qvga\|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
 | `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set sensor orientation: normal, horizontal mirror, vertical flip, or 180° rotation (both). Changes apply to future frames, including active RTSP/web streams, and survive camera stop/start and size changes until reboot or camera detach. No setting is saved. The JPEG path does not support 90°/270° rotation. |
-| `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. |
+| `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. On ESP32-S3, disconnect the sensor clock and hold it low. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
 | `expansion` | `expansion status` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
 | `expansion` | `expansion layout [connector]` | Draw the board's physical connector map with live free, releasable, claimed, fixed, power, ground, and NC markers. |

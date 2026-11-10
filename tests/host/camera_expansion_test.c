@@ -3,9 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "sdkconfig.h"
+#include "driver/gpio.h"
 #include "esp_camera.h"
 #include "i2c_bus.h"
 #include "solar_os_buses.h"
+#include "solar_os_board.h"
 #include "solar_os_camera_esp32.h"
 #include "solar_os_camera.h"
 #include "solar_os_camera_stream.h"
@@ -32,6 +35,68 @@ static unsigned bus_lookups, bus_locks;
 static bool bus_locked;
 static esp_err_t bus_result = ESP_OK;
 static bool fail_mirror, fail_flip;
+static bool xclk_routed, xclk_low, xclk_output;
+static int xclk_pin = -1, fail_xclk_step;
+static unsigned gpio_calls;
+static bool fail_drive;
+static gpio_drive_cap_t clock_drive = GPIO_DRIVE_CAP_DEFAULT;
+
+static gpio_drive_cap_t expected_clock_drive(void)
+{
+#ifdef SOLAR_OS_BOARD_CAMERA_XCLK_DRIVE
+    return SOLAR_OS_BOARD_CAMERA_XCLK_DRIVE;
+#else
+    return GPIO_DRIVE_CAP_DEFAULT;
+#endif
+}
+
+esp_err_t gpio_set_drive_capability(gpio_num_t pin, gpio_drive_cap_t drive)
+{
+    assert(CONFIG_IDF_TARGET_ESP32S3 && (pin == 15 || pin == 2));
+    assert(drive == expected_clock_drive());
+    gpio_calls++;
+    if (fail_drive) return ESP_FAIL;
+    xclk_pin = pin;
+    clock_drive = drive;
+    return ESP_OK;
+}
+
+esp_err_t gpio_reset_pin(gpio_num_t pin)
+{
+    assert(CONFIG_IDF_TARGET_ESP32S3 && pin == xclk_pin);
+    gpio_calls++;
+    if (fail_xclk_step == 1) return ESP_FAIL;
+    xclk_routed = false;
+    xclk_low = xclk_output = false;
+    return ESP_OK;
+}
+
+esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
+{
+    assert(CONFIG_IDF_TARGET_ESP32S3 && pin == xclk_pin && !xclk_routed && level == 0);
+    gpio_calls++;
+    if (fail_xclk_step == 2) return ESP_FAIL;
+    xclk_low = true;
+    return ESP_OK;
+}
+
+esp_err_t gpio_set_direction(gpio_num_t pin, gpio_mode_t mode)
+{
+    assert(CONFIG_IDF_TARGET_ESP32S3 && pin == xclk_pin && xclk_low && mode == GPIO_MODE_OUTPUT);
+    gpio_calls++;
+    if (fail_xclk_step == 3) return ESP_FAIL;
+    xclk_output = true;
+    return ESP_OK;
+}
+
+static void assert_xclk_stopped(void)
+{
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(!xclk_routed && xclk_low && xclk_output);
+#else
+    assert(!xclk_routed && gpio_calls == 0U);
+#endif
+}
 
 static int set_mirror(sensor_t *device, int enable)
 {
@@ -86,8 +151,15 @@ void solar_os_memory_free(void *ptr) { assert(allocations > 0U); allocations--; 
 esp_err_t esp_camera_init(const camera_config_t *config)
 {
     assert(bus_locked == (config->pin_sccb_sda == -1));
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert(clock_drive == expected_clock_drive());
+#endif
+    native = *config;
+    xclk_pin = config->pin_xclk;
+    xclk_routed = true;
+    xclk_low = xclk_output = false;
     if (fail_start) return ESP_ERR_NO_MEM;
-    native = *config; starts++;
+    starts++;
     active_sensor = &sensor;
     sensor.set_hmirror = set_mirror;
     sensor.set_vflip = set_flip;
@@ -97,7 +169,16 @@ esp_err_t esp_camera_init(const camera_config_t *config)
     return ESP_OK;
 }
 esp_err_t esp_camera_deinit(void)
-{ assert(bus_locked == (native.pin_sccb_sda == -1)); if (fail_stop) return ESP_FAIL; stops++; return ESP_OK; }
+{
+    assert(bus_locked == (native.pin_sccb_sda == -1));
+    if (fail_stop) return ESP_FAIL;
+    stops++;
+    /* S3 vendor teardown leaves the LCD_CAM output routed to the sensor. */
+#if !CONFIG_IDF_TARGET_ESP32S3
+    xclk_routed = false;
+#endif
+    return ESP_OK;
+}
 sensor_t *esp_camera_sensor_get(void) { return missing_sensor ? NULL : active_sensor; }
 bool esp_camera_get_psram_mode(void) { return psram_dma; }
 esp_err_t esp_camera_set_psram_mode(bool enable)
@@ -130,7 +211,8 @@ esp_err_t esp_camera_reconfigure(const camera_config_t *config)
 esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag,
                              const char *fmt, ...)
 { (void)level; (void)tag; (void)fmt; return ESP_OK; }
-camera_fb_t *esp_camera_fb_get(void) { return fail_capture ? NULL : &fb; }
+camera_fb_t *esp_camera_fb_get(void)
+{ assert(xclk_routed); return fail_capture ? NULL : &fb; }
 void esp_camera_fb_return(camera_fb_t *frame) { assert(frame == &fb); releases++; }
 
 static esp_err_t pending_open(void *user, const char *owner,
@@ -215,9 +297,20 @@ int main(void)
     options.requested_video.width = 800;
     assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_ERR_NOT_SUPPORTED);
     options.requested_video.width = 640;
+#if CONFIG_IDF_TARGET_ESP32S3
+    const unsigned before_drive_failure = starts;
+    fail_drive = true;
+    assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_FAIL);
+    assert(starts == before_drive_failure && !xclk_routed);
+    assert(solar_os_camera_get_status(&status) == ESP_OK && !status.owner_leased);
+    fail_drive = false;
+#endif
     fail_start = true;
     assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_ERR_NO_MEM);
     assert(solar_os_camera_get_status(&status) == ESP_OK && !status.owner_leased);
+#if CONFIG_IDF_TARGET_ESP32S3
+    assert_xclk_stopped();
+#endif
     fail_start = false;
     assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_OK);
     assert(native.pin_d0 == 11 && native.pin_d1 == 9 && native.pin_d2 == 8);
@@ -257,6 +350,26 @@ int main(void)
     assert(solar_os_stream_handle_valid(&handle));
     fail_stop = false;
     assert(solar_os_stream_close_ex(&handle) == ESP_OK && stops == 1U);
+    assert_xclk_stopped();
+
+#if CONFIG_IDF_TARGET_ESP32S3
+    /* A failed GPIO cleanup retains ownership. Retry must park the pin without
+     * deinitializing an already-destroyed vendor driver, then allow restart. */
+    for (int step = 1; step <= 3; step++) {
+        assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
+        assert(xclk_routed && !xclk_output);
+        const unsigned before = stops;
+        fail_xclk_step = step;
+        assert(solar_os_stream_close_ex(&handle) == ESP_FAIL);
+        assert(stops == before + 1U && solar_os_stream_handle_valid(&handle));
+        assert(solar_os_camera_get_status(&status) == ESP_OK && status.owner_leased);
+        assert(driver->detach("camera0") == ESP_ERR_INVALID_STATE);
+        fail_xclk_step = 0;
+        assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+        assert(stops == before + 1U);
+        assert_xclk_stopped();
+    }
+#endif
 
     /* Direct service users still hold the same exclusive owner token. */
     assert(solar_os_camera_acquire("cam-webd", &owner) == ESP_OK);
@@ -329,6 +442,15 @@ int main(void)
     assert(bus_lookups == 4U && bus_locks > 0U && !bus_locked);
     solar_os_resource_release_owner("i2c0");
 
+    /* A missing sensor after native initialization also shuts down XCLK. */
+    assert(driver->attach("camera0", pins, 16U) == ESP_OK);
+    missing_sensor = true;
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_INVALID_RESPONSE);
+    assert_xclk_stopped();
+    missing_sensor = false;
+    assert(driver->detach("camera0") == ESP_OK);
+    solar_os_resource_release_owner("camera0");
+
     /* OV5640 changes only DMA transport, preserves JPEG storage/configuration,
      * and publishes the sensor from the reinitialized driver. */
     sensor.id.PID = OV5640_PID;
@@ -337,12 +459,14 @@ int main(void)
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_NO_MEM);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.initialized && !status.owner_leased && !bus_locked);
+    assert_xclk_stopped();
     fail_mode = false;
     psram_dma = true;
     missing_after_mode = true;
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_INVALID_RESPONSE);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.initialized && !status.owner_leased && !bus_locked);
+    assert_xclk_stopped();
     missing_after_mode = missing_sensor = false;
     sensor.id.PID = OV5640_PID;
     psram_dma = true;
@@ -350,6 +474,7 @@ int main(void)
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_ERR_NO_MEM);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.initialized && !status.owner_leased && !bus_locked);
+    assert_xclk_stopped();
     fail_reconfigure = false;
     sensor.id.PID = OV5640_PID;
     psram_dma = true;
@@ -358,6 +483,7 @@ int main(void)
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_FAIL);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.initialized && !status.owner_leased);
+    assert_xclk_stopped();
     fail_flip = false;
     sensor.id.PID = OV5640_PID;
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
@@ -395,6 +521,17 @@ int main(void)
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(status.sensor.product_id == 0x26);
     assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+    assert(driver->detach("camera0") == ESP_OK);
+    solar_os_resource_release_owner("camera0");
+    assert(allocations == 0U && solar_os_resource_claim_count() == 0U);
+    assert_xclk_stopped();
+    /* Runtime-attached cameras park their own clock pin, not a board constant. */
+    pins[13].value = 2;
+    assert(driver->attach("camera0", pins, 16U) == ESP_OK);
+    assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
+    assert(native.pin_xclk == 2 && xclk_routed);
+    assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+    assert_xclk_stopped();
     assert(driver->detach("camera0") == ESP_OK);
     solar_os_resource_release_owner("camera0");
     assert(allocations == 0U && solar_os_resource_claim_count() == 0U);

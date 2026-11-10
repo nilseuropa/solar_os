@@ -1657,6 +1657,9 @@ Use a revision-specific board profile if one of those pins must be exposed.
 
 ## GOOUUU ESP32-S3CAM GPIO
 
+The camera uses weak XCLK output drive at 20 MHz to keep Wi-Fi responsive
+during capture. `camera off` disconnects that clock and holds it low.
+
 GPIO2, GPIO3, GPIO45 and GPIO46 are available for runtime GPIO and PWM. GPIO2
 and GPIO3 also support ADC. GPIO46 supports both input and output on ESP32-S3.
 Configure them explicitly with `gpio mode`, `pwm` or an expansion attachment.

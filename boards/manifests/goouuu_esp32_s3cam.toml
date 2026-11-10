@@ -31,6 +31,8 @@ required_packages = ["driver_camera_esp32"]
 psram_bytes = 8388608
 
 [defines]
+# Keep the fitted camera's 20 MHz clock from degrading the Wi-Fi link.
+SOLAR_OS_BOARD_CAMERA_XCLK_DRIVE = "GPIO_DRIVE_CAP_0"
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
 SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
 SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"

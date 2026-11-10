@@ -140,7 +140,7 @@ TARGETS += expansion_tui_test
 TARGETS += gt911_test
 TARGETS += sdmmc_expansion_test
 TARGETS += axp2101_service_test
-TARGETS += camera_service_test camera_expansion_test media_test mjpeg_test
+TARGETS += camera_service_test camera_expansion_test camera_expansion_default_drive_test camera_expansion_non_s3_test media_test mjpeg_test
 TARGETS += http_server_test
 TARGETS += rtspd_job_test rtspd_audio_only_test
 TARGETS += rtsp_receiver_test
@@ -999,6 +999,18 @@ camera_expansion_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h c
 		-I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		$(CAMERA_EXPANSION_SOURCES) -o $@
 
+camera_expansion_non_s3_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h camera_stubs/*/*.h) \
+	$(ROOT)/src/services/solar_os_camera.h $(ROOT)/src/services/solar_os_stream.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DCONFIG_IDF_TARGET_ESP32S3=0 -include compat.h \
+		-Icamera_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $(CAMERA_EXPANSION_SOURCES) -o $@
+
+camera_expansion_default_drive_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h camera_stubs/*/*.h) \
+	$(ROOT)/src/services/solar_os_camera.h $(ROOT)/src/services/solar_os_stream.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DCAMERA_TEST_GENERIC_BOARD=1 -include compat.h \
+		-Icamera_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $(CAMERA_EXPANSION_SOURCES) -o $@
+
 camera_service_test: camera_service_test.c $(ROOT)/src/services/solar_os_camera.c $(ROOT)/src/services/solar_os_camera.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
 		camera_service_test.c $(ROOT)/src/services/solar_os_camera.c -o $@
@@ -1462,6 +1474,8 @@ test: $(TARGETS)
 	./vision_lua_bindings_test
 	./media_lua_bindings_test
 	./camera_expansion_test
+	./camera_expansion_default_drive_test
+	./camera_expansion_non_s3_test
 	./media_test
 	./rtspd_job_test
 	./rtspd_audio_only_test

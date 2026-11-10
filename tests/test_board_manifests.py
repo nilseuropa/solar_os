@@ -455,6 +455,9 @@ class BoardManifestTest(unittest.TestCase):
             required_packages(board, self.drivers),
         )
         self.assertEqual(board["build"]["psram_bytes"], 8 * 1024 * 1024)
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_CAMERA_XCLK_DRIVE"], "GPIO_DRIVE_CAP_0")
+        self.assertIn("#define SOLAR_OS_BOARD_CAMERA_XCLK_DRIVE GPIO_DRIVE_CAP_0",
+                      generate_header(board, self.drivers))
         pins = {pin["gpio"]: pin for pin in board["pins"]}
         self.assertEqual(
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
