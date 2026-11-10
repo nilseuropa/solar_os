@@ -2,6 +2,7 @@
 
 #include "solar_os_rtsp_receiver.h"
 #include "solar_os_rtp_jpeg.h"
+#include "solar_os_audio.h"
 
 typedef struct solar_os_rtsp_client solar_os_rtsp_client_t;
 #define SOLAR_OS_RTSP_CLIENT_ERROR_MAX 112U
@@ -17,6 +18,11 @@ typedef struct {
      * Valid until run() returns; widgets must outlive that call. */
     void (*samples)(const int16_t *, size_t, uint8_t, void *);
     void *user;
+    /* Optional app-owned output level. Other clients retain global volume. */
+    bool use_volume;
+    uint8_t volume;
+    /* Attach on audio open, detach with NULL before releasing the output. */
+    void (*device)(const solar_os_audio_device_info_t *, void *);
 } solar_os_rtsp_client_options_t;
 
 typedef struct {

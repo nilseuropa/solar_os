@@ -1567,6 +1567,12 @@ sources = ["services/solar_os_signal_widgets.c"]
 label = "service.media-widgets"
 sources = ["services/solar_os_media_widgets.c", "services/solar_os_media_dialog.c"]
 
+[packages.service_media_preferences]
+label = "service.media-preferences"
+depends = ["service_audio"]
+sources = ["services/solar_os_media_preferences.c"]
+requires = ["nvs_flash"]
+
 [packages.service_storage_browser]
 label = "service.storage-browser"
 sources = ["services/solar_os_storage_browser.c"]
@@ -2897,6 +2903,7 @@ label = "app.player"
 depends = [
   "service_audio",
   "service_audio_codecs",
+  "service_media_preferences",
   "service_media_widgets",
   "service_player_playlist",
   "service_signal_widgets",
@@ -2950,6 +2957,7 @@ depends = [
   "service_audio",
   "service_audio_codecs",
   "service_http_client",
+  "service_media_preferences",
   "service_media_widgets",
   "service_signal_widgets",
   "service_webradio",
@@ -2966,7 +2974,7 @@ capabilities = ["wifi"]
 
 [packages.app_rtsp]
 label = "app.rtsp"
-depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets", "service_media_playlist"]
+depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets", "service_media_playlist", "service_media_preferences"]
 sources = ["apps/solar_os_rtsp_app.c", "shell/solar_os_shell_rtsp_auth.c"]
 requires = ["stb_image"]
 capabilities = ["wifi"]
@@ -3036,7 +3044,7 @@ capabilities = ["psram", "gfx"]
 
 [packages.app_vplay]
 label = "app.vplay"
-depends = ["service_mpeg", "service_audio", "service_media_widgets", "service_media_playlist", "service_storage_browser"]
+depends = ["service_mpeg", "service_audio", "service_media_widgets", "service_media_playlist", "service_storage_browser", "service_media_preferences"]
 sources = ["apps/solar_os_vplay.c"]
 capabilities = ["psram", "gfx"]
 

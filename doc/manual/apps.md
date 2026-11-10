@@ -243,7 +243,7 @@ Audio-only sessions use the common audio GUI oscilloscope, fed by playback PCM,
 filling the available area between the header and player controls.
 Port shells select audio only and print playback status. `--audio-only` skips
 video negotiation and video buffers even when the publisher offers both tracks.
-Audio uses the selected default output and global volume; Up/Down adjust volume
+Audio uses the selected default output and RTSP's saved volume; Up/Down adjust volume
 (`+`/`-` remain aliases). The graphical player uses the common header, volume
 bar, and Previous, Stop/Play, and Next buttons. Enter or a tap on Stop stops playback
 without closing the app; Play reconnects to the same URL. Stopping releases the
@@ -520,6 +520,25 @@ Funcgen is active:
 - `funcgen.sweep.time`: 100 through 60000 ms, logarithmic.
 - `funcgen.output`: runtime output index; 0 follows the default output.
 - `funcgen.enabled`: 0 off or 1 on.
+
+## Media player settings
+
+`player`, `webradio`, `vplay`, and `rtsp` each remember their own playback
+volume, independently of the global SolarOS volume. The first-use volume is
+50 percent; zero mutes that player. The saved level is applied when playback
+opens an output and is kept across track changes, app restarts, and reboots.
+Adjusting a stopped player's volume changes its setting without changing
+another app's active output.
+
+Player also remembers its last Cassette, Scope, or Spectrum visualization.
+WebRadio remembers Scope or Spectrum. `V` changes the visualization in each
+player's graphical Play tab.
+
+Volume and visualization changes stay in memory while the app is open.
+Exiting the app with Escape saves changed settings once to
+`.settings/media-<app>.bin` on the current mounted storage volume.
+Without writable mounted storage, choices remain in memory for the current
+session.
 
 ## Media playlists
 
@@ -888,7 +907,7 @@ Controls:
   analyzer shows the frequencies in the playing audio.
 - On the Player tab, `Left` and `Right` play the previous or next catalog
   channel. The catalog wraps as a ring. `Enter` stops playback or reconnects
-  the channel; Space pauses/resumes, and `Up`/`Down` changes global volume in
+  the channel; Space pauses/resumes, and `Up`/`Down` changes WebRadio's saved volume in
   five-percent steps.
 - The bottom controls show the channel name, playback state and elapsed output
   time above the volume bar, followed by Previous, Stop/Play, and Next buttons.
@@ -2165,7 +2184,7 @@ source complexity, display transfer speed, and output size.
 Controls:
 
 - `Space` pauses/resumes.
-- `Up`/`Down` changes global volume.
+- `Up`/`Down` changes VPlay's saved volume.
 - `Enter` stops playback or restarts the selected file.
 - `<`/`>` seeks backward/forward ten seconds, preserving pause state.
 - `Left`/`Right` selects the previous/next playlist entry. At either end,

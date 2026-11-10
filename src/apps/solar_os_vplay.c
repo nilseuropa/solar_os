@@ -10,6 +10,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_mpeg.h"
 #include "solar_os_storage.h"
@@ -47,6 +48,7 @@ struct mpeg_player {
     double start_time;
     solar_os_mpeg_t *decoder;
     solar_os_audio_player_t *audio;
+    solar_os_media_preferences_t *preferences;
     solar_os_mpeg_info_t info;
     solar_os_stream_audio_format_t output;
     solar_os_audio_s16_converter_t resampler;
@@ -229,7 +231,7 @@ static void worker(void *user)
             goto end;
         }
         solar_os_audio_player_options_t options = {.owner = "vplay",
-                                                   .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+                                                   .volume = solar_os_media_preferences_volume(p->preferences),
                                                    .buffered = true,
                                                    .external_buffer_bytes = 32768,
                                                    .internal_buffer_bytes = 4096,
@@ -242,11 +244,13 @@ static void worker(void *user)
                                                    .cancel_user = p,
                                                    .should_pause = paused,
                                                    .pause_user = p};
-        err = solar_os_audio_player_create(&options, &p->audio, &p->output, NULL);
+        solar_os_audio_device_info_t device;
+        err = solar_os_audio_player_create(&options, &p->audio, &p->output, &device);
         if (err != ESP_OK) {
             failure(p, err, "audio output unavailable, busy, or insufficient task SRAM");
             goto end;
         }
+        solar_os_media_preferences_device(&device, p->preferences);
         xSemaphoreTake(p->mutex, portMAX_DELAY);
         p->sample_rate = p->output.sample_rate;
         p->sink_frames = (uint64_t)(p->start_time * p->sample_rate);
@@ -393,6 +397,7 @@ static void worker(void *user)
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 end:
+    solar_os_media_preferences_device(NULL, p->preferences);
     solar_os_audio_player_destroy(p->audio);
     p->audio = NULL;
     solar_os_mpeg_close(p->decoder);
@@ -416,7 +421,7 @@ static void viewport(mpeg_player_t *p)
 }
 static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
                                    bool fullscreen, double start_time, bool paused,
-                                   mpeg_player_t **out)
+                                   solar_os_media_preferences_t *preferences, mpeg_player_t **out)
 {
     *out = NULL;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -436,6 +441,7 @@ static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bo
         return ESP_ERR_NO_MEM;
     }
     p->fit = fit;
+    p->preferences = preferences;
     p->fullscreen = fullscreen;
     p->start_time = start_time;
     p->seeking = start_time > 0;
@@ -552,10 +558,8 @@ static void draw_chrome(mpeg_player_t *p, solar_os_gfx_t *gfx, int64_t clock)
         p->displayed_second = p->stopped ? p->displayed_second : clock > 0 ? clock / 1000000 : 0;
         char status[48];
         playback_status_text(p, p->displayed_second, status, sizeof(status));
-        solar_os_audio_status_t audio;
-        solar_os_audio_get_status(&audio);
         solar_os_media_player_controls_draw(gfx, w, h, p->title[0] ? p->title : vplay_basename(p->path), status,
-            audio.volume, true, p->stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
+            solar_os_media_preferences_volume(p->preferences), true, p->stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
             paused(p) ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
     } else if (p->seeking) {
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
@@ -571,13 +575,7 @@ static void mpeg_player_event(solar_os_context_t *ctx, mpeg_player_t *p,
 {
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         uint8_t key = event->data.ch;
-        if (key == SOLAR_OS_KEY_UP || key == SOLAR_OS_KEY_DOWN) {
-            solar_os_audio_status_t status;
-            solar_os_audio_get_status(&status);
-            int v = status.volume + (key == SOLAR_OS_KEY_UP ? 5 : -5);
-            solar_os_audio_set_volume(v < 0 ? 0 : v > 100 ? 100 : v);
-            p->layout_dirty = true;
-        } else if (key == ' ') {
+        if (key == ' ') {
             if (p->stopped || p->done) return;
             xSemaphoreTake(p->mutex, portMAX_DELAY);
             if (!paused(p))
@@ -693,6 +691,7 @@ typedef struct {
     char next_path[SOLAR_OS_STORAGE_PATH_MAX];
     int16_t pointer_x, pointer_y;
     solar_os_media_playlist_t playlist;
+    solar_os_media_preferences_t *preferences;
     size_t active, cursor, top;
     bool playlist_visible, playlist_dirty, browsing, suspended;
     solar_os_storage_browser_t *browser;
@@ -723,7 +722,9 @@ static esp_err_t vplay_start(solar_os_context_t *ctx)
             goto usage;
     }
     size_t selected = 0;
-    esp_err_t err = solar_os_media_playlist_open(&vplay_state.playlist,
+    esp_err_t err = solar_os_media_preferences_create(SOLAR_OS_MEDIA_VPLAY, &vplay_state.preferences);
+    if (err != ESP_OK) return err;
+    err = solar_os_media_playlist_open(&vplay_state.playlist,
         SOLAR_OS_MEDIA_PLAYLIST_VIDEO, path_arg, &selected);
     if (err != ESP_OK) {
         solar_os_context_finish(ctx, 1, "vplay: cannot load playlist or video");
@@ -741,7 +742,7 @@ static esp_err_t vplay_start(solar_os_context_t *ctx)
     vplay_state.active = selected;
     err = mpeg_player_start(ctx, vplay_state.playlist.entries[vplay_state.active].path,
                             vplay_state.fit, vplay_state.fullscreen, 0, false,
-                            &vplay_state.player);
+                            vplay_state.preferences, &vplay_state.player);
     if (err != ESP_OK) {
         solar_os_context_set_graphics_active(ctx, false);
         solar_os_context_finish(
@@ -767,6 +768,7 @@ static void vplay_release_cleanup(void)
     mpeg_player_destroy(vplay_state.player);
     vplay_state.player = NULL;
     solar_os_storage_browser_destroy(vplay_state.browser);
+    solar_os_media_preferences_destroy(vplay_state.preferences);
     solar_os_media_playlist_close(&vplay_state.playlist);
 }
 static void vplay_suspend(solar_os_context_t *ctx)
@@ -867,10 +869,8 @@ static void vplay_draw_playlist(solar_os_context_t *ctx)
             vplay_state.cursor, vplay_state.active, &vplay_state.top, vplay_playlist_entry, NULL,
             vplay_state.message[0] ? vplay_state.message : "A add  Del remove  Enter play");
     } else {
-        solar_os_audio_status_t audio;
-        solar_os_audio_get_status(&audio);
         solar_os_media_player_controls_draw(gfx, w, h, "No video selected", "STOPPED",
-            audio.volume, true, SOLAR_OS_MEDIA_TRANSPORT_PLAY);
+            solar_os_media_preferences_volume(vplay_state.preferences), true, SOLAR_OS_MEDIA_TRANSPORT_PLAY);
     }
     solar_os_gfx_present(gfx);
     vplay_state.playlist_dirty = false;
@@ -1026,6 +1026,16 @@ static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             vplay_draw_playlist(ctx);
             return true;
         }
+        if (ch == SOLAR_OS_KEY_UP || ch == SOLAR_OS_KEY_DOWN) {
+            int volume = solar_os_media_preferences_volume(vplay_state.preferences) + (ch == SOLAR_OS_KEY_UP ? 5 : -5);
+            esp_err_t err = solar_os_media_preferences_set_volume(vplay_state.preferences,
+                volume < 0 ? 0 : volume > 100 ? 100 : volume);
+            if (err != ESP_OK) snprintf(vplay_state.message, sizeof(vplay_state.message), "Volume control unavailable");
+            if (vplay_state.player) vplay_state.player->layout_dirty = true;
+            vplay_state.playlist_dirty = true;
+            vplay_draw_playlist(ctx);
+            return true;
+        }
         if (vplay_transport(ch))
             return true;
         if (ch == 'f' || ch == 'F') {
@@ -1054,7 +1064,7 @@ static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             vplay_state.restart = false;
             esp_err_t err = mpeg_player_start(ctx, vplay_state.next_path, vplay_state.fit,
                                              vplay_state.fullscreen, vplay_state.restart_time,
-                                             vplay_state.restart_paused, &vplay_state.player);
+                                             vplay_state.restart_paused, vplay_state.preferences, &vplay_state.player);
             if (err != ESP_OK) {
                 char detail[96];
                 snprintf(detail, sizeof(detail), "vplay: cannot restart decoder (%s)", esp_err_to_name(err));

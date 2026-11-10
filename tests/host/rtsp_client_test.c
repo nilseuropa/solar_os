@@ -13,6 +13,8 @@
 static atomic_uint allocations, allocation_calls, fail_allocation, live_tasks;
 static atomic_uint samples_played, audio_opens, audio_closes, callbacks;
 static atomic_bool fail_audio;
+static uint8_t expected_volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
+static atomic_uint volume_device_binds, volume_device_unbinds;
 static atomic_uint latency_leases;
 static bool wifi_available = true, fail_latency;
 esp_err_t solar_os_wifi_latency_acquire(const char *owner)
@@ -95,9 +97,9 @@ struct solar_os_audio_player { pthread_t owner; solar_os_audio_player_options_t 
 esp_err_t solar_os_audio_player_create(const solar_os_audio_player_options_t *o,
     solar_os_audio_player_t **p, solar_os_stream_audio_format_t *format, solar_os_audio_device_info_t *device)
 {
-    (void)device;
     if (atomic_load(&fail_audio)) return ESP_ERR_NOT_FOUND;
-    assert(!o->buffered && o->volume == SOLAR_OS_AUDIO_VOLUME_GLOBAL && o->open_timeout_ms == 500);
+    assert(!o->buffered && o->volume == expected_volume && o->open_timeout_ms == 500);
+    if (device) *device = (solar_os_audio_device_info_t){.id = "speaker", .capabilities = SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT | SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME};
     *p = malloc(sizeof(**p)); assert(*p); (*p)->owner = pthread_self(); (*p)->options = *o;
     *format = (solar_os_stream_audio_format_t){.sample_rate = sink_rate, .channels = sink_channels,
         .bits_per_sample = 16, .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE, .frames_per_block = sink_block};
@@ -357,6 +359,46 @@ static void test_play(bool video, bool audio, bool audio_only, bool shorthand)
     assert(atomic_load(&allocations) == 0 && atomic_load(&live_tasks) == 0);
     assert(atomic_load(&audio_opens) == atomic_load(&audio_closes));
     assert(atomic_load(&server.teardown));
+}
+
+static void volume_device_callback(const solar_os_audio_device_info_t *device, void *user)
+{
+    assert(user == &expected_volume);
+    if (device) {
+        assert(!strcmp(device->id, "speaker"));
+        atomic_fetch_add(&volume_device_binds, 1);
+    } else atomic_fetch_add(&volume_device_unbinds, 1);
+}
+
+static void test_private_volume(void)
+{
+    const uint8_t volumes[] = {0, 65};
+    for (size_t i = 0; i < sizeof(volumes); i++) {
+        expected_volume = volumes[i];
+        atomic_store(&volume_device_binds, 0); atomic_store(&volume_device_unbinds, 0);
+        test_server_t server = {.offer_audio = true}; server_start(&server);
+        char url[192]; snprintf(url, sizeof(url), "rtsp://127.0.0.1:%u/media", server.port);
+        solar_os_rtsp_client_options_t options = {.audio = true, .use_volume = true,
+            .volume = volumes[i], .samples = samples_callback, .device = volume_device_callback,
+            .user = &expected_volume};
+        solar_os_rtsp_client_t *client;
+        assert(solar_os_rtsp_client_create(url, &options, &client) == ESP_OK);
+        pthread_t thread; assert(!pthread_create(&thread, NULL, run_client, client));
+        solar_os_rtsp_client_status_t status;
+        uint64_t deadline = now_us() + 2000000;
+        do { vTaskDelay(5); solar_os_rtsp_client_status(client, &status); }
+        while (!status.audio_playing && !client->cancel && now_us() < deadline);
+        assert(status.audio_playing && atomic_load(&volume_device_binds) == 1);
+        solar_os_rtsp_client_cancel(client); pthread_join(thread, NULL);
+        assert(atomic_load(&volume_device_unbinds) == 1);
+        assert(solar_os_rtsp_client_destroy(client) == ESP_OK); server_stop(&server);
+        assert(!atomic_load(&allocations) && !atomic_load(&live_tasks));
+    }
+    expected_volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL;
+    solar_os_rtsp_client_options_t invalid = {.audio = true, .use_volume = true, .volume = 101};
+    solar_os_rtsp_client_t *client = NULL;
+    assert(solar_os_rtsp_client_create("rtsp://127.0.0.1/media", &invalid, &client) == ESP_ERR_INVALID_ARG);
+    assert(!client);
 }
 
 static void test_failure(bool rejected, bool stalled, bool output_failed, unsigned allocation_failure)
@@ -652,6 +694,7 @@ int main(int argc, char **argv)
     test_play(true, false, false, false); test_play(false, true, false, false);
     test_play(true, true, false, false); test_play(true, true, true, false);
     test_play(true, true, false, true); test_play(true, true, true, true);
+    test_private_volume();
     test_relay_playback(48000, 2, 480);
     test_relay_playback(16000, 1, 512);
     test_failure(true, false, false, 0); test_failure(false, true, false, 0); test_failure(false, false, true, 0);

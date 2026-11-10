@@ -10,6 +10,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_rtsp_client.h"
 #include "solar_os_shell_io.h"
@@ -63,6 +64,7 @@ typedef struct {
     bool audio_only, stopped, restart, paused;
     bool playlist_visible, playlist_dirty;
     solar_os_media_playlist_t playlist;
+    solar_os_media_preferences_t *preferences;
     size_t active, cursor, top;
     unsigned dialog;
     size_t edit_index, dialog_input_len;
@@ -243,10 +245,9 @@ static void draw_controls(solar_os_gfx_t *gfx, int w, int h,
         snprintf(title, sizeof(title), "RTSP stream");
     if (rtsp.active < rtsp.playlist.count && rtsp.playlist.entries[rtsp.active].title[0])
         snprintf(title, sizeof(title), "%s", rtsp.playlist.entries[rtsp.active].title);
-    solar_os_audio_status_t audio;
-    solar_os_audio_get_status(&audio);
     solar_os_media_player_header_draw(gfx, w, "RTSP", "[Play]  Playlist");
-    solar_os_media_player_controls_draw(gfx, w, h, title, playback_label(status), audio.volume, false,
+    solar_os_media_player_controls_draw(gfx, w, h, title, playback_label(status),
+        solar_os_media_preferences_volume(rtsp.preferences), false,
         rtsp.stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
         rtsp.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
 }
@@ -510,6 +511,10 @@ static esp_err_t start_playback(solar_os_context_t *ctx)
         .video = rtsp.graphical && !rtsp.audio_only, .audio = true, .samples = rtsp_samples,
         .diagnostics = rtsp.diagnostics,
         .reconnect_attempts = 6,
+        .use_volume = true,
+        .volume = solar_os_media_preferences_volume(rtsp.preferences),
+        .device = solar_os_media_preferences_device,
+        .user = rtsp.preferences,
     };
     rtsp.stop = false;
     rtsp.network_done = rtsp.decode_done = true;
@@ -682,7 +687,8 @@ static esp_err_t start(solar_os_context_t *ctx)
         else if (!url) url = arg;
         else return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = ESP_OK;
+    esp_err_t err = solar_os_media_preferences_create(SOLAR_OS_MEDIA_RTSP, &rtsp.preferences);
+    if (err != ESP_OK) return err;
     if (url && !solar_os_m3u_path(url))
         err = solar_os_rtsp_url_normalize(url, rtsp.url, sizeof(rtsp.url));
     if (err != ESP_OK) {
@@ -756,6 +762,7 @@ static bool release_ready(void) { return rtsp.network_done && rtsp.decode_done; 
 static void cleanup(void)
 {
     reap_playback();
+    solar_os_media_preferences_destroy(rtsp.preferences);
     solar_os_media_playlist_close(&rtsp.playlist);
     solar_os_oscilloscope_widget_destroy(rtsp.scope);
     solar_os_memory_free(rtsp.pixels);
@@ -835,9 +842,11 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
         else if (key == SOLAR_OS_KEY_RIGHT && rtsp.active != SIZE_MAX && rtsp.active + 1 < rtsp.playlist.count)
             select_track(ctx, rtsp.active + 1);
         else if (key == SOLAR_OS_KEY_UP || key == SOLAR_OS_KEY_DOWN || key == '+' || key == '-') {
-            solar_os_audio_status_t status; solar_os_audio_get_status(&status);
-            int volume = status.volume + (key == SOLAR_OS_KEY_UP || key == '+' ? 5 : -5);
-            (void)solar_os_audio_set_volume(volume < 0 ? 0 : volume > 100 ? 100 : volume);
+            int volume = solar_os_media_preferences_volume(rtsp.preferences) +
+                (key == SOLAR_OS_KEY_UP || key == '+' ? 5 : -5);
+            if (solar_os_media_preferences_set_volume(rtsp.preferences,
+                    volume < 0 ? 0 : volume > 100 ? 100 : volume) != ESP_OK)
+                snprintf(rtsp.message, sizeof(rtsp.message), "Volume control unavailable");
             rtsp.dirty = true;
         } else if (rtsp.graphical && (key == 'f' || key == 'F')) {
             xSemaphoreTake(rtsp.image_mutex, portMAX_DELAY);

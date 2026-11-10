@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Player, WebRadio, VPlay, and RTSP remember their own playback volume,
+  independently of global volume. Player and WebRadio also restore their
+  last visualization. Changed settings are saved when the app exits.
+
 - Media players share M3U/M3U8 playlists, with migration of saved Player and
   WebRadio lists. VPlay and RTSP have persistent playlists, Tab navigation,
   and common transport controls. RTSP supports local live pause, and WebRadio

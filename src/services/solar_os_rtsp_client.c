@@ -301,12 +301,14 @@ static void audio_worker(void *arg)
         .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
     };
     const solar_os_audio_player_options_t options = {
-        .owner = "rtsp", .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+        .owner = "rtsp", .volume = c->options.use_volume ? c->options.volume : SOLAR_OS_AUDIO_VOLUME_GLOBAL,
         .requested_audio = {.sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE, .bits_per_sample = 16},
         .open_timeout_ms = 500, .samples = audio_samples, .user = c,
         .should_cancel = audio_cancel, .cancel_user = c,
     };
-    esp_err_t err = s ? solar_os_audio_player_create(&options, &player, &output, NULL) : ESP_ERR_NO_MEM;
+    solar_os_audio_device_info_t device;
+    esp_err_t err = s ? solar_os_audio_player_create(&options, &player, &output, &device) : ESP_ERR_NO_MEM;
+    if (err == ESP_OK && c->options.device) c->options.device(&device, c->options.user);
     if (err != ESP_OK) fail(c, err, s ? "default audio output unavailable (%s)" : "audio scratch allocation failed (%s)", esp_err_to_name(err));
     size_t quantum = 0;
     if (err == ESP_OK) {
@@ -386,6 +388,7 @@ static void audio_worker(void *arg)
             }
         }
     }
+    if (c->options.device) c->options.device(NULL, c->options.user);
     solar_os_audio_player_destroy(player);
     solar_os_memory_free(s);
     lock(c);
@@ -508,7 +511,8 @@ static bool receive(solar_os_rtsp_client_t *c, client_track_t *t, bool rtcp)
 esp_err_t solar_os_rtsp_client_create(const char *url, const solar_os_rtsp_client_options_t *options,
                                       solar_os_rtsp_client_t **out)
 {
-    if (!out || !options || (!options->video && !options->audio)) return ESP_ERR_INVALID_ARG;
+    if (!out || !options || (!options->video && !options->audio) ||
+        (options->use_volume && options->volume > 100)) return ESP_ERR_INVALID_ARG;
     *out = NULL;
     solar_os_rtsp_url_t parsed;
     esp_err_t err = solar_os_rtsp_url_parse(url, &parsed);

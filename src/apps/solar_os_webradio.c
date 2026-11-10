@@ -24,6 +24,7 @@
 #include "solar_os_http_client.h"
 #include "solar_os_log.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_media_preferences.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
@@ -145,6 +146,7 @@ typedef struct {
     solar_os_spectrum_widget_t *spectrum;
     uint32_t last_visualizer_ms;
     uint8_t volume;
+    solar_os_media_preferences_t *preferences;
     uint64_t played_frames;
     uint32_t output_rate;
     int16_t pointer_x, pointer_y;
@@ -1001,6 +1003,7 @@ static void webradio_player_samples(const int16_t *samples,
 
 static void webradio_worker_free(webradio_worker_t *worker)
 {
+    solar_os_media_preferences_device(NULL, webradio.preferences);
     solar_os_audio_player_destroy(worker->player);
     webradio_publish_device(NULL);
     solar_os_audio_mp3_decoder_destroy(worker->decoder);
@@ -1046,7 +1049,7 @@ static esp_err_t webradio_worker_init(webradio_worker_t *worker)
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .bits_per_sample = 16U,
         },
-        .volume = SOLAR_OS_AUDIO_VOLUME_GLOBAL,
+        .volume = solar_os_media_preferences_volume(webradio.preferences),
         .buffered = true,
         .external_buffer_bytes = WEBRADIO_JITTER_EXTERNAL_BYTES,
         .internal_buffer_bytes = WEBRADIO_JITTER_INTERNAL_BYTES,
@@ -1067,6 +1070,7 @@ static esp_err_t webradio_worker_init(webradio_worker_t *worker)
         return err;
     }
     webradio_publish_device(&device);
+    solar_os_media_preferences_device(&device, webradio.preferences);
     return ESP_OK;
 }
 
@@ -1335,6 +1339,24 @@ static void webradio_toggle_pause(void)
     webradio.redraw = true;
 }
 
+static esp_err_t webradio_load_preferences(void)
+{
+    esp_err_t err = solar_os_media_preferences_create(SOLAR_OS_MEDIA_WEBRADIO, &webradio.preferences);
+    if (err == ESP_OK) {
+        webradio.volume = solar_os_media_preferences_volume(webradio.preferences);
+        webradio.visualizer = (webradio_visualizer_t)solar_os_media_preferences_visualizer(webradio.preferences);
+    }
+    return err;
+}
+
+static void webradio_cycle_visualizer(void)
+{
+    webradio.visualizer = webradio.visualizer == WEBRADIO_VISUALIZER_SCOPE ?
+        WEBRADIO_VISUALIZER_SPECTRUM : WEBRADIO_VISUALIZER_SCOPE;
+    if (solar_os_media_preferences_set_visualizer(webradio.preferences, webradio.visualizer) != ESP_OK)
+        webradio_set_ui_message("Cannot change visualization");
+}
+
 static void webradio_adjust_volume(int direction)
 {
     int volume = (int)webradio.volume + direction * (int)WEBRADIO_VOLUME_STEP;
@@ -1344,27 +1366,9 @@ static void webradio_adjust_volume(int direction)
         volume = 100;
     }
 
-    esp_err_t err = solar_os_audio_set_volume((uint8_t)volume);
-    if (err == ESP_ERR_NOT_SUPPORTED) {
-        char device_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
-        uint32_t capabilities;
-        portENTER_CRITICAL(&webradio_lock);
-        strlcpy(device_id,
-                webradio.active_device_id,
-                sizeof(device_id));
-        capabilities = webradio.active_device_capabilities;
-        portEXIT_CRITICAL(&webradio_lock);
-        if (device_id[0] != '\0' &&
-            (capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U) {
-            err = solar_os_audio_set_device_volume(device_id, (uint8_t)volume);
-        }
-    }
-    if (err == ESP_OK) {
-        webradio.volume = (uint8_t)volume;
-        webradio_set_ui_message(NULL);
-    } else {
-        webradio_set_ui_message("Volume control unavailable");
-    }
+    esp_err_t err = solar_os_media_preferences_set_volume(webradio.preferences, (uint8_t)volume);
+    webradio.volume = solar_os_media_preferences_volume(webradio.preferences);
+    webradio_set_ui_message(err == ESP_OK ? NULL : "Volume control unavailable");
 }
 
 static size_t webradio_find_station(const char *name)
@@ -1701,15 +1705,13 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
         ctx,
         webradio.mode == WEBRADIO_MODE_GRAPHICS ?
             SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_TUI);
-    solar_os_audio_status_t audio_status;
-    solar_os_audio_get_status(&audio_status);
-    webradio.volume = audio_status.volume <= 100U ? audio_status.volume : 50U;
+    err = webradio_load_preferences();
+    if (err != ESP_OK) return err;
     webradio.tab = WEBRADIO_TAB_PLAYER;
-    webradio.visualizer = WEBRADIO_VISUALIZER_SCOPE;
     if (webradio.mode == WEBRADIO_MODE_TUI) {
         err = solar_os_tui_screen_begin(&webradio.tui, ctx);
         if (err != ESP_OK) {
-            return err;
+            goto fail_preferences;
         }
     } else {
         err = solar_os_oscilloscope_widget_create(
@@ -1723,7 +1725,7 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
             solar_os_spectrum_widget_destroy(webradio.spectrum);
             webradio.scope = NULL;
             webradio.spectrum = NULL;
-            return err;
+            goto fail_preferences;
         }
         webradio_enable_high_refresh(ctx);
         solar_os_context_set_graphics_active(ctx, true);
@@ -1742,11 +1744,17 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
     }
     webradio_render(ctx);
     return ESP_OK;
+fail_preferences:
+    solar_os_media_preferences_destroy(webradio.preferences);
+    webradio.preferences = NULL;
+    return err;
 }
 
 static void webradio_stop(solar_os_context_t *ctx)
 {
     webradio_stop_playback();
+    solar_os_media_preferences_destroy(webradio.preferences);
+    webradio.preferences = NULL;
     if (!webradio.ui_started) {
         return;
     }
@@ -1851,9 +1859,7 @@ static bool webradio_handle_graphics_key(solar_os_context_t *ctx, uint8_t key)
             break;
         case 'v':
         case 'V':
-            webradio.visualizer =
-                webradio.visualizer == WEBRADIO_VISUALIZER_SCOPE ?
-                    WEBRADIO_VISUALIZER_SPECTRUM : WEBRADIO_VISUALIZER_SCOPE;
+            webradio_cycle_visualizer();
             break;
         default:
             return true;

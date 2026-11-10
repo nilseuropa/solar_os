@@ -12,10 +12,10 @@
 #include "solar_os_signal_widgets.h"
 #include "solar_os_rtsp_client.h"
 #include "solar_os_keys.h"
+#include "media_preferences_mock.h"
 
 typedef void *TaskHandle_t;
 typedef void *SemaphoreHandle_t;
-typedef struct { unsigned volume; } solar_os_audio_status_t;
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
 #define portMAX_DELAY 0
 #define tskIDLE_PRIORITY 0
@@ -77,7 +77,7 @@ esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx, const solar_os_gfx_raste
 esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame)
 { frames++; solar_os_gfx_rect(gfx, frame->x, frame->y, frame->width, frame->height); return ESP_OK; }
 void solar_os_audio_get_status(solar_os_audio_status_t *status) { status->volume = 50; }
-static esp_err_t solar_os_audio_set_volume(uint8_t volume) { (void)volume; return ESP_OK; }
+esp_err_t solar_os_audio_set_volume(uint8_t volume) { (void)volume; assert(!"player must not change global volume"); return ESP_FAIL; }
 void solar_os_media_transport_button_draw(solar_os_gfx_t *gfx, int x, int y, int width,
     int height, solar_os_media_transport_icon_t icon, bool active)
 {
@@ -329,7 +329,9 @@ static void empty_launch_and_edit_test(bool graphical)
     solar_os_gfx_t gfx = {.width = 480, .height = 320};
     solar_os_context_t ctx = {.argc = 1, .gfx = graphical ? &gfx : NULL};
     reset(); rtsp.client = NULL; saved_count = 0;
+    mock_media_preferences[SOLAR_OS_MEDIA_RTSP].volume = 64;
     assert(start(&ctx) == ESP_OK && !finishes && !creations);
+    assert(solar_os_media_preferences_volume(rtsp.preferences) == 64);
     assert(rtsp.stopped && rtsp.playlist_visible && rtsp.active == SIZE_MAX);
     solar_os_event_t key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = '\r'};
     assert(event(&ctx, &key) && rtsp.playlist_visible && !rtsp.restart && !finishes);
@@ -352,6 +354,12 @@ static void empty_launch_and_edit_test(bool graphical)
     save_failed = false; assert(event(&ctx, &key) && saved_count == 0 && !finishes);
     reset(); rtsp.client = NULL; saved_count = 1;
     assert(start(&ctx) == ESP_OK && rtsp.playlist_visible && !creations && !finishes);
+    solar_os_event_t volume_key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = '\t'};
+    assert(event(&ctx, &volume_key));
+    volume_key.data.ch = '+'; assert(event(&ctx, &volume_key));
+    assert(solar_os_media_preferences_volume(rtsp.preferences) == 69);
+    assert(start_playback(&ctx) == ESP_OK && last_options.use_volume && last_options.volume == 69);
+    assert(last_options.device == solar_os_media_preferences_device && last_options.user == rtsp.preferences);
 }
 
 static void port_dialog_cursor_test(void)

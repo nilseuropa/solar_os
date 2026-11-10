@@ -899,6 +899,7 @@ class FlavorPackagesTest(unittest.TestCase):
                 "service_audio",
                 "service_audio_codecs",
                 "service_http_client",
+                "service_media_preferences",
                 "service_media_widgets",
                 "service_signal_widgets",
                 "service_webradio",
@@ -925,6 +926,7 @@ class FlavorPackagesTest(unittest.TestCase):
             (
                 "service_audio",
                 "service_audio_codecs",
+                "service_media_preferences",
                 "service_media_widgets",
                 "service_player_playlist",
                 "service_signal_widgets",

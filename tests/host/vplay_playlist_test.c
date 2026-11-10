@@ -7,6 +7,7 @@
 #include "solar_os_media_playlist.h"
 #include "solar_os_media_widgets.h"
 #include "solar_os_storage_browser.h"
+#include "media_preferences_mock.h"
 
 typedef struct {
     bool stopped, done, suspended, playlist_visible, layout_dirty;
@@ -20,7 +21,6 @@ static size_t saved_count;
 static solar_os_m3u_entry_t saved_entries[SOLAR_OS_MEDIA_PLAYLIST_CAPACITY];
 struct solar_os_storage_browser { size_t cursor; };
 static struct solar_os_storage_browser browser;
-typedef struct { uint8_t volume; } solar_os_audio_status_t;
 static mpeg_player_t decoder;
 solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx) { return ctx->gfx; }
 int solar_os_context_argc(const solar_os_context_t *ctx) { return ctx->argc; }
@@ -35,10 +35,11 @@ static void vplay_stop_playback(mpeg_player_t *p) { if (p) p->stopped = true; }
 static void vplay_reap_stopped(mpeg_player_t *p) { (void)p; }
 static void mpeg_player_destroy(mpeg_player_t *p) { if (p) { assert(p->done); destroys++; decoder_live = false; } }
 static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
-    bool fullscreen, double time, bool paused, mpeg_player_t **out)
+    bool fullscreen, double time, bool paused, solar_os_media_preferences_t *preferences, mpeg_player_t **out)
 {
     (void)ctx; (void)fit; (void)fullscreen; (void)time; (void)paused;
     assert(!decoder_live); decoder_live = true; starts++;
+    assert(preferences == vplay_state.preferences);
     memset(&decoder, 0, sizeof(decoder)); snprintf(decoder.path, sizeof(decoder.path), "%s", path);
     *out = &decoder; return ESP_OK;
 }
@@ -110,8 +111,15 @@ static void empty_launch_and_add_test(void)
     vplay_state_t state = {0}; vplay_state_storage = &state;
     solar_os_context_t ctx = {.argc = 1, .gfx = (solar_os_gfx_t *)1};
     starts = destroys = finishes = 0; decoder_live = false; saved_count = 0;
+    mock_media_preferences[SOLAR_OS_MEDIA_VPLAY].volume = 73;
     assert(vplay_start(&ctx) == ESP_OK);
     assert(state.playlist_visible && !state.player && !starts && !finishes && ctx.graphics_active);
+    assert(solar_os_media_preferences_volume(state.preferences) == 73);
+    solar_os_event_t volume_key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = '\t'};
+    assert(vplay_event(&ctx, &volume_key));
+    volume_key.data.ch = SOLAR_OS_KEY_UP;
+    assert(vplay_event(&ctx, &volume_key) && solar_os_media_preferences_volume(state.preferences) == 78);
+    volume_key.data.ch = '\t'; assert(vplay_event(&ctx, &volume_key));
     solar_os_event_t key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = '\r'};
     assert(vplay_event(&ctx, &key) && !state.restart && !finishes);
     key.data.ch = 'a'; assert(vplay_event(&ctx, &key) && state.browsing);
