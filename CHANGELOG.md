@@ -1,5 +1,13 @@
 # SolarOS Changelog
 
+## Unreleased
+
+- Media players share M3U/M3U8 playlists, with migration of saved Player and
+  WebRadio lists. VPlay and RTSP have persistent playlists, Tab navigation,
+  and common transport controls. RTSP supports local live pause, and WebRadio
+  advances after finite MP3 playback. VPlay and RTSP open their playlist UI
+  without arguments and support adding and removing entries in the app.
+
 ## 4.x
 
 - **4.17.8** — 2026-11-08 — Added GPIO matrix keyboard and GC9A01 SPI

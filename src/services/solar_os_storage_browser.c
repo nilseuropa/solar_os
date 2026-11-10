@@ -12,6 +12,16 @@
 
 #define STORAGE_BROWSER_INITIAL_CAPACITY 24U
 
+bool solar_os_storage_browser_media_entry(size_t index, solar_os_m3u_entry_t *entry, void *browser)
+{
+    solar_os_storage_browser_entry_t item;
+    if (!entry || !solar_os_storage_browser_entry(browser, index, &item)) return false;
+    memset(entry, 0, sizeof(*entry));
+    entry->duration = -1;
+    snprintf(entry->path, sizeof(entry->path), "%s%s", item.is_directory ? "[DIR] " : "", item.name);
+    return true;
+}
+
 struct solar_os_storage_browser {
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     solar_os_storage_browser_entry_t *entries;

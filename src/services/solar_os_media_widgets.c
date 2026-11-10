@@ -13,6 +13,38 @@ struct solar_os_cassette_widget {
     uint32_t last_tick_ms;
 };
 
+void solar_os_media_playlist_draw(solar_os_gfx_t *gfx, int width, int height,
+                                   size_t count, size_t cursor, size_t active, size_t *top,
+                                   solar_os_m3u_get_fn get, void *user, const char *help)
+{
+    solar_os_media_list_layout_t layout;
+    solar_os_media_list_layout(width, height, &layout);
+    if (cursor < *top) *top = cursor;
+    if (layout.visible > 0 && cursor >= *top + (size_t)layout.visible)
+        *top = cursor - (size_t)layout.visible + 1U;
+    solar_os_gfx_set_font(gfx, layout.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
+    for (int row = 0; row < layout.visible && *top + (size_t)row < count; row++) {
+        size_t i = *top + (size_t)row;
+        solar_os_m3u_entry_t entry;
+        if (!get(i, &entry, user)) continue;
+        int y = layout.top + row * layout.row_height;
+        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        if (i == cursor) {
+            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, layout.row_height - 1);
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+        }
+        const char *name = entry.title[0] ? entry.title : strrchr(entry.path, '/');
+        if (!entry.title[0]) name = name ? name + 1 : entry.path;
+        char label[SOLAR_OS_M3U_PATH_MAX + 4];
+        snprintf(label, sizeof(label), "%c %s", i == active ? '>' : ' ', name);
+        solar_os_media_text_draw(gfx, 6, y + layout.baseline, width - 12, label);
+    }
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_set_font(gfx, layout.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+    if (!count) solar_os_media_text_draw(gfx, 6, layout.top + layout.baseline, width - 12, "Playlist is empty");
+    solar_os_media_text_draw(gfx, 3, height - 2, width - 6, help);
+}
+
 static void media_transport_triangle(solar_os_gfx_t *gfx,
                                      int left,
                                      int top,
@@ -188,17 +220,24 @@ void solar_os_media_dialog_draw(solar_os_gfx_t *gfx, int width, int height,
     solar_os_media_text_draw(gfx, x + 4, y + (compact ? 10 : 20), w - 8, title);
     solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8
                                        : SOLAR_OS_GFX_FONT_MONO_12);
-    const char *visible = input;
+    const int cursor_width = (int)solar_os_gfx_text_width(gfx, "_");
+    const int input_width = w - 8 - cursor_width;
+    const int input_baseline = y + h / 2 + 4;
+    const char *visible = input ? input : "";
     while (*visible &&
-           solar_os_gfx_text_width(gfx, visible) > (size_t)(w - 8)) {
+           solar_os_gfx_text_width(gfx, visible) > (size_t)(input_width > 0 ? input_width : 0)) {
         visible++;
         while (((unsigned char)*visible & 0xc0) == 0x80)
             visible++;
     }
-    solar_os_media_text_draw(gfx, x + 4, y + h / 2 + 4, w - 8, visible);
+    const int cursor_x = x + 4 + (int)solar_os_gfx_text_width(gfx, visible);
+    if (*visible) solar_os_gfx_text(gfx, x + 4, input_baseline, visible);
     solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8
                                        : SOLAR_OS_GFX_FONT_SMALL);
     solar_os_media_text_draw(gfx, x + 4, y + h - 5, w - 8, help);
+    /* These dialogs edit at the end. Keep the cursor visible after scrolling
+     * and draw it last, including for an empty input field. */
+    solar_os_gfx_fill_rect(gfx, cursor_x, input_baseline + 1, cursor_width, 2);
 }
 
 static void media_player_centered(solar_os_gfx_t *gfx, int width, int baseline,

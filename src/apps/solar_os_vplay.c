@@ -10,8 +10,10 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_media_playlist.h"
 #include "solar_os_mpeg.h"
 #include "solar_os_storage.h"
+#include "solar_os_storage_browser.h"
 #include "solar_os_task.h"
 #include <math.h>
 #include <stdio.h>
@@ -32,7 +34,7 @@ struct mpeg_player {
     volatile bool stop, done, suspended, paused;
     volatile bool seeking;
     int64_t seek_yield_at;
-    bool fit, fullscreen, stopped, color, pending, dirty, layout_dirty, audio_running, audio_eof, diagnostics,
+    bool fit, fullscreen, stopped, playlist_visible, color, pending, dirty, layout_dirty, audio_running, audio_eof, diagnostics,
         high_refresh, simd;
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
     uint32_t screen_width, screen_height, viewport_x, viewport_y, viewport_width, viewport_height, layout;
@@ -51,6 +53,7 @@ struct mpeg_player {
     int16_t *pcm, *converted;
     esp_err_t error;
     char detail[96], path[SOLAR_OS_STORAGE_PATH_MAX];
+    char title[SOLAR_OS_M3U_TITLE_MAX];
     uint32_t decoded, displayed, dropped;
     uint64_t decode_us, convert_us, present_us;
     int64_t last_stats;
@@ -545,17 +548,13 @@ static void draw_chrome(mpeg_player_t *p, solar_os_gfx_t *gfx, int64_t clock)
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     if (!p->fullscreen) {
         const int w = p->screen_width, h = p->screen_height;
-        char metadata[72];
-        snprintf(metadata, sizeof(metadata), "%lux%lu %.1ffps %s",
-                 (unsigned long)p->info.width, (unsigned long)p->info.height,
-                 p->info.fps, p->fit ? "FIT" : "ACTUAL");
-        solar_os_media_player_header_draw(gfx, w, "VPlay", metadata);
+        solar_os_media_player_header_draw(gfx, w, "VPlay", "[Play]  Playlist");
         p->displayed_second = p->stopped ? p->displayed_second : clock > 0 ? clock / 1000000 : 0;
         char status[48];
         playback_status_text(p, p->displayed_second, status, sizeof(status));
         solar_os_audio_status_t audio;
         solar_os_audio_get_status(&audio);
-        solar_os_media_player_controls_draw(gfx, w, h, vplay_basename(p->path), status,
+        solar_os_media_player_controls_draw(gfx, w, h, p->title[0] ? p->title : vplay_basename(p->path), status,
             audio.volume, true, p->stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
             paused(p) ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
     } else if (p->seeking) {
@@ -632,6 +631,7 @@ static void mpeg_player_event(solar_os_context_t *ctx, mpeg_player_t *p,
     p->dirty = false;
     p->layout_dirty = false;
     xSemaphoreGive(p->mutex);
+    if (p->playlist_visible) return;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     if (chrome)
         draw_chrome(p, gfx, display_time);
@@ -692,14 +692,22 @@ typedef struct {
     double restart_time;
     char next_path[SOLAR_OS_STORAGE_PATH_MAX];
     int16_t pointer_x, pointer_y;
+    solar_os_media_playlist_t playlist;
+    size_t active, cursor, top;
+    bool playlist_visible, playlist_dirty, browsing, suspended;
+    solar_os_storage_browser_t *browser;
+    char message[96];
 } vplay_state_t;
 static void *vplay_state_storage;
 #define vplay_state (*(vplay_state_t *)vplay_state_storage)
+
+static void vplay_draw_playlist(solar_os_context_t *ctx);
 
 static esp_err_t vplay_start(solar_os_context_t *ctx)
 {
     memset(&vplay_state, 0, sizeof(vplay_state));
     vplay_state.fit = true;
+    vplay_state.active = SIZE_MAX;
     const char *path_arg = NULL;
     for (int i = 1; i < solar_os_context_argc(ctx); i++) {
         const char *arg = solar_os_context_argv(ctx, i);
@@ -714,16 +722,25 @@ static esp_err_t vplay_start(solar_os_context_t *ctx)
         else
             goto usage;
     }
-    if (!path_arg)
-        goto usage;
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = solar_os_storage_resolve_path(path_arg, path, sizeof(path));
+    size_t selected = 0;
+    esp_err_t err = solar_os_media_playlist_open(&vplay_state.playlist,
+        SOLAR_OS_MEDIA_PLAYLIST_VIDEO, path_arg, &selected);
     if (err != ESP_OK) {
-        solar_os_context_finish(ctx, 1, "vplay: invalid file path");
+        solar_os_context_finish(ctx, 1, "vplay: cannot load playlist or video");
         return ESP_OK;
     }
+    vplay_state.cursor = selected;
+    if (!solar_os_context_gfx(ctx)) return ESP_ERR_NOT_SUPPORTED;
     solar_os_context_set_graphics_active(ctx, true);
-    err = mpeg_player_start(ctx, path, vplay_state.fit, vplay_state.fullscreen, 0, false,
+    vplay_state.playlist_visible = !path_arg || !vplay_state.playlist.count;
+    vplay_state.playlist_dirty = true;
+    if (vplay_state.playlist_visible) {
+        vplay_draw_playlist(ctx);
+        return ESP_OK;
+    }
+    vplay_state.active = selected;
+    err = mpeg_player_start(ctx, vplay_state.playlist.entries[vplay_state.active].path,
+                            vplay_state.fit, vplay_state.fullscreen, 0, false,
                             &vplay_state.player);
     if (err != ESP_OK) {
         solar_os_context_set_graphics_active(ctx, false);
@@ -732,10 +749,11 @@ static esp_err_t vplay_start(solar_os_context_t *ctx)
             err == ESP_ERR_NO_MEM
                 ? "vplay: insufficient PSRAM or internal SRAM for the 12 KiB decoder task"
                 : "vplay: a graphics display is required");
-    }
+    } else strlcpy(vplay_state.player->title, vplay_state.playlist.entries[vplay_state.active].title,
+                   sizeof(vplay_state.player->title));
     return ESP_OK;
 usage:
-    solar_os_context_finish(ctx, 2, "usage: vplay [-fit|-actual] <file.mpg>");
+    solar_os_context_finish(ctx, 2, "usage: vplay [-fit|-actual] [file.mpg|playlist.m3u]");
     return ESP_OK;
 }
 static void vplay_stop(solar_os_context_t *ctx)
@@ -748,21 +766,27 @@ static void vplay_release_cleanup(void)
 {
     mpeg_player_destroy(vplay_state.player);
     vplay_state.player = NULL;
+    solar_os_storage_browser_destroy(vplay_state.browser);
+    solar_os_media_playlist_close(&vplay_state.playlist);
 }
 static void vplay_suspend(solar_os_context_t *ctx)
 {
+    vplay_state.suspended = true;
     if (vplay_state.player)
         mpeg_player_pause(vplay_state.player, true);
     solar_os_context_set_graphics_active(ctx, false);
 }
 static void vplay_resume(solar_os_context_t *ctx)
 {
+    vplay_state.suspended = false;
+    vplay_state.playlist_dirty = true;
     solar_os_context_set_graphics_active(ctx, true);
     if (vplay_state.player)
         mpeg_player_pause(vplay_state.player, false);
 }
 static void vplay_reap_stopped(mpeg_player_t *p)
 {
+    if (!p) return;
     if (p->stopped && p->done && p->task) {
         solar_os_task_delete_internal(p->task);
         p->task = NULL;
@@ -770,6 +794,7 @@ static void vplay_reap_stopped(mpeg_player_t *p)
 }
 static void vplay_stop_playback(mpeg_player_t *p)
 {
+    if (!p) return;
     xSemaphoreTake(p->mutex, portMAX_DELAY);
     int64_t clock = clock_locked(p);
     p->displayed_second = clock > 0 ? clock / 1000000 : 0;
@@ -790,7 +815,7 @@ static void vplay_restart(const char *path)
 static void vplay_seek(int direction)
 {
     mpeg_player_t *p = vplay_state.player;
-    if (p->stopped || p->done) return;
+    if (!p || p->stopped || p->done) return;
     xSemaphoreTake(p->mutex, portMAX_DELAY);
     double target = clock_locked(p) / 1000000.0 + direction * 10.0;
     bool paused = p->paused;
@@ -799,53 +824,117 @@ static void vplay_seek(int direction)
     vplay_state.restart_time = target < 0 ? 0 : target;
     vplay_state.restart_paused = paused;
 }
-static int compare_names(const char *a, const char *b)
-{
-    int result = strcasecmp(a, b);
-    return result ? result : strcmp(a, b);
-}
 static void vplay_neighbor(int direction)
 {
-    mpeg_player_t *p = vplay_state.player;
-    char directory[SOLAR_OS_STORAGE_PATH_MAX], selected[SOLAR_OS_STORAGE_PATH_MAX] = {0};
-    snprintf(directory, sizeof(directory), "%s", p->path);
-    char *slash = strrchr(directory, '/');
-    if (!slash)
+    if (!vplay_state.playlist.count) return;
+    size_t index = vplay_state.active;
+    if (index >= vplay_state.playlist.count) {
+        vplay_state.active = vplay_state.cursor;
+        vplay_restart(vplay_state.playlist.entries[vplay_state.cursor].path);
         return;
-    if (slash == directory)
-        slash[1] = 0;
-    else
-        *slash = 0;
-    const char *current = vplay_basename(p->path);
-    /* Page through the storage service; no retained or unbounded playlist. */
-    size_t cursor = 0;
-    bool more = true;
-    while (more) {
-        solar_os_storage_entry_t entries[4];
-        size_t count = 0, next = 0;
-        esp_err_t err = solar_os_storage_scandir(directory, cursor, 4, entries, &count, &next, &more);
-        if (err != ESP_OK || (more && next <= cursor)) {
-            SOLAR_OS_LOGW("vplay", "cannot select neighboring video: %s", esp_err_to_name(err));
-            return;
-        }
-        cursor = next;
-        for (size_t i = 0; i < count; i++) {
-            const char *name = entries[i].name, *extension = strrchr(name, '.');
-            if (entries[i].metadata.type != SOLAR_OS_STORAGE_ENTRY_FILE || !extension ||
-                (strcasecmp(extension, ".mpg") && strcasecmp(extension, ".mpeg")))
-                continue;
-            int relative = compare_names(name, current);
-            if ((direction < 0 ? relative < 0 : relative > 0) &&
-                (!selected[0] || (direction < 0 ? compare_names(name, selected) > 0
-                                               : compare_names(name, selected) < 0)))
-                snprintf(selected, sizeof(selected), "%s", name);
+    }
+    if ((direction < 0 && index == 0) ||
+        (direction > 0 && index + 1 >= vplay_state.playlist.count)) return;
+    index = direction < 0 ? index - 1 : index + 1;
+    vplay_state.active = vplay_state.cursor = index;
+    vplay_restart(vplay_state.playlist.entries[index].path);
+}
+
+static bool vplay_playlist_entry(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    (void)user;
+    if (index >= vplay_state.playlist.count) return false;
+    *entry = vplay_state.playlist.entries[index];
+    return true;
+}
+
+static void vplay_draw_playlist(solar_os_context_t *ctx)
+{
+    if ((!vplay_state.playlist_visible && vplay_state.player) ||
+        !vplay_state.playlist_dirty || vplay_state.suspended) return;
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    int w = solar_os_gfx_width(gfx), h = solar_os_gfx_height(gfx);
+    solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_media_player_header_draw(gfx, w, "VPLAY", vplay_state.browsing ? "Files" :
+        vplay_state.playlist_visible ? "Play  [Playlist]" : "[Play]  Playlist");
+    if (vplay_state.browsing) {
+        solar_os_media_playlist_draw(gfx, w, h, solar_os_storage_browser_count(vplay_state.browser),
+            solar_os_storage_browser_cursor(vplay_state.browser), SIZE_MAX, &vplay_state.top,
+            solar_os_storage_browser_media_entry, vplay_state.browser,
+            vplay_state.message[0] ? vplay_state.message : "Enter add/open  Esc back");
+    } else if (vplay_state.playlist_visible) {
+        solar_os_media_playlist_draw(gfx, w, h, vplay_state.playlist.count,
+            vplay_state.cursor, vplay_state.active, &vplay_state.top, vplay_playlist_entry, NULL,
+            vplay_state.message[0] ? vplay_state.message : "A add  Del remove  Enter play");
+    } else {
+        solar_os_audio_status_t audio;
+        solar_os_audio_get_status(&audio);
+        solar_os_media_player_controls_draw(gfx, w, h, "No video selected", "STOPPED",
+            audio.volume, true, SOLAR_OS_MEDIA_TRANSPORT_PLAY);
+    }
+    solar_os_gfx_present(gfx);
+    vplay_state.playlist_dirty = false;
+}
+
+static bool vplay_file_filter(const char *name, void *user)
+{
+    (void)user;
+    const char *ext = name ? strrchr(name, '.') : NULL;
+    return solar_os_m3u_path(name) || (ext && (!strcasecmp(ext, ".mpg") || !strcasecmp(ext, ".mpeg")));
+}
+
+static void vplay_begin_browser(void)
+{
+    esp_err_t err = ESP_OK;
+    if (!vplay_state.browser)
+        err = solar_os_storage_browser_create(vplay_file_filter, NULL, &vplay_state.browser);
+    if (err == ESP_OK) err = solar_os_storage_browser_open(vplay_state.browser, solar_os_storage_mount_point());
+    if (err == ESP_OK) {
+        vplay_state.browsing = true;
+        vplay_state.top = 0;
+    } else snprintf(vplay_state.message, sizeof(vplay_state.message), "Cannot open storage: %s", esp_err_to_name(err));
+}
+
+static void vplay_activate_browser(void)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    bool selected = false;
+    esp_err_t err = solar_os_storage_browser_activate(vplay_state.browser, path, sizeof(path), &selected);
+    if (err == ESP_OK && selected) {
+        size_t index = 0;
+        bool imported = solar_os_m3u_path(path);
+        err = imported ? solar_os_media_playlist_import(&vplay_state.playlist, path) :
+            solar_os_media_playlist_add(&vplay_state.playlist, path, &index);
+        if (err == ESP_OK) {
+            if (imported) {
+                vplay_stop_playback(vplay_state.player);
+                vplay_state.active = SIZE_MAX;
+                vplay_state.restart = false;
+            }
+            vplay_state.cursor = index;
+            vplay_state.browsing = false;
+            vplay_state.top = 0;
         }
     }
-    if (!selected[0])
+    if (err != ESP_OK) snprintf(vplay_state.message, sizeof(vplay_state.message), "Cannot add: %s", esp_err_to_name(err));
+}
+
+static void vplay_remove_selected(void)
+{
+    size_t index = vplay_state.cursor;
+    if (index >= vplay_state.playlist.count) return;
+    esp_err_t err = solar_os_media_playlist_remove(&vplay_state.playlist, index);
+    if (err != ESP_OK) {
+        snprintf(vplay_state.message, sizeof(vplay_state.message), "Cannot remove: %s", esp_err_to_name(err));
         return;
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_join_path(directory, selected, path, sizeof(path)) == ESP_OK)
-        vplay_restart(path);
+    }
+    if (vplay_state.active == index) {
+        vplay_stop_playback(vplay_state.player);
+        vplay_state.active = SIZE_MAX;
+        vplay_state.restart = false;
+    } else if (vplay_state.active != SIZE_MAX && vplay_state.active > index) vplay_state.active--;
+    if (vplay_state.cursor >= vplay_state.playlist.count)
+        vplay_state.cursor = vplay_state.playlist.count ? vplay_state.playlist.count - 1 : 0;
 }
 static bool vplay_transport(uint8_t key)
 {
@@ -859,8 +948,12 @@ static bool vplay_transport(uint8_t key)
     else if (key == SOLAR_OS_KEY_RIGHT)
         vplay_neighbor(1);
     else if (key == '\r' || key == '\n' || key == SOLAR_OS_KEY_ENTER) {
-        if (p->stopped)
-            vplay_restart(p->path);
+        if (!p || p->stopped) {
+            if (vplay_state.cursor < vplay_state.playlist.count) {
+                vplay_state.active = vplay_state.cursor;
+                vplay_restart(vplay_state.playlist.entries[vplay_state.active].path);
+            }
+        }
         else
             vplay_stop_playback(p);
     } else
@@ -888,8 +981,19 @@ static bool vplay_pointer(const solar_os_input_pointer_event_t *event)
 }
 static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
-    if (!event || !vplay_state.player)
-        return false;
+    if (!event) return false;
+    if (event->type == SOLAR_OS_EVENT_CHAR && vplay_state.browsing &&
+        (uint8_t)event->data.ch != SOLAR_OS_KEY_APP_EXIT) {
+        uint8_t key = event->data.ch;
+        vplay_state.message[0] = 0;
+        if (key == SOLAR_OS_KEY_ESCAPE) { vplay_state.browsing = false; vplay_state.top = 0; }
+        else if (key == SOLAR_OS_KEY_UP) solar_os_storage_browser_move(vplay_state.browser, -1);
+        else if (key == SOLAR_OS_KEY_DOWN) solar_os_storage_browser_move(vplay_state.browser, 1);
+        else if (key == '\r' || key == '\n') vplay_activate_browser();
+        vplay_state.playlist_dirty = true;
+        vplay_draw_playlist(ctx);
+        return true;
+    }
     if (event->type == SOLAR_OS_EVENT_CHAR && ((uint8_t)event->data.ch == SOLAR_OS_KEY_APP_EXIT ||
                                                (uint8_t)event->data.ch == SOLAR_OS_KEY_ESCAPE)) {
         solar_os_context_finish(ctx, 0, NULL);
@@ -897,24 +1001,54 @@ static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     }
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         uint8_t ch = event->data.ch;
+        if (ch == '\t') {
+            vplay_state.playlist_visible = !vplay_state.playlist_visible;
+            if (vplay_state.player) {
+                vplay_state.player->playlist_visible = vplay_state.playlist_visible;
+                vplay_state.player->layout_dirty = true;
+            }
+            vplay_state.playlist_dirty = true;
+            vplay_draw_playlist(ctx);
+            return true;
+        }
+        if (vplay_state.playlist_visible) {
+            vplay_state.message[0] = 0;
+            if (ch == SOLAR_OS_KEY_UP && vplay_state.cursor) vplay_state.cursor--;
+            else if (ch == SOLAR_OS_KEY_DOWN && vplay_state.cursor + 1 < vplay_state.playlist.count) vplay_state.cursor++;
+            else if ((ch == '\r' || ch == '\n') && vplay_state.cursor < vplay_state.playlist.count) {
+                vplay_state.active = vplay_state.cursor;
+                vplay_restart(vplay_state.playlist.entries[vplay_state.active].path);
+                vplay_state.playlist_visible = false;
+            } else if (ch == 'a' || ch == 'A') vplay_begin_browser();
+            else if (ch == SOLAR_OS_KEY_DELETE || ch == 0x7fU) vplay_remove_selected();
+            else if (ch == ' ' && vplay_state.player) mpeg_player_event(ctx, vplay_state.player, event);
+            vplay_state.playlist_dirty = true;
+            vplay_draw_playlist(ctx);
+            return true;
+        }
         if (vplay_transport(ch))
             return true;
         if (ch == 'f' || ch == 'F') {
             vplay_state.fullscreen = !vplay_state.fullscreen;
-            mpeg_player_fullscreen(vplay_state.player, vplay_state.fullscreen);
+            if (vplay_state.player) mpeg_player_fullscreen(vplay_state.player, vplay_state.fullscreen);
             return true;
         }
         if (ch == '0' || ch == '1') {
             vplay_state.fit = ch == '1';
-            mpeg_player_fit(vplay_state.player, vplay_state.fit);
+            if (vplay_state.player) mpeg_player_fit(vplay_state.player, vplay_state.fit);
             return true;
         }
     }
-    if (event->type == SOLAR_OS_EVENT_POINTER)
+    if (event->type == SOLAR_OS_EVENT_POINTER && !vplay_state.playlist_visible && vplay_state.player)
         return vplay_pointer(&event->data.pointer);
     if (event->type == SOLAR_OS_EVENT_TICK) {
+        mpeg_player_t *p = vplay_state.player;
+        if (p && p->done && !p->stopped && p->error == ESP_OK && !vplay_state.restart &&
+            vplay_state.active + 1 < vplay_state.playlist.count) vplay_neighbor(1);
+        else if (p && p->done && !p->stopped && p->error == ESP_OK && !vplay_state.restart)
+            vplay_stop_playback(p);
         vplay_reap_stopped(vplay_state.player);
-        if (vplay_state.restart && vplay_state.player->done) {
+        if (vplay_state.restart && (!vplay_state.player || vplay_state.player->done)) {
             mpeg_player_destroy(vplay_state.player);
             vplay_state.player = NULL;
             vplay_state.restart = false;
@@ -925,11 +1059,17 @@ static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
                 char detail[96];
                 snprintf(detail, sizeof(detail), "vplay: cannot restart decoder (%s)", esp_err_to_name(err));
                 solar_os_context_finish(ctx, 1, detail);
+            } else {
+                vplay_state.player->playlist_visible = vplay_state.playlist_visible;
+                strlcpy(vplay_state.player->title, vplay_state.playlist.entries[vplay_state.active].title,
+                        sizeof(vplay_state.player->title));
             }
+            vplay_state.playlist_dirty = true;
             return true;
         }
     }
-    mpeg_player_event(ctx, vplay_state.player, event);
+    if (vplay_state.player) mpeg_player_event(ctx, vplay_state.player, event);
+    vplay_draw_playlist(ctx);
     return true;
 }
 static void vplay_title(solar_os_context_t *ctx, char *buffer, size_t size)

@@ -1784,6 +1784,9 @@ static const char * const view_options[] = {"-fit", "-actual"};
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 static const char * const vplay_options[] = {"-fit", "-actual"};
 #endif
+#if SOLAR_OS_PACKAGE_APP_RTSP
+static const char * const rtsp_options[] = {"--audio-only", "--stats"};
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const mac_options[] = {"--pointer-speed"};
 static const char * const mac_media_options[] = {"--floppy", "--pointer-speed"};
@@ -1911,6 +1914,11 @@ static const char * const path_view_after_option[] = {"view", SHELL_COMPLETION_A
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 static const char * const path_vplay[] = {"vplay"};
 static const char * const path_vplay_after_option[] = {"vplay", SHELL_COMPLETION_ANY};
+#endif
+#if SOLAR_OS_PACKAGE_APP_RTSP
+static const char * const path_rtsp[] = {"rtsp"};
+static const char * const path_rtsp_after_option[] = {"rtsp", SHELL_COMPLETION_ANY};
+static const char * const path_rtsp_after_options[] = {"rtsp", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const path_mac[] = {"mac"};
@@ -3380,6 +3388,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
     SHELL_COMPLETION_STATIC(path_webradio, webradio_subcommands),
     SHELL_COMPLETION_STATIC(path_webradio_tui, webradio_tui_subcommands),
+    SHELL_COMPLETION_PATH(path_webradio, false),
+    SHELL_COMPLETION_PATH(path_webradio_tui, false),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYER
     SHELL_COMPLETION_OPTIONS(path_player, player_options),
@@ -3436,6 +3446,13 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_APP_VPLAY
     SHELL_COMPLETION_OPTIONS(path_vplay, vplay_options),
     SHELL_COMPLETION_PATH(path_vplay_after_option, false),
+#endif
+#if SOLAR_OS_PACKAGE_APP_RTSP
+    SHELL_COMPLETION_OPTIONS(path_rtsp, rtsp_options),
+    SHELL_COMPLETION_PATH(path_rtsp, false),
+    SHELL_COMPLETION_OPTIONS(path_rtsp_after_option, rtsp_options),
+    SHELL_COMPLETION_PATH(path_rtsp_after_option, false),
+    SHELL_COMPLETION_PATH(path_rtsp_after_options, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
     SHELL_COMPLETION_OPTIONS(path_mac, mac_options),

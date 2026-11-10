@@ -1482,6 +1482,7 @@ requires = ["minimp3"]
 
 [packages.service_webradio]
 label = "service.webradio"
+depends = ["service_m3u"]
 sources = ["services/solar_os_webradio_catalog.c"]
 # Kept temporarily for one-time migration and cleanup of legacy NVS catalogs.
 requires = ["nvs_flash"]
@@ -1564,7 +1565,7 @@ sources = ["services/solar_os_signal_widgets.c"]
 
 [packages.service_media_widgets]
 label = "service.media-widgets"
-sources = ["services/solar_os_media_widgets.c"]
+sources = ["services/solar_os_media_widgets.c", "services/solar_os_media_dialog.c"]
 
 [packages.service_storage_browser]
 label = "service.storage-browser"
@@ -1572,7 +1573,17 @@ sources = ["services/solar_os_storage_browser.c"]
 
 [packages.service_player_playlist]
 label = "service.player-playlist"
+depends = ["service_media_playlist"]
 sources = ["services/solar_os_player_playlist.c"]
+
+[packages.service_m3u]
+label = "service.m3u"
+sources = ["services/solar_os_m3u.c"]
+
+[packages.service_media_playlist]
+label = "service.media-playlist"
+depends = ["service_m3u"]
+sources = ["services/solar_os_media_playlist.c"]
 
 [packages.service_gpio]
 label = "service.gpio"
@@ -2955,7 +2966,7 @@ capabilities = ["wifi"]
 
 [packages.app_rtsp]
 label = "app.rtsp"
-depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets"]
+depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets", "service_media_playlist"]
 sources = ["apps/solar_os_rtsp_app.c", "shell/solar_os_shell_rtsp_auth.c"]
 requires = ["stb_image"]
 capabilities = ["wifi"]
@@ -3025,7 +3036,7 @@ capabilities = ["psram", "gfx"]
 
 [packages.app_vplay]
 label = "app.vplay"
-depends = ["service_mpeg", "service_audio", "service_media_widgets"]
+depends = ["service_mpeg", "service_audio", "service_media_widgets", "service_media_playlist", "service_storage_browser"]
 sources = ["apps/solar_os_vplay.c"]
 capabilities = ["psram", "gfx"]
 

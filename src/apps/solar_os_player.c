@@ -93,6 +93,7 @@ typedef struct {
     player_playback_state_t playback_state;
     esp_err_t playback_error;
     char active_path[SOLAR_OS_STORAGE_PATH_MAX];
+    char active_title[SOLAR_OS_M3U_TITLE_MAX];
     char active_device_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
     uint32_t active_device_capabilities;
     char message[96];
@@ -115,8 +116,8 @@ static bool player_audio_file(const char *name, void *user)
 {
     (void)user;
     const char *dot = name != NULL ? strrchr(name, '.') : NULL;
-    return dot != NULL && (strcasecmp(dot, ".wav") == 0 ||
-                           strcasecmp(dot, ".mp3") == 0);
+    return solar_os_m3u_path(name) || (dot != NULL && (strcasecmp(dot, ".wav") == 0 ||
+                           strcasecmp(dot, ".mp3") == 0));
 }
 
 static solar_os_shell_io_t *player_io(solar_os_context_t *ctx)
@@ -336,6 +337,7 @@ static esp_err_t player_play_index_at(size_t index, uint32_t start_ms, bool paus
     }
     player_stop_playback();
     strlcpy(player.active_path, track.path, sizeof(player.active_path));
+    strlcpy(player.active_title, track.title, sizeof(player.active_title));
     player.active_index = index;
     player.cursor = index;
     player.start_ms = start_ms;
@@ -511,7 +513,7 @@ static void player_render_tui(void)
             if (!solar_os_player_playlist_get(index, &track)) continue;
             snprintf(line, sizeof(line), "%c %s",
                      player.task != NULL && index == player.active_index ? '*' : ' ',
-                     player_basename(track.path));
+                     track.title[0] ? track.title : player_basename(track.path));
         }
         solar_os_tui_write_cell(
             &player.tui, row + 1U, 1U, cols > 2U ? cols - 2U : 0U, line,
@@ -589,57 +591,31 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     char status[96];
     player_progress_text(status, sizeof(status));
     solar_os_media_player_controls_draw(gfx, width, height,
+        player.active_title[0] ? player.active_title :
         player.active_path[0] ? player_basename(player.active_path) : "No track selected",
         status, player.volume, true,
         player.task == NULL ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
         player.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
 }
 
+static bool player_playlist_entry(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    (void)user;
+    return solar_os_player_playlist_get(index, entry);
+}
+
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_media_list_layout_t list;
-    solar_os_media_list_layout(width, height, &list);
-    const int list_y = list.top;
-    const size_t visible = (size_t)list.visible;
-    const size_t count = player.browsing ?
-        solar_os_storage_browser_count(player.browser) : player.track_count;
-    const size_t cursor = player.browsing ?
-        solar_os_storage_browser_cursor(player.browser) : player.cursor;
-    if (cursor < player.top) player.top = cursor;
-    if (visible && cursor >= player.top + visible) player.top = cursor - visible + 1U;
-    for (size_t row = 0U; row < visible; row++) {
-        const size_t index = player.top + row;
-        if (index >= count) break;
-        const int y = list_y + (int)row * list.row_height;
-        char label[192];
-        if (player.browsing) {
-            solar_os_storage_browser_entry_t entry;
-            if (!solar_os_storage_browser_entry(player.browser, index, &entry)) continue;
-            snprintf(label, sizeof(label), "%s%s",
-                     entry.is_directory ? "[DIR] " : "", entry.name);
-        } else {
-            solar_os_player_track_t track;
-            if (!solar_os_player_playlist_get(index, &track)) continue;
-            snprintf(label, sizeof(label), "%c %s",
-                     player.task != NULL && index == player.active_index ? '>' : ' ',
-                     player_basename(track.path));
-        }
-        if (index == cursor) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, list.row_height - 1);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        }
-        solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_media_text_draw(gfx, 6, y + list.baseline, width - 12, label);
+    if (!player.browsing) {
+        solar_os_media_playlist_draw(gfx, width, height, player.track_count, player.cursor,
+            player.task ? player.active_index : SIZE_MAX, &player.top,
+            player_playlist_entry, NULL, "A add  Del remove  Enter play");
+        return;
     }
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_media_text_draw(gfx, 3, height - 2, width - 6,
-                      list.compact ? (player.browsing ? "Enter open  Esc back" : "Enter play  A+ Del-") :
-                      player.browsing ? "Enter open/add   Esc cancel" :
-                                        "A add   Del remove   Enter play");
+    solar_os_media_playlist_draw(gfx, width, height,
+        solar_os_storage_browser_count(player.browser), solar_os_storage_browser_cursor(player.browser),
+        SIZE_MAX, &player.top, solar_os_storage_browser_media_entry, player.browser,
+        "Enter open/add  Esc cancel");
 }
 
 static void player_render(solar_os_context_t *ctx)
@@ -707,6 +683,7 @@ static void player_activate_browser(void)
     esp_err_t err = solar_os_storage_browser_activate(
         player.browser, selected, sizeof(selected), &file_selected);
     if (err == ESP_OK && file_selected) {
+        if (solar_os_m3u_path(selected)) player_stop_playback();
         size_t index = 0U;
         err = solar_os_player_playlist_add(selected, &index);
         if (err == ESP_OK) {
@@ -854,7 +831,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
         if (err == ESP_OK) {
             player_refresh_playlist();
             player.cursor = index;
-            err = player_play_index(index);
+            if (player.track_count) err = player_play_index(index);
         }
         if (err != ESP_OK) {
             char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];

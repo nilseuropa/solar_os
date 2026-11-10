@@ -26,4 +26,6 @@ esp_err_t solar_os_webradio_catalog_update(const char *old_name,
                                            const char *url);
 esp_err_t solar_os_webradio_catalog_remove(const char *name);
 esp_err_t solar_os_webradio_catalog_reset(void);
+esp_err_t solar_os_webradio_catalog_import(const char *path);
+int32_t solar_os_webradio_catalog_duration(size_t index);
 bool solar_os_webradio_url_valid(const char *url);

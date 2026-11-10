@@ -331,6 +331,19 @@ static void test_play(bool video, bool audio, bool audio_only, bool shorthand)
     } else { assert(!c->jpeg); vTaskDelay(150); }
     if (audio) assert(atomic_load(&audio_opens) == opens_before + 1 && atomic_load(&samples_played) > 0 && atomic_load(&callbacks));
     else assert(atomic_load(&audio_opens) == opens_before);
+    if (audio) {
+        solar_os_rtsp_client_set_paused(c, true);
+        vTaskDelay(40); /* Allow a sink write already in flight to finish. */
+        unsigned before_pause = atomic_load(&samples_played);
+        vTaskDelay(60);
+        assert(atomic_load(&samples_played) == before_pause);
+        solar_os_rtsp_client_status(c, &status);
+        assert(status.playing && !status.audio_playing);
+        solar_os_rtsp_client_set_paused(c, false);
+        uint64_t resume_deadline = now_us() + 500000;
+        while (atomic_load(&samples_played) == before_pause && now_us() < resume_deadline) vTaskDelay(1);
+        assert(atomic_load(&samples_played) > before_pause);
+    }
     if (video && audio && !audio_only) {
         lock(c); assert(c->video.clock.valid && c->audio.clock.valid); unlock(c);
     }

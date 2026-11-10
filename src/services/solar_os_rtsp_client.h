@@ -50,6 +50,8 @@ esp_err_t solar_os_rtsp_client_create(const char *url,
  * decoded frames whose status epoch no longer matches their acquisition. */
 esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *client);
 void solar_os_rtsp_client_cancel(solar_os_rtsp_client_t *client);
+/* Local live pause: keep receiving, discard audio, and resume at the live edge. */
+void solar_os_rtsp_client_set_paused(solar_os_rtsp_client_t *client, bool paused);
 void solar_os_rtsp_client_status(solar_os_rtsp_client_t *client,
                                  solar_os_rtsp_client_status_t *status);
 /* One compressed frame, no queue. Take immediately for decoding, not at its
