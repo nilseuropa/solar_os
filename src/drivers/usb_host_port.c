@@ -3,6 +3,7 @@
 #include <stdatomic.h>
 #include <string.h>
 #include "esp_attr.h"
+#include "esp_intr_alloc.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
@@ -324,8 +325,10 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t callback)
     atomic_store(&worker_done, true);
     atomic_store(&stop_daemon, false);
     atomic_store(&daemon_done, true);
+    /* Peripheral-rich boards can exhaust level-1 interrupt inputs. The host
+     * handler supports all C-callable levels, so let the allocator choose. */
     const usb_host_config_t config = {
-        .intr_flags = ESP_INTR_FLAG_LEVEL1, .root_port_unpowered = true,
+        .intr_flags = ESP_INTR_FLAG_LOWMED, .root_port_unpowered = true,
     };
     esp_err_t ret = usb_host_install(&config);
     if (ret != ESP_OK) {

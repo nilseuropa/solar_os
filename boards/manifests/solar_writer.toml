@@ -18,6 +18,8 @@ SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
 SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_8"
 SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_9"
 SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "3000U"
+SOLAR_OS_BOARD_PIN_USB_VBUS_EN = "GPIO_NUM_18"
+SOLAR_OS_BOARD_USB_VBUS_ACTIVE_LEVEL = "1"
 # Hold audio inputs and USB VBUS enable low before enabling the shared rails.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{GPIO_NUM_14, 0}, {GPIO_NUM_15, 0}, {GPIO_NUM_16, 0}, {GPIO_NUM_18, 0}, {GPIO_NUM_21, 1}}'
 
@@ -97,7 +99,7 @@ pwm = false
 [[pins]]
 gpio = 18
 policy = "fixed"
-role = "USB host VBUS enable (reserved)"
+role = "USB host VBUS enable"
 user = false
 adc = false
 pwm = false

@@ -50,7 +50,7 @@ ground to a suitable USB host connector. The following target profiles enable
 | `t_deck_plus`, `t_lora_pager` | Native USB-C connector |
 | `waveshare_esp32_s3_epaper_3_97`, `xteink_x4_pro` | Native USB-C connector |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper`, `elecrow_crowpanel_esp32_s3_5_79_epaper` | U5 GPIO19/20; USB-C is a USB–UART console |
-| `solar_writer` | U5 GPIO19/20 and the I/O board's USB host connector; VBUS control remains separate |
+| `solar_writer` | U5 GPIO19/20 and the I/O board's USB host connector; GPIO18 switches VBUS automatically |
 | `waveshare_esp32_s3_sim7670g_4g`, `waveshare_esp32_s3_sim7670g_4g_epaper` | P3 GPIO19/20, shared with the board's USB mux circuitry |
 
 USB–UART consoles remain available during hosting. On the SIM7670G board,
@@ -71,12 +71,18 @@ battery voltage to 5 V. Use a suitable externally powered data breakout or
 cable that connects the peripheral directly and provides its 5 V supply;
 a passive USB-C host adapter alone is insufficient.
 
-Provide the peripheral with a suitable regulated 5 V supply and common
-ground. The host service does not control board VBUS switches or charger
-boost modes, and does not enable battery-powered USB host power automatically.
-On SolarWriter, GPIO18 remains low and its onboard VBUS switch stays off;
-use suitable external peripheral power. Arrange current
-limiting and prevent backfeeding between supplies. A powered adapter or hub
+On SolarWriter, `usb mode host` raises GPIO18 to enable the onboard VBUS
+switch after the host drivers start. VBUS is switched off when hosting stops,
+during explicit sleep, or on startup rollback, and restored when hosting
+resumes. GPIO21 keeps the shared boost/audio rail enabled independently.
+`usb status` reports the commanded VBUS switch state, not a voltage measurement.
+The TPS2553 provides hardware current limiting; GPIO38 fault monitoring is
+not implemented.
+
+Other supported profiles require a suitable regulated external 5 V peripheral
+supply and common ground; the host service does not configure their power
+switches or charger boost modes. Arrange current limiting and prevent
+backfeeding between supplies. A powered adapter or hub
 does not by itself establish correct host wiring or guarantee hub support.
 Disconnect a PC from the native USB data lines before connecting a peripheral.
 

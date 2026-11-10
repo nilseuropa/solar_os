@@ -52,6 +52,10 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
         "Last error: %s\n", solar_os_shell_error_text(status.last_error));
     if (status.rollback_error != ESP_OK) solar_os_shell_io_printf(io,
         "Restore error: %s; retry usb mode device\n", solar_os_shell_error_text(status.rollback_error));
+#ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
+    solar_os_shell_io_printf(io, "Host power: onboard VBUS switch %s (GPIO%d)\n",
+        status.vbus_enabled ? "enabled" : "disabled", (int)SOLAR_OS_BOARD_PIN_USB_VBUS_EN);
+#endif
     if (status.mode == SOLAR_OS_USB_MODE_DEVICE) {
 #if SOLAR_OS_BOARD_HAS_CDC
         solar_os_shell_io_writeln(io, "Native USB: CDC / Serial-JTAG");
@@ -60,7 +64,9 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
 #endif
         return;
     }
+#ifndef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
     solar_os_shell_io_writeln(io, "Host power: external 5 V required; no software VBUS switch");
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     solar_os_usb_storage_status_t storage;
     solar_os_usb_storage_get_status(&storage);

@@ -1088,7 +1088,7 @@ The following connections are fixed in this target:
 | Playback data | 16 | 18 | PCM5102A DIN and MAX98357A DIN |
 | Microphone data | 17 | 4 | ICS-43432 SD; LR tied high for slot 1 |
 | Audio power enable | 21 | 6 | BOOST_EN: TPS61023 EN and TPS22917 ON, active high |
-| USB VBUS enable, reserved | 18 | 17 | TPS2553 EN |
+| USB VBUS enable | 18 | 17 | TPS2553 EN, active high |
 | USB host D- | 19 | 5 | USB-C host D- |
 | USB host D+ | 20 | 16 | USB-C host D+ |
 | USB overcurrent, reserved | 38 | 15 | TPS2553 fault output, active low |
@@ -1280,11 +1280,14 @@ The RTC backup supply uses an 11 mF supercapacitor charged through a diode and
 
 GPIO18, GPIO19, GPIO20, and GPIO38 are reserved for the USB-C host circuit and
 are not available as general GPIO, ADC, or PWM. `usb mode host` enables HID
-input on GPIO19/20 while the CH340/UART console remains available. VBUS
-switching and overcurrent handling are not integrated in this profile, so
-GPIO18 stays low and peripherals require suitable external 5 V power. The
-USB connector shares the enabled 5 V boost with the speaker; GPIO18 controls
-its VBUS switch independently of audio. Qwiic shares `i2c0`; this
+input on GPIO19/20 and raises GPIO18 to supply VBUS while the CH340/UART
+console remains available. GPIO18 starts low and returns low when hosting
+stops, during explicit sleep, and on startup rollback; it is raised again
+when hosting resumes. `usb status` reports the commanded switch state.
+The USB connector shares the enabled 5 V boost with the speaker; GPIO18
+controls its VBUS switch independently of audio. The TPS2553 provides hardware
+current limiting; GPIO38 overcurrent monitoring is not implemented.
+Qwiic shares `i2c0`; this
 assembled board exposes no unallocated runtime-safe GPIOs on U5. See
 [USB host](usb.host.md) for connections and mode switching.
 

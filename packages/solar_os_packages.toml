@@ -1430,6 +1430,7 @@ capabilities = ["cdc"]
 label = "service.usb-host"
 depends = ["service_resources"]
 sources = [
+  "board/solar_os_board_usb.c",
   "drivers/usb_host_port.c",
   "drivers/usb_hid_report.c",
   "drivers/usb_hid_mouse_report.c",
