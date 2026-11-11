@@ -21,6 +21,10 @@ static bool worker_init_fail;
 static int16_t temperature_sample = 27;
 static esp_err_t temperature_error;
 static unsigned temperature_writes, commanded_temperature;
+static int spi_clock_khz;
+static bool overspeed;
+static unsigned info_words;
+static bool info_word_pending;
 
 static esp_err_t sample_temperature(int16_t *value)
 {
@@ -68,7 +72,13 @@ static void pump(epd_scan_worker_t *w)
 int64_t esp_timer_get_time(void) { return now; }
 void vTaskDelay(TickType_t ticks) { assert(ticks); now += (int64_t)ticks * 1000; }
 esp_err_t gpio_config(const gpio_config_t *cfg) { assert(cfg); return ESP_OK; }
-int gpio_get_level(gpio_num_t pin) { assert(pin == 13); return !stuck_ready; }
+int gpio_get_level(gpio_num_t pin)
+{
+    assert(pin == 13);
+    if (stuck_ready) return 0;
+    if (info_word_pending) { info_word_pending = false; return 0; }
+    return 1;
+}
 esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
 {
     assert(pin >= 0 && pin < 49);
@@ -76,7 +86,7 @@ esp_err_t gpio_set_level(gpio_num_t pin, uint32_t level)
     levels[pin] = level;
     if (pin == 10) {
         if (!level) { assert(held && !selected); selected = true; phase = 0; }
-        else selected = false;
+        else { selected = false; info_word_pending = false; }
     }
     return ESP_OK;
 }
@@ -84,11 +94,14 @@ esp_err_t solar_os_bus_spi_add_device(const char *bus,
     const spi_device_interface_config_t *cfg, spi_device_handle_t *spi)
 {
     assert(!strcmp(bus, "spi0") && cfg->spics_io_num == -1 && cfg->mode == 0);
-    assert(cfg->clock_speed_hz == 10000000);
+    assert(cfg->clock_speed_hz == 5000000 || cfg->clock_speed_hz == 10000000);
+    spi_clock_khz = cfg->clock_speed_hz / 1000;
     *spi = (void *)1;
     return ESP_OK;
 }
 esp_err_t spi_bus_remove_device(spi_device_handle_t spi) { assert(spi); removed++; return ESP_OK; }
+esp_err_t spi_device_get_actual_freq(spi_device_handle_t spi, int *freq_khz)
+{ assert(spi && freq_khz); *freq_khz = overspeed ? 26666 : spi_clock_khz; return ESP_OK; }
 esp_err_t spi_device_acquire_bus(spi_device_handle_t spi, unsigned wait)
 { assert(spi && !held && wait == portMAX_DELAY); held = true; return ESP_OK; }
 void spi_device_release_bus(spi_device_handle_t spi)
@@ -109,13 +122,15 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
     }
     if (preamble == 0x1000) {
         if (phase == 2) { assert(size == 2 && !t->rx_buffer); return ESP_OK; }
-        assert(phase == 3 && t->rx_buffer);
+        assert(phase >= 3 && t->rx_buffer);
         uint8_t *rx = t->rx_buffer;
         memset(rx, 0, size);
         if (current_command == 0x0302) {
-            assert(size == 40);
+            assert(size == 2 && info_words < 20 && !info_word_pending);
             const uint16_t info[] = {wrong_panel ? 800 : WIDTH, HEIGHT, 0x3456, 0x12};
-            for (unsigned i = 0; i < 4; i++) { rx[2*i] = info[i] >> 8; rx[2*i+1] = info[i]; }
+            const uint16_t value = info_words < 4 ? info[info_words] : 0;
+            rx[0] = value >> 8; rx[1] = value;
+            info_word_pending = ++info_words < 20;
         } else {
             assert(current_command == 0x0010 && size == 2);
             const uint16_t value = last_reg == 0x1224 ? (unsigned)stuck_lut : registers[last_reg];
@@ -124,6 +139,7 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
     } else if (preamble == 0x6000) {
         assert(size == 2 && phase == 2);
         current_command = ((unsigned)tx[0] << 8) | tx[1]; arg_count = 0;
+        if (current_command == 0x0302) info_words = 0;
         if (current_command == 0x0021) rows = 0;
     } else if (current_command == 0x0021 && arg_count == 5) {
         assert(rows < image_height);
@@ -183,6 +199,70 @@ static solar_os_it8951_config_t config(void)
         .read_temperature=sample_temperature};
 }
 
+static void test_upload_packing(solar_os_it8951_t *d)
+{
+    for (unsigned bits = 0; bits < 256; bits++) {
+        uint8_t source[4];
+        for (unsigned i = 0; i < 4; i++) {
+            source[i] = (bits & (0x80U >> (2U*i)) ? 0xf0 : 0) |
+                (bits & (0x40U >> (2U*i)) ? 0x0f : 0);
+        }
+        assert(pack_binary_byte(source) == bits);
+    }
+    const dirty_area_t full = {0,WIDTH,0,HEIGHT};
+    for (unsigned binary = 0; binary < 2; binary++) {
+        uint32_t random = 42;
+        for (size_t i = 0; i < GRAY_BYTES; i++) {
+            random = random*1664525U + 1013904223U;
+            d->gray[i] = binary ? ((random & 0x80000000U ? 0xf0 : 0) |
+                (random & 0x40000000U ? 0x0f : 0)) : (uint8_t)(random >> 24);
+        }
+        assert(finish_refresh(d,binary,&full) == ESP_OK);
+        assert(upload_bytes == (size_t)WIDTH*HEIGHT/(binary ? 8U : 2U));
+        for (unsigned y = 0; y < HEIGHT; y++)
+            for (unsigned x = 0; x < WIDTH; x++)
+                assert(uploaded[(size_t)y*WIDTH+x] == gray_at(d,WIDTH-1U-x,y)*17U);
+    }
+}
+
+static void test_indexed_palette(solar_os_it8951_t *d)
+{
+    uint16_t palette[256];
+    uint8_t pixels[256];
+    for (unsigned i = 0; i < 256; i++) {
+        pixels[i] = i;
+        palette[i] = (uint16_t)(i*257U);
+    }
+    const solar_os_display_raster_t f = {.data=pixels, .data_size=sizeof(pixels),
+        .source_width=256, .source_height=1, .source_stride=256,
+        .x=7, .y=9, .width=512, .height=2, .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8,
+        .palette_rgb565=palette, .palette_size=256,
+        .clear_background=true, .background_index=255};
+    for (unsigned pass = 0; pass < 2; pass++) {
+        assert(solar_os_it8951_present_frame(d,&f) == ESP_OK);
+        assert(gray_at(d,WIDTH-1,HEIGHT-1) == rgb_gray(palette[255]));
+        for (unsigned i = 0; i < 256; i++) {
+            assert(gray_at(d,7+2*i,9) == rgb_gray(palette[i]));
+            assert(gray_at(d,8+2*i,10) == rgb_gray(palette[i]));
+            palette[i] ^= 0xffff;
+        }
+    }
+}
+
+static void test_read_recovery(solar_os_it8951_t *d)
+{
+    uint8_t info[40];
+    assert(command(d,0x0302,NULL,0) == ESP_OK);
+    fail_after = 5; /* Preamble, dummy and three response words succeed. */
+    assert(transfer(d,0x1000,NULL,info,sizeof(info)) == ESP_FAIL);
+    assert(info_words == 3 && !held && !selected);
+    assert(command(d,0x0302,NULL,0) == ESP_OK);
+    assert(transfer(d,0x1000,NULL,info,sizeof(info)) == ESP_OK);
+    assert(info_words == 20 && !held && !selected);
+    assert((((unsigned)info[0] << 8) | info[1]) == WIDTH);
+    assert((((unsigned)info[2] << 8) | info[3]) == HEIGHT);
+}
+
 int main(void)
 {
     solar_os_it8951_t d;
@@ -190,6 +270,11 @@ int main(void)
     cfg.vcom_mv = 2330; assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_ARG);
     cfg = config(); cfg.ite_power = cfg.cs;
     assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_ARG);
+    cfg = config(); cfg.clock_hz = 20000000;
+    assert(solar_os_it8951_init(&d,&cfg) == ESP_ERR_INVALID_ARG);
+    cfg = config(); overspeed = true;
+    assert(solar_os_it8951_init(&d,&cfg) == ESP_ERR_NOT_SUPPORTED && !d.spi);
+    overspeed = false;
     cfg = config(); wrong_panel = true;
     assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_RESPONSE);
     assert(!d.spi && !levels[11] && !levels[21] && !held && !selected);
@@ -199,6 +284,8 @@ int main(void)
     assert(!d.spi && !levels[11] && !levels[21]);
     assert(solar_os_it8951_init(&d, &cfg) == ESP_OK);
     assert(d.ready && d.image_address == 0x123456 && !updates);
+    assert(info_words == 20 && !info_word_pending);
+    assert(d.spi_clock_khz == 10000 && strstr(solar_os_it8951_mode(&d),"spi=10000kHz"));
     assert(d.scan_worker.task && d.mono_shadow);
     assert(d.temperature_c == 27 && temperature_writes == 1 && commanded_temperature == 27);
     temperature_sample = 31; now = d.temperature_due;
@@ -347,7 +434,8 @@ int main(void)
     assert(updates == before_padding);
     d.mono[last_byte] ^= 8U;
     assert(solar_os_it8951_present(&d) == ESP_OK); pump(&d.scan_worker);
-    assert(d.last_x == 0 && d.last_y == 1400 && d.last_height == 4 && d.last_width == 32);
+    assert(d.last_x == 0 && d.last_y == 1403 && d.last_height == 1 && d.last_width == 32);
+    assert(upload_bytes == 4); /* Only the changed pixel row, not all eight tile rows. */
     assert(uploaded[(size_t)(HEIGHT-1)*WIDTH] == (d.mono[last_byte] & 8U ? 255 : 0));
     /* Graphics can allocate its INDEX8 surface without a second full gray image;
      * raster presentation joins and releases the native worker snapshots. */
@@ -376,8 +464,15 @@ int main(void)
     const unsigned before_full_duplicate = updates;
     assert(scan_process(&d,d.scan_worker.snapshot,false,&pending,&scanned) == ESP_OK);
     assert(scanned && !pending && updates == before_full_duplicate+1 && last_waveform == 2);
+    test_indexed_palette(&d);
+    test_upload_packing(&d);
+    test_read_recovery(&d);
     solar_os_it8951_deinit(&d);
-    assert(!held && !selected && !d.spi && removed == 3);
+    assert(!held && !selected && !d.spi && removed == 4);
+    cfg = config(); cfg.clock_hz = 5000000;
+    assert(solar_os_it8951_init(&d,&cfg) == ESP_OK);
+    assert(d.spi_clock_khz == 5000 && strstr(solar_os_it8951_mode(&d),"spi=5000kHz"));
+    solar_os_it8951_deinit(&d);
     puts("IT8951 protocol, framebuffer, grayscale, rotation and recovery tests passed");
     return 0;
 }

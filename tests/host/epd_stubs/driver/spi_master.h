@@ -37,6 +37,7 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t device, spi_transactio
 esp_err_t spi_bus_initialize(spi_host_device_t host, const spi_bus_config_t *config, int dma);
 esp_err_t spi_bus_add_device(spi_host_device_t host, const spi_device_interface_config_t *config, spi_device_handle_t *device);
 esp_err_t spi_bus_remove_device(spi_device_handle_t device);
+esp_err_t spi_device_get_actual_freq(spi_device_handle_t device, int *freq_khz);
 esp_err_t spi_bus_free(spi_host_device_t host);
 
 esp_err_t spi_device_acquire_bus(spi_device_handle_t device, unsigned wait);

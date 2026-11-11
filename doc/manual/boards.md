@@ -1418,6 +1418,9 @@ GPIO19/20 carry the onboard I2C bus.
 GPIO47 has no ADC function. Only GPIO6 and GPIO47 are free GPIO/PWM slots;
 GPIO6 is also an ADC slot. The I2C pins on J2 remain owned by `i2c0`.
 
+The display defaults to 10 MHz SPI. `display mode display0` reports the actual
+SPI rate.
+
 The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the
 controller geometry before configuring the panel's -1.4 V VCOM. Indexed and

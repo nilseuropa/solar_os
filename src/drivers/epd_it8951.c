@@ -58,9 +58,20 @@ static esp_err_t transfer(solar_os_it8951_t *d, uint16_t preamble,
         err = spi_device_polling_transmit(d->spi, &t);
         if (err == ESP_OK) err = wait_ready(d);
     }
-    if (err == ESP_OK) {
-        t = (spi_transaction_t){.length = size * 8U,
-            .tx_buffer = tx, .rx_buffer = rx};
+    if (rx) {
+        /* The controller can pause between response words. At 20 MHz a
+         * continuous device-info read can repeat words before the next one
+         * is ready. Keep CS asserted and honor HRDY for each 16-bit word. */
+        for (size_t offset = 0; err == ESP_OK && offset < size; offset += 2U) {
+            const size_t count = size - offset < 2U ? size - offset : 2U;
+            err = wait_ready(d);
+            if (err == ESP_OK) {
+                t = (spi_transaction_t){.length = count * 8U, .rx_buffer = rx + offset};
+                err = spi_device_polling_transmit(d->spi, &t);
+            }
+        }
+    } else if (err == ESP_OK) {
+        t = (spi_transaction_t){.length = size * 8U, .tx_buffer = tx};
         err = spi_device_polling_transmit(d->spi, &t);
     }
     const esp_err_t cs_err = gpio_set_level(d->config.cs, 1);
@@ -264,6 +275,16 @@ static dirty_area_t mono_dirty_area(solar_os_it8951_t *d, const uint8_t *source)
     return area;
 }
 
+/* Four packed binary-gray bytes become eight pixels in native X order.
+ * Both nibbles are either 0 or 15; keep their top bits in the output. */
+static uint8_t pack_binary_byte(const uint8_t *source)
+{
+    return (source[0] & 0x80U) | ((source[0] & 0x08U) << 3) |
+        ((source[1] & 0x80U) >> 2) | ((source[1] & 0x08U) << 1) |
+        ((source[2] & 0x80U) >> 4) | ((source[2] & 0x08U) >> 1) |
+        ((source[3] & 0x80U) >> 6) | ((source[3] & 0x08U) >> 3);
+}
+
 static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     const dirty_area_t *dirty)
 {
@@ -306,19 +327,17 @@ static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     TRY(command(d, 0x0021, load, 5));
     const size_t row_bytes = binary ? width / 8U : width / 2U;
     for (unsigned y = y0; y < y1; y++) {
+        const uint8_t *source = d->gray + (size_t)y * (WIDTH / 2U) + (WIDTH - x0) / 2U;
         if (binary) {
             for (unsigned x = 0; x < width; x += 16U) {
-                uint16_t bits = 0;
-                for (unsigned bit = 0; bit < 16U; bit++)
-                    if (gray_at(d, WIDTH - 1U - (x0 + x + bit), y)) bits |= 1U << bit;
-                d->transfer[x / 8U] = (uint8_t)(bits >> 8);
-                d->transfer[x / 8U + 1U] = (uint8_t)bits;
+                source -= 8;
+                d->transfer[x / 8U] = pack_binary_byte(source);
+                d->transfer[x / 8U + 1U] = pack_binary_byte(source + 4);
             }
         } else {
-            for (unsigned x = 0; x < width; x += 2U) {
-                const unsigned nx = WIDTH - 1U - (x0 + x);
-                d->transfer[x / 2U] = (uint8_t)((gray_at(d, nx, y) << 4) |
-                    gray_at(d, nx - 1U, y));
+            for (size_t x = 0; x < row_bytes; x++) {
+                const uint8_t pixels = *--source;
+                d->transfer[x] = (uint8_t)((pixels << 4) | (pixels >> 4));
             }
         }
         TRY(transfer(d, 0, d->transfer, NULL, row_bytes));
@@ -386,8 +405,8 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
     esp_err_t err = ESP_OK;
     if ((fresh || d->full_refresh) && !d->suspended &&
         __atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE)) {
-        const dirty_area_t dirty = mono_dirty_area(d,source);
-        if (dirty.x1) mono_to_gray_area(d,source,&dirty);
+        dirty_area_t dirty = mono_dirty_area(d,source);
+        if (dirty.x1) dirty = mono_to_gray_area(d,source,&dirty);
         err = finish_refresh(d,true,&dirty);
         *scanned = err == ESP_OK;
         if (err != ESP_OK) {
@@ -508,10 +527,17 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     const gpio_config_t busy = {.pin_bit_mask = 1ULL << cfg->busy,
         .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     TRY(gpio_config(&busy));
+    /* Enforce the ED103TC2 profile's 10 MHz ceiling after SDK rounding too. */
     const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)cfg->clock_hz,
         .mode = 0, .spics_io_num = -1, .queue_size = 1};
     esp_err_t err = solar_os_bus_spi_add_device(cfg->spi_bus, &spi_cfg, &d->spi);
     if (err != ESP_OK) return err;
+    int actual_khz = 0;
+    err = spi_device_get_actual_freq(d->spi, &actual_khz);
+    if (err == ESP_OK && (actual_khz <= 0 || actual_khz > 10000))
+        err = ESP_ERR_NOT_SUPPORTED;
+    if (err != ESP_OK) { solar_os_it8951_deinit(d); return err; }
+    d->spi_clock_khz = (unsigned)actual_khz;
     d->mono = solar_os_memory_calloc(1, MONO_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.mono");
     d->gray = solar_os_memory_alloc(GRAY_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.gray");
     d->transfer = solar_os_memory_alloc(WIDTH, SOLAR_OS_MEMORY_DMA, "it8951.spi");
@@ -554,9 +580,9 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
     xSemaphoreTake(state->mutex, portMAX_DELAY);
     const epd_scan_stats_t stats = epd_scan_worker_stats(&state->scan_worker);
     snprintf(state->mode_description, sizeof(state->mode_description),
-        "refresh=%s grayscale=16 last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
+        "refresh=%s grayscale=16 spi=%ukHz last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
         "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus",
-        d->full_refresh ? "full" : "auto", d->last_refresh_ms, d->last_upload_ms,
+        d->full_refresh ? "full" : "auto", d->spi_clock_khz, d->last_refresh_ms, d->last_upload_ms,
         d->last_lut_ms, d->last_x, d->last_y, d->last_width, d->last_height, d->last_bpp,
         (int)d->temperature_c,d->scan_worker.task ? "async" : "sync",
         (unsigned long)stats.submitted,(unsigned long)stats.coalesced,
@@ -613,11 +639,15 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
         (size_t)f->y + f->height > u8g2_GetDisplayHeight(&d->u8g2)) return ESP_ERR_INVALID_SIZE;
     const bool indexed = f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 ||
                          f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX2;
+    uint8_t palette_gray[256];
     if (indexed) {
         if (!f->palette_rgb565 || !f->palette_size || f->palette_size > 256U ||
             (f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX2 && f->palette_size > 4U) ||
             (f->clear_background && f->background_index >= f->palette_size))
             return ESP_ERR_INVALID_ARG;
+        /* Quantize each palette entry once, rather than every scaled pixel. */
+        for (unsigned i = 0; i < f->palette_size; i++)
+            palette_gray[i] = rgb_gray(f->palette_rgb565[i]);
         /* Validate before changing the destination, including off-screen source pixels. */
         for (unsigned y = 0; y < f->source_height; y++) {
             const uint8_t *row = f->data + (size_t)y * f->source_stride;
@@ -638,7 +668,7 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
     dirty_area_t dirty = {WIDTH,0,HEIGHT,0};
     if (f->clear_background) {
         dirty = (dirty_area_t){0,WIDTH,0,HEIGHT};
-        const uint8_t background = indexed ? rgb_gray(f->palette_rgb565[f->background_index]) :
+        const uint8_t background = indexed ? palette_gray[f->background_index] :
             f->format == SOLAR_OS_DISPLAY_FORMAT_RGB565 ? rgb_gray(f->background_rgb565) :
             ((!!f->background_index != f->palette_inverted) ? 0 : 15);
         memset(d->gray, (background << 4) | background, GRAY_BYTES);
@@ -658,7 +688,7 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
             } else {
                 const unsigned index = f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 ? row[sx] :
                     (row[sx / 4U] >> (2U * (sx & 3U))) & 3U;
-                gray = rgb_gray(f->palette_rgb565[index]);
+                gray = palette_gray[index];
             }
             unsigned nx, ny;
             logical_to_native(&d->u8g2, f->x + x, f->y + y, &nx, &ny);

@@ -78,6 +78,8 @@ int main(void) {
         self.assertEqual(set(spi["cs"]), {10, 14})
         self.assertEqual(devices["display0"]["driver"], "it8951")
         display = devices["display0"]["bindings"]
+        self.assertEqual(display["clock"], 10000)
+        self.assertEqual(self.board["defines"]["SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ"], "10000000")
         self.assertNotIn("dc", display)
         self.assertEqual((display["power"], display["ite_power"], display["reset"], display["busy"]), (11, 21, 12, 13))
         for name in ("display0", "storage0"):

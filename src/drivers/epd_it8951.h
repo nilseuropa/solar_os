@@ -30,6 +30,7 @@ typedef struct {
     u8g2_t u8g2;
     uint8_t *mono, *gray, *transfer, *mono_shadow;
     uint32_t image_address;
+    unsigned spi_clock_khz;
     StaticSemaphore_t mutex_storage;
     SemaphoreHandle_t mutex;
     esp_err_t last_error;
