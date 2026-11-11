@@ -14,7 +14,7 @@ members = [
 [groups.hardware_shell]
 label = "Hardware shell commands"
 category = "System"
-members = ["system_shell"]
+members = ["system_shell", "service_usb_host", "service_usb_storage"]
 
 [groups.filesystem]
 label = "Filesystem commands"
@@ -302,6 +302,11 @@ label = "GPIO keyboard"
 category = "Hardware tools"
 members = ["job_gpio_keys"]
 
+[groups.gpio_matrix]
+label = "GPIO keyboard matrix"
+category = "Hardware tools"
+members = ["expansion_gpio_matrix"]
+
 [groups.handwriting_input]
 label = "Graffiti handwriting input"
 category = "Hardware tools"
@@ -577,6 +582,11 @@ label = "SPI DLP displays"
 category = "Expansion hardware"
 members = ["expansion_spi_dlp"]
 
+[groups.ssd1680]
+label = "SSD1680 e-paper expansion"
+description = "122x250 monochrome panels with native OTP refresh"
+members = ["expansion_ssd1680"]
+
 [groups.ssd1683]
 label = "SSD1683 e-paper display"
 category = "Expansion hardware"
@@ -656,6 +666,11 @@ members = ["st25r3916"]
 label = "BHI260AP IMU"
 category = "Expansion hardware"
 members = ["bhi260ap"]
+
+[groups.mpu6050]
+label = "MPU6050 IMU"
+category = "Expansion hardware"
+members = ["mpu6050"]
 
 [groups.qmi8658]
 label = "QMI8658 IMU"
@@ -763,7 +778,7 @@ category = "Expansion hardware"
 members = ["expansion_audio_pdm"]
 
 [groups.inmp441]
-label = "INMP441 microphone and shared I2S playback"
+label = "INMP441 / ICS-43432 microphone and shared I2S playback"
 category = "Expansion hardware"
 members = ["expansion_inmp441"]
 
@@ -801,6 +816,11 @@ members = ["driver_display_st7796"]
 label = "ST7789 display"
 category = "Expansion hardware"
 members = ["driver_display_st7789"]
+
+[groups.gc9a01]
+label = "GC9A01 round display"
+category = "Expansion hardware"
+members = ["driver_display_gc9a01"]
 
 [groups.cvbs]
 label = "PAL composite display"
@@ -1156,7 +1176,7 @@ requires = ["lwip"]
 
 [packages.service_osc]
 label = "service.osc"
-depends = ["service_controls", "service_streams"]
+depends = ["service_controls", "service_streams", "service_script_net"]
 sources = [
   "services/solar_os_osc.c",
   "shell/solar_os_shell_osc.c",
@@ -1416,6 +1436,31 @@ label = "service.hid"
 sources = ["services/solar_os_hid.c"]
 capabilities = ["cdc"]
 
+[packages.service_usb_host]
+label = "service.usb-host"
+depends = ["service_resources"]
+sources = [
+  "board/solar_os_board_usb.c",
+  "drivers/usb_host_port.c",
+  "drivers/usb_hid_report.c",
+  "drivers/usb_hid_mouse_report.c",
+  "drivers/usb_hid_joystick_report.c",
+  "services/solar_os_usb.c",
+  "services/solar_os_usb_hid_input.c",
+  "shell/solar_os_shell_usb.c",
+]
+requires = ["usb", "espressif__usb_host_hid", "esp_pm"]
+capabilities = ["usb_host"]
+targets = ["esp32s3"]
+
+[packages.service_usb_storage]
+label = "service.usb-storage"
+depends = ["service_usb_host"]
+sources = ["drivers/usb_msc_port.c", "drivers/usb_ufi.c", "drivers/usb_ufi_msc.c", "services/solar_os_usb_storage.c"]
+requires = ["espressif__usb_host_msc", "fatfs", "vfs"]
+capabilities = ["usb_host"]
+targets = ["esp32s3"]
+
 [packages.service_sd]
 label = "service.sd"
 capabilities = ["sd"]
@@ -1456,6 +1501,7 @@ requires = ["minimp3"]
 
 [packages.service_webradio]
 label = "service.webradio"
+depends = ["service_m3u"]
 sources = ["services/solar_os_webradio_catalog.c"]
 # Kept temporarily for one-time migration and cleanup of legacy NVS catalogs.
 requires = ["nvs_flash"]
@@ -1538,7 +1584,13 @@ sources = ["services/solar_os_signal_widgets.c"]
 
 [packages.service_media_widgets]
 label = "service.media-widgets"
-sources = ["services/solar_os_media_widgets.c"]
+sources = ["services/solar_os_media_widgets.c", "services/solar_os_media_dialog.c"]
+
+[packages.service_media_preferences]
+label = "service.media-preferences"
+depends = ["service_audio"]
+sources = ["services/solar_os_media_preferences.c"]
+requires = ["nvs_flash"]
 
 [packages.service_storage_browser]
 label = "service.storage-browser"
@@ -1546,7 +1598,17 @@ sources = ["services/solar_os_storage_browser.c"]
 
 [packages.service_player_playlist]
 label = "service.player-playlist"
+depends = ["service_media_playlist"]
 sources = ["services/solar_os_player_playlist.c"]
+
+[packages.service_m3u]
+label = "service.m3u"
+sources = ["services/solar_os_m3u.c"]
+
+[packages.service_media_playlist]
+label = "service.media-playlist"
+depends = ["service_m3u"]
+sources = ["services/solar_os_media_playlist.c"]
 
 [packages.service_gpio]
 label = "service.gpio"
@@ -1676,6 +1738,7 @@ sources = [
 
 [packages.service_imu]
 label = "service.imu"
+depends = ["service_streams"]
 sources = [
   "services/solar_os_imu.c",
   "shell/solar_os_shell_imu.c",
@@ -1847,6 +1910,20 @@ label = "driver.epd_scan_worker"
 targets = ["esp32", "esp32s3"]
 sources = ["drivers/epd_scan_worker.c"]
 requires = ["esp_timer"]
+
+[packages.expansion_ssd1680]
+label = "expansion.ssd1680"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ssd1680_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_ssd1680.c",
+  "services/solar_os_ssd1680.c",
+  "services/solar_os_ssd1680_driver.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 
 [packages.expansion_ssd1683]
 label = "expansion.ssd1683"
@@ -2071,6 +2148,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
 capabilities = ["expansion_gpio", "expansion_i2c"]
+
+[packages.mpu6050]
+label = "expansion.mpu6050"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_mpu6050_expansion_driver"]
+depends = ["service_expansion", "service_i2c", "service_imu"]
+sources = ["drivers/mpu6050.c", "services/solar_os_mpu6050.c", "services/solar_os_mpu6050_driver.c"]
+requires = ["esp_timer", "esp_driver_gpio"]
+capabilities = ["i2c"]
 
 [packages.qmi8658]
 label = "expansion.qmi8658"
@@ -2361,6 +2447,14 @@ sources = [
 ]
 capabilities = ["expansion_gpio"]
 
+[packages.expansion_gpio_matrix]
+label = "expansion.gpio-matrix"
+expansion_drivers = ["solar_os_gpio_matrix_expansion_driver"]
+depends = ["service_expansion", "service_resources", "service_input_keymap"]
+sources = ["services/solar_os_gpio_matrix.c", "services/solar_os_gpio_matrix_driver.c"]
+requires = ["espressif__keyboard_button", "esp_driver_gpio"]
+capabilities = ["expansion_gpio"]
+
 [packages.expansion_trackball]
 label = "expansion.trackball"
 expansion_drivers = ["solar_os_trackball_expansion_driver"]
@@ -2488,7 +2582,7 @@ capabilities = ["expansion_i2s"]
 [packages.expansion_inmp441]
 label = "expansion.inmp441"
 targets = ["esp32", "esp32s3"]
-expansion_drivers = ["solar_os_inmp441_expansion_driver"]
+expansion_drivers = ["solar_os_inmp441_expansion_driver", "solar_os_ics43432_expansion_driver"]
 depends = ["service_audio", "service_expansion"]
 sources = [
   "drivers/inmp441.c",
@@ -2582,6 +2676,19 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "driver.display-st7789"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_st7789_expansion_driver"]
+depends = ["service_expansion", "service_spi", "driver_pwm_port"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_gc9a01]
+label = "driver.display-gc9a01"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_gc9a01_expansion_driver"]
 depends = ["service_expansion", "service_spi", "driver_pwm_port"]
 sources = [
   "board/solar_os_board_display_expansion.c",
@@ -2837,6 +2944,7 @@ label = "app.player"
 depends = [
   "service_audio",
   "service_audio_codecs",
+  "service_media_preferences",
   "service_media_widgets",
   "service_player_playlist",
   "service_signal_widgets",
@@ -2890,6 +2998,7 @@ depends = [
   "service_audio",
   "service_audio_codecs",
   "service_http_client",
+  "service_media_preferences",
   "service_media_widgets",
   "service_signal_widgets",
   "service_webradio",
@@ -2906,7 +3015,7 @@ capabilities = ["wifi"]
 
 [packages.app_rtsp]
 label = "app.rtsp"
-depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets"]
+depends = ["service_rtsp_client", "service_signal_widgets", "service_media_widgets", "service_media_playlist", "service_media_preferences"]
 sources = ["apps/solar_os_rtsp_app.c", "shell/solar_os_shell_rtsp_auth.c"]
 requires = ["stb_image"]
 capabilities = ["wifi"]
@@ -2976,7 +3085,7 @@ capabilities = ["psram", "gfx"]
 
 [packages.app_vplay]
 label = "app.vplay"
-depends = ["service_mpeg", "service_audio", "service_media_widgets"]
+depends = ["service_mpeg", "service_audio", "service_media_widgets", "service_media_playlist", "service_storage_browser", "service_media_preferences"]
 sources = ["apps/solar_os_vplay.c"]
 capabilities = ["psram", "gfx"]
 

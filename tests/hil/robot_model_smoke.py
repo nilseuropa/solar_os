@@ -49,8 +49,8 @@ def near(actual, expected):
 try:
     info = r.model_load(directory + "/solbot.urdf")
     assert info["name"] == "solbot" and info["root"] == "base_footprint"
-    assert len(info["links"]) == 5 and len(info["joints"]) == 4
-    assert info["known_joints"] == 2
+    assert len(info["links"]) == 6 and len(info["joints"]) == 5
+    assert info["known_joints"] == 3
     rejected = False
     try:
         r.model_transform("base_link", "left_wheel_link")
@@ -78,11 +78,11 @@ try:
         r.model_load(directory + "/invalid.urdf")
     except OSError:
         rejected = True
-    assert rejected and r.model_info()["known_joints"] == 4
+    assert rejected and r.model_info()["known_joints"] == 5
     near(r.model_point("base_link", "left_wheel_link", 1, 0, 0)[2], -1)
     print("FAILED_RELOAD_PRESERVES_MODEL_PASS")
     info = r.model_load(directory + "/extended.urdf")
-    assert info["extension_bytes"] > 0 and len(info["joints"]) == 4
+    assert info["extension_bytes"] > 0 and len(info["joints"]) == 5
     assert len(r.joints()) == len(before), "metadata created hardware controllers"
     print("EXTENSION_METADATA_PASS", info["extension_bytes"])
     for cycle in range(10):
@@ -101,8 +101,8 @@ finally:
 def lua_source(directory):
     return f'''local r = require("solaros").robot
 local info = r.model_load({(directory + "/solbot.urdf")!r})
-assert(info.name == "solbot" and #info.links == 5 and #info.joints == 4)
-assert(info.known_joints == 2)
+assert(info.name == "solbot" and #info.links == 6 and #info.joints == 5)
+assert(info.known_joints == 3)
 assert(not pcall(r.model_transform, "base_link", "left_wheel_link"))
 r.model_set_joint("left_wheel_joint", math.pi / 2)
 local p = r.model_point("base_link", "left_wheel_link", 1, 0, 0)

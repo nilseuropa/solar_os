@@ -2018,6 +2018,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
     solar_os_shell_io_writeln(term, "  setterm textsize [8|10|12|14|16|18|20]");
+    solar_os_shell_io_writeln(term, "  setterm cursor [block|underscore] [blink|steady]");
     solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
     solar_os_shell_io_writeln(term, "  setterm foreground [#RRGGBB]");
     solar_os_shell_io_writeln(term, "  setterm background [#RRGGBB]");
@@ -2166,6 +2167,44 @@ static void setterm_geometry_alias(solar_os_context_t *ctx, solar_os_shell_io_t 
     display_cmd_geometry(term, argc + 1, geometry_args, true);
 }
 
+static void setterm_cursor(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    const char *usage = "setterm cursor [block|underscore] [blink|steady]";
+    solar_os_terminal_cursor_shape_t shape;
+    bool blink;
+    solar_os_terminal_get_cursor_preference(&shape, &blink);
+    if (argc > 4) {
+        solar_os_shell_diag_unexpected(term, "setterm cursor", argv[4], usage);
+        return;
+    }
+    if (argc >= 3 && !solar_os_terminal_parse_cursor_shape(argv[2], &shape)) {
+        solar_os_shell_diag_invalid(term, "setterm cursor", "shape", argv[2],
+                                    "block or underscore", usage, false);
+        return;
+    }
+    if (argc == 4) {
+        if (strcmp(argv[3], "blink") == 0) blink = true;
+        else if (strcmp(argv[3], "steady") == 0) blink = false;
+        else {
+            solar_os_shell_diag_invalid(term, "setterm cursor", "mode", argv[3],
+                                        "blink or steady", usage, false);
+            return;
+        }
+    }
+    char value[32];
+    snprintf(value, sizeof(value), "%s %s",
+             solar_os_terminal_cursor_shape_name(shape), blink ? "blink" : "steady");
+    if (argc == 2) {
+        solar_os_shell_io_printf(term, "cursor: %s\n", value);
+        solar_os_shell_io_writeln(term, "shapes: block underscore; modes: blink steady");
+        return;
+    }
+    const esp_err_t err = solar_os_terminal_set_cursor_preference(shape, blink);
+    if (err == ESP_OK) solar_os_shell_io_printf(term, "cursor: %s\n", value);
+    else solar_os_shell_io_printf(term, "cursor: save failed: %s\n",
+                                   solar_os_shell_error_text(err));
+}
+
 void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
@@ -2221,6 +2260,11 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
         } else {
             solar_os_shell_session_prepare_foreground_launch(ctx, true);
         }
+        return;
+    }
+
+    if (strcmp(argv[1], "cursor") == 0) {
+        setterm_cursor(term, argc, argv);
         return;
     }
 

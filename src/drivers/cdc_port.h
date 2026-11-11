@@ -12,6 +12,7 @@ typedef struct {
 } cdc_port_config_t;
 
 esp_err_t cdc_port_init(const cdc_port_config_t *config);
+esp_err_t cdc_port_deinit(void);
 bool cdc_port_is_ready(void);
 bool cdc_port_is_connected(void);
 bool cdc_port_driver_installed(void);

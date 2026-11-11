@@ -17,7 +17,7 @@
 #define PI 3.14159265358979323846
 
 typedef struct {
-    uint32_t id, controller, drive;
+    uint32_t id, controller, drive, model;
     solar_os_robot_joint_info_v3_t info;
     bool servo_open, busy, ppr_configured, ratio_configured;
     atomic_bool stop;
@@ -49,6 +49,21 @@ static drive_t drives[SOLAR_OS_ROBOT_MODEL_MAX];
 static uint32_t next_drive_id;
 static void drive_cycle(joint_t *a);
 static void drive_notify(joint_t *a);
+static solar_os_robot_model_t *find_model(uint32_t id);
+static uint64_t now(void);
+static void model_feedback(joint_t *a)
+{
+    solar_os_robot_model_t *m = a->model ? find_model(a->model) : NULL;
+    if (!m) return;
+    const solar_os_robot_joint_info_v3_t *s = &a->info;
+    uint64_t time = now();
+    bool fresh = s->sample_us && time >= s->sample_us &&
+        time - s->sample_us <= (uint64_t)s->config.feedback_timeout_ms * 1000;
+    bool valid = a->controller && !atomic_load(&a->stop) && fresh && s->velocity_valid &&
+        (s->state == SOLAR_OS_ROBOT_ACTIVE || s->state == SOLAR_OS_ROBOT_WAITING);
+    (void)solar_os_robot_model_feedback(m, s->config.name, s->position, valid,
+        s->position_valid && s->referenced);
+}
 static drive_t *find_drive(uint32_t id)
 { for(unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i) if(id && drives[i].id==id) return &drives[i];return NULL; }
 
@@ -110,7 +125,7 @@ static int cleanup(joint_t *a)
         err=motion->servo_close(a->servo_name,a->servo_name);
         if(err==OK) a->servo_open=false;
     }
-    a->info.claimed=claims(a);return err;
+    a->info.claimed=claims(a);model_feedback(a);return err;
 }
 static void fault(joint_t *a,int error)
 {
@@ -126,6 +141,7 @@ static void fault(joint_t *a,int error)
         a->info.last_error=e!=OK?e:error;
     }
     a->info.state=SOLAR_OS_ROBOT_FAULT;a->info.velocity_valid=a->info.position_valid=0;
+    model_feedback(a);
 }
 static void expire_command(joint_t *a)
 {
@@ -379,6 +395,7 @@ static int model_load(const char *xml, size_t bytes, uint32_t *id, char *error, 
 static int model_close(uint32_t id)
 {
     lock();
+    for(unsigned i=0;id && i<SOLAR_OS_ROBOT_JOINT_MAX;++i) if(joints[i] && joints[i]->model==id) { unlock();return STATE; }
     for(unsigned i=0;i<SOLAR_OS_ROBOT_MODEL_MAX;++i) if(drives[i].id && drives[i].model==id) { unlock();return STATE; }
     for (unsigned i = 0; i < SOLAR_OS_ROBOT_MODEL_MAX; ++i) if (id && models[i].id == id) {
         solar_os_robot_model_t *m = models[i].object;
@@ -389,6 +406,8 @@ static int model_close(uint32_t id)
 }
 #define MODEL_CALL(expression) do { \
     lock(); solar_os_robot_model_t *m = find_model(id); \
+    for (unsigned i = 0; m && i < SOLAR_OS_ROBOT_JOINT_MAX; ++i) \
+        if (joints[i] && joints[i]->model == id) model_feedback(joints[i]); \
     int e = m ? (expression) : MISSING; unlock(); return e; \
 } while (0)
 static int model_info(uint32_t id, solar_os_robot_model_info_t *out)
@@ -398,7 +417,19 @@ static int model_link(uint32_t id, uint32_t index, char *out, size_t bytes)
 static int model_joint(uint32_t id, uint32_t index, solar_os_robot_model_joint_info_t *out)
 { MODEL_CALL(solar_os_robot_model_joint(m, index, out)); }
 static int model_set_positions(uint32_t id, const char *const *names, const float *positions, uint32_t count)
-{ MODEL_CALL(solar_os_robot_model_set_positions(m, names, positions, count)); }
+{
+    if (count > SOLAR_OS_ROBOT_MODEL_JOINT_MAX || (count && (!names || !positions))) return ARG;
+    lock();
+    solar_os_robot_model_t *m = find_model(id);
+    int e = m ? OK : MISSING;
+    for (unsigned n = 0; e == OK && n < count; ++n) {
+        if (!names[n]) { e = ARG; break; }
+        for (unsigned i = 0; i < SOLAR_OS_ROBOT_JOINT_MAX; ++i)
+            if (joints[i] && joints[i]->model == id && equal(joints[i]->info.config.name, names[n])) { e = STATE; break; }
+    }
+    if (e == OK) e = solar_os_robot_model_set_positions(m, names, positions, count);
+    unlock(); return e;
+}
 static int model_lookup(uint32_t id, const char *target, const char *source, solar_os_robot_transform_t *out)
 { MODEL_CALL(solar_os_robot_model_lookup(m, target, source, out)); }
 static int model_extension(uint32_t id, char *out, size_t bytes)
@@ -407,6 +438,10 @@ static int model_binding(uint32_t id, uint32_t index, solar_os_robot_joint_confi
 { MODEL_CALL(solar_os_robot_model_binding(m, index, out)); }
 static int model_diff_drive(uint32_t id,uint32_t index,solar_os_robot_diff_drive_config_t *out)
 { MODEL_CALL(solar_os_robot_model_diff_drive(m,index,out)); }
+static int model_device(uint32_t id, uint32_t index, solar_os_robot_model_device_t *out)
+{ MODEL_CALL(solar_os_robot_model_device(m, index, out)); }
+static int model_device_frame(uint32_t id, const char *device, char *out, size_t bytes)
+{ MODEL_CALL(solar_os_robot_model_device_frame(m, device, out, bytes)); }
 #undef MODEL_CALL
 
 static int model_create_joint(uint32_t id, uint32_t index, uint32_t *out)
@@ -421,7 +456,9 @@ static int model_create_joint(uint32_t id, uint32_t index, uint32_t *out)
     if(e) return e;
     lock();
     joint_t *a=find(joint);
-    a->info.config=c; a->ppr_configured=a->ratio_configured=true;
+    if (!find_model(id)) { unlock(); (void)close_joint(joint); return MISSING; }
+    a->info.config=c; a->ppr_configured=a->ratio_configured=true; a->model=id;
+    model_feedback(a);
     unlock(); *out=joint;
     return OK;
 }
@@ -432,6 +469,7 @@ static const solar_os_robot_api_v3_t api = {.abi_version = SOLAR_OS_ROBOT_ABI, .
     .model_load = model_load, .model_close = model_close, .model_info = model_info,
     .model_link = model_link, .model_joint = model_joint, .model_set_positions = model_set_positions,
     .model_lookup = model_lookup, .model_extension = model_extension,
+    .model_device = model_device, .model_device_frame = model_device_frame,
     .transform_from_rpy = solar_os_robot_transform_from_rpy, .transform_compose = solar_os_robot_transform_compose,
     .transform_inverse = solar_os_robot_transform_inverse, .transform_apply = solar_os_robot_transform_apply,
     .model_binding=model_binding, .model_create_joint=model_create_joint,

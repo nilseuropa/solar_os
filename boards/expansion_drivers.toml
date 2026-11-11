@@ -133,6 +133,148 @@ kind = "gpio"
 hint = "gpio"
 role = "irq"
 
+[drivers.gpio-matrix]
+keyboard = true
+summary = "Direct GPIO keyboard matrix"
+package = "expansion_gpio_matrix"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio"]
+default_name = "keyboard0"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row0"
+kind = "gpio"
+hint = "gpio"
+role = "row0"
+required = true
+
+[[drivers.gpio-matrix.bindings]]
+key = "row1"
+kind = "gpio"
+hint = "gpio"
+role = "row1"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row2"
+kind = "gpio"
+hint = "gpio"
+role = "row2"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row3"
+kind = "gpio"
+hint = "gpio"
+role = "row3"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row4"
+kind = "gpio"
+hint = "gpio"
+role = "row4"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row5"
+kind = "gpio"
+hint = "gpio"
+role = "row5"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row6"
+kind = "gpio"
+hint = "gpio"
+role = "row6"
+
+[[drivers.gpio-matrix.bindings]]
+key = "row7"
+kind = "gpio"
+hint = "gpio"
+role = "row7"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col0"
+kind = "gpio"
+hint = "gpio"
+role = "col0"
+required = true
+
+[[drivers.gpio-matrix.bindings]]
+key = "col1"
+kind = "gpio"
+hint = "gpio"
+role = "col1"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col2"
+kind = "gpio"
+hint = "gpio"
+role = "col2"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col3"
+kind = "gpio"
+hint = "gpio"
+role = "col3"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col4"
+kind = "gpio"
+hint = "gpio"
+role = "col4"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col5"
+kind = "gpio"
+hint = "gpio"
+role = "col5"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col6"
+kind = "gpio"
+hint = "gpio"
+role = "col6"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col7"
+kind = "gpio"
+hint = "gpio"
+role = "col7"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col8"
+kind = "gpio"
+hint = "gpio"
+role = "col8"
+
+[[drivers.gpio-matrix.bindings]]
+key = "col9"
+kind = "gpio"
+hint = "gpio"
+role = "col9"
+
+[[drivers.gpio-matrix.bindings]]
+key = "drive"
+kind = "parameter"
+hint = "0=rows,1=columns"
+role = "drive"
+min = 0
+max = 1
+
+[[drivers.gpio-matrix.bindings]]
+key = "diodes"
+kind = "parameter"
+hint = "0=absent,1=present"
+role = "diodes"
+min = 0
+max = 1
+
+[[drivers.gpio-matrix.bindings]]
+key = "debounce-ms"
+kind = "parameter"
+hint = "1..100"
+role = "debounce-ms"
+min = 1
+max = 100
+
 [drivers.tca8418]
 summary = "Generic TCA8418 matrix keyboard"
 package = "tca8418"
@@ -418,6 +560,32 @@ kind = "gpio"
 hint = "gpio"
 role = "irq"
 required = true
+
+[drivers.mpu6050]
+summary = "MPU6050 six-axis IMU"
+package = "mpu6050"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c"]
+default_name = "imu0"
+
+[[drivers.mpu6050.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.mpu6050.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68|0x69"
+required = true
+allowed = [0x68, 0x69]
+
+[[drivers.mpu6050.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
 
 [drivers.qmi8658]
 summary = "QMI8658 six-axis IMU"
@@ -1866,6 +2034,84 @@ kind = "parameter"
 hint = "0|1"
 allowed = [0, 1]
 
+[drivers.gc9a01]
+summary = "240x240 round color TFT"
+package = "driver_display_gc9a01"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_gc9a01"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"GC9A01"' }
+early = true
+default_name = "display0"
+
+[[drivers.gc9a01.display_profiles]]
+name = "round-240x240"
+label = '1.28-inch round 240x240 TFT'
+width = 240
+height = 240
+rotation = 0
+default = true
+
+[[drivers.gc9a01.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.gc9a01.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.gc9a01.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..40000 kHz"
+min = 100
+max = 40000
+[[drivers.gc9a01.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0|1|2|3"
+allowed = [0, 1, 2, 3]
+[[drivers.gc9a01.bindings]]
+key = "bgr"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.gc9a01.bindings]]
+key = "invert"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+
 [drivers.cvbs-pal]
 summary = "PAL composite video"
 package = "driver_display_cvbs_pal"
@@ -2372,6 +2618,55 @@ kind = "parameter"
 hint = "0|1"
 min = 0
 max = 1
+
+[[drivers.inmp441.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+
+[drivers.ics43432]
+summary = "ICS-43432 microphone with optional shared I2S playback"
+package = "expansion_inmp441"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "mic0"
+
+[[drivers.ics43432.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+[[drivers.ics43432.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "dout"
+kind = "gpio"
+hint = "gpio"
+[[drivers.ics43432.bindings]]
+key = "slot"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+[[drivers.ics43432.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
 
 [drivers.es7210]
 summary = "ES7210 I2S microphone array"
@@ -3041,6 +3336,87 @@ key = "reset"
 kind = "gpio_line"
 hint = "gpio|controller:line"
 role = "reset"
+
+[drivers.ssd1680]
+summary = "SSD1680 122x250 monochrome e-paper"
+package = "expansion_ssd1680"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_ssd1680"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1680"' }
+early = true
+default_name = "display0"
+
+[[drivers.ssd1680.display_profiles]]
+name = "mono-122x250"
+label = "122x250 monochrome e-paper (V4 OTP)"
+width = 122
+height = 250
+bindings = { panel = 0 }
+rotation = 0
+default = true
+
+[[drivers.ssd1680.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+role = "dc"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.ssd1680.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
+[[drivers.ssd1680.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..4000 kHz"
+role = "clock"
+min = 100
+max = 4000
+
+[[drivers.ssd1680.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+[[drivers.ssd1680.bindings]]
+key = "panel"
+kind = "parameter"
+hint = "0: 122x250 monochrome (default)"
+role = "panel"
+allowed = [0]
 
 [drivers.ssd1685]
 summary = "SSD1685 168x384 e-paper"

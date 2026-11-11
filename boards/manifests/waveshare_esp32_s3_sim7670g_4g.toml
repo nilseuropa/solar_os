@@ -22,7 +22,7 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "gfx", "uart", "sd", "i2c", "spi", "battery", "wifi", "ble",
+  "psram", "simd", "gfx", "usb_host", "uart", "sd", "i2c", "spi", "battery", "wifi", "ble",
   "key", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm",
   "expansion_i2s",
@@ -528,12 +528,12 @@ expansion = true
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "USB D- / SIM7670G USB mux"
+role = "USB host D- / SIM7670G USB mux"
 expansion = true
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "USB D+ / SIM7670G USB mux"
+role = "USB host D+ / SIM7670G USB mux"
 expansion = true
 [[pins]]
 gpio = 21

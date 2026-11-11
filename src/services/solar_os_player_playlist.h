@@ -6,12 +6,11 @@
 
 #include "esp_err.h"
 #include "solar_os_storage.h"
+#include "solar_os_m3u.h"
 
 #define SOLAR_OS_PLAYER_PLAYLIST_CAPACITY 32U
 
-typedef struct {
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-} solar_os_player_track_t;
+typedef solar_os_m3u_entry_t solar_os_player_track_t;
 
 esp_err_t solar_os_player_playlist_init(void);
 size_t solar_os_player_playlist_count(void);

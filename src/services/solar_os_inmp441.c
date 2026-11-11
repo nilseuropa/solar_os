@@ -9,6 +9,7 @@
 typedef struct {
     bool attached;
     uint8_t volume;
+    const char *model, *provider;
     char id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
     char capture[SOLAR_OS_STREAM_ID_MAX], playback[SOLAR_OS_STREAM_ID_MAX];
     solar_os_inmp441_t driver;
@@ -115,25 +116,29 @@ static esp_err_t register_stream(bool capture) {
     strlcpy(stream.info.id, capture ? mic.capture : mic.playback,
             sizeof(stream.info.id));
     strlcpy(stream.info.device, mic.id, sizeof(stream.info.device));
-    strlcpy(stream.info.provider, "inmp441", sizeof(stream.info.provider));
+    strlcpy(stream.info.provider, mic.provider, sizeof(stream.info.provider));
     strlcpy(stream.info.unit, "frames", sizeof(stream.info.unit));
     strlcpy(stream.info.format, "pcm-s16le", sizeof(stream.info.format));
-    strlcpy(stream.info.summary,
-            capture ? "INMP441 mono capture" : "shared I2S stereo playback",
-            sizeof(stream.info.summary));
+    if (capture)
+        snprintf(stream.info.summary, sizeof(stream.info.summary),
+                 "%s mono capture", mic.model);
+    else
+        strlcpy(stream.info.summary, "shared I2S stereo playback",
+                sizeof(stream.info.summary));
     return solar_os_stream_register(&stream);
 }
 
-esp_err_t solar_os_inmp441_attach(const char *name,
-                                  const solar_os_expansion_binding_t *bindings,
-                                  size_t count) {
+static esp_err_t attach(const char *name,
+                        const solar_os_expansion_binding_t *bindings,
+                        size_t count, const char *model,
+                        const char *provider) {
     if (mic.attached)
         return ESP_ERR_INVALID_STATE;
     if (name == NULL || name[0] == '\0' || strlen(name) >= sizeof(mic.id) ||
         bindings == NULL)
         return ESP_ERR_INVALID_ARG;
     solar_os_inmp441_config_t c = {
-        .port = -1, .bck = -1, .ws = -1, .din = -1, .dout = -1};
+        .port = -1, .bck = -1, .ws = -1, .din = -1, .dout = -1, .power = -1};
     for (size_t i = 0; i < count; ++i) {
         const solar_os_expansion_binding_t *b = &bindings[i];
         if (b->kind == SOLAR_OS_EXPANSION_BINDING_I2S_PORT)
@@ -147,6 +152,8 @@ esp_err_t solar_os_inmp441_attach(const char *name,
                 c.din = b->value;
             else if (strcmp(b->role, "dout") == 0)
                 c.dout = b->value;
+            else if (strcmp(b->role, "power") == 0)
+                c.power = b->value;
             else
                 return ESP_ERR_INVALID_ARG;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER &&
@@ -161,6 +168,8 @@ esp_err_t solar_os_inmp441_attach(const char *name,
         return err;
     mic.attached = true;
     mic.volume = 50;
+    mic.model = model;
+    mic.provider = provider;
     strlcpy(mic.id, name, sizeof(mic.id));
     snprintf(mic.capture, sizeof(mic.capture), "%s.capture", name);
     snprintf(mic.playback, sizeof(mic.playback), "%s.playback", name);
@@ -178,10 +187,8 @@ esp_err_t solar_os_inmp441_attach(const char *name,
             info.capabilities |= SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT |
                                  SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME;
         strlcpy(info.id, name, sizeof(info.id));
-        strlcpy(info.name,
-                c.dout >= 0 ? "INMP441 mic + I2S DAC/amp"
-                            : "INMP441 microphone",
-                sizeof(info.name));
+        snprintf(info.name, sizeof(info.name), "%s %s", model,
+                 c.dout >= 0 ? "mic + I2S DAC/amp" : "microphone");
         strlcpy(info.provider, "expansion", sizeof(info.provider));
         strlcpy(info.capture_stream, mic.capture, sizeof(info.capture_stream));
         if (c.dout >= 0)
@@ -200,6 +207,18 @@ esp_err_t solar_os_inmp441_attach(const char *name,
         memset(&mic, 0, sizeof(mic));
     }
     return err;
+}
+
+esp_err_t solar_os_inmp441_attach(const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t count) {
+    return attach(name, bindings, count, "INMP441", "inmp441");
+}
+
+esp_err_t solar_os_ics43432_attach(const char *name,
+                                  const solar_os_expansion_binding_t *bindings,
+                                  size_t count) {
+    return attach(name, bindings, count, "ICS-43432", "ics43432");
 }
 
 esp_err_t solar_os_inmp441_detach(const char *name) {

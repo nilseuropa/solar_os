@@ -21,6 +21,10 @@ class MemoryPolicyTest(unittest.TestCase):
             (root / "freertos/portmacro.h").write_text(
                 '#include "freertos/FreeRTOS.h"\nextern int test_isr;\n#define xPortInIsrContext() test_isr\n')
             (root / "esp_attr.h").write_text("#define IRAM_ATTR\n")
+            (root / "sdkconfig.h").write_text(
+                '#define CONFIG_SPIRAM_USE_MALLOC 1\n'
+                '#ifndef CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL\n'
+                '#define CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL 0\n#endif\n')
             (root / "esp_memory_utils.h").write_text(
                 "#include <stdbool.h>\nbool esp_ptr_external_ram(const void *);\n")
             (root / "solar_os_log.h").write_text(
@@ -51,7 +55,7 @@ size_t strlcpy(char *, const char *, size_t);
             (root / "memory.c").write_text(
                 (ROOT / "src/services/solar_os_memory.c").read_text())
             binary = root / "policy"
-            subprocess.run([
+            compile_command = [
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I" + tmp, "-I" + str(ROOT / "tests/host"),
@@ -60,6 +64,10 @@ size_t strlcpy(char *, const char *, size_t);
                 str(root / "memory.c"),
                 str(ROOT / "src/services/solar_os_memory_arena.c"),
                 "-o", str(binary),
-            ], check=True)
-            subprocess.run([str(binary)], check=True)
-            subprocess.run([str(binary), "no-psram"], check=True)
+            ]
+            for internal_limit in (0, 256):
+                subprocess.run(compile_command + [
+                    f"-DCONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL={internal_limit}",
+                ], check=True)
+                subprocess.run([str(binary)], check=True)
+                subprocess.run([str(binary), "no-psram"], check=True)

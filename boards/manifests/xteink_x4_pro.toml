@@ -17,7 +17,7 @@ drivers = [
   "pointer_gt911", "gpio_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "display_brightness", "gfx", "cdc", "uart",
+  "psram", "simd", "display", "display_brightness", "gfx", "cdc", "usb_host", "uart",
   "sd", "i2c", "spi", "rtc", "battery", "pointer", "wifi", "ble", "gpio",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "key", "buttons",
 ]
@@ -171,11 +171,11 @@ role = "e-paper D/C"
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "USB D-"
+role = "USB D-/CDC or host"
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "USB D+"
+role = "USB D+/CDC or host"
 [[pins]]
 gpio = 21
 policy = "fixed"

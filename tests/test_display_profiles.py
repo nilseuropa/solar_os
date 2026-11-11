@@ -33,6 +33,11 @@ class DisplayProfilesTest(unittest.TestCase):
             ("st7305", {"panel": 1}, (384, 168)),
             ("st7305", {"panel": 1, "rotation": 1}, (384, 168)),
             ("ssd1683", {}, (400, 300)),
+            ("ssd1680", {}, (122, 250)),
+            ("ssd1680", {"panel": 0}, (122, 250)),
+            ("ssd1680", {"rotation": 1}, (250, 122)),
+            ("ssd1680", {"rotation": 2}, (122, 250)),
+            ("ssd1680", {"rotation": 3}, (250, 122)),
             ("ssd1683", {"panel": 0}, (400, 300)),
             ("ssd1683", {"panel": 4}, (792, 272)),
             ("ssd1683", {"panel": 4, "rotation": 3}, (272, 792)),
@@ -40,6 +45,10 @@ class DisplayProfilesTest(unittest.TestCase):
             ("ssd1677", {"rotation": 3}, (480, 800)),
             ("uc8179", {"panel": 1, "rotation": 1}, (480, 800)),
             ("uc8279", {"panel": 2}, (800, 480)),
+            ("gc9a01", {}, (240, 240)),
+            ("gc9a01", {"rotation": 1}, (240, 240)),
+            ("gc9a01", {"rotation": 2}, (240, 240)),
+            ("gc9a01", {"rotation": 3}, (240, 240)),
         ):
             with self.subTest(driver=driver, bindings=bindings):
                 self.assertEqual(self.geometry(driver, bindings), expected)
@@ -84,6 +93,8 @@ class DisplayProfilesTest(unittest.TestCase):
         for driver, panel, rotation, width, height in (
             ("st7305", 1, 3, 384, 168),
             ("ssd1683", 4, 0, 792, 272),
+            ("ssd1680", None, 0, 122, 250),
+            ("ssd1680", 0, 1, 250, 122),
             ("ssd1683", 4, 1, 272, 792),
             ("ssd1685", 1, 3, 384, 168),
             ("ssd1677", None, 3, 480, 800),

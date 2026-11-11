@@ -15,10 +15,14 @@ operation.
 
 ## Keyboard input
 
-BLE, PS/2, CardKB, integrated keyboards, board buttons, `gpio-keys`, and ADC
+BLE, USB host, PS/2, CardKB, integrated keyboards, board buttons, `gpio-keys`, and ADC
 D-pads feed the same input service. Use `setterm keyboard us` or `de` to choose
 a text layout, and `setterm keyrate` to set key repeat. Analog joysticks report
 axes; they do not generate arrow keys.
+
+On supported boards, [USB host mode](usb.host.md) supplies `usb-kbdN` keyboard and
+`usb-mouseN` relative pointer sources. They use the same focus, layout, repeat,
+capture, and Python/Lua input APIs as other sources.
 
 On a board with absolute touch and PSRAM, `job start graffiti` turns the whole
 display into a Palm Graffiti handwriting keyboard without drawing an overlay.

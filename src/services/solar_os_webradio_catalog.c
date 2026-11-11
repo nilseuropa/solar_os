@@ -13,6 +13,7 @@
 #include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_m3u.h"
 #include "solar_os_storage.h"
 
 #define WEBRADIO_NVS_NAMESPACE "webradio"
@@ -21,7 +22,7 @@
 #define WEBRADIO_CATALOG_VERSION 1U
 #define WEBRADIO_CATALOG_ROOT_DIR ".solar"
 #define WEBRADIO_CATALOG_DIR ".solar/webradio"
-#define WEBRADIO_CATALOG_FILE "catalog.bin"
+#define WEBRADIO_CATALOG_FILE "playlist.m3u"
 
 typedef struct {
     uint32_t magic;
@@ -36,7 +37,13 @@ typedef struct {
     size_t count;
     solar_os_webradio_station_t stations[SOLAR_OS_WEBRADIO_STATION_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
+    int32_t durations[SOLAR_OS_WEBRADIO_STATION_MAX];
 } webradio_catalog_state_t;
+
+typedef struct {
+    webradio_catalog_blob_t blob;
+    int32_t durations[SOLAR_OS_WEBRADIO_STATION_MAX];
+} webradio_m3u_t;
 
 static const char *TAG = "solar_os_webradio_catalog";
 static EXT_RAM_BSS_ATTR webradio_catalog_state_t catalog;
@@ -83,6 +90,7 @@ static void webradio_catalog_set_defaults(void)
 {
     catalog.count = sizeof(default_stations) / sizeof(default_stations[0]);
     memcpy(catalog.stations, default_stations, sizeof(default_stations));
+    for (size_t i = 0; i < SOLAR_OS_WEBRADIO_STATION_MAX; i++) catalog.durations[i] = -1;
     if (catalog.count < SOLAR_OS_WEBRADIO_STATION_MAX) {
         memset(&catalog.stations[catalog.count],
                0,
@@ -137,7 +145,10 @@ static esp_err_t webradio_catalog_prepare_path(void)
 
 static bool webradio_catalog_load_file(webradio_catalog_blob_t *blob)
 {
-    FILE *file = fopen(catalog.path, "rb");
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (solar_os_storage_default_path(WEBRADIO_CATALOG_DIR "/catalog.bin", path, sizeof(path)) != ESP_OK)
+        return false;
+    FILE *file = fopen(path, "rb");
     if (file == NULL) {
         return false;
     }
@@ -179,57 +190,94 @@ static void webradio_catalog_erase_legacy_nvs(void)
     }
 }
 
+static esp_err_t webradio_m3u_accept(const solar_os_m3u_entry_t *entry, void *user)
+{
+    webradio_m3u_t *data = user;
+    if (!solar_os_webradio_url_valid(entry->path)) return ESP_ERR_NOT_SUPPORTED;
+    if (data->blob.count == SOLAR_OS_WEBRADIO_STATION_MAX) return ESP_ERR_INVALID_SIZE;
+    size_t i = data->blob.count++;
+    solar_os_webradio_station_t *station = &data->blob.stations[i];
+    const char *name = entry->title[0] ? entry->title : entry->path;
+    size_t name_len = strnlen(name, sizeof(station->name) - 1U);
+    while (name_len && ((unsigned char)name[name_len] & 0xc0U) == 0x80U) name_len--;
+    memcpy(station->name, name, name_len);
+    station->name[name_len] = 0;
+    strlcpy(station->url, entry->path, sizeof(station->url));
+    data->durations[i] = entry->duration;
+    return ESP_OK;
+}
+
+static bool webradio_m3u_get(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    webradio_m3u_t *data = user;
+    if (index >= data->blob.count) return false;
+    memset(entry, 0, sizeof(*entry));
+    strlcpy(entry->path, data->blob.stations[index].url, sizeof(entry->path));
+    strlcpy(entry->title, data->blob.stations[index].name, sizeof(entry->title));
+    entry->duration = data->durations[index];
+    return true;
+}
+
+static webradio_m3u_t *webradio_catalog_copy(void)
+{
+    webradio_m3u_t *data = solar_os_memory_calloc(1, sizeof(*data),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "webradio.catalog.edit");
+    if (data) {
+        portENTER_CRITICAL(&catalog_lock);
+        data->blob.count = catalog.count;
+        memcpy(data->blob.stations, catalog.stations, sizeof(catalog.stations));
+        memcpy(data->durations, catalog.durations, sizeof(catalog.durations));
+        portEXIT_CRITICAL(&catalog_lock);
+    }
+    return data;
+}
+
+static esp_err_t webradio_catalog_publish(webradio_m3u_t *data)
+{
+    esp_err_t err = solar_os_m3u_write(catalog.path, data->blob.count, webradio_m3u_get, data);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&catalog_lock);
+        catalog.count = data->blob.count;
+        memcpy(catalog.stations, data->blob.stations, sizeof(catalog.stations));
+        memcpy(catalog.durations, data->durations, sizeof(catalog.durations));
+        catalog.generation++;
+        portEXIT_CRITICAL(&catalog_lock);
+    }
+    return err;
+}
+
 static esp_err_t webradio_catalog_persist(void)
 {
-    webradio_catalog_blob_t *blob =
-        solar_os_memory_calloc(1,
-                               sizeof(*blob),
-                               SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                               "webradio.catalog.save");
-    if (blob == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
+    webradio_m3u_t *data = solar_os_memory_calloc(1, sizeof(*data),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "webradio.catalog.save");
+    if (!data) return ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&catalog_lock);
-    blob->magic = WEBRADIO_CATALOG_MAGIC;
-    blob->version = WEBRADIO_CATALOG_VERSION;
-    blob->count = (uint16_t)catalog.count;
-    memcpy(blob->stations,
-           catalog.stations,
-           catalog.count * sizeof(catalog.stations[0]));
+    data->blob.count = catalog.count;
+    memcpy(data->blob.stations, catalog.stations, sizeof(catalog.stations));
+    memcpy(data->durations, catalog.durations, sizeof(catalog.durations));
     portEXIT_CRITICAL(&catalog_lock);
+    esp_err_t err = solar_os_m3u_write(catalog.path, data->blob.count, webradio_m3u_get, data);
+    solar_os_memory_free(data);
+    return err;
+}
 
-    char temporary[SOLAR_OS_STORAGE_PATH_MAX];
-    char backup[SOLAR_OS_STORAGE_PATH_MAX];
-    if (solar_os_storage_sibling_path(
-            catalog.path, ".tmp", temporary, sizeof(temporary)) != ESP_OK ||
-        solar_os_storage_sibling_path(
-            catalog.path, ".bak", backup, sizeof(backup)) != ESP_OK) {
-        solar_os_memory_free(blob);
-        return ESP_ERR_INVALID_SIZE;
-    }
+int32_t solar_os_webradio_catalog_duration(size_t index)
+{
+    portENTER_CRITICAL(&catalog_lock);
+    int32_t duration = index < catalog.count ? catalog.durations[index] : -1;
+    portEXIT_CRITICAL(&catalog_lock);
+    return duration;
+}
 
-    FILE *file = fopen(temporary, "wb");
-    if (file == NULL) {
-        solar_os_memory_free(blob);
-        return ESP_FAIL;
-    }
-    esp_err_t err = fwrite(blob, sizeof(*blob), 1U, file) == 1U ?
-        ESP_OK : ESP_FAIL;
-    if (err == ESP_OK) {
-        err = solar_os_storage_sync_file(file);
-    }
-    if (fclose(file) != 0 && err == ESP_OK) {
-        err = ESP_FAIL;
-    }
-
-    if (err == ESP_OK) {
-        err = solar_os_storage_replace_file(temporary, catalog.path, backup);
-    }
-    if (err != ESP_OK) {
-        (void)solar_os_storage_remove(temporary);
-    }
-    solar_os_memory_free(blob);
+esp_err_t solar_os_webradio_catalog_import(const char *path)
+{
+    ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG, "catalog init failed");
+    webradio_m3u_t *data = solar_os_memory_calloc(1, sizeof(*data),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "webradio.catalog.import");
+    if (!data) return ESP_ERR_NO_MEM;
+    esp_err_t err = solar_os_m3u_read(path, webradio_m3u_accept, data);
+    if (err == ESP_OK) err = webradio_catalog_publish(data);
+    solar_os_memory_free(data);
     return err;
 }
 
@@ -245,16 +293,24 @@ esp_err_t solar_os_webradio_catalog_init(void)
     ESP_RETURN_ON_ERROR(webradio_catalog_prepare_path(), TAG,
                         "catalog path setup failed");
 
-    webradio_catalog_blob_t *blob =
+    webradio_m3u_t *data =
         solar_os_memory_calloc(1,
-                               sizeof(*blob),
+                               sizeof(*data),
                                SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
                                "webradio.catalog.load");
-    if (blob == NULL) {
+    if (data == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
-    const bool loaded_from_file = webradio_catalog_load_file(blob);
+    webradio_catalog_blob_t *blob = &data->blob;
+    for (size_t i = 0; i < SOLAR_OS_WEBRADIO_STATION_MAX; i++) data->durations[i] = -1;
+    esp_err_t m3u_err = solar_os_m3u_read(catalog.path, webradio_m3u_accept, data);
+    if (m3u_err != ESP_OK && m3u_err != ESP_ERR_NOT_FOUND) {
+        solar_os_memory_free(data);
+        return m3u_err;
+    }
+    const bool loaded_from_m3u = m3u_err == ESP_OK;
+    const bool loaded_from_file = loaded_from_m3u || webradio_catalog_load_file(blob);
     const bool loaded_from_nvs = !loaded_from_file &&
         webradio_catalog_load_legacy_nvs(blob);
     const bool loaded = loaded_from_file || loaded_from_nvs;
@@ -262,6 +318,7 @@ esp_err_t solar_os_webradio_catalog_init(void)
     portENTER_CRITICAL(&catalog_lock);
     if (loaded) {
         catalog.count = blob->count;
+        memcpy(catalog.durations, data->durations, sizeof(catalog.durations));
         memcpy(catalog.stations,
                blob->stations,
                catalog.count * sizeof(catalog.stations[0]));
@@ -277,9 +334,9 @@ esp_err_t solar_os_webradio_catalog_init(void)
     catalog.generation = 1U;
     catalog.initialized = true;
     portEXIT_CRITICAL(&catalog_lock);
-    solar_os_memory_free(blob);
+    solar_os_memory_free(data);
 
-    if (!loaded_from_file) {
+    if (!loaded_from_m3u) {
         const esp_err_t err = webradio_catalog_persist();
         if (err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "catalog file persistence failed: %s",
@@ -318,30 +375,32 @@ esp_err_t solar_os_webradio_catalog_add(const char *name, const char *url)
     ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG,
                         "catalog init failed");
 
-    portENTER_CRITICAL(&catalog_lock);
-    size_t index = catalog.count;
-    for (size_t i = 0; i < catalog.count; i++) {
-        if (strcasecmp(catalog.stations[i].name, name) == 0) {
+    webradio_m3u_t *data = webradio_catalog_copy();
+    if (!data) return ESP_ERR_NO_MEM;
+    size_t index = data->blob.count;
+    for (size_t i = 0; i < data->blob.count; i++) {
+        if (strcasecmp(data->blob.stations[i].name, name) == 0) {
             index = i;
             break;
         }
     }
-    if (index == catalog.count && catalog.count >= SOLAR_OS_WEBRADIO_STATION_MAX) {
-        portEXIT_CRITICAL(&catalog_lock);
+    if (index == data->blob.count && data->blob.count >= SOLAR_OS_WEBRADIO_STATION_MAX) {
+        solar_os_memory_free(data);
         return ESP_ERR_NO_MEM;
     }
-    if (index == catalog.count) {
-        catalog.count++;
+    if (index == data->blob.count) {
+        data->blob.count++;
     }
-    strlcpy(catalog.stations[index].name,
+    strlcpy(data->blob.stations[index].name,
             name,
-            sizeof(catalog.stations[index].name));
-    strlcpy(catalog.stations[index].url,
+            sizeof(data->blob.stations[index].name));
+    strlcpy(data->blob.stations[index].url,
             url,
-            sizeof(catalog.stations[index].url));
-    catalog.generation++;
-    portEXIT_CRITICAL(&catalog_lock);
-    return webradio_catalog_persist();
+            sizeof(data->blob.stations[index].url));
+    data->durations[index] = -1;
+    esp_err_t err = webradio_catalog_publish(data);
+    solar_os_memory_free(data);
+    return err;
 }
 
 esp_err_t solar_os_webradio_catalog_update(const char *old_name,
@@ -356,33 +415,35 @@ esp_err_t solar_os_webradio_catalog_update(const char *old_name,
     ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG,
                         "catalog init failed");
 
-    portENTER_CRITICAL(&catalog_lock);
-    size_t index = catalog.count;
-    for (size_t i = 0U; i < catalog.count; i++) {
-        if (strcasecmp(catalog.stations[i].name, old_name) == 0) {
+    webradio_m3u_t *data = webradio_catalog_copy();
+    if (!data) return ESP_ERR_NO_MEM;
+    size_t index = data->blob.count;
+    for (size_t i = 0U; i < data->blob.count; i++) {
+        if (strcasecmp(data->blob.stations[i].name, old_name) == 0) {
             index = i;
             break;
         }
     }
-    if (index == catalog.count) {
-        portEXIT_CRITICAL(&catalog_lock);
+    if (index == data->blob.count) {
+        solar_os_memory_free(data);
         return ESP_ERR_NOT_FOUND;
     }
-    for (size_t i = 0U; i < catalog.count; i++) {
-        if (i != index && strcasecmp(catalog.stations[i].name, name) == 0) {
-            portEXIT_CRITICAL(&catalog_lock);
+    for (size_t i = 0U; i < data->blob.count; i++) {
+        if (i != index && strcasecmp(data->blob.stations[i].name, name) == 0) {
+            solar_os_memory_free(data);
             return ESP_ERR_INVALID_STATE;
         }
     }
-    strlcpy(catalog.stations[index].name,
+    strlcpy(data->blob.stations[index].name,
             name,
-            sizeof(catalog.stations[index].name));
-    strlcpy(catalog.stations[index].url,
+            sizeof(data->blob.stations[index].name));
+    if (strcmp(data->blob.stations[index].url, url)) data->durations[index] = -1;
+    strlcpy(data->blob.stations[index].url,
             url,
-            sizeof(catalog.stations[index].url));
-    catalog.generation++;
-    portEXIT_CRITICAL(&catalog_lock);
-    return webradio_catalog_persist();
+            sizeof(data->blob.stations[index].url));
+    esp_err_t err = webradio_catalog_publish(data);
+    solar_os_memory_free(data);
+    return err;
 }
 
 esp_err_t solar_os_webradio_catalog_remove(const char *name)
@@ -393,37 +454,42 @@ esp_err_t solar_os_webradio_catalog_remove(const char *name)
     ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG,
                         "catalog init failed");
 
-    portENTER_CRITICAL(&catalog_lock);
-    size_t index = catalog.count;
-    for (size_t i = 0; i < catalog.count; i++) {
-        if (strcasecmp(catalog.stations[i].name, name) == 0) {
+    webradio_m3u_t *data = webradio_catalog_copy();
+    if (!data) return ESP_ERR_NO_MEM;
+    size_t index = data->blob.count;
+    for (size_t i = 0; i < data->blob.count; i++) {
+        if (strcasecmp(data->blob.stations[i].name, name) == 0) {
             index = i;
             break;
         }
     }
-    if (index == catalog.count) {
-        portEXIT_CRITICAL(&catalog_lock);
+    if (index == data->blob.count) {
+        solar_os_memory_free(data);
         return ESP_ERR_NOT_FOUND;
     }
-    if (index + 1U < catalog.count) {
-        memmove(&catalog.stations[index],
-                &catalog.stations[index + 1U],
-                (catalog.count - index - 1U) * sizeof(catalog.stations[0]));
+    if (index + 1U < data->blob.count) {
+        memmove(&data->blob.stations[index], &data->blob.stations[index + 1U],
+                (data->blob.count - index - 1U) * sizeof(data->blob.stations[0]));
+        memmove(&data->durations[index], &data->durations[index + 1U],
+                (data->blob.count - index - 1U) * sizeof(data->durations[0]));
     }
-    catalog.count--;
-    memset(&catalog.stations[catalog.count], 0, sizeof(catalog.stations[0]));
-    catalog.generation++;
-    portEXIT_CRITICAL(&catalog_lock);
-    return webradio_catalog_persist();
+    data->blob.count--;
+    esp_err_t err = webradio_catalog_publish(data);
+    solar_os_memory_free(data);
+    return err;
 }
 
 esp_err_t solar_os_webradio_catalog_reset(void)
 {
     ESP_RETURN_ON_ERROR(solar_os_webradio_catalog_init(), TAG,
                         "catalog init failed");
-    portENTER_CRITICAL(&catalog_lock);
-    webradio_catalog_set_defaults();
-    catalog.generation++;
-    portEXIT_CRITICAL(&catalog_lock);
-    return webradio_catalog_persist();
+    webradio_m3u_t *data = solar_os_memory_calloc(1, sizeof(*data),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "webradio.catalog.reset");
+    if (!data) return ESP_ERR_NO_MEM;
+    data->blob.count = sizeof(default_stations) / sizeof(default_stations[0]);
+    memcpy(data->blob.stations, default_stations, sizeof(default_stations));
+    for (size_t i = 0; i < SOLAR_OS_WEBRADIO_STATION_MAX; i++) data->durations[i] = -1;
+    esp_err_t err = webradio_catalog_publish(data);
+    solar_os_memory_free(data);
+    return err;
 }

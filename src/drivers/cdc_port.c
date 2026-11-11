@@ -5,9 +5,12 @@
 #include <stdint.h>
 
 #include "driver/usb_serial_jtag.h"
+#include "esp_ipc.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static bool ready;
+static int driver_core;
 
 esp_err_t cdc_port_init(const cdc_port_config_t *config)
 {
@@ -25,10 +28,34 @@ esp_err_t cdc_port_init(const cdc_port_config_t *config)
             ready = usb_serial_jtag_is_driver_installed();
             return ready ? ESP_OK : ret;
         }
+        driver_core = xPortGetCoreID();
     }
 
     ready = true;
     return ESP_OK;
+}
+
+static void uninstall_on_driver_core(void *arg)
+{
+    *(esp_err_t *)arg = usb_serial_jtag_driver_uninstall();
+}
+
+esp_err_t cdc_port_deinit(void)
+{
+    if (!usb_serial_jtag_is_driver_installed()) {
+        ready = false;
+        return ESP_OK;
+    }
+    esp_err_t ret;
+    if (xPortGetCoreID() == driver_core) {
+        ret = usb_serial_jtag_driver_uninstall();
+    } else {
+        const esp_err_t ipc_err = esp_ipc_call_blocking(driver_core,
+            uninstall_on_driver_core, &ret);
+        if (ipc_err != ESP_OK) return ipc_err;
+    }
+    if (ret == ESP_OK) ready = false;
+    return ret;
 }
 
 bool cdc_port_is_ready(void)
@@ -38,7 +65,7 @@ bool cdc_port_is_ready(void)
 
 bool cdc_port_is_connected(void)
 {
-    return usb_serial_jtag_is_connected();
+    return ready && usb_serial_jtag_is_connected();
 }
 
 bool cdc_port_driver_installed(void)

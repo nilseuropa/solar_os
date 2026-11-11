@@ -1,11 +1,38 @@
 #include "inmp441.h"
 
+#include "driver/gpio.h"
+#include "freertos/task.h"
 #include "soc/soc_caps.h"
 #include "solar_os_board.h"
 #include <string.h>
 
 #define IO_FRAMES 128U
 #define STARTUP_FRAMES 4096U /* 2^18 SCK cycles at 64 clocks/frame. */
+
+/* INMP441 and ICS-43432 both use 24-bit Philips I2S in 32-bit slots.
+ * The conservative INMP441 startup discard also covers ICS-43432 startup. */
+static esp_err_t hold_outputs_low(solar_os_inmp441_t *d) {
+    const int pins[] = {d->config.bck, d->config.ws, d->config.dout};
+    uint64_t mask = 0;
+    for (size_t i = 0; i < sizeof(pins) / sizeof(pins[0]); ++i) {
+        if (pins[i] < 0)
+            continue;
+        const esp_err_t err = gpio_set_level(pins[i], 0);
+        if (err != ESP_OK)
+            return err;
+        mask |= 1ULL << pins[i];
+    }
+    /* gpio_config disconnects peripheral outputs without gpio_reset_pin's
+     * default pull-ups, which would feed the unpowered receivers. */
+    const gpio_config_t config = {
+        .pin_bit_mask = mask,
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    return gpio_config(&config);
+}
 
 static uint32_t bounded_timeout(uint32_t timeout) {
     return timeout == 0U || timeout > 1000U ? 1000U : timeout;
@@ -22,6 +49,10 @@ static void release_channels(solar_os_inmp441_t *d) {
         (void)i2s_del_channel(d->tx);
     d->rx = d->tx = NULL;
     d->rx_enabled = d->tx_enabled = false;
+    /* Disconnect I2S and drive the shared inputs low before removing power.
+     * Keep the rail on if the GPIO handover fails, avoiding back-powering. */
+    if (d->config.power >= 0 && hold_outputs_low(d) == ESP_OK)
+        (void)gpio_set_level(d->config.power, 0);
 }
 
 esp_err_t solar_os_inmp441_init(solar_os_inmp441_t *d,
@@ -31,6 +62,10 @@ esp_err_t solar_os_inmp441_init(solar_os_inmp441_t *d,
         c->slot > 1U || !GPIO_IS_VALID_OUTPUT_GPIO(c->bck) ||
         !GPIO_IS_VALID_OUTPUT_GPIO(c->ws) || !GPIO_IS_VALID_GPIO(c->din) ||
         c->dout < -1 || (c->dout >= 0 && !GPIO_IS_VALID_OUTPUT_GPIO(c->dout)) ||
+        c->power < -1 ||
+        (c->power >= 0 && (!GPIO_IS_VALID_OUTPUT_GPIO(c->power) ||
+         c->power == c->bck || c->power == c->ws || c->power == c->din ||
+         c->power == c->dout)) ||
         c->bck == c->ws || c->bck == c->din || c->ws == c->din ||
         (c->dout >= 0 &&
          (c->dout == c->bck || c->dout == c->ws || c->dout == c->din))) {
@@ -39,7 +74,21 @@ esp_err_t solar_os_inmp441_init(solar_os_inmp441_t *d,
     memset(d, 0, sizeof(*d));
     d->config = *c;
     d->lock = xSemaphoreCreateMutex();
-    return d->lock != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    if (d->lock == NULL)
+        return ESP_ERR_NO_MEM;
+    esp_err_t err = ESP_OK;
+    if (c->power >= 0) {
+        err = hold_outputs_low(d);
+        if (err == ESP_OK)
+            err = gpio_set_level(c->power, 0);
+        if (err == ESP_OK)
+            err = gpio_set_direction(c->power, GPIO_MODE_OUTPUT);
+    }
+    if (err != ESP_OK) {
+        vSemaphoreDelete(d->lock);
+        d->lock = NULL;
+    }
+    return err;
 }
 
 void solar_os_inmp441_deinit(solar_os_inmp441_t *d) {
@@ -54,6 +103,17 @@ static esp_err_t create_channels(solar_os_inmp441_t *d) {
     if (d->rx != NULL)
         return ESP_OK;
     const solar_os_inmp441_config_t *c = &d->config;
+    if (c->power >= 0) {
+        esp_err_t err = hold_outputs_low(d);
+        if (err == ESP_OK)
+            err = gpio_set_level(c->power, 1);
+        if (err != ESP_OK)
+            return err;
+        /* TPS22917 with 1 nF CT ramps in about 4 ms. Allow the boost and
+         * DAC supplies to settle before driving their digital inputs. */
+        TickType_t ticks = pdMS_TO_TICKS(20);
+        vTaskDelay(ticks ? ticks : 1);
+    }
     i2s_chan_config_t channel =
         I2S_CHANNEL_DEFAULT_CONFIG(c->port, I2S_ROLE_MASTER);
     channel.dma_desc_num = 4;
@@ -61,8 +121,10 @@ static esp_err_t create_channels(solar_os_inmp441_t *d) {
     channel.auto_clear_after_cb = true;
     esp_err_t err =
         i2s_new_channel(&channel, c->dout >= 0 ? &d->tx : NULL, &d->rx);
-    if (err != ESP_OK)
+    if (err != ESP_OK) {
+        release_channels(d);
         return err;
+    }
     i2s_std_config_t standard = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(SOLAR_OS_INMP441_SAMPLE_RATE),
         .slot_cfg = I2S_STD_PHILIPS_SLOT_DEFAULT_CONFIG(

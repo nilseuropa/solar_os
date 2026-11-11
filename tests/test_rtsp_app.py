@@ -24,6 +24,17 @@ class RtspAppTest(unittest.TestCase):
             + APP[APP.index("static esp_err_t start_playback"):APP.index("static esp_err_t start(")]
             + APP[APP.index("static bool pointer("):APP.index("const solar_os_app_t solar_os_rtsp_app")]
         )
+        start = re.search(r"^static esp_err_t start\([^;]*?\)\s*\{[\s\S]*?^}", APP, re.M)
+        self.assertIsNotNone(start)
+        helpers += start.group()
+        widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
+        helpers = (
+            widgets[widgets.index("void solar_os_media_player_layout"):
+                    widgets.index("esp_err_t solar_os_cassette_widget_create")]
+            + widgets[widgets.index("void solar_os_media_playlist_draw"):
+                      widgets.index("static void media_transport_triangle")]
+            + helpers
+        )
         with tempfile.TemporaryDirectory(prefix="solaros-rtsp-ui-") as directory:
             tmp = Path(directory)
             (tmp / "rtsp_app_test_state.h").write_text(constants + "\n" + state)
@@ -40,6 +51,7 @@ class RtspAppTest(unittest.TestCase):
                 str(ROOT / "src/services/solar_os_rtsp.c"),
                 str(ROOT / "src/services/solar_os_rtp.c"),
                 str(ROOT / "src/services/solar_os_media.c"),
+                str(ROOT / "src/services/solar_os_media_dialog.c"),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
@@ -51,7 +63,7 @@ class RtspAppTest(unittest.TestCase):
         self.assertIn("solar_os_rtsp_client_create(rtsp.url", APP)
         self.assertNotIn("strcpy(rtsp.url, url)", start)
         registry = (ROOT / "src/apps/solar_os_app_registry.c").read_text()
-        self.assertIn("<[rtsp://][user[:pass]@]host[:port][/path]>", registry)
+        self.assertIn("[[rtsp://][user[:pass]@]host[:port][/path]|playlist.m3u]", registry)
         manual = (ROOT / "doc/manual/apps.md").read_text()
         self.assertIn("rtsp 192.168.1.238/media", manual)
         self.assertIn("TCP port 554", manual)
@@ -73,7 +85,7 @@ class RtspAppTest(unittest.TestCase):
         self.assertIn("solar_os_oscilloscope_widget_draw", APP)
         self.assertIn("solar_os_oscilloscope_widget_submit_s16", APP)
         self.assertIn("solar_os_gfx_blit_raster", APP)
-        self.assertIn("solar_os_media_transport_button_draw", APP)
+        self.assertIn("solar_os_media_player_controls_draw", APP)
         self.assertIn(".video = rtsp.graphical && !rtsp.audio_only", APP)
         self.assertIn(".samples = audio_samples", CLIENT)
 
@@ -113,7 +125,7 @@ class RtspAppTest(unittest.TestCase):
         registry = (ROOT / "src/apps/solar_os_app_registry.c").read_text()
         entry = registry.split('APP_ENTRY("rtsp"', 1)[1].split("\n", 1)[0]
         self.assertIn("[--audio-only] [--stats]", entry)
-        self.assertIn(", 2, 4)", entry)
+        self.assertIn(", 1, 4)", entry)
 
     def test_monochrome_frames_stay_gray_and_color_retains_rgb(self):
         self.assertIn("solar_os_stb_jpeg_decode_gray", APP)
@@ -126,10 +138,10 @@ class RtspAppTest(unittest.TestCase):
 
     def test_common_player_fullscreen_volume_and_frame_overlay(self):
         self.assertIn("if (chrome && !rtsp.fullscreen) draw_controls", APP)
-        self.assertIn("SOLAR_OS_GFX_FONT_BOLD_16", APP)
-        self.assertIn('"VOL"', APP)
-        self.assertIn("h - RTSP_CONTROLS_HEIGHT", APP)
-        self.assertIn("rtsp.stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY : SOLAR_OS_MEDIA_TRANSPORT_STOP", APP)
+        self.assertIn("solar_os_media_player_header_draw", APP)
+        self.assertIn("solar_os_media_player_controls_draw", APP)
+        self.assertIn("h - RTSP_HEADER_HEIGHT - RTSP_CONTROLS_HEIGHT", APP)
+        self.assertIn("rtsp.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP", APP)
         self.assertNotIn("RTSP_HELP_HEIGHT", APP)
         self.assertIn("rtsp.fullscreen = !rtsp.fullscreen", APP)
         self.assertIn("generation != rtsp.layout_generation", APP)
@@ -157,10 +169,11 @@ class RtspAppTest(unittest.TestCase):
         event = APP.split("static bool event(", 1)[1]
         self.assertLess(event.index("if (rtsp.stopped)"), event.index("if (rtsp.network_done)"))
         self.assertIn("rtsp.restart && !rtsp.client", event)
-        self.assertIn("key == SOLAR_OS_KEY_ENTER || key == ' '", event)
+        self.assertIn("key == SOLAR_OS_KEY_ENTER)", event)
+        self.assertIn("solar_os_rtsp_client_set_paused", event)
         self.assertIn("SOLAR_OS_EVENT_POINTER", event)
         self.assertIn("SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS", APP)
-        self.assertIn("rtsp.fullscreen || event->action != SOLAR_OS_INPUT_POINTER_PRESS", APP)
+        self.assertIn("rtsp.fullscreen || rtsp.playlist_visible || rtsp.dialog || event->action != SOLAR_OS_INPUT_POINTER_PRESS", APP)
 
     def test_causal_errors_are_preserved_and_shown(self):
         self.assertIn("status.error_detail", APP)

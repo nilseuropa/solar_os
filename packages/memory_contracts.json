@@ -49,29 +49,29 @@
     "src/drivers/epd_ssd1683.c": {
       "calls": {
         "heap_caps_malloc": 9,
-        "heap_caps_calloc": 1
+        "heap_caps_calloc": 2
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Driver-owned pinned buffers: prefer PSRAM for the CPU framebuffer with an ordinary-heap fallback; retain internal DMA capabilities for the separate SPI line buffer and existing capabilities for scan and timing storage."
     },
     "src/drivers/epd_ssd1685.c": {
       "calls": {
         "heap_caps_malloc": 7,
-        "heap_caps_calloc": 1
+        "heap_caps_calloc": 2
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Pinned CPU framebuffer prefers PSRAM with an ordinary-heap fallback; SPI line storage stays internal DMA and scan storage retains its existing capabilities."
     },
     "src/drivers/epd_ultrachip.c": {
       "calls": {
         "heap_caps_malloc": 3,
-        "heap_caps_calloc": 1
+        "heap_caps_calloc": 2
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Pinned CPU framebuffer prefers PSRAM with an ordinary-heap fallback; SPI transfers use the separate internal DMA line buffer."
     },
     "src/drivers/rlcd_st7305.c": {
       "calls": {
-        "heap_caps_malloc": 3
+        "heap_caps_malloc": 4
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Pinned CPU framebuffer prefers PSRAM with an ordinary-heap fallback; pixels are packed into separate transfer rows before SPI reads them."
     },
     "src/drivers/sd_card.c": {
       "calls": {
@@ -81,9 +81,9 @@
     },
     "src/drivers/tft_ili9341.c": {
       "calls": {
-        "heap_caps_malloc": 4
+        "heap_caps_malloc": 5
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Pinned CPU framebuffer prefers PSRAM with an ordinary-heap fallback; both SPI conversion buffers retain internal DMA capabilities."
     },
     "src/drivers/vga32.c": {
       "calls": {

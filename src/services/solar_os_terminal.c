@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_timer.h"
+
 #include "solar_os_board.h"
 #include "solar_os_display.h"
 #include "solar_os_fonts.h"
@@ -14,6 +16,7 @@
 #include "solar_os_terminal_preferences.h"
 
 #define TERM_MARGIN_X 4
+#define TERM_CURSOR_BLINK_MS 500U
 #define TERM_STATUS_BAR_HEIGHT 16
 #define TERM_STATUS_BAR_COMPACT_MAX_WIDTH 160
 #define TERM_STATUS_BAR_ICON_GAP 4
@@ -624,6 +627,20 @@ static void solar_os_terminal_mark_dirty(solar_os_terminal_t *terminal)
     }
 }
 
+static void terminal_wake_cursor(solar_os_terminal_t *terminal)
+{
+    terminal->cursor_activity_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    solar_os_terminal_mark_dirty(terminal);
+}
+
+static bool terminal_cursor_is_drawn(const solar_os_terminal_t *terminal, bool blink)
+{
+    if (!terminal->cursor_visible || terminal->scrollback_offset != 0U ||
+        terminal->cursor_row >= terminal_rows(terminal)) return false;
+    const uint32_t now_ms = (uint32_t)(esp_timer_get_time() / 1000);
+    return !blink || ((now_ms - terminal->cursor_activity_ms) / TERM_CURSOR_BLINK_MS) % 2U == 0;
+}
+
 static void terminal_return_to_live(solar_os_terminal_t *terminal)
 {
     if (terminal != NULL && terminal->scrollback_offset != 0) {
@@ -882,7 +899,7 @@ void solar_os_terminal_init_with_rotation(solar_os_terminal_t *terminal,
     terminal->cursor_visible = true;
     terminal_load_settings(terminal);
     terminal_apply_settings(terminal, false);
-    terminal->dirty = true;
+    terminal_wake_cursor(terminal);
 }
 
 void solar_os_terminal_rebind_display(solar_os_terminal_t *terminal,
@@ -1024,7 +1041,7 @@ void solar_os_terminal_clear(solar_os_terminal_t *terminal)
     terminal->cursor_visible = true;
     terminal->vrule_count = 0;
     solar_os_terminal_utf8_reset(terminal);
-    solar_os_terminal_mark_dirty(terminal);
+    terminal_wake_cursor(terminal);
 }
 
 void solar_os_terminal_newline(solar_os_terminal_t *terminal)
@@ -1041,7 +1058,7 @@ void solar_os_terminal_newline(solar_os_terminal_t *terminal)
         terminal->cursor_row++;
     }
 
-    solar_os_terminal_mark_dirty(terminal);
+    terminal_wake_cursor(terminal);
 }
 
 void solar_os_terminal_backspace(solar_os_terminal_t *terminal)
@@ -1060,7 +1077,7 @@ void solar_os_terminal_backspace(solar_os_terminal_t *terminal)
                                terminal->cursor_col,
                                false);
         terminal_inverse_set(terminal->inverse[terminal->cursor_row], terminal->cursor_col, false);
-        solar_os_terminal_mark_dirty(terminal);
+        terminal_wake_cursor(terminal);
         return;
     }
 
@@ -1079,7 +1096,7 @@ void solar_os_terminal_backspace(solar_os_terminal_t *terminal)
                                terminal->cursor_col,
                                false);
         terminal_inverse_set(terminal->inverse[terminal->cursor_row], terminal->cursor_col, false);
-        solar_os_terminal_mark_dirty(terminal);
+        terminal_wake_cursor(terminal);
     }
 }
 
@@ -1125,7 +1142,7 @@ void solar_os_terminal_put_codepoint(solar_os_terminal_t *terminal, uint32_t cod
     if (terminal->cursor_col > line_len) {
         terminal->lines[terminal->cursor_row][terminal->cursor_col] = 0;
     }
-    solar_os_terminal_mark_dirty(terminal);
+    terminal_wake_cursor(terminal);
 }
 
 void solar_os_terminal_put_printable(solar_os_terminal_t *terminal, char ch)
@@ -1143,7 +1160,7 @@ void solar_os_terminal_put_char(solar_os_terminal_t *terminal, char ch)
     case '\r':
         terminal_return_to_live(terminal);
         terminal->cursor_col = 0;
-        solar_os_terminal_mark_dirty(terminal);
+        terminal_wake_cursor(terminal);
         break;
     case '\n':
         solar_os_terminal_newline(terminal);
@@ -1508,7 +1525,7 @@ void solar_os_terminal_set_cursor(solar_os_terminal_t *terminal, size_t row, siz
 
     terminal->cursor_row = row;
     terminal->cursor_col = col;
-    solar_os_terminal_mark_dirty(terminal);
+    terminal_wake_cursor(terminal);
 }
 
 void solar_os_terminal_set_cursor_visible(solar_os_terminal_t *terminal, bool visible)
@@ -1518,7 +1535,7 @@ void solar_os_terminal_set_cursor_visible(solar_os_terminal_t *terminal, bool vi
     }
 
     terminal->cursor_visible = visible;
-    solar_os_terminal_mark_dirty(terminal);
+    terminal_wake_cursor(terminal);
 }
 
 bool solar_os_terminal_cursor_visible(const solar_os_terminal_t *terminal)
@@ -1871,9 +1888,14 @@ esp_err_t solar_os_terminal_apply_profile_transient(
 bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
 {
     uint32_t epoch;
+    solar_os_terminal_cursor_shape_t shape;
+    bool blink;
+    solar_os_terminal_get_cursor_preference(&shape, &blink);
     return terminal != NULL &&
         solar_os_display_terminal_draw_state(terminal->u8g2, &epoch) &&
-        (terminal->dirty || terminal->rendered_display_epoch != epoch);
+        (terminal->dirty || terminal->rendered_display_epoch != epoch ||
+         terminal->rendered_cursor_shape != shape || terminal->rendered_cursor_blink != blink ||
+         terminal->rendered_cursor_on != terminal_cursor_is_drawn(terminal, blink));
 }
 
 void solar_os_terminal_invalidate_render(solar_os_terminal_t *terminal)
@@ -2183,7 +2205,7 @@ static int terminal_cell_top_y(const solar_os_terminal_t *terminal, size_t row)
         (int)terminal->cell_ascent;
 }
 
-static void terminal_draw_vrules(solar_os_terminal_t *terminal, u8g2_t *u8g2)
+static void terminal_draw_vrules(solar_os_terminal_t *terminal, u8g2_t *u8g2, size_t row)
 {
     const size_t rows = terminal_rows(terminal);
     const size_t cols = terminal_cols(terminal);
@@ -2192,21 +2214,16 @@ static void terminal_draw_vrules(solar_os_terminal_t *terminal, u8g2_t *u8g2)
 
     for (size_t i = 0; i < terminal->vrule_count; i++) {
         const solar_os_terminal_vrule_t *rule = &terminal->vrules[i];
-        if (rule->row >= rows || rule->col >= cols || rule->height == 0) {
-            continue;
-        }
-
-        const size_t clipped_rows =
-            rule->row + rule->height > rows ? rows - rule->row : rule->height;
-        if (clipped_rows == 0) {
+        if (rule->row >= rows || rule->col >= cols || rule->height == 0 ||
+            row < rule->row || row - rule->row >= rule->height) {
             continue;
         }
 
         const int width = rule->width == 0 ? 1 : rule->width;
         int x = TERM_MARGIN_X + (int)(rule->col * terminal->char_width) +
             (terminal->char_width / 2) - (width / 2);
-        int y = terminal_cell_top_y(terminal, rule->row);
-        int height = (int)(clipped_rows * terminal->line_height);
+        int y = terminal_cell_top_y(terminal, row);
+        int height = terminal->line_height;
         if (y < 0) {
             height += y;
             y = 0;
@@ -2249,8 +2266,8 @@ static int cursor_x_position(solar_os_terminal_t *terminal)
     }
 
     size_t cursor_col = terminal->cursor_col;
-    if (cursor_col > terminal_cols(terminal)) {
-        cursor_col = terminal_cols(terminal);
+    if (cursor_col >= terminal_cols(terminal)) {
+        cursor_col = terminal_cols(terminal) - 1U;
     }
 
     return TERM_MARGIN_X + (int)(cursor_col * terminal->char_width);
@@ -2869,7 +2886,9 @@ static uint32_t terminal_render_profile_hash(const solar_os_terminal_t *terminal
 }
 
 static uint32_t terminal_render_row_hash(const solar_os_terminal_t *terminal,
-                                         size_t row)
+                                         size_t row,
+                                         bool cursor_on,
+                                         solar_os_terminal_cursor_shape_t cursor_shape)
 {
     const uint32_t *bold = NULL;
     const uint32_t *italic = NULL;
@@ -2897,10 +2916,10 @@ static uint32_t terminal_render_row_hash(const solar_os_terminal_t *terminal,
             hash = terminal_render_hash_value(hash, rule->inverse);
         }
     }
-    if (terminal->cursor_visible && terminal->scrollback_offset == 0U &&
-        terminal->cursor_row == row) {
+    if (cursor_on && terminal->cursor_row == row) {
         hash = terminal_render_hash_value(hash, UINT32_C(0xc0750a));
         hash = terminal_render_hash_value(hash, (uint32_t)terminal->cursor_col);
+        hash = terminal_render_hash_value(hash, (uint32_t)cursor_shape);
     }
     return hash;
 }
@@ -2979,6 +2998,13 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     u8g2_SetFontMode(u8g2, 1);
     u8g2_SetFontPosBaseline(u8g2);
     const uint8_t text_scale = terminal_text_scale(terminal);
+    solar_os_terminal_cursor_shape_t cursor_shape;
+    bool cursor_blink;
+    solar_os_terminal_get_cursor_preference(&cursor_shape, &cursor_blink);
+    if (terminal->rendered_cursor_shape != cursor_shape ||
+        terminal->rendered_cursor_blink != cursor_blink) terminal_wake_cursor(terminal);
+    const bool cursor_on = terminal_cursor_is_drawn(terminal, cursor_blink);
+    bool cursor_row_redrawn = false;
 
     const uint32_t profile_hash = terminal_render_profile_hash(terminal, u8g2);
     const uint32_t status_hash = terminal_render_status_hash(terminal);
@@ -3001,7 +3027,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     terminal_set_draw_color(terminal, u8g2, 0);
 
     for (size_t row = 0; row < terminal_rows(terminal); row++) {
-        const uint32_t row_hash = terminal_render_row_hash(terminal, row);
+        const uint32_t row_hash = terminal_render_row_hash(terminal, row, cursor_on, cursor_shape);
         if (!full && terminal->rendered_row_hash[row] == row_hash) {
             continue;
         }
@@ -3024,29 +3050,38 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
                            italic,
                            underline,
                            inverse);
+        terminal_draw_vrules(terminal, u8g2, row);
         terminal->rendered_row_hash[row] = row_hash;
+        if (row == terminal->cursor_row) cursor_row_redrawn = true;
         changed = true;
     }
 
-    if (changed) {
-        terminal_draw_vrules(terminal, u8g2);
-    }
     if (terminal->footer_enabled &&
         (full || terminal->rendered_footer_hash != footer_hash)) {
         terminal_draw_footer(terminal, u8g2, text_scale);
         changed = true;
     }
 
-    if (terminal->cursor_visible && !solar_os_terminal_is_scrolled_back(terminal)) {
+    if (cursor_on && cursor_row_redrawn) {
         const int cursor_x = cursor_x_position(terminal);
-        const int cursor_y = terminal_cell_top_y(terminal, terminal->cursor_row) +
-            (int)terminal->line_height - 2;
+        const int cursor_top = terminal_cell_top_y(terminal, terminal->cursor_row);
+        const size_t cursor_col = terminal->cursor_col < terminal_cols(terminal) ?
+            terminal->cursor_col : terminal_cols(terminal) - 1U;
         const bool inverse_cursor =
             terminal->cursor_row < terminal_rows(terminal) &&
-            terminal->cursor_col < terminal_cols(terminal) &&
-            terminal_inverse_get(terminal->inverse[terminal->cursor_row], terminal->cursor_col);
-        terminal_set_draw_color(terminal, u8g2, inverse_cursor ? 1 : 0);
-        u8g2_DrawHLine(u8g2, (u8g2_uint_t)cursor_x, (u8g2_uint_t)cursor_y, terminal->char_width);
+            terminal_inverse_get(terminal->inverse[terminal->cursor_row], cursor_col);
+        if (cursor_shape == SOLAR_OS_TERMINAL_CURSOR_BLOCK) {
+            /* Invert the existing glyph and background together. Only apply
+             * after repainting this row; repeated draws must not invert twice. */
+            u8g2_SetDrawColor(u8g2, 2);
+            u8g2_DrawBox(u8g2, (u8g2_uint_t)cursor_x, (u8g2_uint_t)cursor_top,
+                         terminal->char_width, terminal->line_height);
+        } else {
+            terminal_set_draw_color(terminal, u8g2, inverse_cursor ? 1 : 0);
+            u8g2_DrawHLine(u8g2, (u8g2_uint_t)cursor_x,
+                           (u8g2_uint_t)(cursor_top + terminal->line_height - 2),
+                           terminal->char_width);
+        }
         terminal_set_draw_color(terminal, u8g2, 0);
     }
 
@@ -3057,6 +3092,9 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     terminal->rendered_display_epoch = epoch;
     terminal->rendered_status_hash = status_hash;
     terminal->rendered_footer_hash = footer_hash;
+    terminal->rendered_cursor_on = cursor_on;
+    terminal->rendered_cursor_shape = cursor_shape;
+    terminal->rendered_cursor_blink = cursor_blink;
     terminal->render_valid = true;
     terminal->dirty = false;
 }

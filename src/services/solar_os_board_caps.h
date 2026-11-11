@@ -48,6 +48,7 @@ typedef uint64_t solar_os_board_capability_t;
 #define SOLAR_OS_BOARD_CAP_POINTER (1ULL << 34)
 #define SOLAR_OS_BOARD_CAP_STREAMING_DISPLAY (1ULL << 35)
 #define SOLAR_OS_BOARD_CAP_CAMERA (1ULL << 36)
+#define SOLAR_OS_BOARD_CAP_USB_HOST (1ULL << 37)
 
 #ifndef SOLAR_OS_BOARD_HAS_PSRAM
 #define SOLAR_OS_BOARD_HAS_PSRAM 0
@@ -63,6 +64,9 @@ typedef uint64_t solar_os_board_capability_t;
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_CDC
 #define SOLAR_OS_BOARD_HAS_CDC 0
+#endif
+#ifndef SOLAR_OS_BOARD_HAS_USB_HOST
+#define SOLAR_OS_BOARD_HAS_USB_HOST 0
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_UART
 #define SOLAR_OS_BOARD_HAS_UART 0

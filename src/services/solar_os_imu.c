@@ -1,6 +1,9 @@
 #include "solar_os_imu.h"
 #include "solar_os_sync.h"
+#include "solar_os_stream.h"
 
+#include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "esp_attr.h"
@@ -36,6 +39,64 @@ static bool name_valid(const char *name)
 {
     return name != NULL && name[0] != '\0' &&
         strnlen(name, SOLAR_OS_IMU_NAME_MAX) < SOLAR_OS_IMU_NAME_MAX;
+}
+
+static void pack_u32(uint8_t *out, uint32_t value)
+{ for (unsigned i = 0; i < 4; ++i) out[i] = (uint8_t)(value >> (8*i)); }
+
+static void pack_floats(uint8_t *out, const float *in, unsigned count)
+{
+    _Static_assert(sizeof(float) == 4, "IMU streams require float32");
+    for (unsigned i = 0; i < count; ++i) {
+        uint32_t bits; memcpy(&bits, in+i, sizeof(bits)); pack_u32(out+4*i, bits);
+    }
+}
+
+static esp_err_t stream_read(void *user, solar_os_stream_handle_t *handle,
+    void *data, size_t len, uint32_t timeout_ms, size_t *read_len)
+{
+    (void)handle;
+    *read_len = 0;
+    if (len < SOLAR_OS_IMU_STREAM_SAMPLE_BYTES) return ESP_ERR_INVALID_SIZE;
+    const imu_device_t *device = user;
+    solar_os_imu_sample_t sample;
+    esp_err_t e = solar_os_imu_read_sample(device->info.name, timeout_ms, &sample);
+    if (e != ESP_OK) return e;
+    uint8_t *out = data;
+    for (unsigned i = 0; i < 8; ++i) out[i] = (uint8_t)(sample.timestamp_us >> (8*i));
+    pack_u32(out+8, sample.valid);
+    pack_floats(out+12, sample.acceleration_m_s2, 3);
+    pack_floats(out+24, sample.angular_velocity_rad_s, 3);
+    pack_floats(out+36, sample.orientation, 4);
+    *read_len = SOLAR_OS_IMU_STREAM_SAMPLE_BYTES;
+    return ESP_OK;
+}
+
+static esp_err_t stream_header(void *user, char *out, size_t len)
+{
+    (void)user;
+    const char *header = "sample_us,valid,ax_m_s2,ay_m_s2,az_m_s2,gx_rad_s,gy_rad_s,gz_rad_s,qw,qx,qy,qz";
+    return strlcpy(out, header, len) < len ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+static esp_err_t stream_csv(void *user, solar_os_stream_handle_t *handle,
+    const solar_os_stream_read_options_t *options, solar_os_stream_csv_record_t *record)
+{
+    (void)handle;
+    const imu_device_t *device = user;
+    solar_os_imu_sample_t s;
+    esp_err_t e = solar_os_imu_read_sample(device->info.name, options ? options->timeout_ms : 1000, &s);
+    if (e != ESP_OK) return e;
+    memset(record, 0, sizeof(*record));
+    record->has_data = true; record->uptime_ms = s.timestamp_us / 1000;
+    int n = snprintf(record->line, sizeof(record->line),
+        "%" PRIu64 ",%" PRIu32 ",%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.6g",
+        s.timestamp_us, s.valid, (double)s.acceleration_m_s2[0], (double)s.acceleration_m_s2[1],
+        (double)s.acceleration_m_s2[2], (double)s.angular_velocity_rad_s[0],
+        (double)s.angular_velocity_rad_s[1], (double)s.angular_velocity_rad_s[2],
+        (double)s.orientation[0], (double)s.orientation[1], (double)s.orientation[2], (double)s.orientation[3]);
+    snprintf(record->change_key, sizeof(record->change_key), "%" PRIu64, s.timestamp_us);
+    return n >= 0 && (size_t)n < sizeof(record->line) ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
 esp_err_t solar_os_imu_register(const solar_os_imu_registration_t *registration)
@@ -86,8 +147,18 @@ esp_err_t solar_os_imu_register(const solar_os_imu_registration_t *registration)
     if (free_device->generation == 0U) {
         free_device->generation = imu_next_generation++;
     }
+    solar_os_stream_driver_t stream = {
+        .info = {.provider="imu", .type=SOLAR_OS_STREAM_TYPE_BYTES,
+            .direction=SOLAR_OS_STREAM_DIRECTION_SOURCE, .sharing=SOLAR_OS_STREAM_SHARING_SHARED,
+            .format=SOLAR_OS_IMU_STREAM_FORMAT, .summary="Timestamped IMU samples in SI units"},
+        .read=stream_read, .csv_header=stream_header, .read_csv=stream_csv, .user=free_device,
+    };
+    snprintf(stream.info.id, sizeof(stream.info.id), "imu.%s", registration->name);
+    strlcpy(stream.info.device, registration->name, sizeof(stream.info.device));
+    esp_err_t ret = solar_os_stream_register(&stream);
+    if (ret != ESP_OK) memset(free_device, 0, sizeof(*free_device));
     xSemaphoreGive(imu_mutex);
-    return ESP_OK;
+    return ret;
 }
 
 esp_err_t solar_os_imu_unregister(const char *name)
@@ -108,6 +179,10 @@ esp_err_t solar_os_imu_unregister(const char *name)
                 xSemaphoreGive(imu_mutex);
                 return ESP_ERR_INVALID_STATE;
             }
+            char stream[SOLAR_OS_STREAM_ID_MAX];
+            snprintf(stream, sizeof(stream), "imu.%s", name);
+            esp_err_t ret = solar_os_stream_unregister(stream);
+            if (ret != ESP_OK) { xSemaphoreGive(imu_mutex); return ret; }
             memset(&imu_devices[i], 0, sizeof(imu_devices[i]));
             xSemaphoreGive(imu_mutex);
             return ESP_OK;

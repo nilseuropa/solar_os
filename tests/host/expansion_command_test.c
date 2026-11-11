@@ -3,6 +3,14 @@
 #include <string.h>
 
 #include "solar_os_shell_expansion_internal.h"
+#include "solar_os_shell_parse.h"
+#include "../../src/services/solar_os_gpio_matrix_driver.c"
+
+esp_err_t solar_os_gpio_matrix_attach(const char *name,
+    const solar_os_expansion_binding_t *bindings, size_t count)
+{ (void)name; (void)bindings; (void)count; return ESP_OK; }
+esp_err_t solar_os_gpio_matrix_detach(const char *name)
+{ (void)name; return ESP_OK; }
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -149,6 +157,23 @@ int main(void)
                                                     sizeof(short_command)) ==
            ESP_ERR_INVALID_SIZE);
 
-    puts("expansion command tests passed");
+    solar_os_expansion_device_t matrix = {.name="matrix-keyboard", .driver="gpio-matrix"};
+    for (unsigned i = 0; i < 18; i++) {
+        char role[8]; snprintf(role, sizeof(role), "%s%u", i < 8 ? "row" : "col", i < 8 ? i : i - 8);
+        matrix.bindings[matrix.binding_count++] = binding(SOLAR_OS_EXPANSION_BINDING_GPIO, role, "", (int)i + 10);
+    }
+    matrix.bindings[matrix.binding_count++] = binding(SOLAR_OS_EXPANSION_BINDING_PARAMETER, "drive", "", 1);
+    matrix.bindings[matrix.binding_count++] = binding(SOLAR_OS_EXPANSION_BINDING_PARAMETER, "diodes", "", 1);
+    matrix.bindings[matrix.binding_count++] = binding(SOLAR_OS_EXPANSION_BINDING_PARAMETER, "debounce-ms", "", 100);
+    char matrix_command[SOLAR_OS_SHELL_COMMAND_LINE_MAX];
+    assert(solar_os_shell_expansion_attach_command(&solar_os_gpio_matrix_expansion_driver,
+        &matrix, matrix_command, sizeof(matrix_command)) == ESP_OK);
+    assert(strlen(matrix_command) > 192 && strstr(matrix_command, "col9=gpio27") != NULL);
+    char *matrix_argv[SOLAR_OS_SHELL_COMMAND_ARG_MAX];
+    solar_os_shell_parse_result_t parsed = solar_os_shell_tokenize(matrix_command,
+        matrix_argv, SOLAR_OS_SHELL_COMMAND_ARG_MAX);
+    assert(parsed.error == SOLAR_OS_SHELL_PARSE_OK && parsed.argc == 25);
+    assert(strcmp(matrix_argv[24], "debounce-ms=100") == 0);
+    puts("expansion command tests passed (including full GPIO matrix startup command)");
     return 0;
 }

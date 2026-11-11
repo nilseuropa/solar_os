@@ -279,6 +279,8 @@ bool solar_os_input_parse_gesture(const char *name,
 bool solar_os_input_parse_gesture_direction(
     const char *name,
     solar_os_input_gesture_direction_t *direction);
+/* Retains final key/pointer releases and queued neutral axes until consumed;
+ * the source ID is not reused while those events remain pending. */
 void solar_os_input_source_close(solar_os_input_source_t source);
 void solar_os_input_source_release_all(solar_os_input_source_t source);
 

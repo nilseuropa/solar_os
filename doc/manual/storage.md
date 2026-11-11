@@ -62,6 +62,52 @@ After replacing or reinserting a card, close files that used it and run
 stale SD mounts, and initializes the inserted card again. A board-defined
 SDSPI or SDMMC slot also supports `expansion attach storage0` for recovery.
 
+## USB drives
+
+On an eligible ESP32-S3 target with `service.usb-storage`, one directly
+connected USB Mass Storage Class drive mounts automatically at `/usb0` while
+USB host mode is active. The default SD/flash root remains unchanged.
+Use a FAT12, FAT16, or FAT32 volume, either covering the whole drive or in a
+primary MBR partition. The first FAT partition is selected. exFAT, NTFS,
+UAS-only devices, hubs, and multiple drives are outside this support.
+
+Supported USB interfaces are Transparent SCSI over Bulk-Only Transport
+(subclass `06h`, protocol `50h`) and UFI floppy drives over Control/Bulk/Interrupt
+(subclass `04h`, protocol `00h`). USB floppy drives use the same `/usb0` paths.
+An empty floppy drive stays connected and reports `no disk` in `usb status`.
+Disk insertion and removal are checked about once per second. A newly inserted
+FAT disk mounts automatically, including a same-size replacement. Write-protected
+disks remain readable, and write attempts fail.
+
+```text
+usb mode host
+usb devices
+disk lsblk
+ls /usb0
+cp /notes/todo.txt /usb0/todo.txt
+disk umount usb0
+```
+
+Close files and directories on the drive before unmounting or changing USB
+mode. Unmount disk images and close guests backed by USB files as well.
+`disk mount usb0` remounts an ejected drive that is still connected. The mount
+point is fixed at `/usb0`. SolarOS does not format USB drives.
+
+Unexpected removal can lose pending writes. Open handles from the removed
+drive fail subsequent filesystem operations and must be closed; they cannot
+access a replacement drive. Reinserting a drive mounts it again. Mode changes
+and explicit sleep stop storage before stopping the USB bus, and refuse while
+the mounted drive is busy. For a floppy, close files and unmount before using
+its physical eject button. Handles from a removed disk cannot write to a
+replacement disk. An explicitly unmounted disk stays unmounted until
+`disk mount usb0` or a disk/USB reconnection.
+
+File commands and scripts use ordinary `/usb0/...` paths. Check `usb status`
+for connection, mount, open-handle, and error information. See `help usb.host`
+for native USB wiring, external 5 V power, and USB console restrictions.
+Shell Tab completion includes the mounted `/usb0/` root, its directories, and
+filenames. Paths containing spaces are quoted automatically.
+
 ## Disk images
 
 Mount a raw `.img` with a FAT12, FAT16, or FAT32 filesystem to edit its files:

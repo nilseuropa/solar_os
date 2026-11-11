@@ -11,6 +11,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DiskImageTest(unittest.TestCase):
+    def test_disk_command_routes_usb_volume_before_image_arguments(self):
+        source = (ROOT / "src/shell/solar_os_shell_hardware.c").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            (stage / "disk_command.inc").write_text(production_functions(source, ("solar_os_shell_cmd_disk",)))
+            binary = stage / "disk_command"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                            "-I", str(stage), "-I", str(ROOT / "tests/host"),
+                            str(ROOT / "tests/host/disk_command_test.c"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_sd_partitions_share_drive_numbers_with_flash_and_images(self):
         source = (ROOT / "src/drivers/sd_card.c").read_text()
         with tempfile.TemporaryDirectory() as directory:

@@ -3,8 +3,8 @@ id = "expansion"
 title = "Expansion drivers and attached devices"
 section = "hardware"
 summary = "Discover, attach, and detach package-gated expansion devices"
-aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "ds3231", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "lr11xx", "lr1110", "lr1120", "lr1121", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
-keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 ds3231 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 lr11xx lr1110 lr1120 lr1121 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
+aliases = ["devices", "drivers", "expansion-export", "ssd1683", "epaper", "e-paper", "st7305", "ili9341", "st7796", "st7789", "gc9a01", "cvbs", "pal", "vga32", "cardkb", "tdeck-keyboard", "tab5-keyboard", "keyboard", "tca8418", "inputronic-keyboard", "lilygo-pager-keyboard", "rotary-encoder", "ft6336", "gt911", "mgc3130", "skywriter", "sdmmc", "sdspi", "micro-sd", "pcf85063", "ds3231", "shtc3", "battery-adc", "max17048", "audio-pwm", "ledc-audio", "pcm1808", "i2s-adc", "pcm5102", "pcm5102a", "i2s-output", "i2s-dac", "es8311", "es7210", "esp32-dac", "rfm69", "rfm69h", "rfm95", "sx1262", "lr11xx", "lr1110", "lr1120", "lr1121", "ublox-mia-m10q", "st25r3916", "bhi260ap", "drv2605", "bq25896", "bq27220", "xl9555", "neopixel", "ws2812", "lora", "fsk", "gfsk", "msk", "gmsk", "ook"]
+keywords = "python lua expansion device driver category attach detach save startup export manifest snapshot custom board bindings display epaper e-paper ssd1677 ssd1683 st7305 ili9341 st7796 st7789 gc9a01 cvbs pal composite vga vga32 waveshare cardkb m5stack tab5-keyboard tdeck keyboard tca8418 inputronic lilygo-pager-keyboard keymap rotary encoder quadrature mouse joystick pointer ft6336 gt911 mgc3130 skywriter 3d gesture airwheel input i2c sd sdmmc sdspi microsd storage oled lcd rtc pcf85063 ds3231 sensor shtc3 peripheral battery battery-adc fuel gauge max17048 bq27220 charger bq25896 axp2101 audio pwm ledc pcm1808 adc pcm5102 i2s-output es8311 es7210 esp32 dac i2s radio rfm69 rfm69h rfm95 sx1262 lr11xx lr1110 lr1120 lr1121 modem sim7670 gnss ublox mia-m10q nfc st25r3916 imu bhi260ap qmi8658 haptic drv2605 gpio expander xl9555 neopixel ws2812 rgb led strip fsk gfsk msk gmsk ook lora"
 packages_any = ["service_expansion"]
 +++
 # Expansion drivers and attached devices
@@ -221,6 +221,73 @@ expansion detach battery0
 Use a high-impedance divider suitable for the expected battery voltage. The
 divided voltage must remain inside the ESP32 ADC input range.
 
+## GPIO keyboard matrices
+
+`gpio-matrix` scans a passive switch matrix directly using native ESP32 GPIOs.
+It is included in the `full` and `classic` flavors and requires no keyboard
+controller or GPIO expander. Each row and column uses one available GPIO:
+a 4×4 matrix uses eight pins; an 8×10 matrix uses eighteen.
+
+Assign contiguous, zero-based `row0` through `row7` and `col0` through `col9`
+bindings. Use only pins available on the running board; attachment claims them
+exclusively. For example, this 2×2 matrix uses four free pins on the
+ESP32-S3 DevKitC profile:
+
+```text
+expansion attach gpio-matrix keys0 row0=gpio4 row1=gpio5 col0=gpio6 col1=gpio7
+input keymap keys0 show
+input test keys0
+```
+
+The defaults are `drive=0` (drive rows, sense columns), `debounce-ms=10`, and
+`diodes=0` (enable ghost detection). `drive=1` drives columns and senses rows
+instead. The scanner uses active-low open-drain outputs, releases inactive
+lines, enables input pull-ups, and scans once per millisecond. Sense pins must
+support internal pull-ups; classic ESP32 GPIO34–39 are not supported.
+
+Without diodes, ambiguous rectangles suppress new key presses while preserving
+already-held keys until release. This avoids reporting phantom keys but cannot
+recover every simultaneous combination. If every key has an isolation diode,
+set `diodes=1` to allow all combinations. Diodes must conduct from the sensed
+line towards the driven line; change `drive` to match their orientation.
+
+There is no assumed keyboard layout. The initial profile publishes physical
+press/release events with IDs `1 + row * column_count + col`. Load a source
+keymap to produce characters, shortcuts, modifiers, and layers. For example,
+save this as `/matrix.json` to map the first row to A and Enter:
+
+```json
+{"schema":1,"keys":[{"row":0,"col":0,"usage":4},{"row":0,"col":1,"usage":40}]}
+```
+
+```text
+input keymap keys0 load /matrix.json
+expansion detach keys0
+```
+
+Changing a keymap releases held keys; release and press those switches again.
+Save the device for startup through `expansion` and load the map from a startup
+script to restore the configuration after reboot. Detach stops the scanner,
+releases held keys, and resets the pins before releasing their claims.
+
+Python and Lua accept the same binding names through `solaros.expansion.attach`:
+
+```python
+solaros.expansion.attach("gpio-matrix", "keys0", {
+    "row0": 4, "row1": 5, "col0": 6, "col1": 7, "debounce-ms": 15
+})
+solaros.input.load_keymap("keys0", "/matrix.json")
+```
+
+```lua
+solaros.expansion.attach("gpio-matrix", "keys0", {
+    row0=4, row1=5, col0=6, col1=7, ["debounce-ms"]=15
+})
+solaros.input.load_keymap("keys0", "/matrix.json")
+```
+
+## Other input devices
+
 Other input devices follow the same lifecycle:
 
 ```text
@@ -410,8 +477,9 @@ board-default `audio0` cannot be detached.
 
 The integrated display controller drivers can also create auxiliary display
 targets. Use a name other than the reserved primary name `display0` for a
-runtime attachment. Each controller driver supports one attached instance, so
-its board-integrated `display0` and an auxiliary instance cannot coexist:
+runtime attachment. The shared `ili9341`/`st7796`/`st7789`/`gc9a01` backend
+supports one attached TFT across those controllers. A board-integrated TFT
+and an auxiliary TFT cannot coexist. `st7305` supports one attached instance:
 
 ```text
 expansion attach st7305 lcd0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5
@@ -426,6 +494,40 @@ The I2S-based `cvbs-pal` and `vga32` drivers are available on classic ESP32.
 Composite PAL uses I2S0 and GPIO25. VGA32 uses I2S1 plus its six RGB and two
 sync GPIOs; see the expansion reference for its full binding list. A fixed
 board-default `display0` cannot be detached.
+
+## GC9A01 round displays
+
+`gc9a01` supports 1.28-inch 240x240 round SPI color displays on ESP32 and
+ESP32-S3. It is included in the `full` flavor; custom flavors can enable the
+`gc9a01` group. It can be selected as a primary display in a board manifest
+or attached at runtime as an auxiliary display.
+
+Use an existing SPI bus and free pins approved by your board. For example,
+on ESP32-S3-DevKitC-1-N16R8, `spi0` uses CLK/SCK GPIO12 and DIN/MOSI GPIO11.
+MISO is not required by the display. With CS wired to GPIO10, DC to GPIO4,
+RST to GPIO5, and BL to GPIO6:
+
+```text
+expansion attach gc9a01 round0 spi=spi0 cs=gpio10 dc=gpio4 reset=gpio5 bl=gpio6 pwm=1
+display test round0
+expansion detach round0
+```
+
+The default SPI clock is 40 MHz. `clock=20000` lowers it to 20 MHz; the
+accepted range is 100..40000 kHz. `rotation=0|1|2|3` selects 0, 90, 180, or
+270 degrees. `bgr=1` and `invert=1` are the defaults for the common round IPS
+panel; use `bgr=0` for RGB order or `invert=0` for a panel without inversion.
+
+`reset` is optional; software reset is always sent during initialization.
+`bl` is an optional backlight control GPIO. `active=0` selects an active-low
+backlight, and `pwm=1` enables brightness control. If `bl` is omitted, the
+module must power its backlight independently. Optional `power` controls an
+active-high display supply enable.
+
+The graphics canvas is 240x240. Pixels outside the circular viewing area,
+including the canvas corners, are physically hidden; keep essential content
+inside the circle. The normal display service provides text, indexed color,
+RGB565 frames, rotation, and display-session routing.
 
 ## Display Link Protocol over streams
 

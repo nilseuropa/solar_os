@@ -18,8 +18,10 @@ SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
 SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_8"
 SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_9"
 SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "3000U"
-SOLAR_OS_BOARD_PIN_AUDIO_JACK_DETECT = "GPIO_NUM_21"
-SOLAR_OS_BOARD_AUDIO_JACK_DETECT_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_PIN_USB_VBUS_EN = "GPIO_NUM_18"
+SOLAR_OS_BOARD_USB_VBUS_ACTIVE_LEVEL = "1"
+# Hold audio inputs and USB VBUS enable low before enabling the shared rails.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{GPIO_NUM_14, 0}, {GPIO_NUM_15, 0}, {GPIO_NUM_16, 0}, {GPIO_NUM_18, 0}, {GPIO_NUM_21, 1}}'
 
 [[buses]]
 name = "i2c0"
@@ -30,16 +32,16 @@ sda = 8
 scl = 9
 speed_hz = 100000
 
-# One transport owns shared microphone / PCM5102 / MAX98357 clocks.
+# v0.1 I/O board: shared clocks; board boot keeps GPIO21 enabled independently.
 [[devices]]
-driver = "inmp441"
+driver = "ics43432"
 name = "audio0"
 bindings = { i2s = 1, bck = 14, ws = 15, din = 17, dout = 16, slot = 1 }
 
 [[devices]]
-driver = "lc709203f"
+driver = "max17048"
 name = "battery0"
-bindings = { i2c = "i2c0", addr = 0x0b, capacity = 3000, profile = 1, temp = 250 }
+bindings = { i2c = "i2c0", addr = 0x36 }
 
 [[devices]]
 driver = "ds3231"
@@ -77,20 +79,47 @@ pwm = false
 [[pins]]
 gpio = 16
 policy = "fixed"
-role = "PCM5102 / MAX98357 I2S data"
+role = "PCM5102A / MAX98357A I2S data"
 user = false
 adc = false
 pwm = false
 [[pins]]
 gpio = 17
 policy = "fixed"
-role = "INMP441 I2S data"
+role = "ICS-43432 I2S data"
 user = false
 adc = false
 pwm = false
 [[pins]]
 gpio = 21
 policy = "fixed"
-role = "jack detect (reserved)"
+role = "BOOST_EN: speaker boost / DAC power enable"
+user = false
+pwm = false
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "USB host VBUS enable"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB host D-"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB host D+"
+user = false
+adc = false
+pwm = false
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "USB host overcurrent input (reserved)"
 user = false
 pwm = false

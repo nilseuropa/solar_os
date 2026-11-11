@@ -14,6 +14,7 @@
 
 typedef struct {
     bool registered;
+    bool retiring;
     char name[SOLAR_OS_PORT_NAME_MAX];
     char label[SOLAR_OS_PORT_LABEL_MAX];
     uint32_t capabilities;
@@ -273,13 +274,17 @@ esp_err_t solar_os_port_unregister(const char *name)
         port_unlock();
         return ESP_ERR_NOT_FOUND;
     }
-    if (ports[index].claimed) {
+    if (ports[index].claimed || ports[index].retiring) {
         port_unlock();
         return ESP_ERR_INVALID_STATE;
     }
+    ports[index].retiring = true;
     port_unlock();
     ret = solar_os_stream_unregister(name);
     if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
+        port_lock();
+        ports[index].retiring = false;
+        port_unlock();
         return ret;
     }
     port_lock();
@@ -318,7 +323,7 @@ esp_err_t solar_os_port_claim(const char *name,
     }
 
     solar_os_port_entry_t *entry = &ports[index];
-    if (entry->claimed) {
+    if (entry->claimed || entry->retiring) {
         port_unlock();
         return ESP_ERR_INVALID_STATE;
     }

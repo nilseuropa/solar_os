@@ -219,6 +219,8 @@ rtsp --stats rtsp://192.168.1.192:8554/youtube
 rtsp --audio-only --stats rtsp://192.168.1.192:8554/youtube
 rtsp-auth set 192.168.1.50 admin camera-password
 rtsp rtsp://192.168.1.50/media
+rtsp cameras.m3u
+rtsp
 ```
 
 The `rtsp://` prefix is optional. The RTSP control connection uses TCP port 554
@@ -241,12 +243,22 @@ Audio-only sessions use the common audio GUI oscilloscope, fed by playback PCM,
 filling the available area between the header and player controls.
 Port shells select audio only and print playback status. `--audio-only` skips
 video negotiation and video buffers even when the publisher offers both tracks.
-Audio uses the selected default output and global volume; Up/Down adjust volume
+Audio uses the selected default output and RTSP's saved volume; Up/Down adjust volume
 (`+`/`-` remain aliases). The graphical player uses the common header, volume
-bar, and Stop/Play button. Enter, Space, or a tap on the button stops playback
+bar, and Previous, Stop/Play, and Next buttons. Enter or a tap on Stop stops playback
 without closing the app; Play reconnects to the same URL. Stopping releases the
 network, decoder, audio output, and media buffers once their workers finish.
-RTSP URLs are single sources, so there are no Previous/Next buttons.
+`Left`/`Right` selects the previous/next saved stream. `Tab` switches to the
+shared playlist view; `Up`/`Down` selects an entry and `Enter` plays it.
+`A` opens the same name/URL entry dialog as WebRadio. `E` edits the selected
+entry, and `Delete` removes it. Changes save to M3U immediately.
+`Space` pauses/resumes locally: video freezes and incoming audio is discarded.
+Resume returns to live media; it does not replay the paused interval.
+Opening a URL adds it to `.rtsp/playlist.m3u`; opening an M3U replaces that list.
+Bare `rtsp` opens the playlist view, including an empty list, without connecting.
+Direct URLs also work without mounted
+storage, with a list kept only for that session. M3U files are plain text;
+use `rtsp-auth` accounts to keep passwords out of saved URLs.
 `F` toggles fullscreen, hiding the header and controls while retaining aspect-fit
 video or expanding the audio-only oscilloscope to the whole screen. `D` toggles
 the separate frame diagnostic overlay: received, displayed, network/app drops,
@@ -509,17 +521,72 @@ Funcgen is active:
 - `funcgen.output`: runtime output index; 0 follows the default output.
 - `funcgen.enabled`: 0 off or 1 on.
 
+## Media player settings
+
+`player`, `webradio`, `vplay`, and `rtsp` each remember their own playback
+volume, independently of the global SolarOS volume. The first-use volume is
+50 percent; zero mutes that player. The saved level is applied when playback
+opens an output and is kept across track changes, app restarts, and reboots.
+Adjusting a stopped player's volume changes its setting without changing
+another app's active output.
+
+Player also remembers its last Cassette, Scope, or Spectrum visualization.
+WebRadio remembers Scope or Spectrum. `V` changes the visualization in each
+player's graphical Play tab.
+
+Volume and visualization changes stay in memory while the app is open.
+Exiting the app with Escape saves changed settings once to
+`.settings/media-<app>.bin` on the current mounted storage volume.
+Without writable mounted storage, choices remain in memory for the current
+session.
+
+## Media playlists
+
+`player`, `webradio`, `vplay`, and `rtsp` share the M3U playlist format.
+Open a local `.m3u` or UTF-8 `.m3u8` file as the player's argument. Import
+replaces that player's saved list and starts its first entry; the source M3U
+stays unchanged. An empty M3U clears the list. Unsupported entries, oversized
+lists, malformed files, or failed saves leave the previous list intact.
+
+| Player | Entries | Saved list | Capacity |
+| --- | --- | --- | --- |
+| `player` | Local WAV/MP3 files | `.player/playlist.m3u` | 32 |
+| `webradio` | HTTP(S) MP3 URLs | `.solar/webradio/playlist.m3u` | 16 |
+| `vplay` | Local MPEG-1 `.mpg`/`.mpeg` files | `.vplay/playlist.m3u` | 32 |
+| `rtsp` | `rtsp://` URLs | `.rtsp/playlist.m3u` | 32 |
+
+Paths are relative to the current storage root in the table. Within an M3U,
+relative file paths resolve against the M3U's folder. Absolute paths and local
+`file:///` URLs are also accepted. Blank lines and comments are ignored.
+`#EXTINF:seconds,title` supplies a display title and duration; metadata does not
+change decoder timing or seeking. Saved lists use extended M3U with UTF-8 text.
+Titles are limited to 95 bytes (31 for WebRadio), local paths to 159 bytes,
+WebRadio URLs to 159 bytes, and RTSP URLs to 319 bytes. Files are limited to
+64 KiB and lines to 1023 bytes. HLS manifests and nested playlists are unsupported.
+
+```text
+#EXTM3U
+#EXTINF:180,First track
+music/first.mp3
+#EXTINF:-1,Second track
+music/second.wav
+```
+
+Existing Player and WebRadio binary lists migrate on first use. The binary
+files remain as backups; M3U takes precedence thereafter. Legacy WebRadio NVS
+data is removed only after the M3U has been saved successfully.
+
 ## player
 
 Interactive WAV/MP3 player and the user-facing counterpart to `aplay`. `player`
-keeps a persistent playlist under `.player` on the current storage root. Opening
+keeps a persistent M3U playlist under `.player` on the current storage root. Opening
 an audio file from Files adds it to that playlist, selects it, and starts
 playback. Missing files remain listed so removable media can be reattached.
 
 Usage:
 
 ```text
-player [--tui] [file.wav|file.mp3]
+player [--tui] [file.wav|file.mp3|playlist.m3u]
 ```
 
 Player selects its graphical interface on a graphical shell and its text
@@ -799,11 +866,11 @@ graphical display shell, WebRadio opens a two-tab media-player GUI. The GUI uses
 small display targets. On UART,
 USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 
-The catalog is stored as `.solar/webradio/catalog.bin` on the current storage
+The catalog is stored as `.solar/webradio/playlist.m3u` on the current storage
 root and starts with the Nightride, Chillsynth, Datawave, Spacesynth, Darksynth,
 Horrorsynth, EBSM, and Rekt streams. Catalog changes survive reboot. On first
-use after an upgrade, WebRadio moves an older NVS catalog to this file and
-removes the large NVS blob. `reset` restores the initial list.
+use after an upgrade, WebRadio imports the older binary or NVS catalog.
+`reset` restores the initial list.
 
 Usage:
 
@@ -811,6 +878,7 @@ Usage:
 webradio
 webradio --tui
 webradio https://stream.nightride.fm/nightride.mp3
+webradio podcasts.m3u
 webradio list
 webradio add MyStation https://example.net/live.mp3
 webradio remove MyStation
@@ -823,7 +891,13 @@ as a harmless interface override.
 
 URLs are literal HTTP or HTTPS MP3 stream URLs. WebRadio does not translate
 station names or website addresses and does not discover streams from HTML
-pages. Playlists, HLS, and AAC are unsupported.
+pages. Local M3U/M3U8 playlists are supported; HLS and AAC are unsupported.
+Successful finite HTTP responses advance to the next entry and stop at the
+end of the list. Opening an M3U also enables advancement on successful EOF
+when a server does not supply a content length. In the saved catalog,
+`#EXTINF:0,title` marks a finite entry with unknown duration; `-1` keeps live
+reconnect behavior for streams without a content length. HTTP failures still
+use the existing reconnect policy.
 
 Controls:
 
@@ -833,7 +907,7 @@ Controls:
   analyzer shows the frequencies in the playing audio.
 - On the Player tab, `Left` and `Right` play the previous or next catalog
   channel. The catalog wraps as a ring. `Enter` stops playback or reconnects
-  the channel; Space pauses/resumes, and `Up`/`Down` changes global volume in
+  the channel; Space pauses/resumes, and `Up`/`Down` changes WebRadio's saved volume in
   five-percent steps.
 - The bottom controls show the channel name, playback state and elapsed output
   time above the volume bar, followed by Previous, Stop/Play, and Next buttons.
@@ -1789,11 +1863,10 @@ writer [file.md]
 
 Without a path, Writer opens an untitled document and asks for a path on the
 first save. Existing files larger than 256 KiB are rejected without changing
-them. Saves use a synced same-directory staging file, backup rename, verified
-replacement, and rollback. Cursor, scroll anchor, and zoom metadata plus idle
-recovery snapshots live centrally under `/.writer` or the active persistent
-storage root. Writer offers a differing recovery snapshot when the document is
-opened again. Recovery uses `R` to recover, `D` to discard the snapshot, or `C`
+them. If saving fails, Writer preserves the previous saved file. Cursor
+position, zoom, and recovery snapshots are stored under `.writer` on the active
+persistent storage root. Writer offers a differing recovery snapshot when the
+document is opened again. Recovery uses `R` to recover, `D` to discard the snapshot, or `C`
 to cancel; the unsaved-changes dialog similarly uses `S`, `D`, and `C`.
 
 Controls:
@@ -2097,7 +2170,7 @@ Full screen uses the entire display for video. The minimum target size is
 Usage:
 
 ```text
-vplay [-fit|-actual] <file.mpg>
+vplay [-fit|-actual] [file.mpg|playlist.m3u]
 ```
 
 Supports MPEG-1 program streams (`.mpg` and `.mpeg`) containing
@@ -2110,11 +2183,16 @@ source complexity, display transfer speed, and output size.
 Controls:
 
 - `Space` pauses/resumes.
-- `Up`/`Down` changes global volume.
+- `Up`/`Down` changes VPlay's saved volume.
 - `Enter` stops playback or restarts the selected file.
 - `<`/`>` seeks backward/forward ten seconds, preserving pause state.
-- `Left`/`Right` selects the previous/next MPEG file in the same folder, in
-  filename order. At either end, the selection stays unchanged.
+- `Left`/`Right` selects the previous/next playlist entry. At either end,
+  the selection stays unchanged.
+- `Tab` switches between Play and the shared Playlist view. `Up`/`Down`
+  selects an entry; `Enter` plays it.
+- In the Playlist view, `A` opens Player's file browser to add a video or import
+  an M3U. `Delete` removes the selected entry. `Esc` cancels the browser.
+  Changes save to M3U immediately.
 - The shared Previous, Rewind, Stop/Play, Forward, and Next buttons provide
   the same actions when clicked or tapped.
 - `f` toggles full screen, hiding the header, volume strip, and transport buttons.
@@ -2123,8 +2201,10 @@ Controls:
 - `d` toggles frame/timing log diagnostics.
 - `Esc` or app-exit key exits.
 
-Playback pauses while its session is suspended and returns to the shell at the
-end of the file. Audio uses the selected SolarOS output and acts as the playback
+Opening a video adds it to `.vplay/playlist.m3u`. Bare `vplay` opens the playlist
+view, including an empty list, without starting playback.
+Playback advances at EOF and stops after the final entry.
+Playback pauses while its session is suspended. Audio uses the selected SolarOS output and acts as the playback
 clock when present; a file with audio requires an available playback output.
 Video dimensions and frame rate must remain constant, and the initial audio/video
 timestamp difference must be no more than ten seconds.

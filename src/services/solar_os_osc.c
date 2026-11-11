@@ -535,12 +535,31 @@ esp_err_t solar_os_osc_encode_float(const char *address,
                                     size_t packet_capacity,
                                     size_t *packet_len)
 {
-    if (!isfinite(value)) {
-        return ESP_ERR_INVALID_ARG;
+    return solar_os_osc_encode_floats(address, &value, 1, packet, packet_capacity, packet_len);
+}
+
+esp_err_t solar_os_osc_encode_floats(const char *address,
+    const float *values, size_t count, uint8_t *packet, size_t capacity, size_t *packet_len)
+{
+    if (!osc_address_valid(address) || !values || !count || count > SOLAR_OS_OSC_ARGUMENT_MAX ||
+        !packet || !packet_len) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < count; ++i)
+        if (!isfinite(values[i])) return ESP_ERR_INVALID_ARG;
+    size_t address_bytes = (strlen(address) + 4U) & ~(size_t)3U;
+    size_t type_bytes = (count + 5U) & ~(size_t)3U;
+    size_t total = address_bytes + type_bytes + count * 4U;
+    if (total > capacity || total > SOLAR_OS_OSC_PACKET_MAX) return ESP_ERR_INVALID_SIZE;
+    memset(packet, 0, total);
+    memcpy(packet, address, strlen(address));
+    packet[address_bytes] = ',';
+    for (size_t i = 0; i < count; ++i) {
+        packet[address_bytes + 1U + i] = 'f';
+        uint32_t raw;
+        memcpy(&raw, &values[i], sizeof(raw));
+        osc_write_u32(packet + address_bytes + type_bytes + i * 4U, raw);
     }
-    uint32_t raw = 0U;
-    memcpy(&raw, &value, sizeof(raw));
-    return osc_encode(address, 'f', raw, packet, packet_capacity, packet_len);
+    *packet_len = total;
+    return ESP_OK;
 }
 
 esp_err_t solar_os_osc_encode_int(const char *address,

@@ -2235,6 +2235,14 @@ static void ssd1683_start_default_refresh(epd_ssd1683_t *display,
     }
 }
 
+static uint8_t *ssd1683_alloc_framebuffer(size_t size)
+{
+    /* SPI copies through the internal DMA line buffer. Keep the full frame in
+     * PSRAM when available, with the ordinary heap as a no-PSRAM fallback. */
+    uint8_t *buffer = heap_caps_calloc(1, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return buffer != NULL ? buffer : heap_caps_calloc(1, size, MALLOC_CAP_8BIT);
+}
+
 esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
                            const epd_ssd1683_config_t *config)
 {
@@ -2302,8 +2310,7 @@ esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,
 
     display->buffer_size = ssd1683_is_dual(display) ? SSD1683_DUAL_BUFFER_BYTES :
         SSD1683_BUFFER_BYTES;
-    /* Driver framebuffer only requires byte-addressable memory. */
-    display->buffer = heap_caps_calloc(1, display->buffer_size, MALLOC_CAP_8BIT);
+    display->buffer = ssd1683_alloc_framebuffer(display->buffer_size);
     if (display->buffer == NULL) {
         epd_ssd1683_deinit(display);
         return ESP_ERR_NO_MEM;

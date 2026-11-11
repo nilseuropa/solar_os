@@ -12,6 +12,7 @@
 
 typedef struct {
     int port, bck, ws, din, dout;
+    int power; /* Optional active-high DAC/amp rail enable; -1 if absent. */
     unsigned slot;
 } solar_os_inmp441_config_t;
 

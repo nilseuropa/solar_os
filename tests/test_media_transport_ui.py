@@ -63,7 +63,7 @@ class MediaTransportUiTest(unittest.TestCase):
         self.assertIn("webradio.paused = false", stop)
         video = (ROOT / "src/apps/solar_os_vplay.c").read_text()
         self.assertNotIn("key == ' ' && p->stopped", video)
-        self.assertIn("if (p->stopped || p->done) return;", video)
+        self.assertIn("if (!p || p->stopped || p->done) return;", video)
 
 
 if __name__ == "__main__":

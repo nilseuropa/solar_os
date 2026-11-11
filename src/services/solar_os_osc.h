@@ -108,6 +108,10 @@ esp_err_t solar_os_osc_encode_float(const char *address,
                                     uint8_t *packet,
                                     size_t packet_capacity,
                                     size_t *packet_len);
+esp_err_t solar_os_osc_encode_floats(const char *address,
+                                     const float *values, size_t count,
+                                     uint8_t *packet, size_t packet_capacity,
+                                     size_t *packet_len);
 esp_err_t solar_os_osc_encode_int(const char *address,
                                   int32_t value,
                                   uint8_t *packet,

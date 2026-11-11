@@ -10,6 +10,14 @@
 #define SOLAR_OS_ROBOT_MODEL_XML_MAX (128U * 1024U)
 #define SOLAR_OS_ROBOT_MODEL_EXTENSION_MAX (32U * 1024U)
 #define SOLAR_OS_ROBOT_MODEL_MAX 4U
+#define SOLAR_OS_ROBOT_MODEL_DEVICE_MAX 16U
+
+/* A read-only association. Geometry is defined by the URDF link tree;
+ * attaching hardware and producing samples remain OS service responsibilities. */
+typedef struct {
+    char name[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+    char frame[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+} solar_os_robot_model_device_t;
 
 /* T_target_source maps coordinates expressed in source into target.
  * Quaternion order is x,y,z,w; rotations are right-handed and unit length. */

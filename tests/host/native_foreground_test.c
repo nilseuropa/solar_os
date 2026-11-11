@@ -15,8 +15,16 @@
 typedef void *TaskHandle_t;
 typedef unsigned TickType_t;
 typedef solar_os_native_foreground_pointer_v1_t solar_os_input_pointer_event_t;
+typedef solar_os_native_foreground_axis_v1_t solar_os_input_axis_event_t;
+typedef struct { uint8_t source, source_class; bool ready; } solar_os_input_source_info_t;
+#define SOLAR_OS_INPUT_SOURCE_JOYSTICK 4U
+static solar_os_input_source_info_t sources[3];
+static size_t solar_os_input_source_count(void) { return 3; }
+static bool solar_os_input_source_get(size_t i, solar_os_input_source_info_t *out)
+{ *out = sources[i]; return true; }
 #define pdTRUE 1
 static struct { solar_os_native_foreground_pointer_v1_t events[32]; unsigned count; } pointer_queue;
+static struct { solar_os_native_foreground_axis_v1_t events[32]; unsigned count; } axis_queue;
 typedef struct { void **state_slot; } solar_os_app_t;
 typedef struct { solar_os_app_t *app; void *gfx; bool streaming; } solar_os_context_t;
 typedef struct { int unused; } solar_os_app_registry_entry_t;
@@ -31,7 +39,7 @@ static size_t strlcpy(char *out, const char *in, size_t size) {
 typedef struct {
     const foreground_slot_t *slot;
     _Atomic(TaskHandle_t) worker;
-    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset, redraw_requested;
+    atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset, axis_reset, redraw_requested;
     atomic_bool cache_ready, cache_reclaiming;
     solar_os_memory_reclaimer_t cache_reclaimer;
     size_t (*cache_release)(void *user);
@@ -40,7 +48,7 @@ typedef struct {
     bool worker_started, keyboard_captured, themed_index2;
     int result, exit_code;
     char detail[160];
-    void *gfx, *keys, *pointers, *presenter, *audio;
+    void *gfx, *keys, *pointers, *axes, *presenter, *audio;
 } foreground_state_t;
 static foreground_state_t first, second;
 static unsigned cache_calls;
@@ -95,14 +103,32 @@ static void solar_os_input_release_keyboard(void *owner) {
 static void solar_os_context_set_streaming_graphics_active(solar_os_context_t *ctx, bool active) {
     ctx->streaming = active;
 }
-static void xQueueReset(void *queue) { assert(queue); if (queue == &pointer_queue) pointer_queue.count = 0; }
+static void xQueueReset(void *queue) {
+    assert(queue);
+    if (queue == &pointer_queue) pointer_queue.count = 0;
+    if (queue == &axis_queue) axis_queue.count = 0;
+}
 static int xQueueSend(void *queue, const void *event, unsigned timeout) {
+    if (queue == &axis_queue) {
+        assert(!timeout);
+        if (axis_queue.count == 32) return 0;
+        axis_queue.events[axis_queue.count++] = *(const solar_os_native_foreground_axis_v1_t *)event;
+        return pdTRUE;
+    }
     assert(queue == &pointer_queue && !timeout);
     if (pointer_queue.count == 32) return 0;
     pointer_queue.events[pointer_queue.count++] = *(const solar_os_native_foreground_pointer_v1_t *)event;
     return pdTRUE;
 }
 static int xQueueReceive(void *queue, void *event, unsigned timeout) {
+    if (queue == &axis_queue) {
+        assert(!timeout);
+        if (!axis_queue.count) return 0;
+        *(solar_os_native_foreground_axis_v1_t *)event = axis_queue.events[0];
+        --axis_queue.count;
+        memmove(axis_queue.events, axis_queue.events + 1, axis_queue.count * sizeof(axis_queue.events[0]));
+        return pdTRUE;
+    }
     assert(queue == &pointer_queue && !timeout);
     if (!pointer_queue.count) return 0;
     *(solar_os_native_foreground_pointer_v1_t *)event = pointer_queue.events[0];
@@ -111,6 +137,7 @@ static int xQueueReceive(void *queue, void *event, unsigned timeout) {
     return pdTRUE;
 }
 static void vQueueDelete(void *queue) { assert(queue); deletions++; }
+static void solar_os_queue_delete(void *queue) { vQueueDelete(queue); }
 static foreground_slot_t *foreground_find_slot(const solar_os_app_t *app) {
     return app == &apps[0] ? &slots[0] : app == &apps[1] ? &slots[1] : NULL;
 }
@@ -188,6 +215,35 @@ int main(void) {
     mode=2; foreground_resume(&contexts[0]);
     assert(foreground_read_pointer(&pointer, &available) == 0 && available && pointer.reset);
     mode=3; foreground_stop(&contexts[0]); assert(!first.pointers && deletions == 2);
+    setup();
+    solar_os_native_foreground_axis_v1_t axis;
+    assert(foreground_read_axis(&axis, &available) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !available);
+    first.axes = &axis_queue;
+    axis_queue.count = 0;
+    assert(foreground_read_axis(NULL, &available) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    solar_os_input_axis_event_t stick = {.source=7, .axis=SOLAR_OS_NATIVE_AXIS_Y, .value=-32767, .delta=-32767};
+    foreground_queue_axis(&first, &stick);
+    assert(foreground_read_axis(&axis, &available) == 0 && available && !axis.reset);
+    assert(axis.source == 7 && axis.axis == SOLAR_OS_NATIVE_AXIS_Y && axis.value == -32767 && axis.delta == -32767);
+    for (unsigned i = 0; i < 33; ++i) foreground_queue_axis(&first, &stick);
+    assert(!axis_queue.count && foreground_read_axis(&axis, &available) == 0 && available && axis.reset);
+    foreground_queue_axis(&first, &stick);
+    atomic_store(&first.suspend_requested, true); foreground_queue_axis(&first, &stick);
+    assert(axis_queue.count == 1);
+    sources[0] = (solar_os_input_source_info_t){.source=1, .source_class=1, .ready=true};
+    sources[1] = (solar_os_input_source_info_t){.source=7, .source_class=4, .ready=false};
+    sources[2] = (solar_os_input_source_info_t){.source=8, .source_class=4, .ready=true};
+    assert(foreground_joystick_source() == 8);
+    sources[1].ready = true;
+    assert(foreground_joystick_source() == 7);
+    current=&token[1];
+    assert(foreground_joystick_source() == 0);
+    assert(foreground_read_axis(&axis, &available) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    current=&token[0]; atomic_store(&first.suspend_requested, false); mode=1;
+    foreground_suspend(&contexts[0]); assert(!axis_queue.count && atomic_load(&first.axis_reset));
+    mode=2; foreground_resume(&contexts[0]);
+    assert(foreground_read_axis(&axis, &available) == 0 && available && axis.reset);
+    mode=3; foreground_stop(&contexts[0]); assert(!first.axes && deletions == 2);
     setup();
     uint16_t width = 0, height = 0;
     first.presenter = NULL;

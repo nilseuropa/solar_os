@@ -1020,6 +1020,81 @@ esp_err_t tft_ili9341_present_frame(
   return ESP_OK;
 }
 
+static esp_err_t solar_os_gc9a01_init_registers(tft_ili9341_t *display) {
+  /* Register values for the 240x240 round glass from Waveshare's LCD_1in28
+   * reference (LCD_1IN28_InitReg):
+   * https://www.waveshare.net/w/upload/f/fc/LCD_Module_code.zip
+   * Transport, rotation, inversion and display power use the shared TFT path. */
+  static const struct {
+    uint8_t command;
+    uint8_t length;
+    uint8_t data[12];
+  } registers[] = {
+      {0xef, 0, {0}},
+      {0xeb, 1, {0x14}},
+      {0xfe, 0, {0}},
+      {0xef, 0, {0}},
+      {0xeb, 1, {0x14}},
+      {0x84, 1, {0x40}},
+      {0x85, 1, {0xff}},
+      {0x86, 1, {0xff}},
+      {0x87, 1, {0xff}},
+      {0x88, 1, {0x0a}},
+      {0x89, 1, {0x21}},
+      {0x8a, 1, {0x00}},
+      {0x8b, 1, {0x80}},
+      {0x8c, 1, {0x01}},
+      {0x8d, 1, {0x01}},
+      {0x8e, 1, {0xff}},
+      {0x8f, 1, {0xff}},
+      {0xb6, 2, {0x00, 0x20}},
+      {0x90, 4, {0x08, 0x08, 0x08, 0x08}},
+      {0xbd, 1, {0x06}},
+      {0xbc, 1, {0x00}},
+      {0xff, 3, {0x60, 0x01, 0x04}},
+      {0xc3, 1, {0x13}},
+      {0xc4, 1, {0x13}},
+      {0xc9, 1, {0x22}},
+      {0xbe, 1, {0x11}},
+      {0xe1, 2, {0x10, 0x0e}},
+      {0xdf, 3, {0x21, 0x0c, 0x02}},
+      {0xf0, 6, {0x45, 0x09, 0x08, 0x08, 0x26, 0x2a}},
+      {0xf1, 6, {0x43, 0x70, 0x72, 0x36, 0x37, 0x6f}},
+      {0xf2, 6, {0x45, 0x09, 0x08, 0x08, 0x26, 0x2a}},
+      {0xf3, 6, {0x43, 0x70, 0x72, 0x36, 0x37, 0x6f}},
+      {0xed, 2, {0x1b, 0x0b}},
+      {0xae, 1, {0x77}},
+      {0xcd, 1, {0x63}},
+      {0x70, 9, {0x07, 0x07, 0x04, 0x0e, 0x0f, 0x09, 0x07, 0x08, 0x03}},
+      {0xe8, 1, {0x34}},
+      {0x62, 12, {0x18, 0x0d, 0x71, 0xed, 0x70, 0x70,
+                  0x18, 0x0f, 0x71, 0xef, 0x70, 0x70}},
+      {0x63, 12, {0x18, 0x11, 0x71, 0xf1, 0x70, 0x70,
+                  0x18, 0x13, 0x71, 0xf3, 0x70, 0x70}},
+      {0x64, 7, {0x28, 0x29, 0xf1, 0x01, 0xf1, 0x00, 0x07}},
+      {0x66, 10, {0x3c, 0x00, 0xcd, 0x67, 0x45, 0x45, 0x10, 0x00, 0x00, 0x00}},
+      {0x67, 10, {0x00, 0x3c, 0x00, 0x00, 0x00, 0x01, 0x54, 0x10, 0x32, 0x98}},
+      {0x74, 7, {0x10, 0x85, 0x80, 0x00, 0x00, 0x4e, 0x00}},
+      {0x98, 2, {0x3e, 0x07}},
+  };
+  for (size_t i = 0; i < sizeof(registers) / sizeof(registers[0]); i++) {
+    if (!ili9341_checked_cmd_data(display, registers[i].command,
+                                  registers[i].data, registers[i].length)) {
+      return display->last_error;
+    }
+  }
+  const uint8_t madctl[] = {display->config.madctl};
+  const uint8_t colmod[] = {0x05}; /* GC9A01 DBI: 16-bit RGB565. */
+  if (!ili9341_checked_cmd_data(display, 0x36, madctl, sizeof(madctl)) ||
+      !ili9341_checked_cmd_data(display, 0x3a, colmod, sizeof(colmod)) ||
+      !ili9341_checked_cmd(display, display->config.invert_color ? 0x21 : 0x20) ||
+      !ili9341_checked_cmd(display, 0x11)) {
+    return display->last_error;
+  }
+  vTaskDelay(pdMS_TO_TICKS(120));
+  return ESP_OK;
+}
+
 static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   ili9341_hardware_reset(display);
 
@@ -1028,7 +1103,10 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   }
   vTaskDelay(pdMS_TO_TICKS(120));
 
-  if (display->config.st7789) {
+  if (display->config.gc9a01) {
+    ESP_RETURN_ON_ERROR(solar_os_gc9a01_init_registers(display), TAG,
+                        "GC9A01 init failed");
+  } else if (display->config.st7789) {
     const uint8_t colmod[] = {0x55};
     const uint8_t madctl[] = {display->config.madctl};
     const uint8_t porch[] = {0x0c, 0x0c, 0x00, 0x33, 0x33};
@@ -1178,7 +1256,8 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
     return display->last_error;
   }
   /* Some IPS panels require display inversion on for literal RGB colors. */
-  if ((display->config.st7796 || display->config.invert_color) &&
+  if (!display->config.gc9a01 &&
+      (display->config.st7796 || display->config.invert_color) &&
       !ili9341_checked_cmd(display, 0x21)) {
     return display->last_error;
   }
@@ -1216,7 +1295,8 @@ static uint8_t ili9341_u8x8_display_cb(u8x8_t *u8x8, uint8_t message,
 
   switch (message) {
     case U8X8_MSG_DISPLAY_INIT:
-      return ili9341_full_init(display) == ESP_OK ? 1 : 0;
+      display->last_error = ili9341_full_init(display);
+      return display->last_error == ESP_OK ? 1 : 0;
 
     case U8X8_MSG_DISPLAY_SET_POWER_SAVE:
       ili9341_invalidate_shadow(display);
@@ -1235,6 +1315,12 @@ static uint8_t ili9341_u8x8_display_cb(u8x8_t *u8x8, uint8_t message,
     default:
       return 0;
   }
+}
+
+static uint8_t *ili9341_alloc_framebuffer(size_t size) {
+  /* SPI transmits the converted pixels from the separate internal DMA buffers. */
+  uint8_t *buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return buffer != NULL ? buffer : heap_caps_malloc(size, MALLOC_CAP_8BIT);
 }
 
 esp_err_t tft_ili9341_init(tft_ili9341_t *display,
@@ -1301,8 +1387,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
   }
 
   display->buffer_size = display->buffer_row_bytes * display->tile_height;
-  /* Driver framebuffer only requires byte-addressable memory. */
-  display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
+  display->buffer = ili9341_alloc_framebuffer(display->buffer_size);
   if (display->buffer == NULL) {
     tft_ili9341_deinit(display);
     return ESP_ERR_NO_MEM;
@@ -1329,6 +1414,11 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
   u8g2_SetupBuffer(&display->u8g2, display->buffer, display->tile_height,
                    u8g2_ll_hvline_vertical_top_lsb, display->config.rotation);
   u8g2_InitDisplay(&display->u8g2);
+  if (display->last_error != ESP_OK) {
+    const esp_err_t err = display->last_error;
+    tft_ili9341_deinit(display);
+    return err;
+  }
   u8g2_SetPowerSave(&display->u8g2, 0);
 
   return display->last_error;

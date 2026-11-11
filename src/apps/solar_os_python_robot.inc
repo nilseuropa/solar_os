@@ -224,6 +224,13 @@ static mp_obj_t python_robot_float_list(const float *values, unsigned count)
     for (unsigned i = 0; i < count; ++i) mp_obj_list_append(list, mp_obj_new_float(values[i]));
     return list;
 }
+static mp_obj_t solaros_robot_model_frame(mp_obj_t device)
+{
+    char frame[SOLAR_OS_ROBOT_MODEL_NAME_MAX];
+    python_check_esp(solar_os_robot_model_frame(mp_obj_str_get_str(device), frame, sizeof(frame)));
+    return mp_obj_new_str(frame, strlen(frame));
+}
+MP_DEFINE_CONST_FUN_OBJ_1(solaros_robot_model_frame_obj, solaros_robot_model_frame);
 static mp_obj_t solaros_robot_model_transform(mp_obj_t target, mp_obj_t source)
 {
     solar_os_robot_transform_t t;

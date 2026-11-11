@@ -5,8 +5,11 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <inttypes.h>
-typedef struct {char text[8192];size_t used;} solar_os_shell_io_t;
-typedef struct {solar_os_shell_io_t io;} solar_os_context_t;
+#include "solar_os_keys.h"
+#include "solar_os_net_session.h"
+#include "freertos/task.h"
+typedef struct {char text[8192];size_t used;int port;} solar_os_shell_io_t;
+typedef struct {solar_os_shell_io_t io;bool exit_requested,sleep_requested,deep_sleep_requested;} solar_os_context_t;
 static solar_os_shell_io_t *solar_os_shell_command_io(solar_os_context_t *ctx){return &ctx->io;}
 static const char *solar_os_shell_error_text(esp_err_t err){return err==ESP_OK?"no error":"error";}
 static void solar_os_shell_io_printf(solar_os_shell_io_t *io,const char *format,...)
@@ -23,6 +26,7 @@ static void solar_os_shell_diag_invalid(solar_os_shell_io_t *io,const char *doma
 {solar_os_shell_io_printf(io,"%s: invalid %s\n",domain,field);}
 static void solar_os_shell_diag_unexpected(solar_os_shell_io_t *io,const char *domain,const char *value,...)
 {solar_os_shell_io_printf(io,"%s: unexpected %s\n",domain,value);}
+#include "osc_send_shell_test.inc"
 /* COMMAND */
 static const char *run(const char *line)
 {
@@ -60,5 +64,6 @@ int main(void)
     assert(receive_info(0).config.direction==SOLAR_OS_OSC_SEND && receive_info(0).config.interval_ms==500);
     assert(strstr(run("osc clear"),"bindings cleared"));
     assert(solar_os_stream_unregister("linear")==ESP_OK && solar_os_stream_unregister("angular")==ESP_OK);
+    send_tests();
     puts("OSC shell: receive syntax, indices, listing, cleanup errors and outbound compatibility passed");
 }

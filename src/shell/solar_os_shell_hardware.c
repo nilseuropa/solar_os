@@ -285,10 +285,10 @@ static void disk_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "usage:");
     solar_os_shell_io_writeln(term, "  disk [status]");
     solar_os_shell_io_writeln(term, "  disk lsblk");
-    solar_os_shell_io_writeln(term, "  disk mount [flash|sd0pN] [mount]");
+    solar_os_shell_io_writeln(term, "  disk mount [flash|sd0pN|usb0] [mount]");
     solar_os_shell_io_writeln(term, "  disk mount <image.img> <mount> [partition 1-4]");
     solar_os_shell_io_writeln(term, "  disk create <image.img> <MiB>");
-    solar_os_shell_io_writeln(term, "  disk umount [flash|sd0pN|imgN|mount]");
+    solar_os_shell_io_writeln(term, "  disk umount [flash|sd0pN|usb0|imgN|mount]");
     solar_os_shell_io_writeln(term, "  disk format <flash|sd0|sd0pN> --force");
 }
 
@@ -330,7 +330,7 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     if (strcmp(argv[1], "mount") == 0 && argc >= 3 &&
-        strcmp(argv[2], "flash") &&
+        strcmp(argv[2], "flash") && strcmp(argv[2], "usb0") &&
         (strncmp(argv[2], "sd0", 3) || strchr(argv[2], '/') || strchr(argv[2], '.'))) {
         if (argc < 4 || argc > 5 || (argc == 5 && (strlen(argv[4]) != 1 || argv[4][0] < '1' || argv[4][0] > '4'))) {
             solar_os_shell_io_writeln(term, "usage: disk mount <image.img> <mount> [partition 1-4]");
@@ -349,7 +349,7 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "mount") == 0) {
         if (argc > 4) {
             solar_os_shell_diag_unexpected(term, "disk mount", argv[4],
-                                           "disk mount [flash|sd0pN] [mount]");
+                                           "disk mount [flash|sd0pN|usb0] [mount]");
             return;
         }
 
@@ -375,7 +375,7 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
     if (strcmp(argv[1], "umount") == 0) {
         if (argc > 3) {
             solar_os_shell_diag_unexpected(term, "disk umount", argv[3],
-                                           "disk umount [flash|sd0pN|mount]");
+                                           "disk umount [flash|sd0pN|usb0|mount]");
             return;
         }
 
@@ -391,7 +391,7 @@ void solar_os_shell_cmd_disk(solar_os_context_t *ctx, int argc, char **argv)
         } else if (shell_print_not_supported(term, "disk", "persistent storage", err)) {
             return;
         } else if (err == ESP_ERR_INVALID_STATE) {
-            solar_os_shell_io_writeln(term, "disk umount failed: storage is busy or not mounted; close guests and unmount images first");
+            solar_os_shell_io_writeln(term, "disk umount failed: storage is busy or not mounted; close files and guests, then unmount images first");
         } else if (err == ESP_ERR_NOT_FOUND) {
             if (argc == 2) {
                 solar_os_shell_io_writeln(term, "Disk: not mounted");

@@ -25,7 +25,7 @@ drivers = [
   "gpio_esp_idf",
 ]
 capabilities = [
-  "psram", "simd", "display", "gfx", "cdc", "uart", "sd", "i2c", "spi",
+  "psram", "simd", "display", "gfx", "cdc", "usb_host", "uart", "sd", "i2c", "spi",
   "rtc", "battery", "audio", "audio_input", "wifi", "ble", "gpio", "expansion_gpio",
   "expansion_i2c", "expansion_uart", "expansion_i2s", "key", "buttons",
   "temperature", "humidity",
@@ -229,11 +229,11 @@ role = "SDMMC D3"
 [[pins]]
 gpio = 19
 policy = "fixed"
-role = "native USB D-"
+role = "USB D-/CDC or host"
 [[pins]]
 gpio = 20
 policy = "fixed"
-role = "native USB D+"
+role = "USB D+/CDC or host"
 [[pins]]
 gpio = 21
 policy = "fixed"

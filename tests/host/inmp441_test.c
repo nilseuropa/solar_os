@@ -1,6 +1,8 @@
 #include "inmp441.h"
 #include "solar_os_audio.h"
 #include "solar_os_inmp441.h"
+#include "driver/gpio.h"
+#include "freertos/task.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -15,6 +17,40 @@ static bool unaligned;
 static int32_t written_pcm[256];
 static bool audio_registered, fail_registration;
 static solar_os_audio_device_info_t registered_device;
+static bool test_power, powered, settled;
+static unsigned low_pins;
+static esp_err_t power_error, allocation_error;
+
+esp_err_t gpio_config(const gpio_config_t *config) {
+    assert(!rx.enabled && !tx.enabled);
+    assert(config->pin_bit_mask == ((1ULL << 14) | (1ULL << 15) | (1ULL << 16)));
+    assert(config->mode == GPIO_MODE_OUTPUT && low_pins == 7);
+    assert(!config->pull_up_en && !config->pull_down_en && !config->intr_type);
+    return ESP_OK;
+}
+esp_err_t gpio_set_direction(int pin, int mode) {
+    assert(mode == GPIO_MODE_OUTPUT);
+    assert(pin == 14 || pin == 15 || pin == 16 || pin == 21);
+    return ESP_OK;
+}
+esp_err_t gpio_set_level(int pin, unsigned level) {
+    if (pin == 21) {
+        assert(!rx.enabled && !tx.enabled);
+        assert(low_pins == 7);
+        if (level && power_error != ESP_OK)
+            return power_error;
+        powered = level != 0;
+        settled = false;
+    } else {
+        assert(level == 0);
+        low_pins |= 1U << (pin - 14);
+    }
+    return ESP_OK;
+}
+void vTaskDelay(TickType_t ticks) {
+    assert(powered && ticks >= pdMS_TO_TICKS(20));
+    settled = true;
+}
 
 size_t strlcpy(char *dst, const char *src, size_t size) {
     size_t len = strlen(src), n = len < size - 1 ? len : size - 1;
@@ -99,11 +135,66 @@ static void test_expansion(void) {
     assert(solar_os_stream_count() == 1);
     assert(strcmp(registered_device.name, "INMP441 microphone") == 0);
     assert(solar_os_inmp441_detach("mic0") == ESP_OK);
+
+    solar_os_expansion_binding_t powered_bindings[7];
+    memcpy(powered_bindings, bindings, sizeof(bindings));
+    powered_bindings[6] = (solar_os_expansion_binding_t){
+        .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "power", .value = 21};
+    test_power = true;
+    fail_registration = true;
+    assert(solar_os_ics43432_attach("audio0", powered_bindings, 7) == ESP_ERR_NO_MEM);
+    assert(solar_os_stream_count() == 0 && !powered);
+    fail_registration = false;
+    assert(solar_os_ics43432_attach("audio0", powered_bindings, 7) == ESP_OK);
+    assert(!powered);
+    assert(solar_os_inmp441_attach("other", bindings, 6) == ESP_ERR_INVALID_STATE);
+    assert(strcmp(registered_device.name, "ICS-43432 mic + I2S DAC/amp") == 0);
+    assert(solar_os_stream_get_info("audio0.capture", &info) == ESP_OK);
+    assert(strcmp(info.provider, "ics43432") == 0);
+    assert(solar_os_stream_open("audio0.capture", "record", &input) == ESP_OK);
+    assert(powered && settled);
+    assert(solar_os_stream_read(&input, pcm, sizeof(pcm), 50, &count) == ESP_OK);
+    assert(pcm[0] == -456); /* LR tied high selects the right slot. */
+    assert(solar_os_stream_open("audio0.playback", "play", &output) == ESP_OK);
+    assert(solar_os_inmp441_detach("audio0") == ESP_ERR_INVALID_STATE);
+    solar_os_stream_close(&input);
+    assert(powered); /* Playback still owns the rail. */
+    solar_os_stream_close(&output);
+    assert(!powered && !rx.enabled && !tx.enabled);
+    allocation_error = ESP_ERR_NO_MEM;
+    assert(solar_os_stream_open("audio0.playback", "play", &output) == ESP_ERR_NO_MEM);
+    assert(!powered);
+    allocation_error = ESP_OK;
+    init_error = ESP_FAIL;
+    assert(solar_os_stream_open("audio0.playback", "play", &output) == ESP_FAIL);
+    assert(!powered);
+    init_error = ESP_OK;
+    read_error = ESP_ERR_TIMEOUT;
+    assert(solar_os_stream_open("audio0.capture", "record", &input) == ESP_ERR_TIMEOUT);
+    assert(!powered);
+    read_error = ESP_OK;
+    power_error = ESP_FAIL;
+    assert(solar_os_stream_open("audio0.playback", "play", &output) == ESP_FAIL);
+    assert(!powered);
+    power_error = ESP_OK;
+    assert(solar_os_stream_open("audio0.playback", "play", &output) == ESP_OK);
+    assert(solar_os_stream_open("audio0.capture", "record", &input) == ESP_OK);
+    solar_os_stream_close(&output);
+    assert(powered); /* Capture clocks also reach the DAC and amp. */
+    solar_os_stream_close(&input);
+    assert(!powered);
+    assert(solar_os_inmp441_detach("audio0") == ESP_OK);
+    test_power = false;
 }
 
 esp_err_t i2s_new_channel(const i2s_chan_config_t *c, i2s_chan_handle_t *t,
                           i2s_chan_handle_t *r) {
     assert(c->id == 1 && c->dma_desc_num == 4 && c->auto_clear_after_cb);
+    if (test_power)
+        assert(powered && settled);
+    if (allocation_error != ESP_OK)
+        return allocation_error;
+    low_pins = 0;
     ++allocated;
     memset(&rx, 0, sizeof(rx));
     memset(&tx, 0, sizeof(tx));
@@ -177,7 +268,8 @@ esp_err_t i2s_channel_write(i2s_chan_handle_t h, const void *data, size_t len,
 
 int main(void) {
     solar_os_inmp441_config_t c = {
-        .port = 1, .bck = 14, .ws = 15, .din = 17, .dout = 16, .slot = 1};
+        .port = 1, .bck = 14, .ws = 15, .din = 17, .dout = 16, .slot = 1,
+        .power = -1};
     solar_os_inmp441_t d = {0};
     c.ws = 14;
     assert(solar_os_inmp441_init(&d, &c) == ESP_ERR_INVALID_ARG);
@@ -185,6 +277,9 @@ int main(void) {
     c.slot = 2;
     assert(solar_os_inmp441_init(&d, &c) == ESP_ERR_INVALID_ARG);
     c.slot = 1;
+    c.power = 14;
+    assert(solar_os_inmp441_init(&d, &c) == ESP_ERR_INVALID_ARG);
+    c.power = -1;
     assert(solar_os_inmp441_init(&d, &c) == ESP_OK);
     init_error = ESP_FAIL;
     assert(solar_os_inmp441_open(&d, false) == ESP_FAIL);
@@ -233,5 +328,5 @@ int main(void) {
     solar_os_inmp441_close(&d, true);
     solar_os_inmp441_deinit(&d);
     test_expansion();
-    puts("INMP441 transport tests: ok");
+    puts("INMP441/ICS-43432 transport and power tests: ok");
 }

@@ -6,6 +6,7 @@
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_audio.h"
+#include "media_preferences_mock.h"
 
 enum { PLAYER_SEEKING, PLAYER_PAUSED, PLAYER_PLAYING };
 static struct {
@@ -17,6 +18,7 @@ static struct {
     uint64_t played_frames;
     char active_device_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
     size_t active_index;
+    solar_os_media_preferences_t *preferences;
 } player;
 #define portENTER_CRITICAL(lock) ((void)0)
 #define portEXIT_CRITICAL(lock) ((void)0)

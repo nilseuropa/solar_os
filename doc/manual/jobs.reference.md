@@ -1000,8 +1000,8 @@ Notes:
 - The provider-local list keeps 32 messages in volatile memory. Universal inbox
   notifications use the mailbox as topic, the `From` header as sender, and the
   subject as title.
-- Body previews are best effort. Full MIME decoding, attachments, SMTP sending,
-  and server-side read-state synchronization remain future work.
+- Body previews are best effort. Full MIME decoding, attachments, sending mail,
+  and synchronizing read state with the server are unsupported.
 
 ## pocsag
 

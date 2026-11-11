@@ -14,7 +14,7 @@ while suspended. The host joins audio/presentation before enabling the hook and
 waits for reclamation before resume or unload. The callback may free owner-safe
 data only; it must not allocate, wait, or call foreground APIs. Check table size
 before registering. Ordinary module pointers remain fixed. See
-[memory policy](../memory-policy.md) for the shared buffer and paging contracts.
+[memory policy](https://github.com/nilseuropa/solar_os/blob/main/doc/memory-policy.md) for the shared buffer and paging contracts.
 
 Native foreground apps are trusted ESP32-S3 modules. They use the same sessions,
 display ownership, keyboard shortcuts and cold-state lifecycle as built-in apps.
@@ -169,6 +169,17 @@ use the rotated host surface; relative deltas are unscaled. Buttons are a
 held-state mask (bit 0 left, bit 1 right). Each opting-in app has a bounded
 pointer queue. Queue overflow and session switches produce a reset event;
 the module must release buttons and clear position anchors on reset.
+
+Apps that set `SOLAR_OS_NATIVE_APP_AXIS_EVENTS` receive display-routed axis
+events through the appended `read_axis` method. Events contain `source`, `axis`,
+`value`, and `delta`; USB HID axes use -32767..32767. Axis identifiers run from
+`SOLAR_OS_NATIVE_AXIS_X` through `SOLAR_OS_NATIVE_AXIS_RZ`. Each opting-in app has
+a bounded queue. Overflow and session switches produce a `reset` event; clear
+held axis controls on reset. The appended `joystick_source` method returns the
+first ready joystick source, or zero if none is available. Recheck it for
+hot-plug and release the previous source's controls when it changes. Joystick
+buttons and hats arrive through `read_key`: raw buttons have `key=0`, `usage=0`
+and their HID button number in `physical_key`; hats produce arrow keys.
 
 The appended `calendar_read` method returns the host local calendar date and
 time. It does not provide a way to set the host clock. Request a service table

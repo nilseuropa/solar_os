@@ -34,7 +34,7 @@ The first command lists registered input sources and their mapping support.
 layers. Omitting `show` also displays the map. `load` validates a file before
 applying it; `reset` restores the source's built-in profile.
 
-`tca8418`, `inputronic-keyboard`, and `lilygo-pager-keyboard` register physical
+`gpio-matrix`, `tca8418`, `inputronic-keyboard`, and `lilygo-pager-keyboard` register physical
 mapping profiles with modifier, layer, and tap/hold support. Other drivers
 currently appear as `unsupported` until they register a profile. A character
 tap alone does not identify a physical key or provide a real held state.
@@ -61,6 +61,10 @@ selector forms differ. Matrix coordinates are converted using the source's
 registered first ID and row stride. TCA8418 profiles use
 `physical = 1 + row * 10 + col`, including matrices narrower than ten columns.
 Mapping files cannot alter the set of physical IDs or the matrix geometry.
+
+`gpio-matrix` uses contiguous IDs `1 + row * column_count + col`. Its initial
+profile reports raw physical events; load a mapping to assign HID usages or
+logical keys. See [GPIO keyboard matrices](expansion.md#gpio-keyboard-matrices).
 
 For a generic TCA8418 reference map, this changes Q to A and makes Space a
 symbol selector when held; Space+A emits an exclamation mark:

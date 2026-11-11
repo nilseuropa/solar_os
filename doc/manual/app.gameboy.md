@@ -45,6 +45,24 @@ speaker output is available.
 
 ## Controls
 
+A ready joystick is used automatically, including when plugged in after launch.
+X/Y axes and the hat/D-pad control directions. The analog dead zone engages at
+10000 and releases at 7000 on the normalized -32767..32767 range, avoiding drift
+and repeated direction changes near the threshold.
+
+| Joystick button | Action |
+| --- | --- |
+| 1 or 3 | A |
+| 2 or 4 | B |
+| 9 | Select |
+| 10 | Start |
+| Start + Select | Exit |
+
+The first ready joystick supplies analog axes and buttons. Unplugging releases
+its held controls; keyboard and board controls remain available. Button numbers
+follow the controller's HID reports and can differ from its printed labels.
+The joystick-enabled module requires host firmware with native axis-event support.
+
 - Arrows control the D-pad.
 - The physical US-Z key position is A; on German QWERTZ keyboards it is labeled
   `Y`. The physical X key is B.
@@ -54,9 +72,8 @@ speaker output is available.
 - For board-button input, Enter is A, Space is B, the app-exit button is Start,
   and Escape is Select. Pressing Start and Select together exits.
 
-Held-key input supports combinations such as diagonals and direction plus A/B.
-Character-only input uses short button pulses. Analog joystick axes do not
-become Game Boy keys.
+Held controls support combinations such as diagonals and direction plus A/B.
+Character-only input uses short button pulses.
 
 ## Sessions and saves
 

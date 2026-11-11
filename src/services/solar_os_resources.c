@@ -309,6 +309,8 @@ const char *solar_os_resource_kind_name(solar_os_resource_kind_t kind)
         return "i2s_port";
     case SOLAR_OS_RESOURCE_CAMERA_PORT:
         return "camera_port";
+    case SOLAR_OS_RESOURCE_USB_PORT:
+        return "usb_port";
     default:
         return "unknown";
     }

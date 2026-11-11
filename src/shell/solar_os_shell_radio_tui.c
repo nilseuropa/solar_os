@@ -60,9 +60,7 @@ typedef struct {
     char edit_text[RADIO_TUI_EDIT_MAX];
     char original_text[RADIO_TUI_EDIT_MAX];
     bool editing;
-    bool cursor_visible;
     uint32_t last_refresh_ms;
-    uint32_t last_cursor_blink_ms;
 } radio_tui_state_t;
 
 static void *radio_tui_state;
@@ -549,7 +547,7 @@ static void radio_tui_render(void)
         const size_t cursor_col = value_col + (len < value_width ? len : value_width - 1U);
         solar_os_tui_move(tui, edit_cursor_row, cursor_col);
     }
-    solar_os_tui_set_cursor_visible(tui, edit_cursor_visible && radio_tui.cursor_visible);
+    solar_os_tui_set_cursor_visible(tui, edit_cursor_visible);
     solar_os_tui_refresh(tui);
 }
 
@@ -678,8 +676,6 @@ static void radio_tui_begin_edit(void)
                             sizeof(radio_tui.edit_text));
     strlcpy(radio_tui.original_text, radio_tui.edit_text, sizeof(radio_tui.original_text));
     radio_tui.editing = true;
-    radio_tui.cursor_visible = true;
-    radio_tui.last_cursor_blink_ms = 0;
     radio_tui_set_status("");
     radio_tui_render();
 }
@@ -688,7 +684,6 @@ static void radio_tui_cancel_edit(void)
 {
     strlcpy(radio_tui.edit_text, radio_tui.original_text, sizeof(radio_tui.edit_text));
     radio_tui.editing = false;
-    radio_tui.cursor_visible = false;
     radio_tui_set_status("");
     radio_tui_render();
 }
@@ -697,10 +692,6 @@ static void radio_tui_finish_edit(void)
 {
     if (radio_tui_commit_edit()) {
         radio_tui.editing = false;
-        radio_tui.cursor_visible = false;
-    } else {
-        radio_tui.cursor_visible = true;
-        radio_tui.last_cursor_blink_ms = 0;
     }
     radio_tui_render();
 }
@@ -857,9 +848,6 @@ static void radio_tui_handle_edit_key(uint8_t key)
 {
     const size_t len = strlen(radio_tui.edit_text);
 
-    radio_tui.cursor_visible = true;
-    radio_tui.last_cursor_blink_ms = 0;
-
     if (key == SOLAR_OS_KEY_ESCAPE) {
         radio_tui_cancel_edit();
         return;
@@ -927,14 +915,6 @@ static bool radio_tui_event(solar_os_context_t *ctx, const solar_os_event_t *eve
     if (event->type == SOLAR_OS_EVENT_TICK) {
         const uint32_t now_ms = event->data.tick_ms;
         if (radio_tui.editing) {
-            if (radio_tui.last_cursor_blink_ms == 0) {
-                radio_tui.last_cursor_blink_ms = now_ms;
-            }
-            if ((now_ms - radio_tui.last_cursor_blink_ms) >= 500U) {
-                radio_tui.last_cursor_blink_ms = now_ms;
-                radio_tui.cursor_visible = !radio_tui.cursor_visible;
-                solar_os_tui_set_cursor_visible(&radio_tui.tui, radio_tui.cursor_visible);
-            }
             return true;
         }
 
