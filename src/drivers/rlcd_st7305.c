@@ -1563,6 +1563,13 @@ esp_err_t rlcd_st7305_present_mono_xbm(rlcd_st7305_t *display,
     return ret;
 }
 
+static uint8_t *rlcd_alloc_framebuffer(size_t size)
+{
+    /* Pixel data is packed into separate transfer rows before SPI reads it. */
+    uint8_t *buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return buffer != NULL ? buffer : heap_caps_malloc(size, MALLOC_CAP_8BIT);
+}
+
 esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
                            const rlcd_st7305_config_t *config)
 {
@@ -1621,8 +1628,7 @@ esp_err_t rlcd_st7305_init(rlcd_st7305_t *display,
 
     display->buffer_size =
         (size_t)display->buffer_row_bytes * display->tile_height;
-    /* Driver staging buffer only requires byte-addressable memory. */
-    display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
+    display->buffer = rlcd_alloc_framebuffer(display->buffer_size);
     if (display->buffer == NULL) {
         rlcd_st7305_deinit(display);
         return ESP_ERR_NO_MEM;
