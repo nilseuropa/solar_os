@@ -49,9 +49,9 @@
     "src/drivers/epd_ssd1683.c": {
       "calls": {
         "heap_caps_malloc": 9,
-        "heap_caps_calloc": 1
+        "heap_caps_calloc": 2
       },
-      "reason": "Driver-owned frame, DMA or timing-worker storage: retain the capabilities and fixed lifetime selected at each call."
+      "reason": "Driver-owned pinned buffers: prefer PSRAM for the CPU framebuffer with an ordinary-heap fallback; retain internal DMA capabilities for the separate SPI line buffer and existing capabilities for scan and timing storage."
     },
     "src/drivers/epd_ssd1685.c": {
       "calls": {
