@@ -49,6 +49,7 @@ ground to a suitable USB host connector. The following target profiles enable
 | `qdtech_es3n28p`, `qdtech_es3c28p` | Native USB-C connector |
 | `t_deck_plus`, `t_lora_pager` | Native USB-C connector |
 | `waveshare_esp32_s3_epaper_3_97`, `xteink_x4_pro` | Native USB-C connector |
+| `m5stack_papermono` | Native USB-C connector; power sink only |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper`, `elecrow_crowpanel_esp32_s3_5_79_epaper` | U5 GPIO19/20; USB-C is a USB–UART console |
 | `solar_writer` | U5 GPIO19/20 and the I/O board's USB host connector; GPIO18 switches VBUS automatically |
 | `waveshare_esp32_s3_sim7670g_4g`, `waveshare_esp32_s3_sim7670g_4g_epaper` | P3 GPIO19/20, shared with the board's USB mux circuitry |
@@ -70,6 +71,11 @@ board supply through a diode. The board does not supply host VBUS or boost
 battery voltage to 5 V. Use a suitable externally powered data breakout or
 cable that connects the peripheral directly and provides its 5 V supply;
 a passive USB-C host adapter alone is insufficient.
+
+On the M5Stack Paper Mono, the native USB-C port carries GPIO19/20. Its CC
+pins have 5.1 kΩ power-sink resistors and VBUS feeds only the AW32901
+protection switch and IP2315 charger, so the board never supplies host VBUS.
+Use a suitable externally powered data adapter, as on the Freenove board.
 
 On SolarWriter, `usb mode host` raises GPIO18 to enable the onboard VBUS
 switch after the host drivers start. VBUS is switched off when hosting stops,

@@ -6,6 +6,9 @@
   Cameras no longer remain active after shutdown or a failed start.
 - Fixed SolarWriter USB host startup and automatic USB peripheral power
   switching.
+- Added the M5Stack Paper Mono target with its e-paper display, touch,
+  frontlight, LoRa, NFC, RTC, IMU, microSD, microphone, buzzer, battery
+  and charger. Button B shuts the device down cleanly on a long press.
 - Reduced internal RAM use on SolarWriter, CrowPanel, SolarTerm and supported
   color and e-paper display boards, leaving more memory available for apps.
 

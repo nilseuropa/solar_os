@@ -28,6 +28,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `waveshare_esp32_s3_epaper_3_97` | `waveshare_esp32_s3_epaper_3_97` | [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97) | ESP32-S3-WROOM-1-N16R8 target with an SSD1677 e-paper display that defaults to 800x480 landscape, AXP2101 battery/charger monitoring, QMI8658 six-axis IMU, four-bit SDMMC, native USB CDC, UART, PCF85063 RTC, SHTC3 temperature/humidity sensor, ES8311 speaker/microphone audio, rotary navigation, Wi-Fi, BLE, and expansion I2C/UART. |
 | `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 monochrome e-paper with SSD1677/SSD2677 startup detection, GT911 capacitive touch, three physical buttons (AI/Power: sleep/wake on tap, shutdown on hold; Up: arrow on tap, BLE pairing on hold; Down: arrow on tap), Wi-Fi, and BLE. Console is UART0 (CH343). |
+| `m5stack_papermono` | `m5stack_papermono` | [M5Stack Paper Mono](https://docs.m5stack.com/en/core/PaperMono) | ESP32-S3R8 target with 16 MB flash, 8 MB OPI PSRAM, a 3.97-inch 480x800 SSD1677 e-paper panel and FT6336G touch, M5PM1 power management (VBAT, shutdown, frontlight PWM), M5IOE1 GPIO expander for panel/radio/storage rails, an SX1262 LoRa stamp, an I2C ST25R3916 NFC-A reader, RX8130CE RTC, BMI270 IMU, IP2315 USB charger behind a gated I2C switch, four-bit SDMMC, a PWM buzzer, a PDM microphone, two front buttons (A: Enter on tap, BLE pairing on hold, wake from sleep; B: Escape on tap, clean shutdown on long press), native USB CDC/host switching, Wi-Fi, and BLE. NFC power starts disabled and is enabled with `nfc power on`. The IP2315 charger is only addressable when its I2C gate is opened; if the charger entered LED mode after a USB plug-in, charge status stays undetermined until VIN is removed. |
 | `xteink_x4_pro` | `xteink_x4_pro` | Xteink X4 Pro | ESP32-S3 target with 16 MB flash, 8 MB OPI PSRAM, an 800x480 landscape e-paper display with cached SSD1677/UC8179/UC8279 identification, fixed-mix frontlight brightness, GT911 touch and Home pad, one-bit SDMMC, BM8563-compatible RTC, CW2017 gauge, native USB CDC, UART0, navigation buttons, Wi-Fi, and BLE. |
 | `cl_32` | `cl_32` | Pi0cket CL-32 | ESP32-S3-WROOM-1-N16R8 target with an automatically detected 384x168 ST7305 reflective LCD or SSD1685 e-paper panel, an ATmega808-backed keyboard and battery monitor, native USB CDC, UART, microSD over SDSPI, PCF85063 RTC, onboard PWM buzzer, Wi-Fi, BLE, and expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S. |
 | `odroid_go` | `odroid_go` | Hardkernel ODROID-GO | Classic ESP32 target with ILI9341 display, SD over VSPI/SDSPI, battery ADC, ESP32 DAC speaker, buttons, ADC D-pad, status LED, display brightness, expansion I2C/SPI/UART/GPIO/PWM, and runtime GPIO4/GPIO15. |
@@ -1514,6 +1515,58 @@ Build and flash:
 
     pio run -e seeed_reterminal_sticky
     pio run -e seeed_reterminal_sticky -t upload
+
+## M5Stack Paper Mono
+
+The `m5stack_papermono` target covers M5Stack's Paper Mono (ESP32-S3R8,
+16 MB QIO flash, 8 MB OPI PSRAM). The 3.97-inch SSD1677 panel is used in
+portrait (`U8G2_R3`, 480x800) with the `panel=2` profile. It drives
+the panel's own OTP waveform (Mode 2, as in M5Stack's Paper Mono OTP demo)
+for normal updates and M5GFX's Quality waveform only for full cleans. A
+clean runs on the first frame, for shutdown and sleep frames, with
+`refresh=full`, and when a frame clears a large solid black area such as the
+splash logo. In auto mode it also runs as a safety clean every 50 updates.
+After each clean the controller is reset, so the next OTP update starts from
+the panel's own voltages. The panel high voltage is
+switched off after every update. The M5PM1 double-click cuts power
+without warning the ESP32, so the panel must never be left charged. Display reset
+and power, touch reset/power, LoRa reset, the LoRa antenna switch, SD and
+PDM power, and the IP2315 I2C gate all sit on the M5IOE1 expander at
+address `0x4F`. LoRa_EN and the frontlight PWM live on the M5PM1 at
+`0x6E`. The SYS I2C bus (GPIO47/48) runs at 100 kHz to match the M5PM1
+and M5IOE1 default.
+
+The SX1262 stamp is on SPI3 (MOSI38, MISO40, SCLK39, NSS41, BUSY21,
+DIO1 GPIO5) and defaults to 868 MHz; override the `frequency` binding for
+915 MHz SKUs. Like M5Stack's LoRa example it uses the 3.0 V DIO3 TCXO
+supply and the LDO regulator (`regulator=1`). The ST25R3916 NFC reader is on I2C address `0x50` (IRQ
+GPIO6). NFC power starts off like the T-LoRa-Pager (`nfc power on`).
+
+The hardware power button is handled by the M5PM1 (click on/reset, a fast
+double-click within 250 ms off, hold for download), not by an ESP32 GPIO.
+GPIO0 is the M5PM1 BOOT_OUT strapping line. Front buttons A (GPIO2) and B
+(GPIO3) are active-low. A sends Enter on tap, starts BLE keyboard pairing
+when held for two seconds, and wakes suspend or sleep. B is the SolarOS
+KEY: a tap sends Esc and a long press (1.2 s, acting on release) runs the
+same clean shutdown as the `shutdown` command, which draws the power-off
+screen and then cuts power through the M5PM1. `setterm powerkey short|long`
+changes either action. Console is USB Serial/JTAG.
+
+The native USB-C port connects GPIO19 D− and GPIO20 D+, so `usb mode host`
+is available with `service.usb-host`. The port is a power sink (5.1 kΩ CC
+pull-downs, VBUS to the IP2315 charger) and never supplies 5 V; host
+operation needs an externally powered data adapter. See
+[USB host input](usb.host.md).
+
+Pin assignments were cross-checked against the official Paper Mono PinMap
+and schematic V0.6.2, M5Unified, M5GFX, and the M5PM1/M5IOE1 register
+maps. Display, front buttons, frontlight, and power control were
+exercised on a unit; LoRa, NFC, IMU, microphone, and USB host were not.
+
+```
+pio run -e m5stack_papermono
+```
+
 
 ## Xteink X4 Pro
 
