@@ -2,10 +2,10 @@
 id = "usb.host"
 title = "USB host"
 section = "hardware"
-summary = "Use USB input devices and one FAT flash or UFI/CBI floppy drive through the ESP32-S3 internal PHY"
+summary = "Use USB input, serial adapters, and one FAT storage drive through the ESP32-S3 internal PHY"
 aliases = ["usb-host"]
 keywords = "usb host hub hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
-packages_any = ["service_usb_host", "service_usb_storage"]
+packages_any = ["service_usb_host", "service_usb_storage", "service_usb_serial"]
 +++
 # USB host
 
@@ -21,8 +21,8 @@ a restart. Native CDC support is not required for hosting.
 
 ## USB hubs
 
-External USB hubs allow supported keyboards, mice, gamepads, and one USB
-storage drive to share the native USB port. Connect the hub's upstream port
+External USB hubs allow supported keyboards, mice, gamepads, USB serial
+adapters, and one USB storage drive to share the native USB port. Connect the hub's upstream port
 to SolarOS and the peripherals to its downstream ports. Use an externally
 powered hub when the board's host supply cannot power all attached devices.
 `usb mode host` starts enumeration; `usb devices` lists the supported
@@ -57,6 +57,47 @@ by `usb mode host` to reconnect it.
 Only the first detected drive is selected. Additional storage drives are
 ignored; unplug and reconnect an ignored drive after removing the selected
 drive to use it as `/usb0`.
+
+## USB serial
+
+With `service.usb-serial`, host mode opens CDC-ACM interfaces, Espressif native
+USB Serial/JTAG (`303a:1001`), CP210x (`10c4:ea60`, `ea70`, `ea71`), and
+CH340/CH341 (`1a86:7522`, `7523`, `5523`). Composite devices can expose serial
+and HID interfaces together, such as an Arduino Leonardo. FTDI and CH9102
+adapters are not included.
+
+```text
+usb mode host
+usb serial
+usb serial usb-serial0 baud=115200 bits=8 parity=none stop=1 dtr=1 rts=0
+com usb-serial0
+```
+
+Ports are named `usb-serial0` through `usb-serial3` and appear in `port list`
+and `stream list`. Available host channels can limit the number of connected
+interfaces below four. Each port starts at 115200 baud, 8 data bits, no parity,
+one stop bit, DTR asserted, and RTS deasserted. Native Serial/JTAG uses USB
+speed rather than the baud setting and supports only 8N1.
+
+`usb serial PORT` reads the cached settings. Configure a free port with
+`baud=1..4000000`, `bits=5..8`, `parity=none|odd|even|mark|space`, `stop=1|1.5|2`,
+`dtr=0|1`, or `rts=0|1`. The device driver can reject unsupported settings.
+`usb serial PORT break=MS` sends a break request (0 through 65535); not all
+adapters implement it. DTR/RTS can reset a connected board or select its
+bootloader, depending on that board's wiring.
+
+`com`, stream consumers, and `flash` take exclusive ownership. Close the owner
+before changing settings, switching out of host mode, or entering sleep.
+Removal makes existing I/O fail. A removed port's name stays reserved until its
+owner releases it; an old handle cannot attach to a replacement device.
+Reconnect a device if enumeration failed because no port or USB channel was
+available. Each port has a 2048-byte receive queue; `usb serial` reports RX,
+TX, and dropped-byte counts.
+
+Python and Lua use `solaros.usb_serial.configure(name[, options])` and
+`send_break(name, duration_ms)` for configuration, then the byte stream API
+for data. See [Python peripherals](python.hardware.md),
+[Lua peripherals](lua.hardware.md), and [Flash another ESP board](flash.md).
 
 ## Connect hardware
 

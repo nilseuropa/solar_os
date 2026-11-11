@@ -1287,7 +1287,7 @@ available for the compiled board.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `usb` | `usb [status\|devices\|mode <device\|host>]` | Switch USB mode or inspect devices. See [USB host](usb.host.md). |
+| `usb` | `usb [status\|devices\|mode <device\|host>\|serial ...]` | [USB host](usb.host.md) and serial controls. |
 | `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |

@@ -1375,7 +1375,11 @@ static const char * const uart_subcommands[] = {
 
 static const char * const uart_mode_values[] = {"raw", "line"};
 #if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
-static const char * const usb_subcommands[] = {"status", "devices", "mode"};
+static const char * const usb_subcommands[] = {"status", "devices", "mode",
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    "serial",
+#endif
+};
 static const char * const usb_modes[] = {"device", "host"};
 static const char * const path_usb[] = {"usb"};
 static const char * const path_usb_mode[] = {"usb", "mode"};
@@ -8953,6 +8957,21 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->prefix = prefix;
     state->print = print;
 
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    if (token_count >= 2 && !strcmp(tokens[0], "usb") && !strcmp(tokens[1], "serial")) {
+        if (token_count == 2) {
+            solar_os_port_info_t ports[SOLAR_OS_PORT_MAX];
+            size_t count = solar_os_port_list(ports, SOLAR_OS_PORT_MAX);
+            for (size_t i = 0; i < count && i < SOLAR_OS_PORT_MAX; i++)
+                if (ports[i].capabilities & SOLAR_OS_PORT_CAP_SERIAL) shell_completion_emit(state, ports[i].name);
+        } else {
+            static const char *options[] = {"baud=", "bits=", "parity=none", "parity=odd", "parity=even",
+                "parity=mark", "parity=space", "stop=1", "stop=1.5", "stop=2", "dtr=0", "dtr=1", "rts=0", "rts=1", "break="};
+            for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); i++) shell_completion_emit(state, options[i]);
+        }
+        return true;
+    }
+#endif
     if (shell_completion_emit_stream_write(state, tokens, token_count)) return true;
 #if SOLAR_OS_PACKAGE_SERVICE_OSC
     if (shell_completion_emit_osc_send(state, tokens, token_count)) return true;

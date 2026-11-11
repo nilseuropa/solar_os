@@ -8449,6 +8449,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #endif
 
 #include "solar_os_python_media.inc"
+#include "solar_os_python_usb_serial.inc"
 #include "solar_os_python_imlib.inc"
 #include "solar_os_python_inference.inc"
 #include "solar_os_python_pipeline.inc"

@@ -16,6 +16,7 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += usb_hid_input_test usb_hid_keyboard_report_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test usb_service_no_cdc_test cdc_lifecycle_test
+TARGETS += usb_service_serial_test
 TARGETS += usb_service_storage_test
 TARGETS += usb_service_vbus_test
 TARGETS += storage_usb_mounts_test
@@ -57,8 +58,12 @@ usb_service_storage_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c
 	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/src/board $(filter %.c,$^) -o $@
 
+usb_service_serial_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_SERIAL=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/src/board $(filter %.c,$^) -o $@
+
 usb_service_vbus_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS) $(wildcard usb_stubs/driver/*.h)
-	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 \
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_SERIAL=1 \
 		-DSOLAR_OS_BOARD_PIN_USB_VBUS_EN=18 -DSOLAR_OS_BOARD_USB_VBUS_ACTIVE_LEVEL=1 \
 		-include compat.h -Iusb_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
 		-I$(ROOT)/src/board $(filter %.c,$^) -o $@

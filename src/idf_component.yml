@@ -29,6 +29,18 @@ dependencies:
       - if: "target == esp32s3"
   espressif/esp-serial-flasher:
     version: "~2.0.0"
+  espressif/usb_host_cdc_acm:
+    version: "==2.4.1"
+    rules:
+      - if: "target == esp32s3"
+  espressif/usb_host_ch34x_vcp:
+    version: "==2.2.1"
+    rules:
+      - if: "target == esp32s3"
+  espressif/usb_host_cp210x_vcp:
+    version: "==2.2.0"
+    rules:
+      - if: "target == esp32s3"
   espressif/elf_loader:
     version: "~1.3.3"
     rules:

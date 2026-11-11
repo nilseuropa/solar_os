@@ -23,6 +23,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_ota.h"
 #include "solar_os_ota_key.h"
+#include "solar_os_port.h"
 #include "solar_os_storage.h"
 #include "solar_os_uart.h"
 #include "solar_os_zip.h"
@@ -126,6 +127,9 @@ typedef struct {
 typedef struct {
   esp_loader_port_t base;
   const char *uart;
+  solar_os_port_handle_t serial;
+  bool usb, usb_jtag, usb_reset;
+  esp_err_t io_error;
   int boot_pin;
   int reset_pin;
   int64_t deadline_us;
@@ -1114,8 +1118,36 @@ static uint32_t flash_port_remaining(esp_loader_port_t *base) {
   return remaining > 0 ? (uint32_t)(remaining / 1000) : 0U;
 }
 
+static void flash_port_lines(flash_loader_port_t *port, bool dtr, bool rts) {
+  if (port->io_error != ESP_OK) return;
+  const solar_os_port_serial_config_t config = {.dtr = dtr, .rts = rts};
+  port->io_error = solar_os_port_serial_configure(&port->serial, &config,
+      SOLAR_OS_SERIAL_DTR | SOLAR_OS_SERIAL_RTS);
+}
+
+static void flash_port_usb_reset(flash_loader_port_t *port) {
+  flash_port_lines(port, false, true);
+  flash_port_delay(&port->base, 100U);
+  flash_port_lines(port, false, false);
+}
+
 static void flash_port_enter_bootloader(esp_loader_port_t *base) {
   flash_loader_port_t *port = flash_loader_port(base);
+  if (port->usb_reset) {
+    if (port->usb_jtag) {
+      flash_port_lines(port, true, false);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, true, true);
+      flash_port_usb_reset(port);
+    } else {
+      flash_port_lines(port, false, true);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, true, false);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, false, false);
+    }
+    return;
+  }
   if (port->boot_pin >= 0)
     (void)solar_os_gpio_write(port->boot_pin, false);
   if (port->reset_pin >= 0) {
@@ -1130,6 +1162,7 @@ static void flash_port_enter_bootloader(esp_loader_port_t *base) {
 
 static void flash_port_reset_target(esp_loader_port_t *base) {
   flash_loader_port_t *port = flash_loader_port(base);
+  if (port->usb_reset) { flash_port_usb_reset(port); return; }
   if (port->reset_pin >= 0) {
     (void)solar_os_gpio_write(port->reset_pin, false);
     flash_port_delay(base, 100U);
@@ -1139,22 +1172,28 @@ static void flash_port_reset_target(esp_loader_port_t *base) {
 
 static esp_loader_error_t flash_port_change_rate(esp_loader_port_t *base,
                                                  uint32_t baud_rate) {
-  return solar_os_uart_bus_set_baud_rate_owned(
-             flash_loader_port(base)->uart, baud_rate, FLASH_OWNER) == ESP_OK
-             ? ESP_LOADER_SUCCESS
-             : ESP_LOADER_ERROR_FAIL;
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  const solar_os_port_serial_config_t config = {.baud_rate = baud_rate};
+  port->io_error = port->usb ? solar_os_port_serial_configure(&port->serial,
+      &config, SOLAR_OS_SERIAL_BAUD) : solar_os_uart_bus_set_baud_rate_owned(
+      port->uart, baud_rate, FLASH_OWNER);
+  return port->io_error == ESP_OK ? ESP_LOADER_SUCCESS : ESP_LOADER_ERROR_FAIL;
 }
 
 static esp_loader_error_t flash_port_write(esp_loader_port_t *base,
                                            const uint8_t *data, uint16_t size,
                                            uint32_t timeout) {
   (void)timeout;
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
   size_t offset = 0U;
   while (offset < size) {
     size_t written = 0U;
-    if (solar_os_bus_uart_write(flash_loader_port(base)->uart, data + offset,
-                                size - offset, &written) != ESP_OK ||
-        written == 0U) {
+    port->io_error = port->usb ? solar_os_port_write(&port->serial, data + offset,
+        size - offset, &written) : solar_os_bus_uart_write(port->uart,
+        data + offset, size - offset, &written);
+    if (port->io_error != ESP_OK || written == 0U || written > size - offset) {
       return ESP_LOADER_ERROR_FAIL;
     }
     offset += written;
@@ -1165,6 +1204,8 @@ static esp_loader_error_t flash_port_write(esp_loader_port_t *base,
 static esp_loader_error_t flash_port_read(esp_loader_port_t *base,
                                           uint8_t *data, uint16_t size,
                                           uint32_t timeout) {
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
   const int64_t deadline = esp_timer_get_time() + (int64_t)timeout * 1000;
   size_t offset = 0U;
   while (offset < size) {
@@ -1172,13 +1213,16 @@ static esp_loader_error_t flash_port_read(esp_loader_port_t *base,
     if (remaining_us <= 0)
       return ESP_LOADER_ERROR_TIMEOUT;
     size_t read_len = 0U;
-    esp_err_t err = solar_os_bus_uart_read(
-        flash_loader_port(base)->uart, data + offset, size - offset,
-        (uint32_t)((remaining_us + 999) / 1000), &read_len);
+    const uint32_t wait_ms = (uint32_t)((remaining_us + 999) / 1000);
+    esp_err_t err = port->usb ? solar_os_port_read(&port->serial,
+        data + offset, size - offset, wait_ms, &read_len) : solar_os_bus_uart_read(
+        port->uart, data + offset, size - offset, wait_ms, &read_len);
     if (err == ESP_ERR_TIMEOUT)
       return ESP_LOADER_ERROR_TIMEOUT;
-    if (err != ESP_OK)
+    if (err != ESP_OK || read_len > size - offset) {
+      port->io_error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
       return ESP_LOADER_ERROR_FAIL;
+    }
     offset += read_len;
   }
   return ESP_LOADER_SUCCESS;
@@ -1364,31 +1408,40 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   }
 
   solar_os_uart_status_t previous = {0};
-  bool uart_acquired = false;
+  solar_os_port_serial_config_t previous_serial = {0};
+  bool uart_acquired = false, serial_acquired = false, serial_saved = false;
+  solar_os_port_info_t port_info = {0};
+  const bool usb = solar_os_port_get_info(options->port, &port_info) == ESP_OK &&
+      (port_info.capabilities & SOLAR_OS_PORT_CAP_SERIAL);
+  flash_loader_port_t port = {
+      .base = {.ops = &flash_port_ops}, .uart = options->port,
+      .serial = SOLAR_OS_PORT_HANDLE_INIT, .usb = usb,
+      .usb_jtag = (port_info.capabilities & SOLAR_OS_PORT_CAP_USB_JTAG) != 0,
+      .usb_reset = usb && options->boot_pin < 0 && options->reset_pin < 0,
+      .boot_pin = options->boot_pin, .reset_pin = options->reset_pin,
+  };
   if (err == ESP_OK) {
-    flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_CONNECTING, 0U, 0U,
-                 false);
-  }
-  if (err == ESP_OK &&
-      !solar_os_uart_get_bus_status(options->port, &previous)) {
-    err = ESP_ERR_NOT_FOUND;
-  }
-  if (err == ESP_OK) {
-    err = solar_os_bus_acquire(options->port, SOLAR_OS_BUS_PROTOCOL_UART,
-                               FLASH_OWNER);
-    uart_acquired = err == ESP_OK;
-  }
-  if (err == ESP_OK) {
-    err = solar_os_uart_bus_set_baud_rate_owned(options->port, 115200U,
-                                                FLASH_OWNER);
+    flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_CONNECTING, 0U, 0U, false);
+    if (usb) {
+      err = solar_os_port_claim(options->port, FLASH_OWNER, &port.serial);
+      serial_acquired = err == ESP_OK;
+      if (err == ESP_OK) {
+        err = solar_os_port_serial_get(&port.serial, &previous_serial);
+        serial_saved = err == ESP_OK;
+      }
+      const solar_os_port_serial_config_t config = {.baud_rate = 115200, .data_bits = 8};
+      if (err == ESP_OK) err = solar_os_port_serial_configure(&port.serial, &config,
+          SOLAR_OS_SERIAL_BAUD | SOLAR_OS_SERIAL_BITS | SOLAR_OS_SERIAL_PARITY | SOLAR_OS_SERIAL_STOP);
+    } else {
+      if (!solar_os_uart_get_bus_status(options->port, &previous)) err = ESP_ERR_NOT_FOUND;
+      if (err == ESP_OK) {
+        err = solar_os_bus_acquire(options->port, SOLAR_OS_BUS_PROTOCOL_UART, FLASH_OWNER);
+        uart_acquired = err == ESP_OK;
+      }
+      if (err == ESP_OK) err = solar_os_uart_bus_set_baud_rate_owned(options->port, 115200U, FLASH_OWNER);
+    }
   }
 
-  flash_loader_port_t port = {
-      .base = {.ops = &flash_port_ops},
-      .uart = options->port,
-      .boot_pin = options->boot_pin,
-      .reset_pin = options->reset_pin,
-  };
   bool gpio_claimed = false;
   if (err == ESP_OK) {
     err = flash_claim_gpio(&port);
@@ -1406,6 +1459,7 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   connect.trials = 12;
   if (err == ESP_OK) {
     err = flash_loader_error(esp_loader_connect_with_stub(&loader, &connect));
+    if (port.io_error != ESP_OK) err = port.io_error;
   }
   if (port.boot_pin >= 0)
     (void)solar_os_gpio_write(port.boot_pin, true);
@@ -1473,13 +1527,23 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
                  artifact->factory_size, artifact->factory_size, true);
     err = flash_loader_error(esp_loader_flash_finish(&loader, &config));
   }
-  if (err == ESP_OK && options->reset_pin >= 0) {
+  if (err == ESP_OK && (port.usb_reset || options->reset_pin >= 0)) {
     esp_loader_reset_target(&loader);
+    if (port.io_error != ESP_OK) err = port.io_error;
   }
   if (loader_initialized)
     esp_loader_deinit(&loader);
   if (gpio_claimed)
     flash_release_gpio(&port);
+  if (serial_acquired) {
+    if (serial_saved) (void)solar_os_port_serial_configure(&port.serial, &previous_serial,
+        SOLAR_OS_SERIAL_BAUD | SOLAR_OS_SERIAL_BITS | SOLAR_OS_SERIAL_PARITY | SOLAR_OS_SERIAL_STOP);
+    if (port.usb_reset) {
+      const solar_os_port_serial_config_t inactive = {0};
+      (void)solar_os_port_serial_configure(&port.serial, &inactive, SOLAR_OS_SERIAL_DTR | SOLAR_OS_SERIAL_RTS);
+    }
+    (void)solar_os_port_release(&port.serial);
+  }
   if (uart_acquired) {
     (void)solar_os_uart_bus_set_baud_rate_owned(
         options->port, previous.baud_rate, FLASH_OWNER);

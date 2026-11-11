@@ -591,6 +591,25 @@ if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)
     set_property(TARGET ${SOLAR_OS_USB_HID_LIB} PROPERTY SOURCES "${SOLAR_OS_USB_HID_GENERATED}")
 endif()
 
+if(SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL)
+    foreach(SOLAR_OS_VCP_KIND IN ITEMS ch34x cp210x)
+        set(SOLAR_OS_VCP_COMPONENT "espressif__usb_host_${SOLAR_OS_VCP_KIND}_vcp")
+        idf_component_get_property(SOLAR_OS_VCP_DIR ${SOLAR_OS_VCP_COMPONENT} COMPONENT_DIR)
+        idf_component_get_property(SOLAR_OS_VCP_LIB ${SOLAR_OS_VCP_COMPONENT} COMPONENT_LIB)
+        set(SOLAR_OS_VCP_SOURCE "${SOLAR_OS_VCP_DIR}/usb_host_${SOLAR_OS_VCP_KIND}_vcp.c")
+        set(SOLAR_OS_VCP_GENERATED "${SOLAR_OS_GENERATED_DIR}/usb_host_${SOLAR_OS_VCP_KIND}_vcp.c")
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${SOLAR_OS_PROJECT_DIR}/scripts/patch_usb_vcp.py" "${SOLAR_OS_VCP_SOURCE}")
+        execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_PROJECT_DIR}/scripts/patch_usb_vcp.py"
+            "${SOLAR_OS_VCP_KIND}" "${SOLAR_OS_VCP_SOURCE}" "${SOLAR_OS_VCP_GENERATED}"
+            RESULT_VARIABLE SOLAR_OS_VCP_RESULT)
+        if(NOT SOLAR_OS_VCP_RESULT EQUAL 0)
+            message(FATAL_ERROR "SolarOS USB VCP patch failed")
+        endif()
+        set_property(TARGET ${SOLAR_OS_VCP_LIB} PROPERTY SOURCES "${SOLAR_OS_VCP_GENERATED}")
+    endforeach()
+endif()
+
 if(SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE)
     idf_component_get_property(SOLAR_OS_USB_MSC_DIR espressif__usb_host_msc COMPONENT_DIR)
     idf_component_get_property(SOLAR_OS_USB_MSC_LIB espressif__usb_host_msc COMPONENT_LIB)

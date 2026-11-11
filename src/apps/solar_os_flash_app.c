@@ -13,6 +13,7 @@
 #include "solar_os_bus_types.h"
 #include "solar_os_buses.h"
 #include "solar_os_flash.h"
+#include "solar_os_port.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -649,8 +650,13 @@ static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
     (void)solar_os_tui_text_popup(&state->tui, &bounds, "Download artifact",
                                   text, NULL);
     break;
-  case FLASH_APP_MODAL_PROGRAM:
-    if (state->program.boot_pin >= 0 && state->program.reset_pin >= 0) {
+  case FLASH_APP_MODAL_PROGRAM: {
+    solar_os_port_info_t serial_info;
+    if (state->program.boot_pin < 0 && state->program.reset_pin < 0 &&
+        solar_os_port_get_info(state->port, &serial_info) == ESP_OK &&
+        (serial_info.capabilities & SOLAR_OS_PORT_CAP_SERIAL)) {
+      snprintf(text, sizeof(text), "SolarOS will use USB DTR/RTS to enter ROM download mode. If the target uses firmware USB CDC, put it in ROM mode with BOOT/RESET and select its reconnected port first.");
+    } else if (state->program.boot_pin >= 0 && state->program.reset_pin >= 0) {
       snprintf(text, sizeof(text),
                "SolarOS will put the target in ROM download mode using BOOT gpio%d and RESET gpio%d. Connect crossed TX/RX and common GND.",
                state->program.boot_pin, state->program.reset_pin);
@@ -669,6 +675,7 @@ static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
     (void)solar_os_tui_text_popup(&state->tui, &bounds, "Ready to flash",
                                   text, NULL);
     break;
+  }
   case FLASH_APP_MODAL_DELETE:
     snprintf(text, sizeof(text),
              "Delete %s / %s / %s from the SD card? The catalog entry remains available for download.",
@@ -1071,32 +1078,37 @@ static void flash_app_delete_selected(flash_app_state_t *state) {
   state->modal = FLASH_APP_MODAL_DELETE;
 }
 
+static bool flash_app_port_at(size_t index, char *name, size_t capacity) {
+  const size_t uarts = solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
+  if (index < uarts) {
+    solar_os_bus_info_t info;
+    if (!solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, index, &info)) return false;
+    strlcpy(name, info.name, capacity);
+    return true;
+  }
+  index -= uarts;
+  solar_os_port_info_t ports[SOLAR_OS_PORT_MAX];
+  const size_t count = solar_os_port_list(ports, SOLAR_OS_PORT_MAX);
+  for (size_t i = 0; i < count && i < SOLAR_OS_PORT_MAX; i++) {
+    if (!(ports[i].capabilities & SOLAR_OS_PORT_CAP_SERIAL)) continue;
+    if (index == 0) { strlcpy(name, ports[i].name, capacity); return true; }
+    index--;
+  }
+  return false;
+}
+
 static void flash_app_cycle_port(flash_app_state_t *state, int delta) {
-  const size_t count =
-      solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_UART);
-  if (count == 0U)
-    return;
-  size_t current = 0U;
+  size_t count = 0, current = 0;
   bool found = false;
-  solar_os_bus_info_t info;
-  for (size_t i = 0U; i < count; i++) {
-    if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, i, &info) &&
-        strcmp(info.name, state->port) == 0) {
-      current = i;
-      found = true;
-      break;
-    }
+  char name[SOLAR_OS_BUS_NAME_MAX];
+  while (flash_app_port_at(count, name, sizeof(name))) {
+    if (!strcmp(name, state->port)) { current = count; found = true; }
+    count++;
   }
-  if (!found)
-    current = delta < 0 ? count - 1U : 0U;
-  else if (delta < 0)
-    current = current > 0U ? current - 1U : count - 1U;
-  else
-    current = current + 1U < count ? current + 1U : 0U;
-  if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_UART, current, &info)) {
-    strlcpy(state->port, info.name, sizeof(state->port));
-    state->program.port = state->port;
-  }
+  if (!count) return;
+  if (!found) current = delta < 0 ? count - 1 : 0;
+  else current = delta < 0 ? (current ? current - 1 : count - 1) : (current + 1) % count;
+  if (flash_app_port_at(current, state->port, sizeof(state->port))) state->program.port = state->port;
 }
 
 static void flash_app_begin_pin_edit(flash_app_state_t *state, bool boot) {
@@ -1296,7 +1308,12 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
     solar_os_shell_io_printf(io, "flash: %s/%s/%s via %s\n",
                              state->artifact.board_id, state->artifact.flavor,
                              state->artifact.version, state->port);
-    if (state->program.boot_pin < 0 || state->program.reset_pin < 0) {
+    solar_os_port_info_t serial_info;
+    const bool usb_serial = solar_os_port_get_info(state->port, &serial_info) == ESP_OK &&
+        (serial_info.capabilities & SOLAR_OS_PORT_CAP_SERIAL);
+    if (usb_serial && state->program.boot_pin < 0 && state->program.reset_pin < 0) {
+      solar_os_shell_io_writeln(io, "flash: USB DTR/RTS controls BOOT/RESET; keep the target connected in ROM download mode");
+    } else if (state->program.boot_pin < 0 || state->program.reset_pin < 0) {
       solar_os_shell_io_writeln(io,
                                 "flash: put the target in ROM download mode "
                                 "now; connect TX to RX, RX to TX, and GND");

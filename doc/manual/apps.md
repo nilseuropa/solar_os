@@ -804,8 +804,10 @@ Controls:
 
 Serial terminal for a bidirectional byte-stream port. Display-keyboard or
 port-shell input is forwarded to the selected port, and received bytes are
-drawn in the active terminal. The port may be a UART or a virtual port such as
-a peer-bound SolarOS Link stream.
+drawn in the active terminal. The port may be a UART, a hosted USB serial adapter such as `usb-serial0`,
+or a virtual port such as a peer-bound SolarOS Link stream. Configure USB
+serial settings with `usb serial PORT OPTIONS` before opening `com`; see
+[USB host](usb.host.md).
 
 Usage:
 
@@ -838,6 +840,7 @@ Examples:
 com --hex gps
 com --autobaud --hex uart0
 com vser0
+com usb-serial0
 ```
 
 Controls:

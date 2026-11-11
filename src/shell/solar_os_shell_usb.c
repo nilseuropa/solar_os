@@ -7,13 +7,83 @@
 #include "solar_os_usb_storage.h"
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+#include "solar_os_usb_serial.h"
+#endif
+
+#include <errno.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+static void usb_serial_list(solar_os_shell_io_t *io)
+{
+    solar_os_usb_serial_info_t ports[SOLAR_OS_USB_SERIAL_MAX];
+    const size_t count = solar_os_usb_serial_list(ports, SOLAR_OS_USB_SERIAL_MAX);
+    solar_os_shell_io_table_writeln(io, "PORT        ADDR IF TYPE        VID:PID   STATE      BAUD");
+    for (size_t i = 0; i < count && i < SOLAR_OS_USB_SERIAL_MAX; i++) {
+        const solar_os_usb_serial_info_t *port = &ports[i];
+        solar_os_shell_io_table_printf(io, "%s %4u %2u %-11s %04x:%04x %-10s %lu\n",
+            port->port, port->device.address, port->device.interface,
+            usb_serial_port_kind_name(port->device.kind), port->device.vid, port->device.pid,
+            port->connected ? "connected" : "removed", (unsigned long)port->config.baud_rate);
+        solar_os_shell_io_printf(io, "  RX=%llu TX=%llu dropped=%llu\n",
+            (unsigned long long)port->received, (unsigned long long)port->transmitted,
+            (unsigned long long)port->dropped);
+        if (port->last_error != ESP_OK) solar_os_shell_io_printf(io, "  %s\n", solar_os_shell_error_text(port->last_error));
+    }
+    if (!count) solar_os_shell_io_writeln(io, "No USB serial ports");
+    const esp_err_t error = solar_os_usb_serial_last_error();
+    if (error != ESP_OK) solar_os_shell_io_printf(io, "USB serial: %s\n", solar_os_shell_error_text(error));
+}
+
+static void usb_serial_command(solar_os_shell_io_t *io, int argc, char **argv)
+{
+    if (argc == 2) { usb_serial_list(io); return; }
+    solar_os_port_serial_config_t config = {0};
+    uint32_t mask = 0;
+    esp_err_t err = ESP_OK;
+    if (argc == 4 && !strncmp(argv[3], "break=", 6)) {
+        char *end;
+        errno = 0;
+        unsigned long duration = strtoul(argv[3] + 6, &end, 10);
+        err = errno || argv[3][6] < '0' || argv[3][6] > '9' || *end || duration > UINT16_MAX ?
+            ESP_ERR_INVALID_ARG : solar_os_usb_serial_send_break(argv[2], duration);
+        if (err == ESP_OK) return;
+    } else {
+        for (int i = 3; i < argc && err == ESP_OK; i++) {
+            const char *equal = strchr(argv[i], '=');
+            char key[16];
+            if (!equal || equal == argv[i] || (size_t)(equal - argv[i]) >= sizeof(key)) { err = ESP_ERR_INVALID_ARG; break; }
+            memcpy(key, argv[i], equal - argv[i]); key[equal - argv[i]] = '\0';
+            err = solar_os_usb_serial_parse_option(key, equal + 1, &config, &mask);
+        }
+        if (err == ESP_OK) err = solar_os_usb_serial_config(argv[2], &config, mask);
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(io, "usb serial: %s\n", solar_os_shell_error_text(err));
+        solar_os_shell_io_writeln(io, "usage: usb serial [PORT [baud=N bits=5..8 parity=none|odd|even|mark|space stop=1|1.5|2 dtr=0|1 rts=0|1 | break=MS]]");
+        return;
+    }
+    static const char *parity[] = {"none", "odd", "even", "mark", "space"};
+    static const char *stop[] = {"1", "1.5", "2"};
+    solar_os_shell_io_printf(io, "%s: baud=%lu bits=%u parity=%s stop=%s dtr=%u rts=%u\n",
+        argv[2], (unsigned long)config.baud_rate, config.data_bits, parity[config.parity], stop[config.stop_bits], config.dtr, config.rts);
+}
+#endif
 
 void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
-    const char *usage = "usb [status|devices|mode <device|host>]";
+    const char *usage = "usb [status|devices|mode <device|host>"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+        "|serial [PORT [OPTIONS]]"
+#endif
+        "]";
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    if (argc >= 2 && strcmp(argv[1], "serial") == 0) { usb_serial_command(io, argc, argv); return; }
+#endif
     if (argc == 3 && strcmp(argv[1], "mode") == 0 &&
         (strcmp(argv[2], "device") == 0 || strcmp(argv[2], "host") == 0)) {
         const esp_err_t ret = solar_os_usb_set_mode(strcmp(argv[2], "host") == 0 ?
@@ -80,6 +150,9 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     } else solar_os_shell_io_writeln(io, "USB storage: no drive connected");
     if (storage.last_error != ESP_OK) solar_os_shell_io_printf(io,
         "USB storage: %s\n", solar_os_shell_error_text(storage.last_error));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    usb_serial_list(io);
 #endif
     if (status.interface_count == 0) {
         solar_os_shell_io_writeln(io, "No supported HID interfaces");
