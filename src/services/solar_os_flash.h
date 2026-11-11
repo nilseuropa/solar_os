@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_storage.h"
 
 #define SOLAR_OS_FLASH_BOARD_ID_MAX 40U
 #define SOLAR_OS_FLASH_BOARD_NAME_MAX 64U
@@ -27,12 +28,14 @@ typedef struct {
   char factory_sha256[65];
   uint32_t flash_size;
   bool cached;
+  char cache_root[SOLAR_OS_STORAGE_PATH_MAX];
 } solar_os_flash_artifact_t;
 
 typedef struct {
   char base_url[SOLAR_OS_FLASH_URL_MAX];
   size_t count;
   solar_os_flash_artifact_t *artifacts;
+  char cache_root[SOLAR_OS_STORAGE_PATH_MAX];
 } solar_os_flash_catalog_t;
 
 typedef enum {
@@ -71,9 +74,16 @@ typedef struct {
  * and loader resources are allocated or acquired by these calls and released
  * before they return.
  */
+/* Prefer a mounted SD volume, then USB storage. No internal-flash fallback. */
+esp_err_t solar_os_flash_cache_root(char *root, size_t capacity);
+bool solar_os_flash_cache_mounted(const char *root);
 esp_err_t solar_os_flash_catalog_refresh(solar_os_flash_progress_fn progress,
                                          void *user);
+esp_err_t solar_os_flash_catalog_refresh_at(const char *cache_root,
+    solar_os_flash_progress_fn progress, void *user);
 esp_err_t solar_os_flash_catalog_load(solar_os_flash_catalog_t **catalog);
+esp_err_t solar_os_flash_catalog_load_at(const char *cache_root,
+    solar_os_flash_catalog_t **catalog);
 void solar_os_flash_catalog_free(solar_os_flash_catalog_t *catalog);
 
 const solar_os_flash_artifact_t *

@@ -1053,13 +1053,12 @@ depends = [
   "service_http_client",
   "service_json",
   "service_ota",
-  "service_sd",
   "service_uart",
   "service_zip",
 ]
-sources = ["services/solar_os_flash.c"]
+sources = ["services/solar_os_flash.c", "services/solar_os_flash_cache.c"]
 requires = ["espressif__esp-serial-flasher", "esp_timer"]
-capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
+capabilities = ["gpio", "psram", "uart", "wifi"]
 
 [packages.core_shell]
 label = "bootstrap.shell"
@@ -3174,7 +3173,7 @@ sources = ["apps/solar_os_docs_app.c"]
 label = "app.flash"
 depends = ["service_flash"]
 sources = ["apps/solar_os_flash_app.c"]
-capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
+capabilities = ["gpio", "psram", "uart", "wifi"]
 
 [packages.app_reader]
 label = "app.reader"

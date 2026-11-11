@@ -116,6 +116,7 @@ typedef struct {
   bool result_received;
   bool tui_active;
   char input[4];
+  char refresh_root[SOLAR_OS_STORAGE_PATH_MAX];
   size_t input_len;
   solar_os_flash_progress_t progress;
   bool progress_valid;
@@ -429,8 +430,9 @@ static void flash_app_render_status(flash_app_state_t *state) {
     size_t cached = 0U;
     for (size_t i = 0U; i < state->catalog->count; i++)
       cached += state->catalog->artifacts[i].cached ? 1U : 0U;
-    snprintf(status, sizeof(status), "Flash | ready | %u/%u cached | %s",
-             (unsigned)cached, (unsigned)state->catalog->count, state->port);
+    snprintf(status, sizeof(status), "Flash | %u/%u cached | %s | %s",
+             (unsigned)cached, (unsigned)state->catalog->count,
+             state->catalog->cache_root, state->port);
   } else {
     snprintf(status, sizeof(status), "Flash | no verified catalog | %s",
              state->port);
@@ -457,9 +459,13 @@ static void flash_app_render_catalog(flash_app_state_t *state, size_t rows,
   const size_t visible_rows = solar_os_tui_screen_content_rows(
       &state->tui, 2U, 1U);
   flash_app_ensure_visible(state, visible_rows);
-  if (!solar_os_storage_sd_is_mounted()) {
+  char cache_root[SOLAR_OS_STORAGE_PATH_MAX];
+  const bool storage_ready = state->catalog ?
+      solar_os_flash_cache_mounted(state->catalog->cache_root) :
+      solar_os_flash_cache_root(cache_root, sizeof(cache_root)) == ESP_OK;
+  if (!storage_ready) {
     solar_os_tui_write_cell(&state->tui, 3U, 2U, cols > 4U ? cols - 4U : 0U,
-                          "SD card is not mounted.",
+                          "Mount an SD card or USB drive, then press r.",
                           SOLAR_OS_TUI_ATTR_BOLD);
     return;
   }
@@ -486,7 +492,7 @@ static void flash_app_render_catalog(flash_app_state_t *state, size_t rows,
     } else if (cols >= 54U) {
       snprintf(line, sizeof(line), "      |-- %c %-12s %-10s %s",
                artifact->cached ? '*' : ' ', artifact->version,
-               artifact->chip, artifact->cached ? "cached on SD" : "remote");
+               artifact->chip, artifact->cached ? "cached" : "remote");
     } else {
       snprintf(line, sizeof(line), "      |-- %c %s",
                artifact->cached ? '*' : ' ', artifact->version);
@@ -645,7 +651,7 @@ static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
   switch (state->modal) {
   case FLASH_APP_MODAL_DOWNLOAD:
     snprintf(text, sizeof(text),
-             "Download and verify %s / %s / %s to the SD card?",
+             "Download and verify %s / %s / %s to the cache volume?",
              artifact->board_id, artifact->flavor, artifact->version);
     (void)solar_os_tui_text_popup(&state->tui, &bounds, "Download artifact",
                                   text, NULL);
@@ -678,7 +684,7 @@ static void flash_app_render_modal(flash_app_state_t *state, size_t rows,
   }
   case FLASH_APP_MODAL_DELETE:
     snprintf(text, sizeof(text),
-             "Delete %s / %s / %s from the SD card? The catalog entry remains available for download.",
+             "Delete %s / %s / %s from the cache volume? The catalog entry remains available for download.",
              artifact->board_id, artifact->flavor, artifact->version);
     (void)solar_os_tui_text_popup(&state->tui, &bounds, "Delete artifact",
                                   text, NULL);
@@ -753,7 +759,7 @@ static void flash_app_worker(void *parameter) {
   esp_err_t result = ESP_ERR_INVALID_STATE;
   switch (state->operation) {
   case FLASH_APP_OPERATION_REFRESH:
-    result = solar_os_flash_catalog_refresh(flash_app_progress, state);
+    result = solar_os_flash_catalog_refresh_at(state->refresh_root, flash_app_progress, state);
     break;
   case FLASH_APP_OPERATION_DOWNLOAD:
     result = solar_os_flash_artifact_download(state->catalog, &state->artifact,
@@ -781,6 +787,9 @@ static bool flash_app_start_worker(flash_app_state_t *state,
   if (state->running) {
     return false;
   }
+  if (operation == FLASH_APP_OPERATION_REFRESH &&
+      solar_os_flash_cache_root(state->refresh_root, sizeof(state->refresh_root)) != ESP_OK)
+    return false;
   if (state->events == NULL) {
     state->events = solar_os_queue_create(FLASH_APP_EVENT_QUEUE_LEN,
                                           sizeof(flash_app_event_t));
@@ -836,7 +845,7 @@ flash_app_print_progress(flash_app_state_t *state,
   solar_os_shell_io_flush(io);
 }
 
-static void flash_app_reload_catalog(flash_app_state_t *state) {
+static void flash_app_reload_catalog(flash_app_state_t *state, const char *cache_root) {
   flash_app_node_key_t selected_key = {0};
   flash_app_node_key_t top_key = {0};
   size_t node_index = 0U;
@@ -847,7 +856,7 @@ static void flash_app_reload_catalog(flash_app_state_t *state) {
     flash_app_node_key(state->catalog, &state->nodes[node_index], &top_key);
 
   solar_os_flash_catalog_t *catalog = NULL;
-  const esp_err_t err = solar_os_flash_catalog_load(&catalog);
+  const esp_err_t err = solar_os_flash_catalog_load_at(cache_root, &catalog);
   if (err != ESP_OK) {
     solar_os_flash_catalog_free(catalog);
     return;
@@ -910,7 +919,8 @@ static void flash_app_drain_events(flash_app_state_t *state) {
         solar_os_shell_io_writeln(io, "flash: success");
       if (state->operation == FLASH_APP_OPERATION_REFRESH ||
           state->operation == FLASH_APP_OPERATION_DOWNLOAD) {
-        flash_app_reload_catalog(state);
+        flash_app_reload_catalog(state, state->operation == FLASH_APP_OPERATION_REFRESH ?
+            state->refresh_root : state->catalog->cache_root);
       }
     } else {
       state->command_exit_code = 1;
@@ -1177,7 +1187,7 @@ static bool flash_app_handle_modal(flash_app_state_t *state, uint8_t ch) {
     if (err == ESP_OK) {
       strlcpy(state->message, "artifact delete succeeded",
               sizeof(state->message));
-      flash_app_reload_catalog(state);
+      flash_app_reload_catalog(state, state->catalog->cache_root);
     } else {
       snprintf(state->message, sizeof(state->message),
                "artifact delete failed: %s (0x%x)", esp_err_to_name(err),
@@ -1203,6 +1213,14 @@ static bool flash_app_handle_command(flash_app_state_t *state) {
   if (argc <= 1)
     return false;
   state->command_mode = true;
+
+  char cache_root[SOLAR_OS_STORAGE_PATH_MAX];
+  if (solar_os_flash_cache_root(cache_root, sizeof(cache_root)) != ESP_OK) {
+    solar_os_shell_io_writeln(io, "flash: mount an SD card or USB drive first");
+    state->command_exit_code = 1;
+    state->command_exit_requested = true;
+    return true;
+  }
 
   const char *command = solar_os_context_argv(ctx, 1);
   if (strcmp(command, "refresh") == 0 && argc == 2) {
@@ -1366,7 +1384,7 @@ static esp_err_t flash_app_start(solar_os_context_t *ctx) {
       .reset_pin = -1,
       .baud_rate = 460800U,
   };
-  flash_app_reload_catalog(flash_app);
+  flash_app_reload_catalog(flash_app, NULL);
   if (!flash_app_handle_command(flash_app)) {
     const esp_err_t err = solar_os_tui_screen_begin(&flash_app->tui, ctx);
     if (err != ESP_OK) {

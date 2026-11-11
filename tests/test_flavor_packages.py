@@ -96,6 +96,22 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertFalse(cdc_only["service_usb_storage"])
         self.assertFalse(cdc_only["service_usb_serial"])
 
+    def test_flash_accepts_runtime_storage_without_board_sd(self):
+        from solaros_board_manifest import load_board_manifest
+
+        directory = REPOSITORY / "boards" / "manifests"
+        board = load_board_manifest(directory / "esp32_s3_devkitc1_n16r8.toml", directory)
+        capabilities = set(board["build"]["capabilities"])
+        self.assertNotIn("sd", capabilities)
+        _, _, groups, packages = self.resolve("full")
+        _, selected = generate_flavor_config.apply_board_capability_pruning(
+            self.catalog, groups, packages, capabilities)
+        self.assertTrue(selected["app_flash"])
+        self.assertTrue(selected["service_flash"])
+        self.assertFalse(selected["service_sd"])
+        self.assertTrue(selected["expansion_sdspi"])
+        self.assertTrue(selected["service_usb_storage"])
+
     def test_usb_host_selection_for_all_board_profiles(self):
         from solaros_board_manifest import load_board_manifest
 

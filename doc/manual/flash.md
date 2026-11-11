@@ -4,12 +4,13 @@ title = "Flash another ESP board"
 section = "app"
 summary = "Download verified SolarOS factory images and program another ESP board over UART or hosted USB serial"
 aliases = ["device-flasher", "factory-flash"]
-keywords = "flash factory firmware uart boot reset esp32 serial catalog sd"
+keywords = "flash factory firmware uart boot reset esp32 serial catalog sd usb pendrive cache"
 packages_any = ["app_flash"]
 +++
 # Flash another ESP board
 
-`flash` downloads complete SolarOS factory images to SD and programs another
+`flash` downloads complete SolarOS factory images to a mounted SD card or USB
+drive and programs another
 supported ESP board through a named UART bus or hosted USB serial port.
 For UART wiring, the target must share ground with
 the SolarOS device. Connect the SolarOS UART TX pin to target RX and SolarOS RX
@@ -21,7 +22,7 @@ Open the catalog browser:
 flash
 ```
 
-The browser reads only the verified catalog saved on SD. It does not access the
+The browser reads only the verified catalog saved on the selected cache volume. It does not access the
 network when it opens. Its Catalog tab presents the available board, flavor,
 and version entries as a foldable tree. All groups are initially folded. Use Up
 and Down to select an entry, Left and Right to fold or unfold a group, and
@@ -31,7 +32,7 @@ An asterisk marks an artifact that is cached on SD. Enter offers to download a
 remote artifact or program a cached artifact. `d` always offers a download,
 `f` always offers programming, and `r` refreshes the signed catalog. Delete or
 `x` asks for confirmation before it removes the selected cached artifact from
-SD. The verified catalog entry stays available, so the artifact can be
+the cache volume. The verified catalog entry stays available, so the artifact can be
 downloaded again.
 
 Press Tab to open Settings. Select the serial port with Left and Right. Connected USB serial ports appear
@@ -61,7 +62,7 @@ flash download BOARD FLAVOR [VERSION]
 flash BOARD FLAVOR [version=VERSION] [port=uart0] [boot=PIN] [reset=PIN] [baud=RATE]
 ```
 
-Shell completion for `flash BOARD FLAVOR` reads the verified SD catalog and
+Shell completion for `flash BOARD FLAVOR` reads the verified cached catalog and
 offers only boards and flavors whose factory artifact is already cached.
 
 When `version` is omitted, SolarOS selects the first matching catalog entry;
@@ -101,14 +102,34 @@ The target must remain connected and powered throughout the operation.
 
 ## Storage and verification
 
-All data is stored on removable media:
+The app does not require built-in SD hardware. Attach and mount an SD card at
+runtime through a supported expansion, or connect a FAT USB drive in host mode.
+Without mounted removable storage, `flash` remains available and asks you to
+mount an SD card or USB drive. Internal flash and RAM disks are not used as a
+fallback.
+
+SolarOS selects an SD volume first, then USB storage. If several SD volumes are
+mounted, it uses the first mount path alphabetically. The browser title shows
+the selected cache path. A loaded catalog and its artifact operations keep
+that path; attaching another volume does not redirect them. Reopen the app or
+refresh the catalog to select storage again.
+
+All data is stored in `.flash` on the selected volume. For a USB drive:
 
 ```text
-/sdcard/.flash/catalog.json
-/sdcard/.flash/catalog.sig
-/sdcard/.flash/BOARD/FLAVOR/VERSION/flash-manifest.json
-/sdcard/.flash/BOARD/FLAVOR/VERSION/factory.bin
+/usb0/.flash/catalog.json
+/usb0/.flash/catalog.sig
+/usb0/.flash/BOARD/FLAVOR/VERSION/flash-manifest.json
+/usb0/.flash/BOARD/FLAVOR/VERSION/factory.bin
 ```
+
+An SD card uses the same layout under its mount point, usually `/sdcard`.
+Keep the cache volume connected throughout an operation. Active USB cache
+operations prevent unmounting or switching out of host mode; removal makes
+the operation fail. A factory image is verified and programmed through the
+same open file, so replacing a drive does not substitute a different image
+after verification. With USB storage and a USB serial target, use a powered
+hub where needed and respect the shared USB host channel limit.
 
 The catalog signature uses the SolarOS OTA public key. Downloads are streamed
 to a staging file, checked against the catalog size and SHA-256, extracted, and
@@ -132,7 +153,7 @@ operation owns the selected serial port and optional control pins until it compl
 
 Run `flash refresh` to cache the signed catalog, `flash list` to show artifacts,
 and `flash download BOARD FLAVOR [VERSION]` to store one verified factory image
-under `/sdcard/.flash`. Program it with `flash BOARD FLAVOR` plus optional
+under the selected volume's `.flash` directory. Program it with `flash BOARD FLAVOR` plus optional
 `version=`, `port=`, `boot=`, `reset=`, and `baud=` values. The target chip must
 match the selected board artifact. Connect crossed 3.3 V UART signals and a
 common ground; use both optional control pins for automatic download mode.
