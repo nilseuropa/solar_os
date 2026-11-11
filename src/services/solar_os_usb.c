@@ -18,6 +18,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
 #include "solar_os_usb_storage.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+#include "solar_os_usb_serial.h"
+#endif
 
 #define USB_OWNER "usb-host"
 
@@ -48,6 +51,7 @@ static esp_err_t input_event(usb_host_port_event_t event,
         const esp_err_t ret = solar_os_usb_hid_input_open(input, name, interface->protocol);
         if (ret == ESP_OK) {
             input->mouse_layout = interface->mouse_layout;
+            input->keyboard_layout = interface->keyboard_layout;
             if (interface->joystick_layout != NULL) input->joystick_layout = *interface->joystick_layout;
         }
         return ret;
@@ -171,9 +175,22 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
 {
     if (mode == current_mode && mode == SOLAR_OS_USB_MODE_HOST) return ESP_OK;
     if (mode == SOLAR_OS_USB_MODE_DEVICE) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+        esp_err_t serial_ret = solar_os_usb_serial_prepare_stop();
+        if (serial_ret != ESP_OK) return serial_ret;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
         esp_err_t storage_ret = solar_os_usb_storage_stop();
-        if (storage_ret != ESP_OK) return storage_ret;
+        if (storage_ret != ESP_OK) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+            solar_os_usb_serial_cancel_stop();
+#endif
+            return storage_ret;
+        }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+        serial_ret = solar_os_usb_serial_stop();
+        if (serial_ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return serial_ret; }
 #endif
         esp_err_t ret = stop_host_port();
         if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
@@ -195,12 +212,19 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
     ret = set_cdc_enabled(false);
     if (ret != ESP_OK) { release_resources(); return ret; }
     ret = usb_host_port_start(input_event);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    if (ret == ESP_OK) ret = solar_os_usb_serial_start();
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     if (ret == ESP_OK) ret = solar_os_usb_storage_start();
 #endif
     if (ret == ESP_OK) ret = set_vbus_enabled(true);
     if (ret == ESP_OK) ret = usb_host_port_enable();
     if (ret == ESP_OK) { current_mode = SOLAR_OS_USB_MODE_HOST; return ESP_OK; }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    rollback_error = solar_os_usb_serial_stop();
+    if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     rollback_error = solar_os_usb_storage_stop();
     if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
@@ -253,9 +277,22 @@ esp_err_t solar_os_usb_prepare_sleep(void)
     esp_err_t ret = ESP_OK;
     if (current_mode == SOLAR_OS_USB_MODE_FAULT) ret = ESP_ERR_INVALID_STATE;
     else if (!sleep_prepared && current_mode != SOLAR_OS_USB_MODE_DEVICE) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+        ret = solar_os_usb_serial_prepare_stop();
+        if (ret != ESP_OK) { last_error = ret; xSemaphoreGive(mode_mutex); return ret; }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
         ret = solar_os_usb_storage_stop();
-        if (ret != ESP_OK) { last_error = ret; xSemaphoreGive(mode_mutex); return ret; }
+        if (ret != ESP_OK) {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+            solar_os_usb_serial_cancel_stop();
+#endif
+            last_error = ret; xSemaphoreGive(mode_mutex); return ret;
+        }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+        ret = solar_os_usb_serial_stop();
+        if (ret != ESP_OK) { last_error = ret; current_mode = SOLAR_OS_USB_MODE_FAULT; xSemaphoreGive(mode_mutex); return ret; }
 #endif
         ret = stop_host_port();
         if (ret == ESP_OK) {

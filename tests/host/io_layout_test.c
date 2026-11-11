@@ -12,6 +12,7 @@ static bool cursor_visible;
 static io_state_t state;
 static solar_os_bus_info_t bus;
 static size_t test_pin_count = 1U;
+static bool onboard_pin, onboard_claimed;
 #if SOLAR_OS_PACKAGE_CAN_TWAI
 static bool can_supported = true, can_attached;
 static esp_err_t can_attach_result = ESP_OK, can_detach_result = ESP_OK;
@@ -112,9 +113,14 @@ esp_err_t solar_os_bus_register(const solar_os_bus_definition_t *definition)
 esp_err_t solar_os_bus_unregister(const char *name)
 { (void)name; return ESP_ERR_NOT_SUPPORTED; }
 
-size_t solar_os_pin_count(void) { return test_pin_count; }
+size_t solar_os_pin_count(void) { return test_pin_count + (onboard_pin ? 1U : 0U); }
 bool solar_os_pin_get_info(size_t index, solar_os_pin_info_t *info)
 {
+    if (onboard_pin && index == test_pin_count) {
+        *info = (solar_os_pin_info_t){.pin = 42, .expansion = false,
+            .policy = SOLAR_OS_PIN_POLICY_FIXED, .role = "WS2812"};
+        return true;
+    }
     if (index >= test_pin_count) return false;
     *info = (solar_os_pin_info_t){.pin = 43 + (int)index, .expansion = true,
         .policy = SOLAR_OS_PIN_POLICY_RELEASABLE, .role = "long pin role"};
@@ -128,8 +134,7 @@ bool solar_os_pin_get_info_by_pin(int pin, solar_os_pin_info_t *info)
 }
 const char *solar_os_pin_policy_name(solar_os_pin_policy_t policy)
 {
-    (void)policy;
-    return "releasable";
+    return policy == SOLAR_OS_PIN_POLICY_FIXED ? "fixed" : "releasable";
 }
 bool solar_os_gpio_get_pin_info_by_pin(int pin, solar_os_gpio_pin_info_t *info)
 {
@@ -145,10 +150,13 @@ const char *solar_os_gpio_mode_name(solar_os_gpio_mode_t mode)
 bool solar_os_resource_find_claim(solar_os_resource_kind_t kind, int primary,
                                   int secondary, solar_os_resource_claim_t *claim)
 {
-    (void)kind;
-    (void)primary;
     (void)secondary;
-    (void)claim;
+    if (onboard_claimed && kind == SOLAR_OS_RESOURCE_GPIO_PIN && primary == 42) {
+        *claim = (solar_os_resource_claim_t){.kind = kind, .primary = 42, .secondary = -1};
+        strlcpy(claim->owner, "pixels0", sizeof(claim->owner));
+        strlcpy(claim->label, "data", sizeof(claim->label));
+        return true;
+    }
     return false;
 }
 size_t solar_os_resource_claim_count(void) { return 1U; }
@@ -327,6 +335,38 @@ static void test_tables(void)
     assert(strstr(row_text(2U), "uart1 TX=43 RX=44") != NULL);
 }
 
+static void test_onboard_pins(void)
+{
+    reset(120U);
+    onboard_pin = true;
+    onboard_claimed = true;
+    io.view = IO_VIEW_PINS;
+    assert(io_view_count(IO_VIEW_PINS) == 2U);
+    io_render_pins();
+    assert(strstr(row_text(2U), "GPIO43") != NULL);
+    assert(strstr(row_text(3U), "GPIO42") != NULL);
+    assert(strstr(row_text(3U), "pixels0") != NULL);
+    assert(strstr(row_text(3U), "WS2812") != NULL);
+    assert(strstr(row_text(3U), "fixed") != NULL);
+    io.selected[IO_VIEW_PINS] = 1U;
+    solar_os_pin_info_t pin;
+    assert(io_selected_pin_info(&pin) && pin.pin == 42 && !pin.expansion);
+    io_build_actions();
+    assert(io.selected_pin == 42 && io.action_count == 0U);
+    /* A failed or pending driver must not make its fixed pin available. */
+    onboard_claimed = false;
+    io_build_actions();
+    assert(io.action_count == 0U);
+    assert(io_nth_free_pin(0U) == 43);
+    assert(io_nth_free_pin(1U) == -1);
+    onboard_pin = false;
+    test_pin_count = 0U;
+    assert(io_view_count(IO_VIEW_PINS) == 0U);
+    io_render_browse();
+    assert(io.selected[IO_VIEW_PINS] == 0U);
+    test_pin_count = 1U;
+}
+
 static void test_form(void)
 {
     reset(26U);
@@ -454,6 +494,7 @@ int main(void)
     bus.config.uart.baud_rate = 115200U;
     strlcpy(bus.name, "receiver_long_name", sizeof(bus.name));
     test_tables();
+    test_onboard_pins();
     test_form();
     test_protocols();
 #if SOLAR_OS_PACKAGE_CAN_TWAI

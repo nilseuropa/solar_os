@@ -16,8 +16,9 @@ Required dependencies are included automatically; unsupported packages are
 removed for the selected board.
 
 The `hardware_shell` group includes `service.usb-host` and
-`service.usb-storage` on boards with the `USB_HOST` capability. This provides
-USB input and one FAT USB flash or UFI/CBI floppy drive at `/usb0`. Hosting
+`service.usb-storage`, and `service.usb-serial` on boards with the `USB_HOST` capability. This provides
+USB input, CDC-ACM/CP210x/CH340 serial ports, and one FAT USB flash or UFI/CBI
+floppy drive at `/usb0`. Hosting
 starts disabled; arrange host wiring and external 5 V peripheral power, then
 run `usb mode host`. See [USB host](usb.host.md).
 

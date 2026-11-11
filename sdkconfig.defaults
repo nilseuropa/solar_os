@@ -1,5 +1,6 @@
 # ESP32-S3-RLCD-4.2 baseline from Waveshare's ESP-IDF examples.
 CONFIG_IDF_TARGET="esp32s3"
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # Native modules execute from S3 PSRAM and resolve only SolarOS's explicitly
 # registered, versioned host ABI.

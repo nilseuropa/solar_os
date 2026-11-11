@@ -416,6 +416,33 @@ solaros.uart.write(b"AT\r\n")
 print(solaros.uart.read(64, 500))
 ```
 
+## `solaros.usb_serial`
+
+Available with `service.usb-serial` in USB host mode. See [USB host](usb.host.md)
+for supported adapters and port names.
+
+- `configure(name[, options])`: query or update a free port; return `baud`,
+  `bits`, `parity`, `stop`, `dtr`, and `rts`. Options use the same keys; parity
+  is `"none"`, `"odd"`, `"even"`, `"mark"`, or `"space"`; stop is `"1"`, `"1.5"`,
+  or `"2"`; DTR/RTS are booleans. Unsupported settings raise an error.
+- `send_break(name, duration_ms)`: request a break for 0 through 65535 ms.
+
+Configure before opening the stream. Both operations require exclusive access
+and fail while another app or stream owns the port. Byte I/O uses
+`solaros.streams`; close the handle before changing settings or USB mode.
+Disconnects fail I/O and do not transfer ownership to a replacement device.
+
+```python
+import solaros
+solaros.usb_serial.configure("usb-serial0", {"baud": 9600, "dtr": True})
+port = solaros.streams.open("usb-serial0", {"direction": "duplex"})
+try:
+    solaros.streams.write(port, b"AT\r\n")
+    print(solaros.streams.read(port, 64, 500))
+finally:
+    solaros.streams.close(port)
+```
+
 ## Quick reference
 
 Use `solaros.gpio`, `solaros.onewire`, `solaros.led`, `solaros.adc`, `solaros.pwm`, `solaros.servo`, `solaros.motor`, `solaros.encoder`, `solaros.i2c`, `solaros.spi`, `solaros.uart`, `solaros.neopixel`, `solaros.battery`, `solaros.charger`, `solaros.sensors`, `solaros.gnss`, `solaros.haptic`, `solaros.imu`, and `solaros.nfc` for gpio and peripherals.

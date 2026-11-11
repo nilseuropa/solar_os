@@ -14,7 +14,7 @@ members = [
 [groups.hardware_shell]
 label = "Hardware shell commands"
 category = "System"
-members = ["system_shell", "service_usb_host", "service_usb_storage"]
+members = ["system_shell", "service_usb_host", "service_usb_storage", "service_usb_serial"]
 
 [groups.filesystem]
 label = "Filesystem commands"
@@ -1053,13 +1053,12 @@ depends = [
   "service_http_client",
   "service_json",
   "service_ota",
-  "service_sd",
   "service_uart",
   "service_zip",
 ]
-sources = ["services/solar_os_flash.c"]
+sources = ["services/solar_os_flash.c", "services/solar_os_flash_cache.c"]
 requires = ["espressif__esp-serial-flasher", "esp_timer"]
-capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
+capabilities = ["gpio", "psram", "uart", "wifi"]
 
 [packages.core_shell]
 label = "bootstrap.shell"
@@ -1433,6 +1432,7 @@ sources = [
   "board/solar_os_board_usb.c",
   "drivers/usb_host_port.c",
   "drivers/usb_hid_report.c",
+  "drivers/usb_hid_keyboard_report.c",
   "drivers/usb_hid_mouse_report.c",
   "drivers/usb_hid_joystick_report.c",
   "services/solar_os_usb.c",
@@ -1448,6 +1448,14 @@ label = "service.usb-storage"
 depends = ["service_usb_host"]
 sources = ["drivers/usb_msc_port.c", "drivers/usb_ufi.c", "drivers/usb_ufi_msc.c", "services/solar_os_usb_storage.c"]
 requires = ["espressif__usb_host_msc", "fatfs", "vfs"]
+capabilities = ["usb_host"]
+targets = ["esp32s3"]
+
+[packages.service_usb_serial]
+label = "service.usb-serial"
+depends = ["service_usb_host"]
+sources = ["drivers/usb_serial_port.c", "services/solar_os_usb_serial.c"]
+requires = ["espressif__usb_host_cdc_acm", "espressif__usb_host_ch34x_vcp", "espressif__usb_host_cp210x_vcp"]
 capabilities = ["usb_host"]
 targets = ["esp32s3"]
 
@@ -3165,7 +3173,7 @@ sources = ["apps/solar_os_docs_app.c"]
 label = "app.flash"
 depends = ["service_flash"]
 sources = ["apps/solar_os_flash_app.c"]
-capabilities = ["gpio", "psram", "sd", "uart", "wifi"]
+capabilities = ["gpio", "psram", "uart", "wifi"]
 
 [packages.app_reader]
 label = "app.reader"

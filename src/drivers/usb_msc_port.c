@@ -9,13 +9,18 @@ static msc_host_device_handle_t device;
 static solar_os_usb_msc_callback_t event_callback;
 static solar_os_usb_msc_info_t geometry;
 static atomic_bool present;
+static atomic_uint selected_address;
 static bool installed;
 
 static void event(const msc_host_event_t *event, void *arg)
 {
     (void)arg;
     if (event->event == MSC_DEVICE_CONNECTED) {
-        event_callback(true, event->device.address);
+        /* Reserve the first drive before queuing setup. Further hub ports
+         * must not replace a pending drive or become a stale reconnect. */
+        unsigned expected = 0;
+        if (atomic_compare_exchange_strong(&selected_address, &expected, event->device.address))
+            event_callback(true, event->device.address);
     } else if (event->event == MSC_DEVICE_DISCONNECTED) {
         atomic_store(&present, false);
         event_callback(false, 0);
@@ -28,6 +33,7 @@ esp_err_t solar_os_usb_msc_start(solar_os_usb_msc_callback_t callback)
     if (installed) return ESP_ERR_INVALID_STATE;
     event_callback = callback;
     atomic_store(&present, false);
+    atomic_store(&selected_address, 0);
     const msc_host_driver_config_t config = {
         .create_backround_task = true, .task_priority = 3,
         .stack_size = 4096, .core_id = 0, .callback = event,
@@ -77,9 +83,12 @@ esp_err_t solar_os_usb_msc_open(uint8_t address, solar_os_usb_msc_info_t *info)
 
 esp_err_t solar_os_usb_msc_close(void)
 {
-    if (!device) return ESP_OK;
-    esp_err_t err = msc_host_uninstall_device(device);
-    if (err == ESP_OK) { device = NULL; atomic_store(&present, false); }
+    esp_err_t err = device ? msc_host_uninstall_device(device) : ESP_OK;
+    if (err == ESP_OK) {
+        device = NULL;
+        atomic_store(&present, false);
+        atomic_store(&selected_address, 0);
+    }
     return err;
 }
 

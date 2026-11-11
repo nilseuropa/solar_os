@@ -23,6 +23,8 @@ esp_err_t solar_os_stream_unregister(const char *name)
     stream_registered = false;
     return ESP_OK;
 }
+esp_err_t solar_os_stream_unregister_many(const char *const *names, size_t count)
+{ assert(count == 1); return solar_os_stream_unregister(names[0]); }
 esp_err_t cdc_port_init(const cdc_port_config_t *config)
 { assert(config->rx_buffer_size && config->tx_buffer_size); installed = true; return ESP_OK; }
 esp_err_t cdc_port_deinit(void)

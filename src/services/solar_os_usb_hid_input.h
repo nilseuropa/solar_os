@@ -2,6 +2,7 @@
 
 #include "solar_os_input.h"
 #include "usb_hid_mouse_report.h"
+#include "usb_hid_keyboard_report.h"
 #include "usb_hid_joystick_report.h"
 
 #define SOLAR_OS_USB_HID_HAT_PHYSICAL_BASE 0x100U
@@ -15,6 +16,7 @@ typedef struct {
     uint8_t buttons;
     bool caps_lock;
     solar_os_usb_hid_mouse_layout_t mouse_layout;
+    solar_os_usb_hid_keyboard_layout_t keyboard_layout;
     solar_os_usb_hid_joystick_layout_t joystick_layout;
     int16_t axes[SOLAR_OS_USB_HID_JOYSTICK_AXIS_MAX];
     uint16_t joystick_buttons;

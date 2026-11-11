@@ -175,7 +175,12 @@ esp_err_t solar_os_usb_hid_input_report(solar_os_usb_hid_input_t *input,
     if (input->protocol == SOLAR_OS_USB_HID_JOYSTICK) {
         ret = joystick_report(input, data, length);
     } else if (input->protocol == SOLAR_OS_USB_HID_KEYBOARD) {
-        ret = keyboard_report(input, data, length);
+        uint8_t normalized[8];
+        if (input->keyboard_layout.valid) {
+            ret = solar_os_usb_hid_keyboard_decode(&input->keyboard_layout, data, length, normalized);
+            if (ret == ESP_ERR_NOT_FOUND) return ESP_OK;
+            if (ret == ESP_OK) ret = keyboard_report(input, normalized, sizeof(normalized));
+        } else ret = keyboard_report(input, data, length);
     } else if (input->protocol == SOLAR_OS_USB_HID_MOUSE) {
         uint8_t buttons = 0;
         int16_t x = 0, y = 0;

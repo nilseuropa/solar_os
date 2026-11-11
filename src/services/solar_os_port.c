@@ -22,7 +22,9 @@ typedef struct {
     solar_os_port_write_fn write;
     solar_os_port_open_fn open;
     solar_os_port_close_fn close;
+    solar_os_port_control_fn control;
     void *user;
+    unsigned inflight;
     bool claimed;
     char owner[SOLAR_OS_PORT_OWNER_MAX];
     uint32_t token;
@@ -93,6 +95,7 @@ static void port_fill_info_locked(const solar_os_port_entry_t *entry, solar_os_p
     strlcpy(info->label, entry->label, sizeof(info->label));
     info->capabilities = entry->capabilities;
     info->claimed = entry->claimed;
+    info->operations = entry->inflight;
     if (entry->claimed) {
         strlcpy(info->owner, entry->owner, sizeof(info->owner));
     }
@@ -219,6 +222,7 @@ esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver)
     slot->open = driver->open;
     slot->close = driver->close;
     slot->user = driver->user;
+    slot->control = driver->control;
     port_unlock();
 
     solar_os_stream_direction_t direction = SOLAR_OS_STREAM_DIRECTION_SOURCE;
@@ -259,43 +263,48 @@ esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver)
 
 esp_err_t solar_os_port_unregister(const char *name)
 {
-    if (!port_valid_name(name)) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    return solar_os_port_unregister_many(&name, 1);
+}
 
+esp_err_t solar_os_port_unregister_many(const char *const *names, size_t count)
+{
+    if (!names || !count || count > SOLAR_OS_PORT_MAX) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < count; i++) {
+        if (!port_valid_name(names[i])) return ESP_ERR_INVALID_ARG;
+        for (size_t j = 0; j < i; j++)
+            if (!strcmp(names[i], names[j])) return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t ret = port_ensure_init();
-    if (ret != ESP_OK) {
-        return ret;
+    if (ret != ESP_OK) return ret;
+    int indexes[SOLAR_OS_PORT_MAX];
+    port_lock();
+    for (size_t i = 0; i < count; i++) {
+        indexes[i] = port_find_locked(names[i]);
+        if (indexes[i] < 0 || ports[indexes[i]].claimed ||
+            ports[indexes[i]].retiring || ports[indexes[i]].inflight) {
+            ret = indexes[i] < 0 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
+            port_unlock(); return ret;
+        }
     }
+    for (size_t i = 0; i < count; i++) ports[indexes[i]].retiring = true;
+    port_unlock();
+    ret = count == 1 ? solar_os_stream_unregister(names[0]) : solar_os_stream_unregister_many(names, count);
+    port_lock();
+    if (ret != ESP_OK && !(count == 1 && ret == ESP_ERR_NOT_FOUND)) {
+        for (size_t i = 0; i < count; i++) ports[indexes[i]].retiring = false;
+    } else {
+        for (size_t i = 0; i < count; i++) memset(&ports[indexes[i]], 0, sizeof(ports[indexes[i]]));
+        ret = ESP_OK;
+    }
+    port_unlock();
+    return ret;
+}
 
+static void port_io_done(int index)
+{
     port_lock();
-    const int index = port_find_locked(name);
-    if (index < 0) {
-        port_unlock();
-        return ESP_ERR_NOT_FOUND;
-    }
-    if (ports[index].claimed || ports[index].retiring) {
-        port_unlock();
-        return ESP_ERR_INVALID_STATE;
-    }
-    ports[index].retiring = true;
+    ports[index].inflight--;
     port_unlock();
-    ret = solar_os_stream_unregister(name);
-    if (ret != ESP_OK && ret != ESP_ERR_NOT_FOUND) {
-        port_lock();
-        ports[index].retiring = false;
-        port_unlock();
-        return ret;
-    }
-    port_lock();
-    const int current = port_find_locked(name);
-    if (current < 0 || ports[current].claimed) {
-        port_unlock();
-        return ESP_ERR_INVALID_STATE;
-    }
-    memset(&ports[current], 0, sizeof(ports[current]));
-    port_unlock();
-    return ESP_OK;
 }
 
 esp_err_t solar_os_port_claim(const char *name,
@@ -323,7 +332,7 @@ esp_err_t solar_os_port_claim(const char *name,
     }
 
     solar_os_port_entry_t *entry = &ports[index];
-    if (entry->claimed || entry->retiring) {
+    if (entry->claimed || entry->retiring || entry->inflight) {
         port_unlock();
         return ESP_ERR_INVALID_STATE;
     }
@@ -438,16 +447,20 @@ esp_err_t solar_os_port_read(const solar_os_port_handle_t *handle,
         port_unlock();
         return ESP_ERR_INVALID_ARG;
     }
-    const solar_os_port_entry_t *entry = &ports[handle->index];
+    solar_os_port_entry_t *entry = &ports[handle->index];
     if ((entry->capabilities & SOLAR_OS_PORT_CAP_READ) == 0 || entry->read == NULL) {
         port_unlock();
         return ESP_ERR_NOT_SUPPORTED;
     }
     read_fn = entry->read;
     user = entry->user;
+    const int index = handle->index;
+    entry->inflight++;
     port_unlock();
 
-    return read_fn(user, data, len, timeout_ms, read_len);
+    ret = read_fn(user, data, len, timeout_ms, read_len);
+    port_io_done(index);
+    return ret;
 }
 
 esp_err_t solar_os_port_write(const solar_os_port_handle_t *handle,
@@ -474,16 +487,60 @@ esp_err_t solar_os_port_write(const solar_os_port_handle_t *handle,
         port_unlock();
         return ESP_ERR_INVALID_ARG;
     }
-    const solar_os_port_entry_t *entry = &ports[handle->index];
+    solar_os_port_entry_t *entry = &ports[handle->index];
     if ((entry->capabilities & SOLAR_OS_PORT_CAP_WRITE) == 0 || entry->write == NULL) {
         port_unlock();
         return ESP_ERR_NOT_SUPPORTED;
     }
     write_fn = entry->write;
     user = entry->user;
+    const int index = handle->index;
+    entry->inflight++;
     port_unlock();
 
-    return write_fn(user, data, len, written);
+    ret = write_fn(user, data, len, written);
+    port_io_done(index);
+    return ret;
+}
+
+static esp_err_t port_serial_control(const solar_os_port_handle_t *handle,
+    solar_os_port_control_t request, void *data)
+{
+    if (!data) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = port_ensure_init();
+    if (err != ESP_OK) return err;
+    port_lock();
+    if (!port_handle_valid_locked(handle)) { port_unlock(); return ESP_ERR_INVALID_ARG; }
+    solar_os_port_entry_t *entry = &ports[handle->index];
+    if (!(entry->capabilities & SOLAR_OS_PORT_CAP_SERIAL) || !entry->control) {
+        port_unlock(); return ESP_ERR_NOT_SUPPORTED;
+    }
+    solar_os_port_control_fn control = entry->control;
+    void *user = entry->user;
+    const int index = handle->index;
+    entry->inflight++;
+    port_unlock();
+    err = control(user, request, data);
+    port_io_done(index);
+    return err;
+}
+
+esp_err_t solar_os_port_serial_get(const solar_os_port_handle_t *handle, solar_os_port_serial_config_t *config)
+{
+    return port_serial_control(handle, SOLAR_OS_PORT_SERIAL_GET, config);
+}
+
+esp_err_t solar_os_port_serial_configure(const solar_os_port_handle_t *handle,
+    const solar_os_port_serial_config_t *config, uint32_t mask)
+{
+    if (!config || !mask || (mask & ~SOLAR_OS_SERIAL_ALL)) return ESP_ERR_INVALID_ARG;
+    solar_os_port_serial_update_t update = {.config = *config, .mask = mask};
+    return port_serial_control(handle, SOLAR_OS_PORT_SERIAL_UPDATE, &update);
+}
+
+esp_err_t solar_os_port_serial_break(const solar_os_port_handle_t *handle, uint16_t duration_ms)
+{
+    return port_serial_control(handle, SOLAR_OS_PORT_SERIAL_BREAK, &duration_ms);
 }
 
 esp_err_t solar_os_port_get_info(const char *name, solar_os_port_info_t *info)

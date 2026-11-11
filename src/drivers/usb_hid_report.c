@@ -124,12 +124,15 @@ esp_err_t solar_os_usb_hid_report_parse(const uint8_t *data, size_t length,
                 const uint16_t start = offsets[global.id];
                 if (bits > REPORT_BITS_MAX - start) return ESP_ERR_NOT_SUPPORTED;
                 offsets[global.id] = (uint16_t)(start + bits);
-                if (depth != 0 && (value & 3U) == 2 && !(value & 0x100U)) {
+                if (depth != 0 && !(value & 1U) && !(value & 0x100U)) {
                     const application_t application = applications[depth - 1];
-                    for (uint32_t i = 0; i < global.count; i++) {
+                    const bool variable = (value & 2U) != 0;
+                    for (uint32_t i = 0; i < (variable ? global.count : 1U); i++) {
                         const solar_os_usb_hid_field_t field = {
                             .application_usage = application.usage, .application = application.instance,
                             .usage = usage_at(&local, i), .flags = value,
+                            .usage_max = local.has_maximum ? local.maximum : 0,
+                            .count = (uint16_t)(variable ? 1U : global.count),
                             .report_id = global.id, .offset = (uint16_t)(start + i * global.size),
                             .bits = (uint8_t)global.size, .logical_min = global.minimum,
                             .logical_max = global.minimum < 0 ? signed_value(global.maximum, global.maximum_bits) : global.maximum,

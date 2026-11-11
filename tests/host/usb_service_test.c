@@ -62,6 +62,18 @@ esp_err_t solar_os_usb_storage_stop(void)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+static bool serial_active, serial_accepting;
+static esp_err_t serial_start_error, serial_prepare_error;
+esp_err_t solar_os_usb_serial_start(void)
+{ assert(active && vbus_ready(false)); serial_active = serial_start_error == ESP_OK; serial_accepting = serial_active; return serial_start_error; }
+esp_err_t solar_os_usb_serial_prepare_stop(void)
+{ if (serial_active && serial_prepare_error != ESP_OK) return serial_prepare_error; serial_accepting = false; return ESP_OK; }
+void solar_os_usb_serial_cancel_stop(void) { serial_accepting = serial_active; }
+esp_err_t solar_os_usb_serial_stop(void)
+{ serial_active = serial_accepting = false; return ESP_OK; }
+#endif
+
 esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name,
                               esp_pm_lock_handle_t *handle)
 {
@@ -99,6 +111,9 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t cb)
 }
 esp_err_t usb_host_port_stop(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    assert(!serial_active);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     assert(!storage_active);
 #endif
@@ -111,6 +126,9 @@ esp_err_t usb_host_port_enable(void)
     assert(active && vbus_ready(true));
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     assert(storage_active);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    assert(serial_active && serial_accepting);
 #endif
     return enable_error;
 }
@@ -251,6 +269,13 @@ int main(void)
     assert(!opened_input->mouse_layout.valid); /* Boot fallback cannot retain the previous report layout. */
     assert(callback(USB_HOST_PORT_CLOSE, &mouse, NULL, 0) == ESP_OK);
     status(SOLAR_OS_USB_MODE_HOST);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    serial_prepare_error = ESP_ERR_INVALID_STATE;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_usb_prepare_sleep() == ESP_ERR_INVALID_STATE);
+    assert(active && serial_active && serial_accepting && storage_active && pm_locks == 2);
+    serial_prepare_error = ESP_OK;
+#endif
     unsigned previous_starts = starts;
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     storage_stop_error = ESP_ERR_INVALID_STATE;
@@ -260,6 +285,9 @@ int main(void)
     assert(vbus_ready(true)); /* Busy storage must keep its supply. */
     assert(!status(SOLAR_OS_USB_MODE_HOST).sleep_prepared);
     storage_stop_error = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    assert(serial_active && serial_accepting); /* Busy disk rolls back serial claim gating. */
+#endif
 #endif
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK && starts == previous_starts);
     stop_error = ESP_ERR_TIMEOUT;
@@ -295,6 +323,13 @@ int main(void)
     status(SOLAR_OS_USB_MODE_DEVICE);
     assert(!active && !storage_active && device_ready() && pm_locks == 0);
     storage_start_error = ESP_OK;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    serial_start_error = ESP_ERR_NO_MEM;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_DEVICE);
+    assert(!active && !serial_active && !storage_active && device_ready() && pm_locks == 0);
+    serial_start_error = ESP_OK;
 #endif
     assert(solar_os_usb_prepare_sleep() == ESP_OK);
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);

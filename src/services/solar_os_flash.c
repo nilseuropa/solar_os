@@ -1,4 +1,5 @@
 #include "solar_os_flash.h"
+#include "solar_os_flash_cache.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -23,6 +24,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_ota.h"
 #include "solar_os_ota_key.h"
+#include "solar_os_port.h"
 #include "solar_os_storage.h"
 #include "solar_os_uart.h"
 #include "solar_os_zip.h"
@@ -31,7 +33,6 @@
 #define SOLAR_OS_VERSION "0.0.0"
 #endif
 
-#define FLASH_ROOT_RELATIVE ".flash"
 #define FLASH_CATALOG_FILE "catalog.json"
 #define FLASH_SIGNATURE_FILE "catalog.sig"
 #define FLASH_CATALOG_MAX (192U * 1024U)
@@ -41,6 +42,7 @@
 #define FLASH_HTTP_DEADLINE_MS 300000U
 #define FLASH_IO_BLOCK 4096U
 #define FLASH_LOADER_BLOCK 1024U
+#define FLASH_USB_TX_BLOCK 512U
 #define FLASH_OWNER "flash"
 
 static esp_err_t flash_url_parent(const char *url, char *parent,
@@ -126,6 +128,11 @@ typedef struct {
 typedef struct {
   esp_loader_port_t base;
   const char *uart;
+  solar_os_port_handle_t serial;
+  uint8_t *usb_tx;
+  size_t usb_tx_used;
+  bool usb, usb_jtag, usb_reset;
+  esp_err_t io_error;
   int boot_pin;
   int reset_pin;
   int64_t deadline_us;
@@ -210,14 +217,6 @@ static bool flash_relative_path_valid(const char *path) {
   return true;
 }
 
-static esp_err_t flash_root(char *path, size_t path_len) {
-  if (!solar_os_storage_sd_is_mounted()) {
-    return ESP_ERR_INVALID_STATE;
-  }
-  return solar_os_storage_join_path(solar_os_storage_sd_mount_point(),
-                                    FLASH_ROOT_RELATIVE, path, path_len);
-}
-
 static esp_err_t flash_join(const char *base, const char *relative, char *path,
                             size_t path_len) {
   return solar_os_storage_join_path(base, relative, path, path_len);
@@ -231,9 +230,9 @@ static esp_err_t flash_mkdir_one(const char *path) {
   return ESP_FAIL;
 }
 
-static esp_err_t flash_ensure_root(char *root, size_t root_len) {
-  esp_err_t err = flash_root(root, root_len);
-  return err == ESP_OK ? flash_mkdir_one(root) : err;
+static esp_err_t flash_ensure_root(const solar_os_flash_cache_t *cache) {
+  esp_err_t err = solar_os_flash_cache_check(cache);
+  return err == ESP_OK ? flash_mkdir_one(cache->root) : err;
 }
 
 static esp_err_t flash_mkdir_relative(const char *root, const char *relative) {
@@ -268,7 +267,9 @@ static esp_err_t flash_mkdir_relative(const char *root, const char *relative) {
   return ESP_OK;
 }
 
-static esp_err_t flash_remove_tree(const char *path) {
+static esp_err_t flash_remove_tree(const solar_os_flash_cache_t *cache, const char *path) {
+  esp_err_t current = solar_os_flash_cache_check(cache);
+  if (current != ESP_OK) return current;
   struct stat st;
   if (stat(path, &st) != 0) {
     return errno == ENOENT ? ESP_OK : ESP_FAIL;
@@ -290,10 +291,11 @@ static esp_err_t flash_remove_tree(const char *path) {
     if (flash_join(path, entry->d_name, child, sizeof(child)) != ESP_OK) {
       err = ESP_ERR_INVALID_SIZE;
     } else {
-      err = flash_remove_tree(child);
+      err = flash_remove_tree(cache, child);
     }
   }
   closedir(directory);
+  if (err == ESP_OK) err = solar_os_flash_cache_check(cache);
   if (err == ESP_OK && rmdir(path) != 0) {
     err = ESP_FAIL;
   }
@@ -458,7 +460,7 @@ static esp_err_t flash_download_memory(const char *url, size_t max_len,
   return ESP_OK;
 }
 
-static esp_err_t flash_catalog_parse(const char *data, size_t data_len,
+static esp_err_t flash_catalog_parse(const char *cache_root, const char *data, size_t data_len,
                                      solar_os_flash_catalog_t **out_catalog) {
   if (data == NULL || out_catalog == NULL) {
     return ESP_ERR_INVALID_ARG;
@@ -508,15 +510,12 @@ static esp_err_t flash_catalog_parse(const char *data, size_t data_len,
   }
   if (err == ESP_OK) {
     catalog->count = count;
-  }
-
-  char cache_root[SOLAR_OS_STORAGE_PATH_MAX] = "";
-  if (err == ESP_OK) {
-    (void)flash_root(cache_root, sizeof(cache_root));
+    strlcpy(catalog->cache_root, cache_root, sizeof(catalog->cache_root));
   }
   for (size_t i = 0U; err == ESP_OK && i < count; i++) {
     const solar_os_json_value_t *value = solar_os_json_array_get(artifacts, i);
     solar_os_flash_artifact_t *artifact = &catalog->artifacts[i];
+    strlcpy(artifact->cache_root, cache_root, sizeof(artifact->cache_root));
     err = solar_os_json_get_path_string(value, "board_id", artifact->board_id,
                                         sizeof(artifact->board_id));
     if (err == ESP_OK)
@@ -598,18 +597,19 @@ void solar_os_flash_catalog_free(solar_os_flash_catalog_t *catalog) {
   solar_os_memory_free(catalog);
 }
 
-static esp_err_t flash_cached_catalog_read(char **catalog, size_t *catalog_len,
+static esp_err_t flash_cached_catalog_read(const solar_os_flash_cache_t *cache, char **catalog, size_t *catalog_len,
                                            char **signature,
                                            size_t *signature_len) {
-  char root[SOLAR_OS_STORAGE_PATH_MAX];
   char path[SOLAR_OS_STORAGE_PATH_MAX];
-  esp_err_t err = flash_root(root, sizeof(root));
+  esp_err_t err = solar_os_flash_cache_check(cache);
   if (err == ESP_OK)
-    err = flash_join(root, FLASH_CATALOG_FILE, path, sizeof(path));
+    err = flash_join(cache->root, FLASH_CATALOG_FILE, path, sizeof(path));
   if (err == ESP_OK)
     err = flash_read_file(path, FLASH_CATALOG_MAX, catalog, catalog_len);
   if (err == ESP_OK)
-    err = flash_join(root, FLASH_SIGNATURE_FILE, path, sizeof(path));
+    err = solar_os_flash_cache_check(cache);
+  if (err == ESP_OK)
+    err = flash_join(cache->root, FLASH_SIGNATURE_FILE, path, sizeof(path));
   if (err == ESP_OK)
     err = flash_read_file(path, FLASH_SIGNATURE_MAX, signature, signature_len);
   if (err != ESP_OK) {
@@ -619,7 +619,7 @@ static esp_err_t flash_cached_catalog_read(char **catalog, size_t *catalog_len,
   return err;
 }
 
-esp_err_t solar_os_flash_catalog_load(solar_os_flash_catalog_t **catalog) {
+esp_err_t solar_os_flash_catalog_load_at(const char *cache_root, solar_os_flash_catalog_t **catalog) {
   if (catalog == NULL) {
     return ESP_ERR_INVALID_ARG;
   }
@@ -628,30 +628,39 @@ esp_err_t solar_os_flash_catalog_load(solar_os_flash_catalog_t **catalog) {
   char *signature = NULL;
   size_t data_len = 0U;
   size_t signature_len = 0U;
-  esp_err_t err =
-      flash_cached_catalog_read(&data, &data_len, &signature, &signature_len);
+  solar_os_flash_cache_t cache;
+  esp_err_t err = solar_os_flash_cache_open(cache_root, &cache);
+  if (err == ESP_OK)
+    err = flash_cached_catalog_read(&cache, &data, &data_len, &signature, &signature_len);
   if (err == ESP_OK) {
     err = flash_verify_signature(data, data_len, signature);
   }
   if (err == ESP_OK) {
-    err = flash_catalog_parse(data, data_len, catalog);
+    err = flash_catalog_parse(cache.root, data, data_len, catalog);
   }
+  if (err == ESP_OK) err = solar_os_flash_cache_check(&cache);
+  if (err != ESP_OK) { solar_os_flash_catalog_free(*catalog); *catalog = NULL; }
+  solar_os_flash_cache_close(&cache);
   solar_os_memory_free(signature);
   solar_os_memory_free(data);
   return err;
 }
 
-static esp_err_t flash_activate_catalog(const char *catalog, size_t catalog_len,
+esp_err_t solar_os_flash_catalog_load(solar_os_flash_catalog_t **catalog) {
+  return solar_os_flash_catalog_load_at(NULL, catalog);
+}
+
+static esp_err_t flash_activate_catalog(const solar_os_flash_cache_t *cache, const char *catalog, size_t catalog_len,
                                         const char *signature,
                                         size_t signature_len) {
-  char root[SOLAR_OS_STORAGE_PATH_MAX];
+  const char *root = cache->root;
   char catalog_path[SOLAR_OS_STORAGE_PATH_MAX];
   char signature_path[SOLAR_OS_STORAGE_PATH_MAX];
   char catalog_new[SOLAR_OS_STORAGE_PATH_MAX];
   char signature_new[SOLAR_OS_STORAGE_PATH_MAX];
   char catalog_old[SOLAR_OS_STORAGE_PATH_MAX];
   char signature_old[SOLAR_OS_STORAGE_PATH_MAX];
-  esp_err_t err = flash_ensure_root(root, sizeof(root));
+  esp_err_t err = flash_ensure_root(cache);
   if (err == ESP_OK)
     err = flash_join(root, FLASH_CATALOG_FILE, catalog_path,
                      sizeof(catalog_path));
@@ -673,55 +682,36 @@ static esp_err_t flash_activate_catalog(const char *catalog, size_t catalog_len,
   if (err != ESP_OK)
     return err;
 
-  (void)remove(catalog_new);
-  (void)remove(signature_new);
-  (void)remove(catalog_old);
-  (void)remove(signature_old);
   err = flash_write_file(catalog_new, catalog, catalog_len);
   if (err == ESP_OK)
     err = flash_write_file(signature_new, signature, signature_len);
-  bool catalog_backed_up = false;
-  bool signature_backed_up = false;
-  if (err == ESP_OK && rename(catalog_path, catalog_old) == 0)
-    catalog_backed_up = true;
-  else if (err == ESP_OK && errno != ENOENT)
-    err = ESP_FAIL;
-  if (err == ESP_OK && rename(signature_path, signature_old) == 0)
-    signature_backed_up = true;
-  else if (err == ESP_OK && errno != ENOENT)
-    err = ESP_FAIL;
-  if (err == ESP_OK && rename(signature_new, signature_path) != 0)
-    err = ESP_FAIL;
-  if (err == ESP_OK && rename(catalog_new, catalog_path) != 0)
-    err = ESP_FAIL;
-  if (err != ESP_OK) {
-    (void)remove(catalog_path);
-    (void)remove(signature_path);
-    if (catalog_backed_up)
-      (void)rename(catalog_old, catalog_path);
-    if (signature_backed_up)
-      (void)rename(signature_old, signature_path);
-  } else {
-    (void)remove(catalog_old);
-    (void)remove(signature_old);
+  if (err == ESP_OK) err = solar_os_flash_cache_check(cache);
+  if (err == ESP_OK) {
+    const solar_os_storage_replacement_t files[] = {
+        {.staged_path = catalog_new, .active_path = catalog_path, .backup_path = catalog_old},
+        {.staged_path = signature_new, .active_path = signature_path, .backup_path = signature_old},
+    };
+    err = solar_os_storage_replace_files(files, 2);
   }
-  (void)remove(catalog_new);
-  (void)remove(signature_new);
+  if (solar_os_flash_cache_check(cache) == ESP_OK) {
+    (void)remove(catalog_new);
+    (void)remove(signature_new);
+  }
   return err;
 }
 
-esp_err_t solar_os_flash_catalog_refresh(solar_os_flash_progress_fn progress,
-                                         void *user) {
-  if (!solar_os_storage_sd_is_mounted()) {
-    return ESP_ERR_INVALID_STATE;
-  }
+esp_err_t solar_os_flash_catalog_refresh_at(const char *cache_root,
+    solar_os_flash_progress_fn progress, void *user) {
+  solar_os_flash_cache_t cache;
+  esp_err_t err = solar_os_flash_cache_open(cache_root, &cache);
+  if (err != ESP_OK) return err;
   char *catalog = NULL;
   char *signature = NULL;
   size_t catalog_len = 0U;
   size_t signature_len = 0U;
   char catalog_url[SOLAR_OS_FLASH_URL_MAX];
   char signature_url[SOLAR_OS_FLASH_URL_MAX];
-  esp_err_t err = flash_catalog_urls(catalog_url, sizeof(catalog_url),
+  err = flash_catalog_urls(catalog_url, sizeof(catalog_url),
                                      signature_url, sizeof(signature_url));
   if (err == ESP_OK) {
     err = flash_download_memory(catalog_url, FLASH_CATALOG_MAX,
@@ -739,20 +729,26 @@ esp_err_t solar_os_flash_catalog_refresh(solar_os_flash_progress_fn progress,
     err = flash_verify_signature(catalog, catalog_len, signature);
   }
   solar_os_flash_catalog_t *parsed = NULL;
+  if (err == ESP_OK) err = solar_os_flash_cache_check(&cache);
   if (err == ESP_OK) {
-    err = flash_catalog_parse(catalog, catalog_len, &parsed);
+    err = flash_catalog_parse(cache.root, catalog, catalog_len, &parsed);
   }
   solar_os_flash_catalog_free(parsed);
   if (err == ESP_OK) {
     err =
-        flash_activate_catalog(catalog, catalog_len, signature, signature_len);
+        flash_activate_catalog(&cache, catalog, catalog_len, signature, signature_len);
   }
   solar_os_memory_free(signature);
   solar_os_memory_free(catalog);
+  solar_os_flash_cache_close(&cache);
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_DONE, 1U, 1U, true);
   }
   return err;
+}
+
+esp_err_t solar_os_flash_catalog_refresh(solar_os_flash_progress_fn progress, void *user) {
+  return solar_os_flash_catalog_refresh_at(NULL, progress, user);
 }
 
 const solar_os_flash_artifact_t *
@@ -813,7 +809,7 @@ static esp_err_t flash_http_file_event(const solar_os_http_event_t *event,
 }
 
 static esp_err_t
-flash_download_archive(const char *url, const char *path,
+flash_download_archive(const solar_os_flash_cache_t *cache, const char *url, const char *path,
                        const solar_os_flash_artifact_t *artifact,
                        solar_os_flash_progress_fn callback, void *user) {
   FILE *file = fopen(path, "wb");
@@ -873,27 +869,21 @@ flash_download_archive(const char *url, const char *path,
        !solar_os_crypto_sha256_matches_hex(digest, artifact->archive_sha256))) {
     err = ESP_ERR_INVALID_CRC;
   }
-  if (err != ESP_OK)
+  if (err != ESP_OK && solar_os_flash_cache_check(cache) == ESP_OK)
     (void)remove(path);
   return err;
 }
 
-static esp_err_t flash_file_sha256(const char *path, uint32_t expected_size,
-                                   const char *expected_sha) {
+static esp_err_t flash_stream_sha256(FILE *file, uint32_t expected_size,
+                                     const char *expected_sha) {
   struct stat st;
-  if (stat(path, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 ||
+  if (fstat(fileno(file), &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0 ||
       (uint64_t)st.st_size != expected_size) {
     return ESP_ERR_INVALID_SIZE;
   }
-  FILE *file = fopen(path, "rb");
   uint8_t *buffer = solar_os_memory_alloc(
       FLASH_IO_BLOCK, SOLAR_OS_MEMORY_TRANSIENT, "flash.hash");
-  if (file == NULL || buffer == NULL) {
-    if (file != NULL)
-      fclose(file);
-    solar_os_memory_free(buffer);
-    return buffer == NULL ? ESP_ERR_NO_MEM : ESP_FAIL;
-  }
+  if (buffer == NULL) return ESP_ERR_NO_MEM;
   solar_os_crypto_sha256_t sha;
   solar_os_crypto_sha256_init(&sha);
   esp_err_t err = solar_os_crypto_sha256_start(&sha);
@@ -911,12 +901,21 @@ static esp_err_t flash_file_sha256(const char *path, uint32_t expected_size,
   if (err == ESP_OK)
     err = solar_os_crypto_sha256_finish(&sha, digest);
   solar_os_crypto_sha256_free(&sha);
-  fclose(file);
   solar_os_memory_free(buffer);
   if (err == ESP_OK &&
       !solar_os_crypto_sha256_matches_hex(digest, expected_sha)) {
     err = ESP_ERR_INVALID_CRC;
   }
+  if (err == ESP_OK && fseek(file, 0, SEEK_SET) != 0) err = ESP_FAIL;
+  return err;
+}
+
+static esp_err_t flash_file_sha256(const char *path, uint32_t expected_size,
+                                   const char *expected_sha) {
+  FILE *file = fopen(path, "rb");
+  if (!file) return ESP_ERR_NOT_FOUND;
+  esp_err_t err = flash_stream_sha256(file, expected_size, expected_sha);
+  fclose(file);
   return err;
 }
 
@@ -1003,18 +1002,22 @@ solar_os_flash_artifact_download(const solar_os_flash_catalog_t *catalog,
                                  const solar_os_flash_artifact_t *artifact,
                                  solar_os_flash_progress_fn progress,
                                  void *user) {
-  if (catalog == NULL || artifact == NULL || catalog->base_url[0] == '\0') {
+  if (catalog == NULL || artifact == NULL || catalog->base_url[0] == '\0' ||
+      strcmp(catalog->cache_root, artifact->cache_root)) {
     return ESP_ERR_INVALID_ARG;
   }
-  char root[SOLAR_OS_STORAGE_PATH_MAX];
-  char stage[SOLAR_OS_STORAGE_PATH_MAX];
+  solar_os_flash_cache_t cache;
+  esp_err_t err = solar_os_flash_cache_open(artifact->cache_root, &cache);
+  if (err != ESP_OK) return err;
+  const char *root = cache.root;
+  char stage[SOLAR_OS_STORAGE_PATH_MAX] = "";
   char archive_path[SOLAR_OS_STORAGE_PATH_MAX];
   char url[SOLAR_OS_FLASH_URL_MAX];
-  esp_err_t err = flash_ensure_root(root, sizeof(root));
+  err = flash_ensure_root(&cache);
   if (err == ESP_OK)
     err = flash_join(root, ".stage", stage, sizeof(stage));
   if (err == ESP_OK)
-    err = flash_remove_tree(stage);
+    err = flash_remove_tree(&cache, stage);
   if (err == ESP_OK)
     err = flash_mkdir_one(stage);
   if (err == ESP_OK)
@@ -1025,19 +1028,22 @@ solar_os_flash_artifact_download(const solar_os_flash_catalog_t *catalog,
     err = ESP_ERR_INVALID_SIZE;
   }
   if (err == ESP_OK) {
-    err = flash_download_archive(url, archive_path, artifact, progress, user);
+    err = flash_download_archive(&cache, url, archive_path, artifact, progress, user);
   }
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_EXTRACTING, 0U, 0U,
                  false);
-    err = solar_os_zip_extract(archive_path, stage, NULL);
+    err = solar_os_flash_cache_check(&cache);
+    if (err == ESP_OK) err = solar_os_zip_extract(archive_path, stage, NULL);
   }
+  if (err == ESP_OK) err = solar_os_flash_cache_check(&cache);
   if (err == ESP_OK && remove(archive_path) != 0)
     err = ESP_FAIL;
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_VERIFYING, 0U, 0U,
                  false);
-    err = flash_verify_manifest(stage, artifact);
+    err = solar_os_flash_cache_check(&cache);
+    if (err == ESP_OK) err = flash_verify_manifest(stage, artifact);
   }
 
   char parent_relative[SOLAR_OS_STORAGE_PATH_MAX];
@@ -1067,7 +1073,7 @@ solar_os_flash_artifact_download(const solar_os_flash_catalog_t *catalog,
     err = flash_join(parent, backup_name, backup, sizeof(backup));
   bool backed_up = false;
   if (err == ESP_OK)
-    err = flash_remove_tree(backup);
+    err = flash_remove_tree(&cache, backup);
   if (err == ESP_OK && rename(final_path, backup) == 0)
     backed_up = true;
   else if (err == ESP_OK && errno != ENOENT)
@@ -1075,15 +1081,16 @@ solar_os_flash_artifact_download(const solar_os_flash_catalog_t *catalog,
   if (err == ESP_OK && rename(stage, final_path) != 0)
     err = ESP_FAIL;
   if (err != ESP_OK) {
-    (void)flash_remove_tree(stage);
-    if (backed_up) {
-      (void)flash_remove_tree(final_path);
+    if (stage[0]) (void)flash_remove_tree(&cache, stage);
+    if (backed_up && solar_os_flash_cache_check(&cache) == ESP_OK) {
+      (void)flash_remove_tree(&cache, final_path);
       (void)rename(backup, final_path);
     }
   } else {
-    (void)flash_remove_tree(backup);
+    (void)flash_remove_tree(&cache, backup);
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_DONE, 1U, 1U, true);
   }
+  solar_os_flash_cache_close(&cache);
   return err;
 }
 
@@ -1091,12 +1098,32 @@ static flash_loader_port_t *flash_loader_port(esp_loader_port_t *base) {
   return container_of(base, flash_loader_port_t, base);
 }
 
-static esp_loader_error_t flash_port_init(esp_loader_port_t *base) {
-  (void)base;
+static esp_loader_error_t flash_port_flush_usb(flash_loader_port_t *port) {
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  size_t offset = 0U;
+  while (offset < port->usb_tx_used) {
+    size_t written = 0U;
+    port->io_error = solar_os_port_write(&port->serial, port->usb_tx + offset,
+        port->usb_tx_used - offset, &written);
+    if (port->io_error != ESP_OK || written == 0U || written > port->usb_tx_used - offset) {
+      if (port->io_error == ESP_OK) port->io_error = ESP_FAIL;
+      return port->io_error == ESP_ERR_TIMEOUT ? ESP_LOADER_ERROR_TIMEOUT : ESP_LOADER_ERROR_FAIL;
+    }
+    offset += written;
+  }
+  port->usb_tx_used = 0U;
   return ESP_LOADER_SUCCESS;
 }
 
-static void flash_port_deinit(esp_loader_port_t *base) { (void)base; }
+static esp_loader_error_t flash_port_init(esp_loader_port_t *base) {
+  flash_loader_port(base)->usb_tx_used = 0U;
+  return ESP_LOADER_SUCCESS;
+}
+
+static void flash_port_deinit(esp_loader_port_t *base) {
+  /* Discard any unfinished command after an error. */
+  flash_loader_port(base)->usb_tx_used = 0U;
+}
 
 static void flash_port_delay(esp_loader_port_t *base, uint32_t ms) {
   (void)base;
@@ -1114,8 +1141,36 @@ static uint32_t flash_port_remaining(esp_loader_port_t *base) {
   return remaining > 0 ? (uint32_t)(remaining / 1000) : 0U;
 }
 
+static void flash_port_lines(flash_loader_port_t *port, bool dtr, bool rts) {
+  if (port->io_error != ESP_OK) return;
+  const solar_os_port_serial_config_t config = {.dtr = dtr, .rts = rts};
+  port->io_error = solar_os_port_serial_configure(&port->serial, &config,
+      SOLAR_OS_SERIAL_DTR | SOLAR_OS_SERIAL_RTS);
+}
+
+static void flash_port_usb_reset(flash_loader_port_t *port) {
+  flash_port_lines(port, false, true);
+  flash_port_delay(&port->base, 100U);
+  flash_port_lines(port, false, false);
+}
+
 static void flash_port_enter_bootloader(esp_loader_port_t *base) {
   flash_loader_port_t *port = flash_loader_port(base);
+  if (port->usb_reset) {
+    if (port->usb_jtag) {
+      flash_port_lines(port, true, false);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, true, true);
+      flash_port_usb_reset(port);
+    } else {
+      flash_port_lines(port, false, true);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, true, false);
+      flash_port_delay(base, 100U);
+      flash_port_lines(port, false, false);
+    }
+    return;
+  }
   if (port->boot_pin >= 0)
     (void)solar_os_gpio_write(port->boot_pin, false);
   if (port->reset_pin >= 0) {
@@ -1130,6 +1185,8 @@ static void flash_port_enter_bootloader(esp_loader_port_t *base) {
 
 static void flash_port_reset_target(esp_loader_port_t *base) {
   flash_loader_port_t *port = flash_loader_port(base);
+  if (flash_port_flush_usb(port) != ESP_LOADER_SUCCESS) return;
+  if (port->usb_reset) { flash_port_usb_reset(port); return; }
   if (port->reset_pin >= 0) {
     (void)solar_os_gpio_write(port->reset_pin, false);
     flash_port_delay(base, 100U);
@@ -1139,22 +1196,48 @@ static void flash_port_reset_target(esp_loader_port_t *base) {
 
 static esp_loader_error_t flash_port_change_rate(esp_loader_port_t *base,
                                                  uint32_t baud_rate) {
-  return solar_os_uart_bus_set_baud_rate_owned(
-             flash_loader_port(base)->uart, baud_rate, FLASH_OWNER) == ESP_OK
-             ? ESP_LOADER_SUCCESS
-             : ESP_LOADER_ERROR_FAIL;
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  esp_loader_error_t flushed = flash_port_flush_usb(port);
+  if (flushed != ESP_LOADER_SUCCESS) return flushed;
+  const solar_os_port_serial_config_t config = {.baud_rate = baud_rate};
+  port->io_error = port->usb ? solar_os_port_serial_configure(&port->serial,
+      &config, SOLAR_OS_SERIAL_BAUD) : solar_os_uart_bus_set_baud_rate_owned(
+      port->uart, baud_rate, FLASH_OWNER);
+  return port->io_error == ESP_OK ? ESP_LOADER_SUCCESS : ESP_LOADER_ERROR_FAIL;
 }
 
 static esp_loader_error_t flash_port_write(esp_loader_port_t *base,
                                            const uint8_t *data, uint16_t size,
                                            uint32_t timeout) {
   (void)timeout;
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  if (port->usb) {
+    if (!port->usb_tx) return ESP_LOADER_ERROR_FAIL;
+    /* SLIP emits many one- and two-byte writes. Batch those fragments until
+     * the buffer fills or the loader requests a response. Sending every
+     * fragment as its own USB transfer exhausts the RAM-upload deadline. */
+    size_t offset = 0U;
+    while (offset < size) {
+      const size_t room = FLASH_USB_TX_BLOCK - port->usb_tx_used;
+      const size_t count = size - offset < room ? size - offset : room;
+      memcpy(port->usb_tx + port->usb_tx_used, data + offset, count);
+      port->usb_tx_used += count;
+      offset += count;
+      if (port->usb_tx_used == FLASH_USB_TX_BLOCK) {
+        esp_loader_error_t flushed = flash_port_flush_usb(port);
+        if (flushed != ESP_LOADER_SUCCESS) return flushed;
+      }
+    }
+    return ESP_LOADER_SUCCESS;
+  }
   size_t offset = 0U;
   while (offset < size) {
     size_t written = 0U;
-    if (solar_os_bus_uart_write(flash_loader_port(base)->uart, data + offset,
-                                size - offset, &written) != ESP_OK ||
-        written == 0U) {
+    port->io_error = solar_os_bus_uart_write(port->uart,
+        data + offset, size - offset, &written);
+    if (port->io_error != ESP_OK || written == 0U || written > size - offset) {
       return ESP_LOADER_ERROR_FAIL;
     }
     offset += written;
@@ -1165,20 +1248,27 @@ static esp_loader_error_t flash_port_write(esp_loader_port_t *base,
 static esp_loader_error_t flash_port_read(esp_loader_port_t *base,
                                           uint8_t *data, uint16_t size,
                                           uint32_t timeout) {
+  flash_loader_port_t *port = flash_loader_port(base);
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
   const int64_t deadline = esp_timer_get_time() + (int64_t)timeout * 1000;
+  esp_loader_error_t flushed = flash_port_flush_usb(port);
+  if (flushed != ESP_LOADER_SUCCESS) return flushed;
   size_t offset = 0U;
   while (offset < size) {
     const int64_t remaining_us = deadline - esp_timer_get_time();
     if (remaining_us <= 0)
       return ESP_LOADER_ERROR_TIMEOUT;
     size_t read_len = 0U;
-    esp_err_t err = solar_os_bus_uart_read(
-        flash_loader_port(base)->uart, data + offset, size - offset,
-        (uint32_t)((remaining_us + 999) / 1000), &read_len);
+    const uint32_t wait_ms = (uint32_t)((remaining_us + 999) / 1000);
+    esp_err_t err = port->usb ? solar_os_port_read(&port->serial,
+        data + offset, size - offset, wait_ms, &read_len) : solar_os_bus_uart_read(
+        port->uart, data + offset, size - offset, wait_ms, &read_len);
     if (err == ESP_ERR_TIMEOUT)
       return ESP_LOADER_ERROR_TIMEOUT;
-    if (err != ESP_OK)
+    if (err != ESP_OK || read_len > size - offset) {
+      port->io_error = err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
       return ESP_LOADER_ERROR_FAIL;
+    }
     offset += read_len;
   }
   return ESP_LOADER_SUCCESS;
@@ -1286,16 +1376,15 @@ static void flash_release_gpio(const flash_loader_port_t *port) {
 
 static esp_err_t flash_factory_path(const solar_os_flash_artifact_t *artifact,
                                     char *path, size_t path_len) {
-  char root[SOLAR_OS_STORAGE_PATH_MAX];
   char relative[SOLAR_OS_STORAGE_PATH_MAX];
-  esp_err_t err = flash_root(root, sizeof(root));
+  esp_err_t err = solar_os_flash_cache_mounted(artifact->cache_root) ? ESP_OK : ESP_ERR_INVALID_STATE;
   const int written =
       snprintf(relative, sizeof(relative), "%s/%s/%s/factory.bin",
                artifact->board_id, artifact->flavor, artifact->version);
   if (err == ESP_OK && (written < 0 || (size_t)written >= sizeof(relative))) {
     err = ESP_ERR_INVALID_SIZE;
   }
-  return err == ESP_OK ? flash_join(root, relative, path, path_len) : err;
+  return err == ESP_OK ? flash_join(artifact->cache_root, relative, path, path_len) : err;
 }
 
 esp_err_t
@@ -1306,31 +1395,28 @@ solar_os_flash_artifact_delete(const solar_os_flash_artifact_t *artifact) {
     return ESP_ERR_INVALID_ARG;
   }
 
-  char root[SOLAR_OS_STORAGE_PATH_MAX];
+  solar_os_flash_cache_t cache;
+  esp_err_t err = solar_os_flash_cache_open(artifact->cache_root, &cache);
+  if (err != ESP_OK) return err;
   char board[SOLAR_OS_STORAGE_PATH_MAX];
   char flavor[SOLAR_OS_STORAGE_PATH_MAX];
   char version[SOLAR_OS_STORAGE_PATH_MAX];
-  esp_err_t err = flash_root(root, sizeof(root));
   if (err == ESP_OK)
-    err = flash_join(root, artifact->board_id, board, sizeof(board));
+    err = flash_join(cache.root, artifact->board_id, board, sizeof(board));
   if (err == ESP_OK)
     err = flash_join(board, artifact->flavor, flavor, sizeof(flavor));
   if (err == ESP_OK)
     err = flash_join(flavor, artifact->version, version, sizeof(version));
-  if (err != ESP_OK)
-    return err;
-
   struct stat st;
-  if (stat(version, &st) != 0)
-    return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
-  if (!S_ISDIR(st.st_mode))
-    return ESP_ERR_INVALID_STATE;
-
-  err = flash_remove_tree(version);
+  if (err == ESP_OK && stat(version, &st) != 0)
+    err = errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+  if (err == ESP_OK && !S_ISDIR(st.st_mode)) err = ESP_ERR_INVALID_STATE;
+  if (err == ESP_OK) err = flash_remove_tree(&cache, version);
   if (err == ESP_OK) {
     (void)rmdir(flavor);
     (void)rmdir(board);
   }
+  solar_os_flash_cache_close(&cache);
   return err;
 }
 
@@ -1343,18 +1429,19 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
       options->port[0] == '\0' || artifact->factory_size % 4U != 0U) {
     return ESP_ERR_INVALID_ARG;
   }
+  solar_os_flash_cache_t cache;
+  esp_err_t err = solar_os_flash_cache_open(artifact->cache_root, &cache);
+  if (err != ESP_OK) return err;
   char factory_path[SOLAR_OS_STORAGE_PATH_MAX];
-  esp_err_t err =
-      flash_factory_path(artifact, factory_path, sizeof(factory_path));
+  err = flash_factory_path(artifact, factory_path, sizeof(factory_path));
+  FILE *factory = err == ESP_OK ? fopen(factory_path, "rb") : NULL;
+  if (err == ESP_OK && factory == NULL) err = ESP_ERR_NOT_FOUND;
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_VERIFYING, 0U,
                  artifact->factory_size, true);
-    err = flash_file_sha256(factory_path, artifact->factory_size,
+    err = flash_stream_sha256(factory, artifact->factory_size,
                             artifact->factory_sha256);
   }
-  FILE *factory = err == ESP_OK ? fopen(factory_path, "rb") : NULL;
-  if (err == ESP_OK && factory == NULL)
-    err = ESP_ERR_NOT_FOUND;
   uint8_t *buffer = NULL;
   if (err == ESP_OK) {
     buffer = solar_os_memory_alloc(
@@ -1364,31 +1451,47 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   }
 
   solar_os_uart_status_t previous = {0};
-  bool uart_acquired = false;
-  if (err == ESP_OK) {
-    flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_CONNECTING, 0U, 0U,
-                 false);
+  solar_os_port_serial_config_t previous_serial = {0};
+  bool uart_acquired = false, serial_acquired = false, serial_saved = false;
+  solar_os_port_info_t port_info = {0};
+  const bool usb = solar_os_port_get_info(options->port, &port_info) == ESP_OK &&
+      (port_info.capabilities & SOLAR_OS_PORT_CAP_SERIAL);
+  uint8_t *usb_tx = NULL;
+  if (err == ESP_OK && usb) {
+    usb_tx = solar_os_memory_alloc(FLASH_USB_TX_BLOCK,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "flash.usb.tx");
+    if (!usb_tx) err = ESP_ERR_NO_MEM;
   }
-  if (err == ESP_OK &&
-      !solar_os_uart_get_bus_status(options->port, &previous)) {
-    err = ESP_ERR_NOT_FOUND;
-  }
+  flash_loader_port_t port = {
+      .base = {.ops = &flash_port_ops}, .uart = options->port,
+      .serial = SOLAR_OS_PORT_HANDLE_INIT, .usb = usb,
+      .usb_tx = usb_tx,
+      .usb_jtag = (port_info.capabilities & SOLAR_OS_PORT_CAP_USB_JTAG) != 0,
+      .usb_reset = usb && options->boot_pin < 0 && options->reset_pin < 0,
+      .boot_pin = options->boot_pin, .reset_pin = options->reset_pin,
+  };
   if (err == ESP_OK) {
-    err = solar_os_bus_acquire(options->port, SOLAR_OS_BUS_PROTOCOL_UART,
-                               FLASH_OWNER);
-    uart_acquired = err == ESP_OK;
-  }
-  if (err == ESP_OK) {
-    err = solar_os_uart_bus_set_baud_rate_owned(options->port, 115200U,
-                                                FLASH_OWNER);
+    flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_CONNECTING, 0U, 0U, false);
+    if (usb) {
+      err = solar_os_port_claim(options->port, FLASH_OWNER, &port.serial);
+      serial_acquired = err == ESP_OK;
+      if (err == ESP_OK) {
+        err = solar_os_port_serial_get(&port.serial, &previous_serial);
+        serial_saved = err == ESP_OK;
+      }
+      const solar_os_port_serial_config_t config = {.baud_rate = 115200, .data_bits = 8};
+      if (err == ESP_OK) err = solar_os_port_serial_configure(&port.serial, &config,
+          SOLAR_OS_SERIAL_BAUD | SOLAR_OS_SERIAL_BITS | SOLAR_OS_SERIAL_PARITY | SOLAR_OS_SERIAL_STOP);
+    } else {
+      if (!solar_os_uart_get_bus_status(options->port, &previous)) err = ESP_ERR_NOT_FOUND;
+      if (err == ESP_OK) {
+        err = solar_os_bus_acquire(options->port, SOLAR_OS_BUS_PROTOCOL_UART, FLASH_OWNER);
+        uart_acquired = err == ESP_OK;
+      }
+      if (err == ESP_OK) err = solar_os_uart_bus_set_baud_rate_owned(options->port, 115200U, FLASH_OWNER);
+    }
   }
 
-  flash_loader_port_t port = {
-      .base = {.ops = &flash_port_ops},
-      .uart = options->port,
-      .boot_pin = options->boot_pin,
-      .reset_pin = options->reset_pin,
-  };
   bool gpio_claimed = false;
   if (err == ESP_OK) {
     err = flash_claim_gpio(&port);
@@ -1406,6 +1509,7 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   connect.trials = 12;
   if (err == ESP_OK) {
     err = flash_loader_error(esp_loader_connect_with_stub(&loader, &connect));
+    if (port.io_error != ESP_OK) err = port.io_error;
   }
   if (port.boot_pin >= 0)
     (void)solar_os_gpio_write(port.boot_pin, true);
@@ -1440,7 +1544,8 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_ERASING, 0U, 0U,
                  false);
-    err = flash_loader_error(esp_loader_flash_erase(&loader));
+    err = solar_os_flash_cache_check(&cache);
+    if (err == ESP_OK) err = flash_loader_error(esp_loader_flash_erase(&loader));
   }
   esp_loader_flash_cfg_t config = {
       .offset = 0U,
@@ -1473,13 +1578,23 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
                  artifact->factory_size, artifact->factory_size, true);
     err = flash_loader_error(esp_loader_flash_finish(&loader, &config));
   }
-  if (err == ESP_OK && options->reset_pin >= 0) {
+  if (err == ESP_OK && (port.usb_reset || options->reset_pin >= 0)) {
     esp_loader_reset_target(&loader);
+    if (port.io_error != ESP_OK) err = port.io_error;
   }
   if (loader_initialized)
     esp_loader_deinit(&loader);
   if (gpio_claimed)
     flash_release_gpio(&port);
+  if (serial_acquired) {
+    if (serial_saved) (void)solar_os_port_serial_configure(&port.serial, &previous_serial,
+        SOLAR_OS_SERIAL_BAUD | SOLAR_OS_SERIAL_BITS | SOLAR_OS_SERIAL_PARITY | SOLAR_OS_SERIAL_STOP);
+    if (port.usb_reset) {
+      const solar_os_port_serial_config_t inactive = {0};
+      (void)solar_os_port_serial_configure(&port.serial, &inactive, SOLAR_OS_SERIAL_DTR | SOLAR_OS_SERIAL_RTS);
+    }
+    (void)solar_os_port_release(&port.serial);
+  }
   if (uart_acquired) {
     (void)solar_os_uart_bus_set_baud_rate_owned(
         options->port, previous.baud_rate, FLASH_OWNER);
@@ -1488,6 +1603,8 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   }
   if (factory != NULL)
     fclose(factory);
+  solar_os_flash_cache_close(&cache);
+  solar_os_memory_free(usb_tx);
   solar_os_memory_free(buffer);
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_DONE,
