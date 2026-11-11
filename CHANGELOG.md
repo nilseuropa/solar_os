@@ -1,16 +1,18 @@
 # SolarOS Changelog
 
-## Unreleased
-
-- Improved Wi-Fi reliability during video capture on GOOUUU ESP32-S3CAM.
-  Cameras no longer remain active after shutdown or a failed start.
-- Fixed SolarWriter USB host startup and automatic USB peripheral power
-  switching.
-- Reduced internal RAM use on SolarWriter, CrowPanel, SolarTerm and supported
-  color and e-paper display boards, leaving more memory available for apps.
-
 ## 4.x
 
+- **4.17.10** — 2026-11-11 — Added USB hub support, report-protocol
+  keyboards, and USB serial connections for CDC-ACM, Espressif native USB,
+  CP210x, and CH340/CH341 devices. Flash can now program ESP boards over USB
+  serial and cache firmware on mounted SD cards or USB drives; fixed USB
+  programming timeouts. Enabled the Freenove 4.0-inch onboard RGB LED as
+  `pixels0`, and expanded the I/O app's Pins view to show onboard pin ownership.
+  Improved Wi-Fi reliability during video capture on GOOUUU ESP32-S3CAM;
+  cameras no longer remain active after shutdown or a failed start. Fixed
+  SolarWriter USB host startup and automatic USB peripheral power switching.
+  Reduced internal RAM use on SolarWriter, CrowPanel, SolarTerm and supported
+  color and e-paper display boards, leaving more memory available for apps.
 - **4.17.9** — 2026-11-10 — Expanded USB host support to ESP32-S3 targets
   with accessible native USB data lines. Added one FAT12/16/32 USB flash or
   UFI/CBI floppy drive at `/usb0`, with automatic mounting, removable-media
