@@ -61,7 +61,8 @@ class UsbSerialTest(unittest.TestCase):
         start = source.index("typedef struct {\n  esp_loader_port_t base;")
         end = source.index("} flash_loader_port_t;", start) + len("} flash_loader_port_t;")
         code = (ROOT / "tests/host/usb_flash_transport_test.inc").read_text() + source[start:end] + "\n"
-        for name in ("flash_loader_port", "flash_port_delay", "flash_port_lines", "flash_port_usb_reset",
+        for name in ("flash_loader_port", "flash_port_flush_usb", "flash_port_init", "flash_port_deinit",
+                     "flash_port_delay", "flash_port_start_timer", "flash_port_remaining", "flash_port_lines", "flash_port_usb_reset",
                      "flash_port_enter_bootloader", "flash_port_reset_target", "flash_port_change_rate",
                      "flash_port_write", "flash_port_read"):
             code += self.function(source, name)

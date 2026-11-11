@@ -42,6 +42,7 @@
 #define FLASH_HTTP_DEADLINE_MS 300000U
 #define FLASH_IO_BLOCK 4096U
 #define FLASH_LOADER_BLOCK 1024U
+#define FLASH_USB_TX_BLOCK 512U
 #define FLASH_OWNER "flash"
 
 static esp_err_t flash_url_parent(const char *url, char *parent,
@@ -128,6 +129,8 @@ typedef struct {
   esp_loader_port_t base;
   const char *uart;
   solar_os_port_handle_t serial;
+  uint8_t *usb_tx;
+  size_t usb_tx_used;
   bool usb, usb_jtag, usb_reset;
   esp_err_t io_error;
   int boot_pin;
@@ -1095,12 +1098,32 @@ static flash_loader_port_t *flash_loader_port(esp_loader_port_t *base) {
   return container_of(base, flash_loader_port_t, base);
 }
 
-static esp_loader_error_t flash_port_init(esp_loader_port_t *base) {
-  (void)base;
+static esp_loader_error_t flash_port_flush_usb(flash_loader_port_t *port) {
+  if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  size_t offset = 0U;
+  while (offset < port->usb_tx_used) {
+    size_t written = 0U;
+    port->io_error = solar_os_port_write(&port->serial, port->usb_tx + offset,
+        port->usb_tx_used - offset, &written);
+    if (port->io_error != ESP_OK || written == 0U || written > port->usb_tx_used - offset) {
+      if (port->io_error == ESP_OK) port->io_error = ESP_FAIL;
+      return port->io_error == ESP_ERR_TIMEOUT ? ESP_LOADER_ERROR_TIMEOUT : ESP_LOADER_ERROR_FAIL;
+    }
+    offset += written;
+  }
+  port->usb_tx_used = 0U;
   return ESP_LOADER_SUCCESS;
 }
 
-static void flash_port_deinit(esp_loader_port_t *base) { (void)base; }
+static esp_loader_error_t flash_port_init(esp_loader_port_t *base) {
+  flash_loader_port(base)->usb_tx_used = 0U;
+  return ESP_LOADER_SUCCESS;
+}
+
+static void flash_port_deinit(esp_loader_port_t *base) {
+  /* Discard any unfinished command after an error. */
+  flash_loader_port(base)->usb_tx_used = 0U;
+}
 
 static void flash_port_delay(esp_loader_port_t *base, uint32_t ms) {
   (void)base;
@@ -1162,6 +1185,7 @@ static void flash_port_enter_bootloader(esp_loader_port_t *base) {
 
 static void flash_port_reset_target(esp_loader_port_t *base) {
   flash_loader_port_t *port = flash_loader_port(base);
+  if (flash_port_flush_usb(port) != ESP_LOADER_SUCCESS) return;
   if (port->usb_reset) { flash_port_usb_reset(port); return; }
   if (port->reset_pin >= 0) {
     (void)solar_os_gpio_write(port->reset_pin, false);
@@ -1174,6 +1198,8 @@ static esp_loader_error_t flash_port_change_rate(esp_loader_port_t *base,
                                                  uint32_t baud_rate) {
   flash_loader_port_t *port = flash_loader_port(base);
   if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  esp_loader_error_t flushed = flash_port_flush_usb(port);
+  if (flushed != ESP_LOADER_SUCCESS) return flushed;
   const solar_os_port_serial_config_t config = {.baud_rate = baud_rate};
   port->io_error = port->usb ? solar_os_port_serial_configure(&port->serial,
       &config, SOLAR_OS_SERIAL_BAUD) : solar_os_uart_bus_set_baud_rate_owned(
@@ -1187,11 +1213,29 @@ static esp_loader_error_t flash_port_write(esp_loader_port_t *base,
   (void)timeout;
   flash_loader_port_t *port = flash_loader_port(base);
   if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
+  if (port->usb) {
+    if (!port->usb_tx) return ESP_LOADER_ERROR_FAIL;
+    /* SLIP emits many one- and two-byte writes. Batch those fragments until
+     * the buffer fills or the loader requests a response. Sending every
+     * fragment as its own USB transfer exhausts the RAM-upload deadline. */
+    size_t offset = 0U;
+    while (offset < size) {
+      const size_t room = FLASH_USB_TX_BLOCK - port->usb_tx_used;
+      const size_t count = size - offset < room ? size - offset : room;
+      memcpy(port->usb_tx + port->usb_tx_used, data + offset, count);
+      port->usb_tx_used += count;
+      offset += count;
+      if (port->usb_tx_used == FLASH_USB_TX_BLOCK) {
+        esp_loader_error_t flushed = flash_port_flush_usb(port);
+        if (flushed != ESP_LOADER_SUCCESS) return flushed;
+      }
+    }
+    return ESP_LOADER_SUCCESS;
+  }
   size_t offset = 0U;
   while (offset < size) {
     size_t written = 0U;
-    port->io_error = port->usb ? solar_os_port_write(&port->serial, data + offset,
-        size - offset, &written) : solar_os_bus_uart_write(port->uart,
+    port->io_error = solar_os_bus_uart_write(port->uart,
         data + offset, size - offset, &written);
     if (port->io_error != ESP_OK || written == 0U || written > size - offset) {
       return ESP_LOADER_ERROR_FAIL;
@@ -1207,6 +1251,8 @@ static esp_loader_error_t flash_port_read(esp_loader_port_t *base,
   flash_loader_port_t *port = flash_loader_port(base);
   if (port->io_error != ESP_OK) return ESP_LOADER_ERROR_FAIL;
   const int64_t deadline = esp_timer_get_time() + (int64_t)timeout * 1000;
+  esp_loader_error_t flushed = flash_port_flush_usb(port);
+  if (flushed != ESP_LOADER_SUCCESS) return flushed;
   size_t offset = 0U;
   while (offset < size) {
     const int64_t remaining_us = deadline - esp_timer_get_time();
@@ -1410,9 +1456,16 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   solar_os_port_info_t port_info = {0};
   const bool usb = solar_os_port_get_info(options->port, &port_info) == ESP_OK &&
       (port_info.capabilities & SOLAR_OS_PORT_CAP_SERIAL);
+  uint8_t *usb_tx = NULL;
+  if (err == ESP_OK && usb) {
+    usb_tx = solar_os_memory_alloc(FLASH_USB_TX_BLOCK,
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "flash.usb.tx");
+    if (!usb_tx) err = ESP_ERR_NO_MEM;
+  }
   flash_loader_port_t port = {
       .base = {.ops = &flash_port_ops}, .uart = options->port,
       .serial = SOLAR_OS_PORT_HANDLE_INIT, .usb = usb,
+      .usb_tx = usb_tx,
       .usb_jtag = (port_info.capabilities & SOLAR_OS_PORT_CAP_USB_JTAG) != 0,
       .usb_reset = usb && options->boot_pin < 0 && options->reset_pin < 0,
       .boot_pin = options->boot_pin, .reset_pin = options->reset_pin,
@@ -1551,6 +1604,7 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
   if (factory != NULL)
     fclose(factory);
   solar_os_flash_cache_close(&cache);
+  solar_os_memory_free(usb_tx);
   solar_os_memory_free(buffer);
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_DONE,
