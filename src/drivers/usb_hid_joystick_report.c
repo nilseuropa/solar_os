@@ -9,7 +9,8 @@ typedef struct {
 
 static esp_err_t collect_joystick_field(const solar_os_usb_hid_field_t *field, void *context)
 {
-    if (field->application_usage != 0x10004 && field->application_usage != 0x10005) return ESP_OK;
+    if (!(field->flags & 2U) ||
+        (field->application_usage != 0x10004 && field->application_usage != 0x10005)) return ESP_OK;
     joystick_parser_t *parser = context;
     if (parser->application != 0 && parser->application != field->application) return ESP_OK;
     solar_os_usb_hid_joystick_layout_t *layout = parser->layout;

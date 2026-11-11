@@ -12,7 +12,7 @@ typedef struct {
 
 static esp_err_t collect_mouse_field(const solar_os_usb_hid_field_t *field, void *context)
 {
-    if (field->application_usage != 0x10002 || field->bits > 16) return ESP_OK;
+    if (!(field->flags & 2U) || field->application_usage != 0x10002 || field->bits > 16) return ESP_OK;
     const bool button = field->usage >= 0x90001 && field->usage <= 0x90003;
     const bool axis = (field->usage == 0x10030 || field->usage == 0x10031) &&
         (field->flags & 4U) && field->logical_min < 0;

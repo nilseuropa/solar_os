@@ -1,6 +1,7 @@
 # LilyGO T-LoRa-Pager: ESP32-S3 with 16 MB QSPI flash and 8 MB QUAD (QSPI) PSRAM.
 # Unlike the octal-PSRAM N16R8 modules, this board must NOT use SPIRAM_MODE_OCT.
 CONFIG_IDF_TARGET="esp32s3"
+CONFIG_USB_HOST_HUBS_SUPPORTED=y
 CONFIG_COMPILER_OPTIMIZATION_SIZE=y
 # Native model loading catches allocation failures from ESP-DL's C++ containers.
 CONFIG_COMPILER_CXX_EXCEPTIONS=y

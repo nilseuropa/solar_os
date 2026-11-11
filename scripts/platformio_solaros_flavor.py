@@ -203,6 +203,7 @@ tracked_files = (
     project_dir / "scripts" / "generate_expansion_profiles.py",
     project_dir / "scripts" / "platformio_solaros_flavor.py",
     project_dir / "scripts" / "cxx_sdkconfig.cmake",
+    project_dir / "scripts" / "usb_host_sdkconfig.cmake",
     project_dir / "scripts" / "sdkconfig_minimums.cmake",
     project_dir / "scripts" / "solaros_update_layout.py",
     project_dir / "scripts" / "solaros_build_lock.py",

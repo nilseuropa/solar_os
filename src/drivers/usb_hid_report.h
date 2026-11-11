@@ -12,8 +12,8 @@
 #define SOLAR_OS_USB_HID_JOYSTICK 3U
 
 typedef struct {
-    uint32_t application_usage, usage, flags;
-    uint16_t application, offset;
+    uint32_t application_usage, usage, usage_max, flags;
+    uint16_t application, offset, count;
     uint8_t report_id, bits;
     int64_t logical_min, logical_max;
 } solar_os_usb_hid_field_t;
@@ -26,7 +26,8 @@ typedef struct {
 typedef esp_err_t (*solar_os_usb_hid_field_callback_t)(
     const solar_os_usb_hid_field_t *field, void *context);
 
-/* Visits variable Input fields; offsets exclude report-ID prefixes. The
+/* Visits variable Input fields individually and data arrays once (count
+ * elements; usage..usage_max when ranged). Offsets exclude report-ID prefixes. The
  * complete descriptor is validated before info is published. Bounded, no heap. */
 esp_err_t solar_os_usb_hid_report_parse(const uint8_t *data, size_t length,
     solar_os_usb_hid_field_callback_t callback, void *context,

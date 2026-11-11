@@ -1433,6 +1433,7 @@ sources = [
   "board/solar_os_board_usb.c",
   "drivers/usb_host_port.c",
   "drivers/usb_hid_report.c",
+  "drivers/usb_hid_keyboard_report.c",
   "drivers/usb_hid_mouse_report.c",
   "drivers/usb_hid_joystick_report.c",
   "services/solar_os_usb.c",

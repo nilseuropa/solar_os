@@ -4,7 +4,7 @@ title = "USB host"
 section = "hardware"
 summary = "Use USB input devices and one FAT flash or UFI/CBI floppy drive through the ESP32-S3 internal PHY"
 aliases = ["usb-host"]
-keywords = "usb host hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
+keywords = "usb host hub hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
 packages_any = ["service_usb_host", "service_usb_storage"]
 +++
 # USB host
@@ -19,10 +19,32 @@ CDC/Serial-JTAG port in this mode; boards with only a UART console leave the
 native USB host idle. The selected mode is volatile and is not saved across
 a restart. Native CDC support is not required for hosting.
 
+## USB hubs
+
+External USB hubs allow supported keyboards, mice, gamepads, and one USB
+storage drive to share the native USB port. Connect the hub's upstream port
+to SolarOS and the peripherals to its downstream ports. Use an externally
+powered hub when the board's host supply cannot power all attached devices.
+`usb mode host` starts enumeration; `usb devices` lists the supported
+peripheral interfaces after they appear, including devices behind a hub.
+
+All hubs and peripherals share the ESP32-S3's eight USB host channels.
+Each physical device needs a channel for control transfers, and each claimed
+endpoint needs another. A typical hub consumes two channels. The number of
+usable peripherals therefore depends on their interfaces, not just the hub's
+port count. For example, a hub, separate keyboard, separate mouse, and BOT
+storage drive need at least nine channels and cannot all be active together. A combined
+keyboard/mouse receiver can use fewer channels than two separate USB devices.
+SolarOS routes up to eight HID interfaces within the hardware channel limit.
+
+Unplugging a peripheral removes its input sources or storage mount. Unplugging
+the hub removes all of its attached peripherals. Close files and unmount
+USB storage before disconnecting the drive or hub.
+
 ## USB storage
 
-With `service.usb-storage`, a single directly connected BOT/SCSI USB flash
-drive mounts at `/usb0` after `usb mode host`. UFI/CBI USB floppy drives
+With `service.usb-storage`, one BOT/SCSI USB flash drive connected directly
+or through a hub mounts at `/usb0` after `usb mode host`. UFI/CBI USB floppy drives
 (subclass `04h`, protocol `00h`) are supported as well. FAT12, FAT16, and FAT32 are
 supported; exFAT and NTFS are not. Use `usb devices` and `disk lsblk` to inspect
 the drive. Close files, then run `disk umount usb0` before unplugging it.
@@ -32,6 +54,9 @@ write-protected disk is shown as such in `usb status`. See `help storage` for
 disk insertion, removal, and sleep behavior.
 If a drive stops responding, close its files and run `usb mode device` followed
 by `usb mode host` to reconnect it.
+Only the first detected drive is selected. Additional storage drives are
+ignored; unplug and reconnect an ignored drive after removing the selected
+drive to use it as `/usb0`.
 
 ## Connect hardware
 
@@ -82,8 +107,8 @@ not implemented.
 Other supported profiles require a suitable regulated external 5 V peripheral
 supply and common ground; the host service does not configure their power
 switches or charger boost modes. Arrange current limiting and prevent
-backfeeding between supplies. A powered adapter or hub
-does not by itself establish correct host wiring or guarantee hub support.
+backfeeding between supplies. A powered adapter or hub still requires
+correct host data wiring and isolation from any PC USB data connection.
 Disconnect a PC from the native USB data lines before connecting a peripheral.
 
 The internal PHY belongs to one controller at a time. Native USB CDC/JTAG is
@@ -137,8 +162,17 @@ Mice supply relative movement and the primary, secondary, and middle buttons.
 Applications and Python/Lua scripts use the existing input APIs and focus
 routing. Unplugging a peripheral releases its held input and removes its source.
 
-Keyboard and mouse interfaces must advertise boot capability. Keyboards use
-boot protocol. For mice, SolarOS prefers report protocol when the HID descriptor
+Boot-capable keyboards use boot protocol. Non-boot keyboards, including the
+Arduino Leonardo keyboard, are identified from their HID Keyboard application
+collection and use report protocol. Their input layout can contain up to six
+8-bit key usages in one array, optional modifier bits, and a report-ID prefix.
+Field offsets come from the descriptor. One keyboard input report is selected
+per interface; other report IDs are ignored without releasing held keys.
+Bitmap/NKRO keyboards and key state split across multiple reports are not
+supported.
+
+Mouse interfaces must advertise boot capability. SolarOS prefers report
+protocol when the HID descriptor
 contains a supported relative pointer layout, then falls back to boot protocol
 if that layout is unavailable or the receiver rejects report mode. This also
 supports receivers that accept boot mode but send mouse input only in report mode.
@@ -146,8 +180,8 @@ supports receivers that accept boot mode but send mouse input only in report mod
 Mouse report layouts can use report IDs, packed buttons, and signed X/Y fields
 up to 16 bits. SolarOS uses one relative pointer report per interface and ignores
 other report IDs, including media and system controls. Only the primary,
-secondary, and middle buttons are routed. NKRO keyboard layouts, media keys,
-mouse wheels, absolute pointers, and external hubs remain unsupported.
+secondary, and middle buttons are routed. Media keys,
+mouse wheels and absolute pointers remain unsupported.
 
 ## Joysticks and gamepads
 

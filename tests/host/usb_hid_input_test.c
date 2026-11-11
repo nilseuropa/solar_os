@@ -5,6 +5,7 @@
 #include "solar_os_usb_hid_input.h"
 #include "usb_receiver_fixture.h"
 #include "usb_joystick_fixture.h"
+#include "usb_leonardo_fixture.h"
 
 int main(void)
 {
@@ -48,6 +49,32 @@ int main(void)
     assert(solar_os_input_read_events(keys, 16) == 1);
     solar_os_usb_hid_input_close(&keyboard);
     assert(solar_os_input_read_events(keys, 16) == 1 && keys[0].action == SOLAR_OS_INPUT_KEY_RELEASE);
+    assert(solar_os_input_keyboard_count() == 0);
+
+    /* Real Leonardo descriptor: report ID is not a modifier or a key. */
+    assert(solar_os_usb_hid_input_open(&keyboard, "usb-kbd0", SOLAR_OS_USB_HID_KEYBOARD) == ESP_OK);
+    assert(solar_os_usb_hid_keyboard_parse_descriptor(usb_leonardo_keyboard_descriptor,
+        sizeof(usb_leonardo_keyboard_descriptor), &keyboard.keyboard_layout) == ESP_OK);
+    uint8_t leonardo[] = {2,0,0,4,0,0,0,0,0};
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo, sizeof(leonardo)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 1 && keys[0].usage == 4 && keys[0].key == 'a');
+    const uint8_t other_report[] = {3,0};
+    assert(solar_os_usb_hid_input_report(&keyboard, other_report, sizeof(other_report)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 0 && keyboard.keys[0] == 4);
+    leonardo[1] = 2; /* Add Shift while A is held. */
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo, sizeof(leonardo)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 1 && keys[0].usage == 0xe1);
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo, 8) == ESP_ERR_INVALID_SIZE);
+    assert(solar_os_input_read_events(keys, 16) == 2 && !keyboard.modifiers && !keyboard.keys[0]);
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo, sizeof(leonardo)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 2 && keys[1].key == 'A');
+    const uint8_t leonardo_release[] = {2,0,0,0,0,0,0,0,0};
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo_release, sizeof(leonardo_release)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 2);
+    assert(solar_os_usb_hid_input_report(&keyboard, leonardo, sizeof(leonardo)) == ESP_OK);
+    assert(solar_os_input_read_events(keys, 16) == 2);
+    solar_os_usb_hid_input_close(&keyboard);
+    assert(solar_os_input_read_events(keys, 16) == 2); /* Unplug releases key and modifier. */
     assert(solar_os_input_keyboard_count() == 0);
 
     assert(solar_os_usb_hid_input_open(&keyboard, "usb-kbd0", 1) == ESP_OK);

@@ -4,7 +4,7 @@
 #include "msc_common.h"
 #include "freertos/task.h"
 
-/* Single directly connected drive. All access is serialized by storage;
+/* Single selected drive. All access is serialized by storage;
  * driver callbacks only change USB presence, never this protocol state. */
 static struct {
     msc_device_t *device;

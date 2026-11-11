@@ -48,6 +48,7 @@ static esp_err_t input_event(usb_host_port_event_t event,
         const esp_err_t ret = solar_os_usb_hid_input_open(input, name, interface->protocol);
         if (ret == ESP_OK) {
             input->mouse_layout = interface->mouse_layout;
+            input->keyboard_layout = interface->keyboard_layout;
             if (interface->joystick_layout != NULL) input->joystick_layout = *interface->joystick_layout;
         }
         return ret;

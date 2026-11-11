@@ -137,6 +137,7 @@ static void open_interface(hid_host_device_handle_t handle)
     /* Some receivers acknowledge boot mode but never send mouse input in it.
      * Prefer a descriptor we can decode; retain boot fallback for legacy mice. */
     solar_os_usb_hid_mouse_layout_t mouse_layout = {0};
+    solar_os_usb_hid_keyboard_layout_t keyboard_layout = {0};
     hid_report_protocol_t selected_protocol = HID_REPORT_PROTOCOL_BOOT;
     if (!boot_keyboard) {
         size_t descriptor_length = 0;
@@ -144,8 +145,13 @@ static void open_interface(hid_host_device_handle_t handle)
         if (boot_mouse && descriptor != NULL && solar_os_usb_hid_mouse_parse_descriptor(descriptor,
             descriptor_length, &mouse_layout) == ESP_OK) selected_protocol = HID_REPORT_PROTOCOL_REPORT;
         if (!boot_mouse) {
+            /* Retain joystick selection for interfaces that also contain a
+             * keyboard collection; one input source is selected per interface. */
             ret = descriptor == NULL ? ESP_ERR_NOT_SUPPORTED : solar_os_usb_hid_joystick_parse_descriptor(
                 descriptor, descriptor_length, &interface->joystick_layout);
+            if (ret != ESP_OK && descriptor != NULL)
+                ret = solar_os_usb_hid_keyboard_parse_descriptor(descriptor,
+                    descriptor_length, &keyboard_layout);
             if (ret != ESP_OK) {
                 /* Unsupported HID interfaces have no source; release the claim.
                  * The disconnect callback performs the driver's final close. */
@@ -166,7 +172,7 @@ static void open_interface(hid_host_device_handle_t handle)
     esp_err_t idle_error = ESP_ERR_NOT_FINISHED;
     esp_err_t protocol_error = ESP_ERR_NOT_FINISHED;
     hid_report_protocol_t report_protocol = (hid_report_protocol_t)0xff;
-    /* Non-boot HID joysticks use report protocol by definition; SET_PROTOCOL
+    /* Non-boot keyboards/joysticks use report protocol by definition; SET_PROTOCOL
      * and GET_PROTOCOL are boot-interface requests and must not be required. */
     if (!boot_keyboard && !boot_mouse) {
         ret = ESP_OK;
@@ -193,7 +199,10 @@ static void open_interface(hid_host_device_handle_t handle)
     interface->info.idle_error = idle_error;
     interface->info.protocol_error = protocol_error;
     interface->info.mouse_layout = mouse_layout;
-    if (interface->joystick_layout.valid) {
+    interface->info.keyboard_layout = keyboard_layout;
+    if (keyboard_layout.valid) {
+        interface->info.protocol = SOLAR_OS_USB_HID_KEYBOARD;
+    } else if (interface->joystick_layout.valid) {
         interface->info.protocol = SOLAR_OS_USB_HID_JOYSTICK;
         interface->info.joystick_layout = &interface->joystick_layout;
     }

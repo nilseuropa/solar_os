@@ -35,6 +35,65 @@ def run_c(source):
 
 
 class UsbHostDriverTest(unittest.TestCase):
+    def test_hub_storage_connections_keep_first_drive_until_closed(self):
+        source = (ROOT / "src/drivers/usb_msc_port.c").read_text()
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdatomic.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "esp_err.h"
+enum { MSC_DEVICE_CONNECTED, MSC_DEVICE_DISCONNECTED };
+typedef void *msc_host_device_handle_t;
+typedef struct {
+    int event;
+    union { uint8_t address; msc_host_device_handle_t handle; } device;
+} msc_host_event_t;
+static unsigned connections, removals;
+static uint8_t queued_address;
+static esp_err_t close_error;
+static void callback(bool connected, uint8_t address) {
+    if (connected) { connections++; queued_address = address; }
+    else { removals++; assert(!address); }
+}
+static msc_host_device_handle_t device;
+static void (*event_callback)(bool, uint8_t) = callback;
+static atomic_bool present;
+static atomic_uint selected_address;
+static esp_err_t msc_host_uninstall_device(msc_host_device_handle_t handle) {
+    assert(handle == device); return close_error;
+}
+''' + function(source, "event") + function(source, "solar_os_usb_msc_close") + r'''
+int main(void) {
+    msc_host_event_t first = {.event = MSC_DEVICE_CONNECTED, .device.address = 2};
+    msc_host_event_t second = {.event = MSC_DEVICE_CONNECTED, .device.address = 3};
+    event(&first, 0);
+    event(&second, 0); /* Second drive must not replace pending setup. */
+    assert(connections == 1 && queued_address == 2);
+    device = &first; atomic_store(&present, true);
+    event(&second, 0); /* Nor schedule a stale reconnect while the first is active. */
+    assert(connections == 1 && atomic_load(&present));
+
+    msc_host_event_t gone = {.event = MSC_DEVICE_DISCONNECTED, .device.handle = device};
+    event(&gone, 0);
+    assert(removals == 1 && !atomic_load(&present));
+    close_error = ESP_FAIL;
+    assert(solar_os_usb_msc_close() == ESP_FAIL);
+    event(&second, 0);
+    assert(connections == 1); /* Failed cleanup keeps ownership. */
+    close_error = ESP_OK;
+    assert(solar_os_usb_msc_close() == ESP_OK);
+    event(&second, 0);
+    assert(connections == 2 && queued_address == 3);
+
+    /* Failed device installation leaves no handle; cleanup releases selection. */
+    assert(!device && solar_os_usb_msc_close() == ESP_OK);
+    event(&first, 0);
+    assert(connections == 3 && queued_address == 2);
+}
+''')
+
     def test_usb_command_is_declared_without_camera_support(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
@@ -260,7 +319,7 @@ int main(void) {
 }
 ''')
 
-    def test_boot_mouse_setup_and_optional_requests(self):
+    def test_keyboard_mouse_and_joystick_setup_and_optional_requests(self):
         source = (ROOT / "src/drivers/usb_host_port.c").read_text()
         run_c(r'''
 #include <assert.h>
@@ -281,7 +340,7 @@ static hid_host_dev_params_t params;
 static esp_err_t set_error, report_set_error, idle_error, query_error, start_error, close_error;
 static hid_report_protocol_t observed_protocol;
 static int idle_calls, starts, opened, closed, descriptor_calls, selections[4], selected_count, queries, closes;
-static bool descriptor_available, descriptor_supported, joystick_supported;
+static bool descriptor_available, descriptor_supported, joystick_supported, keyboard_supported;
 static void lock(void) { }
 static void unlock(void) { }
 static void interface_event(void) { }
@@ -304,6 +363,13 @@ static const uint8_t *hid_host_get_report_descriptor(void *h, size_t *length) {
     static const uint8_t descriptor[] = {0};
     assert(h); descriptor_calls++; *length = 1;
     return descriptor_available ? descriptor : NULL;
+}
+esp_err_t solar_os_usb_hid_keyboard_parse_descriptor(const uint8_t *data, size_t length,
+    solar_os_usb_hid_keyboard_layout_t *layout) {
+    assert(data && length == 1);
+    if (!keyboard_supported) return ESP_ERR_NOT_SUPPORTED;
+    *layout = (solar_os_usb_hid_keyboard_layout_t){.valid = true, .numbered = true, .report_id = 2};
+    return ESP_OK;
 }
 esp_err_t solar_os_usb_hid_mouse_parse_descriptor(const uint8_t *data, size_t length,
     solar_os_usb_hid_mouse_layout_t *layout) {
@@ -354,6 +420,7 @@ static void reset(uint8_t protocol) {
     descriptor_available = false;
     descriptor_supported = true;
     joystick_supported = false;
+    keyboard_supported = false;
 }
 int main(void) {
     for (uint8_t protocol = HID_PROTOCOL_KEYBOARD; protocol <= HID_PROTOCOL_MOUSE; protocol++) {
@@ -408,6 +475,19 @@ int main(void) {
     open_interface(&params);
     assert(interfaces[0].info.ready && interfaces[0].info.mouse_layout.valid);
     assert(interfaces[0].info.report_protocol == 0xff && selected_count == 1);
+
+    reset(0); params.sub_class = 0; descriptor_available = keyboard_supported = true;
+    set_error = report_set_error = query_error = idle_error = ESP_ERR_NOT_SUPPORTED;
+    open_interface(&params);
+    assert(interfaces[0].info.ready && interfaces[0].info.protocol == SOLAR_OS_USB_HID_KEYBOARD);
+    assert(interfaces[0].info.keyboard_layout.valid && interfaces[0].info.keyboard_layout.report_id == 2);
+    assert(interfaces[0].info.report_protocol == 1 && interfaces[0].info.protocol_error == ESP_OK);
+    assert(selected_count == 0 && queries == 0 && idle_calls == 1 && starts == 1 && opened == 1);
+
+    reset(0); params.sub_class = 0; descriptor_available = keyboard_supported = joystick_supported = true;
+    open_interface(&params);
+    assert(interfaces[0].info.ready && interfaces[0].info.protocol == SOLAR_OS_USB_HID_JOYSTICK);
+    assert(!interfaces[0].info.keyboard_layout.valid); /* Preserve existing combined-controller selection. */
 
     reset(0); params.sub_class = 0; descriptor_available = joystick_supported = true;
     set_error = report_set_error = query_error = idle_error = ESP_ERR_NOT_SUPPORTED;
