@@ -2,10 +2,12 @@
 
 ## Unreleased
 
-- Stop the ESP32-S3 camera output clock after camera shutdown and failed
-  initialization, preventing the sensor from continuing to stream while idle.
-  Use weak camera-clock drive on GOOUUU ESP32-S3CAM to keep Wi-Fi responsive
-  during video capture without reducing the 20 MHz sensor clock.
+- Improved Wi-Fi reliability during video capture on GOOUUU ESP32-S3CAM.
+  Cameras no longer remain active after shutdown or a failed start.
+- Fixed SolarWriter USB host startup and automatic USB peripheral power
+  switching.
+- Reduced internal RAM use on SolarWriter, CrowPanel, SolarTerm and supported
+  color and e-paper display boards, leaving more memory available for apps.
 
 ## 4.x
 
