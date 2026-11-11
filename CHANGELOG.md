@@ -1,5 +1,11 @@
 # SolarOS Changelog
 
+## Unreleased
+
+- Added Seeed Studio reTerminal E1001 support with its 7.5-inch monochrome
+  e-paper display, microSD, microphone, buzzer, battery and charger
+  monitoring, RTC, and temperature/humidity sensor.
+
 ## 4.x
 
 - **4.17.12** — 2026-11-13 — Added Seeed Studio reTerminal E1003 support

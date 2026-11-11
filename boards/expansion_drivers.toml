@@ -3742,6 +3742,14 @@ bindings = { panel = 1 }
 rotation = 0
 default = true
 
+[[drivers.uc8179.display_profiles]]
+name = "gdey075t7"
+label = "GDEY075T7 7.5in 800x480"
+width = 800
+height = 480
+bindings = { panel = 2 }
+rotation = 0
+
 [[drivers.uc8179.bindings]]
 key = "spi"
 kind = "spi_bus"
@@ -3799,10 +3807,10 @@ max = 3
 [[drivers.uc8179.bindings]]
 key = "panel"
 kind = "parameter"
-hint = "1: Xteink 800x480"
+hint = "1: Xteink 800x480, 2: GDEY075T7"
 role = "panel"
 required = true
-allowed = [1]
+allowed = [1, 2]
 
 [drivers.x4pro]
 summary = "Xteink X4 Pro display and frontlight"

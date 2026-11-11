@@ -136,6 +136,7 @@ class FlavorPackagesTest(unittest.TestCase):
             # without a usable USB connector or expansion-header pair.
             eligible = target == "esp32s3" and path.stem not in {
                 "seeed_reterminal_sticky", "thinknode_m9", "seeed_reterminal_e1003",
+                "seeed_reterminal_e1001",
             }
             with self.subTest(board=path.stem):
                 selected = generate_flavor_config.apply_target_pruning(
