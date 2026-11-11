@@ -48,7 +48,7 @@ class PlayerSeekControlsTest(unittest.TestCase):
             "static esp_err_t player_play_index(")[0]
         self.assertLess(start.index("player_stop_playback();"),
                         start.index("solar_os_task_create_pinned_external("))
-        restart = video.split("if (vplay_state.restart && vplay_state.player->done)")[1].split(
+        restart = video.split("if (vplay_state.restart && (!vplay_state.player || vplay_state.player->done))")[1].split(
             "mpeg_player_event(ctx,")[0]
         self.assertLess(restart.index("mpeg_player_destroy("), restart.index("mpeg_player_start("))
         self.assertIn("vplay_state.restart_paused", restart)

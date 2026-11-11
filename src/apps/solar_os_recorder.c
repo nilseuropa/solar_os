@@ -1389,9 +1389,7 @@ static void recorder_render_browser_graphics(solar_os_gfx_t *gfx,
 static void recorder_draw_filename_dialog(solar_os_gfx_t *gfx,
                                           int width, int height)
 {
-    char value[RECORDER_FILENAME_MAX + 2U];
-    snprintf(value, sizeof(value), "%s_", recorder.edit_filename);
-    solar_os_media_dialog_draw(gfx, width, height, "Recording filename", value,
+    solar_os_media_dialog_draw(gfx, width, height, "Recording filename", recorder.edit_filename,
         height < 160 ? "Enter save  Esc back" : "Enter save  Esc cancel  Empty = automatic");
 }
 

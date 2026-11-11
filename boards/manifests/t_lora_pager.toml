@@ -28,7 +28,7 @@ drivers = [
 capabilities = [
   "streaming_display",
   "psram", "simd", "display", "gfx", "display_brightness",
-  "cdc", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
+  "cdc", "usb_host", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
   "wifi", "ble", "gpio", "adc", "pwm", "key", "buttons",
   "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
   "expansion_adc", "expansion_pwm", "expansion_i2s",
@@ -389,6 +389,14 @@ role = "audio codec data in"
 gpio = 18
 policy = "fixed"
 role = "audio codec WS"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D-/CDC or host"
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+/CDC or host"
 [[pins]]
 gpio = 21
 policy = "fixed"

@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include <stdbool.h>
+#include "epd_stubs/esp_heap_caps.h"
 #include "solar_os_log.h"
 #include "esp_log.h"
 #undef ESP_LOGI
@@ -18,7 +20,51 @@ esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag, const 
         snprintf(error_log, sizeof(error_log), "%s", last_log);
     return ESP_OK;
 }
+static bool frame_psram_unavailable, frame_allocation_failure;
+static unsigned frame_allocations;
+static uint32_t frame_caps[2];
+
+static void *frame_test_calloc(size_t count, size_t size, uint32_t caps)
+{
+    if (frame_allocations < 2) frame_caps[frame_allocations] = caps;
+    frame_allocations++;
+    if (frame_allocation_failure ||
+        (frame_psram_unavailable && (caps & MALLOC_CAP_SPIRAM))) return NULL;
+    return calloc(count, size);
+}
+
+#define heap_caps_calloc frame_test_calloc
 #include "../../src/drivers/epd_ssd1683.c"
+#undef heap_caps_calloc
+
+static void test_framebuffer_memory(void)
+{
+    const size_t sizes[] = {SSD1683_BUFFER_BYTES, SSD1683_DUAL_BUFFER_BYTES};
+    for (size_t index = 0; index < sizeof(sizes) / sizeof(sizes[0]); index++) {
+        frame_allocations = 0;
+        frame_psram_unavailable = false;
+        uint8_t *buffer = ssd1683_alloc_framebuffer(sizes[index]);
+        assert(buffer != NULL && frame_allocations == 1);
+        assert(frame_caps[0] == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        for (size_t i = 0; i < sizes[index]; i++) assert(buffer[i] == 0);
+        heap_caps_free(buffer);
+
+        frame_allocations = 0;
+        frame_psram_unavailable = true;
+        buffer = ssd1683_alloc_framebuffer(sizes[index]);
+        assert(buffer != NULL && frame_allocations == 2);
+        assert(frame_caps[0] == (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+        assert(frame_caps[1] == MALLOC_CAP_8BIT);
+        heap_caps_free(buffer);
+
+        frame_allocations = 0;
+        frame_allocation_failure = true;
+        assert(ssd1683_alloc_framebuffer(sizes[index]) == NULL);
+        assert(frame_allocations == 2);
+        frame_allocation_failure = false;
+    }
+    frame_psram_unavailable = false;
+}
 
 const u8g2_cb_t u8g2_cb_r0 = {0}, u8g2_cb_r1 = {0};
 const u8g2_cb_t u8g2_cb_r2 = {0}, u8g2_cb_r3 = {0};
@@ -1213,6 +1259,7 @@ static void test_mono_frames(void) {
 }
 
 int main(void) {
+    test_framebuffer_memory();
     test_mono_frames();
     test_control_pin_sleep_retention();
     test_native(); test_pulse_and_restore(); test_default_drive_budget();

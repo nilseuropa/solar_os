@@ -20,8 +20,8 @@ The current tree includes these board targets:
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
-| `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, INMP441 microphone, shared PCM5102 line output and MAX98357 speaker output, LC709203F fuel gauge, DS3231 RTC, microSD, CH340/UART console, and GPIO21 reserved for jack detect. |
-| `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC, and UART/I2C/GPIO expansion connectors. |
+| `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, ICS-43432 microphone, shared PCM5102A line output and MAX98357A speaker output, DAC/amp power enabled by default on GPIO21, MAX17048G fuel gauge, DS3231MZ RTC, microSD, and CH340/UART console. GPIO18/19/20/38 belong to the I/O board's USB host wiring. |
+| `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, native USB CDC/host switching, and UART/I2C/GPIO expansion connectors. |
 | `qdtech_es3c28p` | `qdtech_es3c28p` | [QDtech ES3C28P 2.8-inch ESP32-S3 Touch Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Capacitive-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, FT6336 pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `qdtech_es3n28p` | `qdtech_es3n28p` | [QDtech ES3N28P 2.8-inch ESP32-S3 Display](https://www.lcdwiki.com/2.8inch_ESP32-S3_Display) | Non-touch ESP32-S3R8 target with 16 MB flash, 8 MB PSRAM, a 320x240 landscape ILI9341V display, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B, native USB CDC, and UART/I2C/GPIO expansion connectors. |
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
@@ -342,7 +342,7 @@ The current capability flags are:
 | `DISPLAY` | A board-integrated primary display driver and boot-time display target are available. Requires `GFX`. |
 | `GFX` | The firmware can host drawable display targets, including targets registered later by expansion drivers. It does not imply that a display exists at boot. |
 | `CDC` | USB Serial/JTAG CDC byte-stream port `cdc0`. The dormant TinyUSB composite driver can add keyboard, mouse, and gamepad HID reports when explicitly enabled. |
-| `USB_HOST` | Runtime switching between native USB CDC and boot keyboard/mouse hosting through the ESP32-S3 internal PHY. Requires `CDC`, externally powered USB peripherals, and host wiring on GPIO19/20. Enabled on SolarTerm and S3 DevKitC-1 N16R8. See [USB host input](usb.host.md). |
+| `USB_HOST` | USB keyboard, mouse, joystick, and storage hosting through the ESP32-S3 internal PHY. Storage requires `service.usb-storage` and supports one FAT flash or UFI/CBI floppy drive at `/usb0`. Enabled on targets with accessible native D−/D+ signals on GPIO19/20. Native CDC stops while hosting; USB–UART consoles remain available. Arrange suitable 5 V peripheral power. See [USB host](usb.host.md) for wiring and exclusions. |
 | `UART` | Hardware UART service is supported. Named UART buses may be board-defined or created at runtime. |
 | `SD` | SD/MMC storage and filesystem mounting. |
 | `I2C` | Hardware I2C service is supported. Named I2C buses may be board-defined or created at runtime. |
@@ -893,6 +893,15 @@ documentation identifies the third GPIO signal as GPIO14; GPIO4 is fixed as
 the ES8311 MCLK signal. The BOOT button on GPIO0 becomes the SolarOS KEY after
 startup; do not hold it during reset because it selects download mode.
 
+The native USB-C port connects GPIO19 D− and GPIO20 D+. With
+`service.usb-host` compiled, `usb mode host` switches from native CDC/JTAG to
+USB HID keyboard, mouse, and joystick input. Use the display, UART, or a
+network shell to switch modes. The USB-C port is wired as a power sink and
+does not supply 5 V to peripherals, including when running on battery. Host
+operation requires a suitable externally powered data adapter with regulated
+5 V peripheral power and common ground; a passive USB-C adapter alone is
+insufficient. See [USB host](usb.host.md) for wiring and commands.
+
 Build the target with:
 
 ```sh
@@ -966,7 +975,11 @@ The original Elecrow 4.2-inch panel currently rejects pulse mode.
 
 The board's USB-C data lines terminate at a CH340C USB-to-UART bridge. SolarOS
 therefore uses `uart0` on GPIO43/GPIO44 for the serial console and does not
-claim native USB Serial/JTAG CDC. The BAT connector supplies the board but the
+claim native USB Serial/JTAG CDC. USB host input uses GPIO19 D− and GPIO20 D+
+on U5 with an external connector and regulated 5 V peripheral power; the
+USB–UART console remains available. These pins remain general expansion GPIOs
+outside host mode and must be released before running `usb mode host`.
+See [USB host](usb.host.md). The BAT connector supplies the board but the
 published schematic does not provide a battery-voltage ADC path, so the target
 does not advertise the `BATTERY` capability.
 
@@ -1056,45 +1069,51 @@ CrowPanel apply to this board.
 ## SolarWriter
 
 The `solar_writer` target combines the Elecrow CrowPanel 5.79-inch N8R8 board
-with a GY-INMP441 microphone, Adafruit PCM5102 DAC, Adafruit I2S Amplifier BFF
-(MAX98357), Adafruit LC709203F battery gauge, and DS3231 real-time clock.
+with the SolarWriter v0.1 I/O board: ICS-43432 microphone, PCM5102APWR stereo
+DAC, MAX98357AETE+T speaker amplifier, MAX17048G+T10 fuel gauge, and
+DS3231MZ+TRL real-time clock. A TPS22917DBVR switches the DAC's 3.3 V rail;
+the TPS61023DRLR boost converter supplies the amplifier's 5 V rail.
 It inherits the CrowPanel's
 792x272 dual-SSD1683 display, microSD, controls, CH340/UART console, Wi-Fi, BLE,
 8 MB flash, and 8 MB OPI PSRAM. The default firmware flavor is `writerdeck`.
 
 The following connections are fixed in this target:
 
-| Function | GPIO | U5 pin | Module connection |
+| Function | GPIO | U5 pin | I/O board connection |
 | --- | --- | --- | --- |
-| I2C SDA | 8 | 20 | LC709203F SDI/SDA and DS3231 SDA |
-| I2C SCL | 9 | 2 | LC709203F SCL and DS3231 SCL |
-| Shared I2S bit clock | 14 | 19 | INMP441 SCK, PCM5102 BCK, BFF A2 |
-| Shared I2S word select | 15 | 3 | INMP441 WS, PCM5102 WSEL, BFF A1 |
-| Playback data | 16 | 18 | PCM5102 DIN and BFF A0 |
-| Microphone data | 17 | 4 | INMP441 SD |
-| Jack detect, reserved | 21 | 6 | Future isolated switch to GND, active low |
+| I2C SDA | 8 | 20 | MAX17048 SDA, DS3231M SDA, and Qwiic SDA |
+| I2C SCL | 9 | 2 | MAX17048 SCL, DS3231M SCL, and Qwiic SCL |
+| Shared I2S bit clock | 14 | 19 | ICS-43432 SCK, PCM5102A BCK, MAX98357A BCLK |
+| Shared I2S word select | 15 | 3 | ICS-43432 WS, PCM5102A LRCK, MAX98357A LRCLK |
+| Playback data | 16 | 18 | PCM5102A DIN and MAX98357A DIN |
+| Microphone data | 17 | 4 | ICS-43432 SD; LR tied high for slot 1 |
+| Audio power enable | 21 | 6 | BOOST_EN: TPS61023 EN and TPS22917 ON, active high |
+| USB VBUS enable | 18 | 17 | TPS2553 EN, active high |
+| USB host D- | 19 | 5 | USB-C host D- |
+| USB host D+ | 20 | 16 | USB-C host D+ |
+| USB overcurrent, reserved | 38 | 15 | TPS2553 fault output, active low |
 
-U5 pins 11–14 supply regulated **3.3 V** and pins 7–10 are GND, as connected
-in Elecrow's published schematic. Power the microphone VDD, PCM5102 VIN,
-fuel-gauge VIN, DS3231 VCC, and amplifier BFF's **5V input pad** from 3.3 V for this
-configuration. The BFF's 3V pad does not supply the amplifier. Use short power
-wiring and allow for speaker current when sizing the supply. Higher-power
-speaker operation requires a suitable separate supply with common ground;
-do not inject 5 V into U5's 3.3 V rail.
+U5 pins 11–14 supply regulated **3.3 V** and pins 7–10 are GND. The microphone
+and RTC use the always-on 3.3 V supply. The DAC uses switched `+3V3_AUDIO`,
+and the amplifier uses `+5V_BOOST`. Both switched rails follow GPIO21.
+At boot, BCK, WS, playback data, and USB VBUS enable GPIO18 are driven low
+before GPIO21 goes high. The DAC and boost supplies remain enabled by default,
+including while audio is idle. Opening or closing audio streams leaves GPIO21
+high. GPIO18 is a separate USB-only control and holds USB VBUS off at boot.
 
-The battery connects through the LC709203F's parallel battery sockets to the
-CrowPanel BAT connector. Use a polarity-correct adapter for the different
-connectors. The gauge chip is battery-powered; its VIN connection sets the
-I2C logic level. No thermistor or interrupt wire is required. Fuel-gauge
-compensation uses an assumed 25.0 °C, not a measured temperature.
+The battery connects to J405 and the CrowPanel BAT connector through J406.
+MAX17048 VDD and CELL sense the battery rail; ALRT is unconnected. The gauge
+reports voltage and state of charge. It does not report charging state.
+The CN3165 solar charger operates in
+hardware; its status LEDs and thermistor input are not software telemetry.
 
-`audio0` attaches automatically through the reusable `inmp441` driver. It
-appears as **INMP441 mic + I2S DAC/amp** in audio device information and
+`audio0` attaches automatically through the reusable `ics43432` driver. It
+appears as **ICS-43432 mic + I2S DAC/amp** in audio device information and
 publishes `audio0.capture` as 16 kHz mono and `audio0.playback` as 16 kHz
 stereo. The microphone uses received slot 1. The DAC and amplifier share one
 playback data stream; the DAC provides stereo line output and the amplifier
-plays its default mono mix. The PCM5102 jack requires a line-level load,
-such as powered speakers or a headphone amplifier.
+plays the hardware-selected (L+R)/2 mono mix at 9 dB gain. The PCM5102A jack
+requires a line-level load, such as powered speakers or a headphone amplifier.
 
 The 5.79-inch dual-SSD1683 display starts in monochrome pulse mode on both
 SolarWriter and the base CrowPanel 5.79-inch target. It uses the shared EPD
@@ -1226,8 +1245,8 @@ moving black and dithered patches and a stationary shade ramp, then holds the
 final image so its pixels can settle. Use the driver statistics and physical
 screen to assess contrast, erased trails, static shades, and the panel seam.
 
-`battery0` attaches automatically at I2C address `0x0b`. Battery capacity
-defaults to 3000 mAh and remains configurable:
+`battery0` attaches automatically through `max17048` at I2C address `0x36`.
+Battery capacity defaults to 3000 mAh and remains configurable:
 
 ```text
 expansion devices
@@ -1236,7 +1255,7 @@ battery status
 battery capacity 3000
 ```
 
-`rtc0` attaches automatically through the reusable `ds3231` driver at `0x68`
+The DS3231MZ uses the reusable `ds3231` driver: `rtc0` attaches at `0x68`
 on the same 100 kHz `i2c0` bus as `battery0`. Its driver is included in every
 SolarWriter flavor. The clock stores UTC and supports calendar dates from
 2000–2099 and second-resolution alarms. Set the clock after first power-up or
@@ -1254,12 +1273,23 @@ this profile, so RTC alarms have no GPIO wake signal. The DS3231 has no
 countdown timer; use `schedule` for portable timed actions. See
 [DS3231 usage](expansion.md#ds3231-real-time-clock).
 
-GPIO21 is reserved in the pin metadata and is not available for general GPIO
-or PWM. Plug detection and automatic output switching are not enabled in this
-profile. The PCM5102 board ties its jack switch contacts to audio nets; a
-separate isolated detection circuit is required. Both outputs receive playback
-regardless of plug insertion. GPIO18, GPIO19, GPIO20, and GPIO38 remain free;
-the optional DAC mute and fuel-gauge interrupt signals are not claimed.
+GPIO21 controls the shared audio power rails. Both outputs receive playback
+regardless of plug insertion; the line jack has no isolated detection signal.
+The RTC backup supply uses an 11 mF supercapacitor charged through a diode and
+1 kΩ resistor. RTC INT/SQW and the gauge ALRT pin are unconnected.
+
+GPIO18, GPIO19, GPIO20, and GPIO38 are reserved for the USB-C host circuit and
+are not available as general GPIO, ADC, or PWM. `usb mode host` enables HID
+input on GPIO19/20 and raises GPIO18 to supply VBUS while the CH340/UART
+console remains available. GPIO18 starts low and returns low when hosting
+stops, during explicit sleep, and on startup rollback; it is raised again
+when hosting resumes. `usb status` reports the commanded switch state.
+The USB connector shares the enabled 5 V boost with the speaker; GPIO18
+controls its VBUS switch independently of audio. The TPS2553 provides hardware
+current limiting; GPIO38 overcurrent monitoring is not implemented.
+Qwiic shares `i2c0`; this
+assembled board exposes no unallocated runtime-safe GPIOs on U5. See
+[USB host](usb.host.md) for connections and mode switching.
 
 Build with `pio run -e solar_writer`. The target uses the same 8 MB OTA and
 serial partition layouts as the base CrowPanel.
@@ -1629,6 +1659,9 @@ GPIO38 and GPIO48 because the onboard RGB LED moved between board revisions.
 Use a revision-specific board profile if one of those pins must be exposed.
 
 ## GOOUUU ESP32-S3CAM GPIO
+
+The camera uses weak XCLK output drive at 20 MHz to keep Wi-Fi responsive
+during capture. `camera off` disconnects that clock and holds it low.
 
 GPIO2, GPIO3, GPIO45 and GPIO46 are available for runtime GPIO and PWM. GPIO2
 and GPIO3 also support ADC. GPIO46 supports both input and output on ESP32-S3.

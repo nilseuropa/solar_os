@@ -25,7 +25,6 @@ from solaros_board_manifest import (
 
 
 CAPABILITY_DEPENDENCIES = {
-    "USB_HOST": ("CDC",),
     "DISPLAY": ("GFX",),
     "DISPLAY_BRIGHTNESS": ("DISPLAY",),
     "AUDIO_INPUT": ("AUDIO",),

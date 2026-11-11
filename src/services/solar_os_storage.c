@@ -15,6 +15,9 @@
 #include "flash_storage.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+#include "solar_os_usb_storage.h"
+#endif
 #include "solar_os_ramfs.h"
 
 #ifndef SOLAR_OS_PACKAGE_EXPANSION_SDSPI
@@ -132,6 +135,10 @@ static esp_err_t storage_flash_get_usage(solar_os_storage_usage_t *usage)
 
 esp_err_t solar_os_storage_init(void)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    const esp_err_t usb_err = solar_os_usb_storage_init();
+    if (usb_err != ESP_OK) return usb_err;
+#endif
 #if SOLAR_OS_BOARD_HAS_SD
     const esp_err_t sd_err = solar_os_board_storage_mount();
 #endif
@@ -193,6 +200,13 @@ esp_err_t solar_os_storage_mount(void)
 
 static esp_err_t storage_mount_volume_locked(const char *name, const char *mount_point)
 {
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (name && !strcmp(name, "usb0")) {
+        if (mount_point && mount_point[0] && strcmp(mount_point, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
+            return ESP_ERR_INVALID_ARG;
+        return solar_os_usb_storage_mount();
+    }
+#endif
     if (name && name[0] && strcmp(name, "flash") &&
         (strncmp(name, "sd0", 3) || strchr(name, '/') || strchr(name, '.'))) {
         char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -263,6 +277,10 @@ static esp_err_t storage_unmount_volume_locked(const char *target)
             (!strcmp(target, mount.name) || !strcmp(target, mount.mount_point)) &&
             solar_os_disk_image_backing_busy(mount.mount_point)) return ESP_ERR_INVALID_STATE;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (!strcmp(target, "usb0") || !strcmp(target, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
+        return solar_os_usb_storage_unmount();
+#endif
     if (target != NULL &&
         (strcmp(target, "flash") == 0 ||
          (flash_storage_is_mounted() &&
@@ -451,6 +469,10 @@ esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage
         return ESP_OK;
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (path_is_on_mount(path, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
+        return solar_os_usb_storage_get_usage(usage);
+#endif
     if (storage_flash_path_matches(path)) {
         return flash_storage_is_mounted() ? storage_flash_get_usage(usage) : ESP_ERR_INVALID_STATE;
     }
@@ -491,6 +513,9 @@ esp_err_t solar_os_storage_get_usage_for_block(const solar_os_storage_block_t *b
     if (block == NULL || usage == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (!strcmp(block->name, "usb0")) return solar_os_usb_storage_get_usage(usage);
+#endif
     if (!block->mounted || block->logical_volume == SOLAR_OS_STORAGE_LOGICAL_VOLUME_INVALID) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -513,10 +538,15 @@ esp_err_t solar_os_storage_rescan(void)
 
 size_t solar_os_storage_block_count(void)
 {
+    size_t usb_count = 0;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    solar_os_storage_block_t usb;
+    usb_count = solar_os_usb_storage_get_block(&usb) ? 1U : 0U;
+#endif
 #if SOLAR_OS_STORAGE_HAS_REMOVABLE
-    return solar_os_board_storage_block_count() + 1U + solar_os_disk_image_mount_count();
+    return solar_os_board_storage_block_count() + 1U + solar_os_disk_image_mount_count() + usb_count;
 #else
-    return 1U + solar_os_disk_image_mount_count();
+    return 1U + solar_os_disk_image_mount_count() + usb_count;
 #endif
 }
 
@@ -558,7 +588,15 @@ bool solar_os_storage_get_block(size_t index, solar_os_storage_block_t *block)
     index -= board_count;
 #endif
     if (index != 0) {
-        return solar_os_disk_image_get_block(index - 1U, block);
+        index--;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+        solar_os_storage_block_t usb;
+        if (solar_os_usb_storage_get_block(&usb)) {
+            if (!index) { *block = usb; return true; }
+            index--;
+        }
+#endif
+        return solar_os_disk_image_get_block(index, block);
     }
     memset(block, 0, sizeof(*block));
     strlcpy(block->name, "flash", sizeof(block->name));
@@ -632,6 +670,10 @@ static bool storage_block_mount_point_seen(const char *mount_point)
 size_t solar_os_storage_mount_count(void)
 {
     size_t count = 0;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    solar_os_storage_block_t usb;
+    if (solar_os_usb_storage_get_block(&usb) && usb.mounted) count++;
+#endif
 
 #if SOLAR_OS_STORAGE_HAS_REMOVABLE
     const size_t block_count = solar_os_board_storage_block_count();
@@ -701,6 +743,19 @@ bool solar_os_storage_get_mount(size_t index, solar_os_storage_mount_info_t *mou
     }
 
     solar_os_ramfs_info_t ramfs;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    solar_os_storage_block_t usb;
+    if (solar_os_usb_storage_get_block(&usb) && usb.mounted) {
+        if (!index) {
+            memset(mount, 0, sizeof(*mount));
+            mount->type = SOLAR_OS_STORAGE_MOUNT_USB;
+            strlcpy(mount->name, "usb0", sizeof(mount->name));
+            strlcpy(mount->mount_point, SOLAR_OS_USB_STORAGE_MOUNT_POINT, sizeof(mount->mount_point));
+            return true;
+        }
+        index--;
+    }
+#endif
     if (index >= solar_os_ramfs_mount_count()) {
         return solar_os_disk_image_get_mount(index - solar_os_ramfs_mount_count(), mount);
     }
@@ -735,6 +790,13 @@ esp_err_t solar_os_storage_path_mount_point(const char *path,
     if (path == NULL || path[0] == '\0' || mount_point == NULL || mount_point_len == 0) {
         return ESP_ERR_INVALID_ARG;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (path_is_on_mount(path, SOLAR_OS_USB_STORAGE_MOUNT_POINT)) {
+        solar_os_usb_storage_status_t usb;
+        solar_os_usb_storage_get_status(&usb);
+        if (!usb.mounted) return ESP_ERR_NOT_FOUND;
+    }
+#endif
     char best_mount[SOLAR_OS_STORAGE_MOUNT_POINT_MAX] = {0};
     size_t best_len = 0;
     char ramfs_mount[SOLAR_OS_RAMFS_MOUNT_POINT_MAX];

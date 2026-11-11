@@ -216,13 +216,13 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("web", "simple web browser", &solar_os_web_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "web <URL>", 2, 2),
 #endif
 #if SOLAR_OS_PACKAGE_APP_WEBRADIO
-    APP_ENTRY("webradio", "streaming internet radio", &solar_os_webradio_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "webradio [--tui] [URL] | webradio [--tui] <list | add NAME URL | remove NAME | reset>", 1, 5),
+    APP_ENTRY("webradio", "streaming internet radio", &solar_os_webradio_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "webradio [--tui] [URL|playlist.m3u] | webradio [--tui] <list | add NAME URL | remove NAME | reset>", 1, 5),
 #endif
 #if SOLAR_OS_PACKAGE_APP_RTSP
-    APP_ENTRY("rtsp", "RTSP JPEG/L16 viewer", &solar_os_rtsp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "rtsp [--audio-only] [--stats] <[rtsp://][user[:pass]@]host[:port][/path]>", 2, 4),
+    APP_ENTRY("rtsp", "RTSP JPEG/L16 viewer", &solar_os_rtsp_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "rtsp [--audio-only] [--stats] [[rtsp://][user[:pass]@]host[:port][/path]|playlist.m3u]", 1, 4),
 #endif
 #if SOLAR_OS_PACKAGE_APP_PLAYER
-    APP_FILE_ENTRY("player", "playlist audio player", &solar_os_player_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "player [--tui] [file.wav|file.mp3]", 1, 3, ".wav .mp3"),
+    APP_FILE_ENTRY("player", "playlist audio player", &solar_os_player_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "player [--tui] [file.wav|file.mp3|playlist.m3u]", 1, 3, ".wav .mp3"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CLOCK
     APP_ENTRY("clock", "clock, countdown alarm, stopwatch", &solar_os_clock_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "clock [-s | -a MM:SS]", 1, 3),
@@ -313,7 +313,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_VPLAY
-    APP_FILE_ENTRY("vplay", "MPEG-1 media player", &solar_os_vplay_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "vplay [-fit|-actual] <file.mpg>", 2, 3, ".mpg .mpeg"),
+    APP_FILE_ENTRY("vplay", "MPEG-1 media player", &solar_os_vplay_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "vplay [-fit|-actual] [file.mpg|playlist.m3u]", 1, 3, ".mpg .mpeg"),
 #endif
 #if SOLAR_OS_PACKAGE_APP_SKETCH
     APP_FILE_ENTRY("sketch", "pointer-driven paint application", &solar_os_sketch_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "sketch [file.png]", 1, 2, ".png"),

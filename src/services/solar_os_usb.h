@@ -13,6 +13,8 @@ typedef enum {
 typedef struct {
     solar_os_usb_mode_t mode;
     bool sleep_prepared;
+    /* Commanded switch state on boards with VBUS control; not voltage feedback. */
+    bool vbus_enabled;
     esp_err_t last_error;
     esp_err_t rollback_error;
     size_t interface_count;

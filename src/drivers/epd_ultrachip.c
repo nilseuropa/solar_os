@@ -240,6 +240,13 @@ static esp_err_t configure_pins(epd_ultrachip_t *d)
     return gpio_set_level(d->reset_pin, 1);
 }
 
+static uint8_t *ultrachip_alloc_framebuffer(size_t size)
+{
+    /* SPI copies through the separate internal DMA line buffer. */
+    uint8_t *buffer = heap_caps_calloc(1, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return buffer != NULL ? buffer : heap_caps_calloc(1, size, MALLOC_CAP_8BIT);
+}
+
 esp_err_t epd_ultrachip_init(epd_ultrachip_t *d, const epd_ultrachip_config_t *c,
                             const epd_ultrachip_panel_t *panel)
 {
@@ -259,7 +266,7 @@ esp_err_t epd_ultrachip_init(epd_ultrachip_t *d, const epd_ultrachip_config_t *c
     }
     if (err == ESP_OK) {
         d->line_buffer = heap_caps_malloc(EPD_ULTRACHIP_ROW_BYTES, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
-        d->buffer = heap_caps_calloc(1, EPD_ULTRACHIP_BUFFER_BYTES, MALLOC_CAP_8BIT);
+        d->buffer = ultrachip_alloc_framebuffer(EPD_ULTRACHIP_BUFFER_BYTES);
         d->shadow = heap_caps_malloc(EPD_ULTRACHIP_BUFFER_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (!d->shadow) d->shadow = heap_caps_malloc(EPD_ULTRACHIP_BUFFER_BYTES, MALLOC_CAP_8BIT);
         if (!d->line_buffer || !d->buffer) err = ESP_ERR_NO_MEM;

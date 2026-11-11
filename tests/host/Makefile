@@ -15,7 +15,10 @@ KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/gen
 .PHONY: all test clean
 
 TARGETS += lr11xx_test lr11xx_service_test
-TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test cdc_lifecycle_test
+TARGETS += usb_hid_input_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test usb_service_no_cdc_test cdc_lifecycle_test
+TARGETS += usb_service_storage_test
+TARGETS += usb_service_vbus_test
+TARGETS += storage_usb_mounts_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -36,9 +39,27 @@ usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar
 		$(ROOT)/src/services/solar_os_input.c $(USB_HID_CODEC_SOURCES) \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
-usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h)
-	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -include compat.h -Iusb_stubs -I. \
-		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+USB_SERVICE_BOARD_SOURCES := $(ROOT)/src/board/solar_os_board_usb.c
+USB_SERVICE_BOARD_HEADERS := $(ROOT)/src/board/solar_os_board_usb.h
+
+usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h) $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/src/board $(filter %.c,$^) -o $@
+
+usb_service_no_cdc_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h) $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/src/board $(filter %.c,$^) -o $@
+
+usb_service_storage_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 -include compat.h -Iusb_stubs -I. \
+		-I$(ROOT)/src/drivers -I$(ROOT)/src/services -I$(ROOT)/src/board $(filter %.c,$^) -o $@
+
+usb_service_vbus_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS) $(wildcard usb_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=0 -DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1 \
+		-DSOLAR_OS_BOARD_PIN_USB_VBUS_EN=18 -DSOLAR_OS_BOARD_USB_VBUS_ACTIVE_LEVEL=1 \
+		-include compat.h -Iusb_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		-I$(ROOT)/src/board $(filter %.c,$^) -o $@
+
 TARGETS += can_twai_test
 TARGETS += doc_memory_test
 TARGETS += paged_array_test
@@ -129,7 +150,7 @@ TARGETS += expansion_tui_test
 TARGETS += gt911_test
 TARGETS += sdmmc_expansion_test
 TARGETS += axp2101_service_test
-TARGETS += camera_service_test camera_expansion_test media_test mjpeg_test
+TARGETS += camera_service_test camera_expansion_test camera_expansion_default_drive_test camera_expansion_non_s3_test media_test mjpeg_test
 TARGETS += http_server_test
 TARGETS += rtspd_job_test rtspd_audio_only_test
 TARGETS += rtsp_receiver_test
@@ -826,8 +847,9 @@ gameboy_support_test: gameboy_support_test.c $(GAMEBOY_DIR)/solar_os_gameboy_rom
 		$(GAMEBOY_DIR)/solar_os_gameboy_video.c \
 		$(GAMEBOY_DIR)/apu.c -o $@
 
-storage_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h esp_log.h ff.h solar_os_board.h
+storage_mounts_test storage_usb_mounts_test: storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h esp_log.h ff.h solar_os_board.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
+		$(if $(filter storage_usb_mounts_test,$@),-DSOLAR_OS_PACKAGE_SERVICE_USB_STORAGE=1,) \
 		-I. -I$(ROOT)/src/services -I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		storage_mounts_test.c $(ROOT)/src/services/solar_os_storage.c \
 		-Wl,--gc-sections,--wrap=fwrite,--wrap=fsync,--wrap=fclose,--wrap=rename -o $@
@@ -986,6 +1008,18 @@ camera_expansion_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Icamera_stubs -Iexpansion_stubs -I. \
 		-I$(ROOT)/include -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		$(CAMERA_EXPANSION_SOURCES) -o $@
+
+camera_expansion_non_s3_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h camera_stubs/*/*.h) \
+	$(ROOT)/src/services/solar_os_camera.h $(ROOT)/src/services/solar_os_stream.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DCONFIG_IDF_TARGET_ESP32S3=0 -include compat.h \
+		-Icamera_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $(CAMERA_EXPANSION_SOURCES) -o $@
+
+camera_expansion_default_drive_test: $(CAMERA_EXPANSION_SOURCES) $(wildcard camera_stubs/*.h camera_stubs/*/*.h) \
+	$(ROOT)/src/services/solar_os_camera.h $(ROOT)/src/services/solar_os_stream.h
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DCAMERA_TEST_GENERIC_BOARD=1 -include compat.h \
+		-Icamera_stubs -Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src \
+		-I$(ROOT)/src/services -I$(ROOT)/src/drivers $(CAMERA_EXPANSION_SOURCES) -o $@
 
 camera_service_test: camera_service_test.c $(ROOT)/src/services/solar_os_camera.c $(ROOT)/src/services/solar_os_camera.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
@@ -1222,9 +1256,9 @@ audio_codec_test: audio_codec_test.c $(ROOT)/src/services/solar_os_audio_codec.c
 		$(ROOT)/src/services/solar_os_audio_pcm.c \
 		$(ROOT)/components/minimp3/minimp3_impl.c -o $@
 
-webradio_catalog_test: webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c $(ROOT)/src/services/solar_os_webradio_catalog.h esp_attr.h esp_check.h esp_err.h nvs.h freertos/FreeRTOS.h freertos/portmacro.h
+webradio_catalog_test: webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c $(ROOT)/src/services/solar_os_webradio_catalog.h $(ROOT)/src/services/solar_os_m3u.c $(ROOT)/src/services/solar_os_m3u.h esp_attr.h esp_check.h esp_err.h nvs.h freertos/FreeRTOS.h freertos/portmacro.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
-		webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c -o $@
+		webradio_catalog_test.c $(ROOT)/src/services/solar_os_webradio_catalog.c $(ROOT)/src/services/solar_os_m3u.c -o $@
 
 gif_decode_stack_test: gif_decode_stack_test.c deep_animation.gif.b64 esp_heap_caps.h esp_err.h $(ROOT)/components/stb_image/stb_image_port.c $(ROOT)/components/stb_image/jpeg_fast.c $(ROOT)/components/stb_image/jpeg_simd.c $(ROOT)/components/stb_image/include/solar_os_stb_image.h $(ROOT)/components/stb_image/include/stb_image.h
 	$(CC) $(CFLAGS) -pthread -I. -I$(ROOT)/components/stb_image/include \
@@ -1408,11 +1442,15 @@ test: $(TARGETS)
 	./app_file_types_test
 	./gameboy_support_test
 	./storage_mounts_test
+	./storage_usb_mounts_test
 	./json_scan_test
 	./keys_test
 	./input_test
 	./usb_hid_input_test
 	./usb_service_test
+	./usb_service_no_cdc_test
+	./usb_service_storage_test
+	./usb_service_vbus_test
 	./cdc_lifecycle_test
 	./touch_gesture_test
 	./unistroke_test
@@ -1447,6 +1485,8 @@ test: $(TARGETS)
 	./vision_lua_bindings_test
 	./media_lua_bindings_test
 	./camera_expansion_test
+	./camera_expansion_default_drive_test
+	./camera_expansion_non_s3_test
 	./media_test
 	./rtspd_job_test
 	./rtspd_audio_only_test

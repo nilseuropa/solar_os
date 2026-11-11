@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_storage.h"
+#include "solar_os_m3u.h"
 
 #define SOLAR_OS_STORAGE_BROWSER_NAME_MAX 96U
 
@@ -36,6 +37,8 @@ size_t solar_os_storage_browser_cursor(const solar_os_storage_browser_t *browser
 bool solar_os_storage_browser_entry(const solar_os_storage_browser_t *browser,
                                     size_t index,
                                     solar_os_storage_browser_entry_t *entry);
+/* Adapter for the shared media list renderer. */
+bool solar_os_storage_browser_media_entry(size_t index, solar_os_m3u_entry_t *entry, void *browser);
 void solar_os_storage_browser_move(solar_os_storage_browser_t *browser,
                                    int offset);
 /* Opens a directory, or returns a normalized selected file path. */

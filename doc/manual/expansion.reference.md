@@ -55,7 +55,7 @@ while remaining blocked from runtime use.
 | ES3N28P 2.8-inch ESP32-S3 Display | GPIO2, GPIO3, GPIO14-GPIO16, GPIO21, GPIO43, GPIO44 | GPIO2, GPIO3, GPIO14, GPIO21 | GPIO2, GPIO3, GPIO14 | GPIO15/GPIO16 are shared I2C; GPIO43/GPIO44 belong to `uart0`; GPIO17/GPIO18 are reserved for the unpopulated touch footprint. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
 | Elecrow CrowPanel ESP32-S3 5.79-inch E-paper | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO8, GPIO9, GPIO14-GPIO20 | GPIO3 is physically exposed but blocked as a strapping pin. |
-| SolarWriter | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | GPIO18, GPIO19, GPIO20, GPIO38 | GPIO18, GPIO19, GPIO20 | GPIO8/9 are shared fuel-gauge/RTC I2C, GPIO14–17 are shared audio, GPIO21 is reserved for jack detect, and GPIO3 is a strapping pin. |
+| SolarWriter | GPIO3, GPIO8, GPIO9, GPIO14-GPIO21, GPIO38 | None | None | GPIO8/9 are shared fuel-gauge/RTC I2C, GPIO14–17 are shared audio, GPIO21 enables DAC/amp power, GPIO18/19/20/38 are reserved for USB host wiring, and GPIO3 is a strapping pin. |
 | Waveshare ESP32-S3-ePaper-3.97 | GPIO41-GPIO44 on the I2C/UART pads | None | None | GPIO41/GPIO42 belong to shared `i2c0`; GPIO43/GPIO44 belong to `uart0`. The board exposes no unmanaged general-purpose signal. |
 | Pi0cket CL-32 | GPIO1-GPIO4, GPIO8, GPIO15-GPIO21, GPIO35-GPIO44, GPIO46-GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18, GPIO21, GPIO38-GPIO42, GPIO47, GPIO48 | GPIO4, GPIO8, GPIO15-GPIO18 | GPIO1/GPIO2 are shared I2C; GPIO3 is the shared peripheral interrupt; GPIO19/GPIO20 are USB; GPIO35-GPIO37 are Octal PSRAM; GPIO43/GPIO44 belong to `uart0`; GPIO46 is an input-only strapping signal. EX1 uses a proprietary M.2 pinout. |
 | T-LoRa-Pager | GPIO2, GPIO3, GPIO9, GPIO33-GPIO35, GPIO43, GPIO44, and CE on XL9555 P1.1 (`gpiox0:9`) | GPIO9 | GPIO9 | GPIO2/GPIO3 are shared I2C; GPIO33-GPIO35 are shared SPI; GPIO43/GPIO44 belong to releasable `uart0`; CE is an expanded digital control line, not ESP32 GPIO9. |
@@ -83,7 +83,7 @@ voltage and current requirements before connecting it.
 | ES3N28P 2.8-inch ESP32-S3 Display | `i2c0`: SDA GPIO16, SCL GPIO15; `spi0`: SCK GPIO12, MISO GPIO13, MOSI GPIO11, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | The I2C connector shares `i2c0` with ES8311 control. `spi0` is the fixed internal LCD bus. |
 | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
 | Elecrow CrowPanel ESP32-S3 5.79-inch E-paper | `spi0`: SCK GPIO12, MOSI GPIO11, CS GPIO45; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c0`/`i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, or named 1-Wire, using approved free pins | `spi0` is the fixed internal dual-SSD1683 bus. SPI3 is shared with microSD and is available for a runtime expansion bus only while the SD card is unmounted. |
-| SolarWriter | `i2c0`: SDA GPIO8, SCL GPIO9; inherited CrowPanel SPI/UART buses | I2C on `i2c1`, UART on `uart1`/`uart2`, or 1-Wire, using GPIO18/19/20/38; SPI3 while microSD is unmounted | Fixed `audio0` owns I2S1 and GPIO14–17. `battery0` (`0x0b`) and DS3231 `rtc0` (`0x68`) share `i2c0`. RTC INT/SQW is unbound. GPIO21 is reserved for jack detect. |
+| SolarWriter | `i2c0`: SDA GPIO8, SCL GPIO9; inherited CrowPanel SPI/UART buses | Shared `i2c0` through Qwiic; SPI3 while microSD is unmounted | Fixed ICS-43432 `audio0` owns I2S1 and GPIO14–17. GPIO21 is held high from boot for DAC and shared boost power, independently of audio streams. MAX17048 `battery0` (`0x36`) and DS3231M `rtc0` (`0x68`) share `i2c0`. RTC INT/SQW is unbound. GPIO18/19/20/38 are reserved for USB host wiring. |
 | Waveshare ESP32-S3-ePaper-3.97 | `i2c0`: SDA GPIO41, SCL GPIO42; `spi0`: SCK GPIO11, MOSI GPIO12, CS GPIO10; `uart0`: TX GPIO43, RX GPIO44 | External I2C devices can share `i2c0`; external UART devices can use `uart0` when the console releases it. | `spi0` is the fixed internal SSD1677 bus. All other GPIOs belong to fixed peripherals, native USB, controls, or power-management signals. |
 | Pi0cket CL-32 | `i2c0`: SDA GPIO1, SCL GPIO2; `spi0`: SCK GPIO9, MISO GPIO11, MOSI GPIO10, display CS GPIO6, microSD CS GPIO7; `uart0`: TX GPIO43, RX GPIO44 | I2C on `i2c1`, SPI on `spi3`, UART on `uart1`/`uart2`, I2S on `i2s1`, or 1-Wire, using approved free pins | `cl_32`: EX1, CN1, and CN2 expose the shared `i2c0`; EX1 exposes `uart0`. The internal `core0`, display, and microSD attach automatically. `core0` supplies `keyboard0` from the AVR event FIFO and `battery0` from its voltage and power-status registers; the display and microSD share `spi0` with separate chip selects. |
 | T-LoRa-Pager | `i2c0`: SDA GPIO3, SCL GPIO2; `spi0`: SCK GPIO35, MISO GPIO33, MOSI GPIO34, CS GPIO38/GPIO21/GPIO36/GPIO39/GPIO9; `uart0`: TX GPIO43, RX GPIO44; `gnss-uart`: TX GPIO12, RX GPIO4 | External devices can share `i2c0` or `spi0`; GPIO9 is the free SPI CS slot. `uart0` is releasable. | The extension header exposes the shared buses and console UART. Display, storage, radio, and NFC share `spi0`; GNSS owns its internal UART. There is no complete exposed pin set for another routed bus. |
@@ -333,7 +333,8 @@ built-in display controller at startup and are excluded from this list.
 | `audio-pdm` | PDM microphone input on ESP32-S3 | `i2s=i2s0 clk=<pin> din=<pin>`; optional `power=<pin> slot=0\|1` | Registers `<name>.capture` as exclusive 16 kHz, signed 16-bit mono PCM. Power and DMA are enabled on stream open and released on close; slot 0 selects the left microphone channel. Sticky binds `mic0`. |
 | `esp32-camera` | DVP JPEG camera | `d0=<pin>` through `d7=<pin>`, `vsync=<pin> href=<pin> pclk=<pin> xclk=<pin>`; either `i2c=<bus>` or `siod=<pin> sioc=<pin>`; optional `pwdn=<pin> reset=<pin>` | ESP32-S3 with PSRAM; claims GPIOs and the single DVP capture peripheral. Named SCCB buses can be shared with other devices; direct-pin SCCB reserves the configured I2C controller. Registers the device name as an exclusive typed video source. Capture starts only on use. Busy owners or frames prevent detach. |
 | `pcm1808` | PCM1808 four-wire I2S ADC | `mclk=<pin> bck=<pin> ws=<pin> dout=<pin>` | Requires `expansion_i2s`, claims four GPIOs and a runtime I2S controller, then registers a 16 kHz stereo capture device and stream. One instance can be attached. |
-| `inmp441` | Three-wire I2S microphone, optional shared playback | `i2s=<port> bck=<pin> ws=<pin> din=<pin>`; optional `slot=0\|1 dout=<pin>` | Registers mono 16 kHz capture. With `dout`, also registers stereo playback on the same clocks and controller. One instance can be attached. |
+| `inmp441` | INMP441 I2S microphone, optional shared playback | `i2s=<port> bck=<pin> ws=<pin> din=<pin>`; optional `slot=0\|1 dout=<pin> power=<pin>` | Registers mono 16 kHz capture. With `dout`, also registers stereo playback on the same clocks and controller. Optional active-high power is sequenced around both streams. Shares one instance with `ics43432`. |
+| `ics43432` | ICS-43432 I2S microphone, optional shared playback | Same bindings as `inmp441` | Uses the shared 32-bit Philips-I2S transport, right or left capture slot, and optional DAC/amp power switching. Included in the `inmp441` package group. |
 | `es7210` | ES7210 I2S microphone array | `i2c=<bus> i2s=<port> mclk=<pin> bck=<pin> ws=<pin> din=<pin>` | Requires I2C and `expansion_i2s`, claims its bindings, then registers a 16 kHz stereo capture device and stream with microphone-gain control. One instance can be attached. |
 | `pcm5102` | PCM5102A three-wire I2S DAC | `i2s=<port> bck=<pin> din=<pin> rck=<pin>` | Requires `expansion_i2s`, claims the selected runtime I2S controller and three GPIOs, then registers a 16 kHz stereo playback device and stream. One instance can be attached. |
 | `i2s-output` | Generic I2S DAC or speaker amplifier | `i2s=<port> bck=<pin> din=<pin> rck=<pin>` | Claims the selected runtime I2S controller and registers the same 16 kHz stereo playback device and stream for an integrated or external Philips-I2S receiver without assuming a specific DAC. |
@@ -489,7 +490,7 @@ wire is required. Detach removes the provider but leaves the gauge operating
 so battery tracking continues. Select the `lc709203f` firmware group on boards
 with expansion I2C.
 
-### INMP441 I2S microphone
+### INMP441 and ICS-43432 I2S microphones
 
 Power the microphone from 3.3 V, connect its SCK/WS/SD to `bck`/`ws`/`din`,
 and tie L/R to ground or 3.3 V. It needs no MCLK or I2C connection.
@@ -497,6 +498,8 @@ and tie L/R to ground or 3.3 V. It needs no MCLK or I2C connection.
 The default is 0. The driver reads 24-bit microphone data in 32-bit Philips-I2S
 slots and exports its most significant 16 bits as mono PCM at 16 kHz.
 Startup samples are discarded before capture opens.
+Use driver `ics43432` for ICS-43432 hardware with the same bindings. For that
+microphone, tie CONFIG to GND and LR low for slot 0 or high for slot 1.
 
 ```text
 expansion attach inmp441 mic0 i2s=i2s1 bck=gpio14 ws=gpio15 din=gpio17 slot=1
@@ -521,6 +524,13 @@ Detach an existing `pcm5102`/`i2s-output` attachment before attaching this
 combined configuration. The clocks, pins, and I2S controller have one owner.
 Close both capture and playback streams before detaching. Select the
 `inmp441` firmware group on boards with `expansion_i2s`.
+
+Both drivers accept optional `power=<gpio>` for an active-high DAC/amplifier
+power switch. The driver enables power and waits 20 ms before starting I2S.
+Power stays on while either stream is open, including capture-only use of
+shared clocks. On final close, it stops I2S and drives BCK, WS, and DOUT low
+before disabling power. Keep the microphone powered from an always-on supply
+when its clocks are shared with the switched outputs.
 
 ### PCM1808 I2S audio input
 
@@ -1021,8 +1031,7 @@ FSK-family and OOK packet payloads are limited to 64 bytes by the modem FIFO;
 LoRa payloads may contain up to 255 bytes. Fixed length zero selects the
 FSK/OOK unlimited FIFO-stream mode used by services such as POCSAG.
 
-The driver polls the radio status registers, so DIO0/IRQ is optional. An IRQ
-binding can still be reserved for future interrupt-driven operation.
+The driver polls the radio status registers, so DIO0/IRQ wiring is optional.
 
 ### SSD1306 or SH1106 on SolarTerm
 

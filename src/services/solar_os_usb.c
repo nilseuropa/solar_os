@@ -6,10 +6,18 @@
 #include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "solar_os_board_caps.h"
+#include "solar_os_board_usb.h"
+#if SOLAR_OS_BOARD_HAS_CDC
 #include "solar_os_cdc.h"
+#endif
 #include "solar_os_resources.h"
 #include "solar_os_sync_dynamic.h"
 #include "solar_os_usb_hid_input.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+#include "solar_os_usb_storage.h"
+#endif
 
 #define USB_OWNER "usb-host"
 
@@ -17,6 +25,7 @@ static SemaphoreHandle_t mode_mutex;
 static solar_os_usb_mode_t current_mode = SOLAR_OS_USB_MODE_DEVICE;
 static bool sleep_prepared;
 static bool resources_held;
+static bool vbus_enabled;
 static esp_err_t last_error, rollback_error;
 /* Decoded input state is accessed only from serialized task callbacks. */
 static EXT_RAM_BSS_ATTR solar_os_usb_hid_input_t inputs[USB_HOST_PORT_INTERFACE_MAX];
@@ -114,6 +123,9 @@ static esp_err_t acquire_resources(void)
             {SOLAR_OS_RESOURCE_USB_PORT, 0, -1, "internal USB PHY"},
             {SOLAR_OS_RESOURCE_GPIO_PIN, 19, -1, "USB D-"},
             {SOLAR_OS_RESOURCE_GPIO_PIN, 20, -1, "USB D+"},
+#ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
+            {SOLAR_OS_RESOURCE_GPIO_PIN, SOLAR_OS_BOARD_PIN_USB_VBUS_EN, -1, "USB VBUS enable"},
+#endif
         };
         const esp_err_t ret = solar_os_resource_claim_bundle(requests,
             sizeof(requests) / sizeof(requests[0]), USB_OWNER, NULL);
@@ -125,15 +137,47 @@ static esp_err_t acquire_resources(void)
     return ret;
 }
 
+static esp_err_t set_cdc_enabled(bool enabled)
+{
+#if SOLAR_OS_BOARD_HAS_CDC
+    /* Driver installation explicitly selects the internal PHY. */
+    return enabled ? solar_os_cdc_init() : solar_os_cdc_deinit();
+#else
+    /* USB-UART consoles do not use the native PHY. Device mode is idle. */
+    (void)enabled;
+    return ESP_OK;
+#endif
+}
+
+static esp_err_t set_vbus_enabled(bool enabled)
+{
+    const esp_err_t ret = solar_os_board_usb_set_vbus(enabled);
+#ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
+    if (ret == ESP_OK) vbus_enabled = enabled;
+#endif
+    return ret;
+}
+
+static esp_err_t stop_host_port(void)
+{
+    const esp_err_t ret = usb_host_port_stop();
+    const esp_err_t power_ret = set_vbus_enabled(false);
+    return ret == ESP_OK ? power_ret : ret;
+}
+
 /* Caller holds mode_mutex. A failed teardown retains the PHY, claims and PM
  * locks; device mode must never be installed on top of a live host stack. */
 static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
 {
     if (mode == current_mode && mode == SOLAR_OS_USB_MODE_HOST) return ESP_OK;
     if (mode == SOLAR_OS_USB_MODE_DEVICE) {
-        esp_err_t ret = usb_host_port_stop();
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+        esp_err_t storage_ret = solar_os_usb_storage_stop();
+        if (storage_ret != ESP_OK) return storage_ret;
+#endif
+        esp_err_t ret = stop_host_port();
         if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
-        ret = solar_os_cdc_init(); /* Driver install explicitly selects the internal PHY. */
+        ret = set_cdc_enabled(true);
         current_mode = ret == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
         release_resources();
         return ret;
@@ -142,19 +186,28 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
     esp_err_t ret = acquire_resources();
     if (ret != ESP_OK) {
         if (current_mode == SOLAR_OS_USB_MODE_SUSPENDED) {
-            rollback_error = solar_os_cdc_init();
+            rollback_error = set_cdc_enabled(true);
             current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
             release_resources();
         }
         return ret;
     }
-    ret = solar_os_cdc_deinit();
+    ret = set_cdc_enabled(false);
     if (ret != ESP_OK) { release_resources(); return ret; }
     ret = usb_host_port_start(input_event);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    if (ret == ESP_OK) ret = solar_os_usb_storage_start();
+#endif
+    if (ret == ESP_OK) ret = set_vbus_enabled(true);
+    if (ret == ESP_OK) ret = usb_host_port_enable();
     if (ret == ESP_OK) { current_mode = SOLAR_OS_USB_MODE_HOST; return ESP_OK; }
-    rollback_error = usb_host_port_stop();
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    rollback_error = solar_os_usb_storage_stop();
+    if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
+#endif
+    rollback_error = stop_host_port();
     if (rollback_error == ESP_OK) {
-        rollback_error = solar_os_cdc_init();
+        rollback_error = set_cdc_enabled(true);
         release_resources();
     }
     current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
@@ -185,6 +238,7 @@ void solar_os_usb_get_status(solar_os_usb_status_t *status)
     xSemaphoreTake(mode_mutex, portMAX_DELAY);
     status->mode = current_mode;
     status->sleep_prepared = sleep_prepared;
+    status->vbus_enabled = vbus_enabled;
     status->last_error = last_error;
     status->rollback_error = rollback_error;
     status->interface_count = usb_host_port_interfaces(status->interfaces,
@@ -199,7 +253,11 @@ esp_err_t solar_os_usb_prepare_sleep(void)
     esp_err_t ret = ESP_OK;
     if (current_mode == SOLAR_OS_USB_MODE_FAULT) ret = ESP_ERR_INVALID_STATE;
     else if (!sleep_prepared && current_mode != SOLAR_OS_USB_MODE_DEVICE) {
-        ret = usb_host_port_stop();
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+        ret = solar_os_usb_storage_stop();
+        if (ret != ESP_OK) { last_error = ret; xSemaphoreGive(mode_mutex); return ret; }
+#endif
+        ret = stop_host_port();
         if (ret == ESP_OK) {
             current_mode = SOLAR_OS_USB_MODE_SUSPENDED;
             release_pm();

@@ -31,8 +31,11 @@ class SmallDisplayAppsTest(unittest.TestCase):
         widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
         helpers = widgets[widgets.index("static void media_transport_triangle"):
                           widgets.index("esp_err_t solar_os_cassette_widget_create")]
+        helpers += production_functions(widgets, ("solar_os_media_playlist_draw",))
+        browser = (ROOT / "src/services/solar_os_storage_browser.c").read_text()
+        helpers += production_functions(browser, ("solar_os_storage_browser_media_entry",))
         names = {
-            "player": ("player_draw_header", "player_draw_visualizer", "player_render_play", "player_render_list"),
+            "player": ("player_draw_header", "player_draw_visualizer", "player_render_play", "player_playlist_entry", "player_render_list"),
             "recorder": ("recorder_draw_header", "recorder_draw_visualizer", "recorder_progress_text",
                 "recorder_draw_progress", "recorder_render_record_graphics", "recorder_render_setup_graphics",
                 "recorder_render_browser_graphics", "recorder_draw_filename_dialog"),

@@ -16,6 +16,8 @@ void solar_os_shell_cmd_can(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 void solar_os_shell_cmd_camera(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
 void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_INFERENCE

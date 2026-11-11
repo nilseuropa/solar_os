@@ -5,8 +5,18 @@
 
 #include "esp_err.h"
 #include "solar_os_gfx.h"
+#include "solar_os_m3u.h"
 
 typedef struct solar_os_cassette_widget solar_os_cassette_widget_t;
+
+typedef enum {
+    SOLAR_OS_MEDIA_INPUT_NONE,
+    SOLAR_OS_MEDIA_INPUT_CHANGED,
+    SOLAR_OS_MEDIA_INPUT_SUBMIT,
+    SOLAR_OS_MEDIA_INPUT_CANCEL,
+} solar_os_media_input_action_t;
+solar_os_media_input_action_t solar_os_media_dialog_input_key(
+    char *text, size_t capacity, size_t *length, uint8_t key);
 
 typedef enum {
     SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS,
@@ -43,6 +53,9 @@ typedef struct {
     bool compact;
 } solar_os_media_list_layout_t;
 void solar_os_media_list_layout(int width, int height, solar_os_media_list_layout_t *layout);
+void solar_os_media_playlist_draw(solar_os_gfx_t *gfx, int width, int height,
+                                   size_t count, size_t cursor, size_t active, size_t *top,
+                                   solar_os_m3u_get_fn get, void *user, const char *help);
 /* Draw a single line clipped to the supplied pixel width. */
 void solar_os_media_text_draw(solar_os_gfx_t *gfx, int x, int baseline,
                               int width, const char *text);

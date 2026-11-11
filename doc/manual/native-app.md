@@ -14,7 +14,7 @@ while suspended. The host joins audio/presentation before enabling the hook and
 waits for reclamation before resume or unload. The callback may free owner-safe
 data only; it must not allocate, wait, or call foreground APIs. Check table size
 before registering. Ordinary module pointers remain fixed. See
-[memory policy](../memory-policy.md) for the shared buffer and paging contracts.
+[memory policy](https://github.com/nilseuropa/solar_os/blob/main/doc/memory-policy.md) for the shared buffer and paging contracts.
 
 Native foreground apps are trusted ESP32-S3 modules. They use the same sessions,
 display ownership, keyboard shortcuts and cold-state lifecycle as built-in apps.

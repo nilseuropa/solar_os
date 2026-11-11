@@ -88,9 +88,36 @@ class FlavorPackagesTest(unittest.TestCase):
         _, supported = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"usb_host"})
         self.assertTrue(supported["service_usb_host"])
+        self.assertTrue(supported["service_usb_storage"])
         _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"cdc"})
         self.assertFalse(cdc_only["service_usb_host"])
+        self.assertFalse(cdc_only["service_usb_storage"])
+
+    def test_usb_host_selection_for_all_board_profiles(self):
+        from solaros_board_manifest import load_board_manifest
+
+        manifest_dir = REPOSITORY / "boards" / "manifests"
+        _, _, groups, packages = self.resolve("full")
+        for path in sorted(manifest_dir.glob("*.toml")):
+            board = load_board_manifest(path, manifest_dir)
+            target = board["target"]["mcu"]
+            # These S3 boards route the native pair to fixed internal devices,
+            # without a usable USB connector or expansion-header pair.
+            eligible = target == "esp32s3" and path.stem not in {
+                "seeed_reterminal_sticky", "thinknode_m9",
+            }
+            with self.subTest(board=path.stem):
+                selected = generate_flavor_config.apply_target_pruning(
+                    self.catalog, packages, target)
+                _, selected = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, selected, set(board["build"]["capabilities"]))
+                self.assertEqual(selected["service_usb_host"], eligible)
+                self.assertEqual(selected["service_usb_storage"], eligible)
+                if eligible:
+                    pins = {pin["gpio"]: pin for pin in board["pins"]}
+                    for pin in (19, 20):
+                        self.assertIn("USB", pins[pin]["role"])
 
     def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
         for flavor in ("full", "classic", "writerdeck"):
@@ -519,7 +546,7 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(enabled["service_ps2"])
         self.assertTrue(enabled["service_resources"])
 
-    def test_solar_writer_rtc_survives_writerdeck_pruning(self):
+    def test_solar_writer_fixed_peripherals_survive_writerdeck_pruning(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
         manifest_dir = REPOSITORY / "boards/manifests"
         board = load_board_manifest(manifest_dir / "solar_writer.toml", manifest_dir)
@@ -535,11 +562,14 @@ class FlavorPackagesTest(unittest.TestCase):
         groups, selected = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, selected, set(board["build"]["capabilities"])
         )
-        for package in ("driver_ds3231", "service_rtc", "service_i2c", "service_expansion"):
+        for package in ("driver_ds3231", "service_rtc", "service_i2c", "service_expansion",
+                        "expansion_inmp441", "service_audio", "max17048", "service_battery"):
             self.assertTrue(selected[package], package)
         sources = generate_flavor_config.collect_sources(self.catalog, groups, selected)
         self.assertIn("drivers/rtc_ds3231.c", sources)
         self.assertIn("services/solar_os_ds3231_driver.c", sources)
+        self.assertIn("services/solar_os_inmp441_driver.c", sources)
+        self.assertIn("services/solar_os_max17048_driver.c", sources)
 
     def test_cl32_keeps_both_display_backends_in_writerdeck(self):
         from solaros_board_manifest import load_board_manifest, load_driver_catalog, required_packages
@@ -872,6 +902,7 @@ class FlavorPackagesTest(unittest.TestCase):
                 "service_audio",
                 "service_audio_codecs",
                 "service_http_client",
+                "service_media_preferences",
                 "service_media_widgets",
                 "service_signal_widgets",
                 "service_webradio",
@@ -898,6 +929,7 @@ class FlavorPackagesTest(unittest.TestCase):
             (
                 "service_audio",
                 "service_audio_codecs",
+                "service_media_preferences",
                 "service_media_widgets",
                 "service_player_playlist",
                 "service_signal_widgets",

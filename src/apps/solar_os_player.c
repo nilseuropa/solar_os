@@ -18,6 +18,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_media_preferences.h"
 #include "solar_os_player_playlist.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
@@ -60,6 +61,7 @@ typedef struct {
     player_mode_t mode;
     player_tab_t tab;
     player_visualizer_t visualizer;
+    solar_os_media_preferences_t *preferences;
     solar_os_tui_t tui;
     solar_os_shell_io_t fallback_io;
     solar_os_storage_browser_t *browser;
@@ -93,6 +95,7 @@ typedef struct {
     player_playback_state_t playback_state;
     esp_err_t playback_error;
     char active_path[SOLAR_OS_STORAGE_PATH_MAX];
+    char active_title[SOLAR_OS_M3U_TITLE_MAX];
     char active_device_id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
     uint32_t active_device_capabilities;
     char message[96];
@@ -115,8 +118,8 @@ static bool player_audio_file(const char *name, void *user)
 {
     (void)user;
     const char *dot = name != NULL ? strrchr(name, '.') : NULL;
-    return dot != NULL && (strcasecmp(dot, ".wav") == 0 ||
-                           strcasecmp(dot, ".mp3") == 0);
+    return solar_os_m3u_path(name) || (dot != NULL && (strcasecmp(dot, ".wav") == 0 ||
+                           strcasecmp(dot, ".mp3") == 0));
 }
 
 static solar_os_shell_io_t *player_io(solar_os_context_t *ctx)
@@ -250,6 +253,7 @@ static void player_device_callback(const solar_os_audio_device_info_t *device,
     if (device->native_format.sample_rate != 0U)
         player.sample_rate = device->native_format.sample_rate;
     portEXIT_CRITICAL(&player_lock);
+    solar_os_media_preferences_device(device, player.preferences);
 }
 
 static void player_worker(void *arg)
@@ -281,9 +285,10 @@ static void player_worker(void *arg)
             .progress_interval_ms = 250U,
         };
         err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
-            solar_os_audio_play_mp3(path, player.volume, &options, &info) :
-            solar_os_audio_play_wav(path, player.volume, &options, &info);
+            solar_os_audio_play_mp3(path, solar_os_media_preferences_volume(player.preferences), &options, &info) :
+            solar_os_audio_play_wav(path, solar_os_media_preferences_volume(player.preferences), &options, &info);
     }
+    solar_os_media_preferences_device(NULL, player.preferences);
     portENTER_CRITICAL(&player_lock);
     player.playback_error = err;
     player.natural_completion = err == ESP_OK && !player.stop_requested;
@@ -336,6 +341,7 @@ static esp_err_t player_play_index_at(size_t index, uint32_t start_ms, bool paus
     }
     player_stop_playback();
     strlcpy(player.active_path, track.path, sizeof(player.active_path));
+    strlcpy(player.active_title, track.title, sizeof(player.active_title));
     player.active_index = index;
     player.cursor = index;
     player.start_ms = start_ms;
@@ -437,23 +443,31 @@ static void player_toggle_play_stop(void)
     }
 }
 
+static esp_err_t player_load_preferences(void)
+{
+    esp_err_t err = solar_os_media_preferences_create(SOLAR_OS_MEDIA_PLAYER, &player.preferences);
+    if (err == ESP_OK) {
+        player.volume = solar_os_media_preferences_volume(player.preferences);
+        player.visualizer = (player_visualizer_t)solar_os_media_preferences_visualizer(player.preferences);
+    }
+    return err;
+}
+
+static void player_cycle_visualizer(void)
+{
+    player.visualizer = (player_visualizer_t)((player.visualizer + 1U) % PLAYER_VISUALIZER_COUNT);
+    if (solar_os_media_preferences_set_visualizer(player.preferences, player.visualizer) != ESP_OK)
+        player_set_message("Cannot change visualization");
+}
+
 static void player_adjust_volume(int direction)
 {
     int volume = (int)player.volume + direction * PLAYER_VOLUME_STEP;
     if (volume < 0) volume = 0;
     if (volume > 100) volume = 100;
-    esp_err_t err = solar_os_audio_set_volume((uint8_t)volume);
-    if (err == ESP_ERR_NOT_SUPPORTED && player.active_device_id[0] != '\0' &&
-        (player.active_device_capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0U) {
-        err = solar_os_audio_set_device_volume(player.active_device_id,
-                                               (uint8_t)volume);
-    }
-    if (err == ESP_OK || player.task == NULL) {
-        player.volume = (uint8_t)volume;
-        player_set_message(NULL);
-    } else {
-        player_set_message("Volume control unavailable");
-    }
+    esp_err_t err = solar_os_media_preferences_set_volume(player.preferences, (uint8_t)volume);
+    player.volume = solar_os_media_preferences_volume(player.preferences);
+    player_set_message(err == ESP_OK ? NULL : "Volume control unavailable");
 }
 
 static void player_format_time(uint32_t duration_ms, bool known,
@@ -511,7 +525,7 @@ static void player_render_tui(void)
             if (!solar_os_player_playlist_get(index, &track)) continue;
             snprintf(line, sizeof(line), "%c %s",
                      player.task != NULL && index == player.active_index ? '*' : ' ',
-                     player_basename(track.path));
+                     track.title[0] ? track.title : player_basename(track.path));
         }
         solar_os_tui_write_cell(
             &player.tui, row + 1U, 1U, cols > 2U ? cols - 2U : 0U, line,
@@ -589,57 +603,31 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     char status[96];
     player_progress_text(status, sizeof(status));
     solar_os_media_player_controls_draw(gfx, width, height,
+        player.active_title[0] ? player.active_title :
         player.active_path[0] ? player_basename(player.active_path) : "No track selected",
         status, player.volume, true,
         player.task == NULL ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
         player.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
 }
 
+static bool player_playlist_entry(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    (void)user;
+    return solar_os_player_playlist_get(index, entry);
+}
+
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
-    solar_os_media_list_layout_t list;
-    solar_os_media_list_layout(width, height, &list);
-    const int list_y = list.top;
-    const size_t visible = (size_t)list.visible;
-    const size_t count = player.browsing ?
-        solar_os_storage_browser_count(player.browser) : player.track_count;
-    const size_t cursor = player.browsing ?
-        solar_os_storage_browser_cursor(player.browser) : player.cursor;
-    if (cursor < player.top) player.top = cursor;
-    if (visible && cursor >= player.top + visible) player.top = cursor - visible + 1U;
-    for (size_t row = 0U; row < visible; row++) {
-        const size_t index = player.top + row;
-        if (index >= count) break;
-        const int y = list_y + (int)row * list.row_height;
-        char label[192];
-        if (player.browsing) {
-            solar_os_storage_browser_entry_t entry;
-            if (!solar_os_storage_browser_entry(player.browser, index, &entry)) continue;
-            snprintf(label, sizeof(label), "%s%s",
-                     entry.is_directory ? "[DIR] " : "", entry.name);
-        } else {
-            solar_os_player_track_t track;
-            if (!solar_os_player_playlist_get(index, &track)) continue;
-            snprintf(label, sizeof(label), "%c %s",
-                     player.task != NULL && index == player.active_index ? '>' : ' ',
-                     player_basename(track.path));
-        }
-        if (index == cursor) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_rect(gfx, 4, y, width - 8, list.row_height - 1);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        } else {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        }
-        solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_media_text_draw(gfx, 6, y + list.baseline, width - 12, label);
+    if (!player.browsing) {
+        solar_os_media_playlist_draw(gfx, width, height, player.track_count, player.cursor,
+            player.task ? player.active_index : SIZE_MAX, &player.top,
+            player_playlist_entry, NULL, "A add  Del remove  Enter play");
+        return;
     }
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_media_text_draw(gfx, 3, height - 2, width - 6,
-                      list.compact ? (player.browsing ? "Enter open  Esc back" : "Enter play  A+ Del-") :
-                      player.browsing ? "Enter open/add   Esc cancel" :
-                                        "A add   Del remove   Enter play");
+    solar_os_media_playlist_draw(gfx, width, height,
+        solar_os_storage_browser_count(player.browser), solar_os_storage_browser_cursor(player.browser),
+        SIZE_MAX, &player.top, solar_os_storage_browser_media_entry, player.browser,
+        "Enter open/add  Esc cancel");
 }
 
 static void player_render(solar_os_context_t *ctx)
@@ -707,6 +695,7 @@ static void player_activate_browser(void)
     esp_err_t err = solar_os_storage_browser_activate(
         player.browser, selected, sizeof(selected), &file_selected);
     if (err == ESP_OK && file_selected) {
+        if (solar_os_m3u_path(selected)) player_stop_playback();
         size_t index = 0U;
         err = solar_os_player_playlist_add(selected, &index);
         if (err == ESP_OK) {
@@ -766,9 +755,7 @@ static bool player_handle_key(solar_os_context_t *ctx, uint8_t key)
         else if (key == SOLAR_OS_KEY_DOWN) player_adjust_volume(-1);
         else if (key == '\r' || key == '\n') player_toggle_play_stop();
         else if (key == ' ') player_toggle_pause();
-        else if (key == 'v' || key == 'V')
-            player.visualizer = (player_visualizer_t)((player.visualizer + 1U) %
-                                                       PLAYER_VISUALIZER_COUNT);
+        else if (key == 'v' || key == 'V') player_cycle_visualizer();
     } else {
         if (key == SOLAR_OS_KEY_UP || key == 'k') {
             if (player.cursor > 0U) player.cursor--;
@@ -814,12 +801,10 @@ static esp_err_t player_start(solar_os_context_t *ctx)
             SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_TUI);
     player.task_done = true;
     player.active_index = SIZE_MAX;
-    solar_os_audio_status_t audio_status;
-    solar_os_audio_get_status(&audio_status);
-    player.volume = audio_status.volume <= 100U ? audio_status.volume : 50U;
-    player.visualizer = PLAYER_VISUALIZER_CASSETTE;
-    esp_err_t err = solar_os_player_playlist_init();
+    esp_err_t err = player_load_preferences();
     if (err != ESP_OK) return err;
+    err = solar_os_player_playlist_init();
+    if (err != ESP_OK) goto fail_preferences;
     err = solar_os_storage_browser_create(player_audio_file, NULL, &player.browser);
     if (err != ESP_OK) {
         solar_os_cassette_widget_destroy(player.cassette);
@@ -827,7 +812,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
         solar_os_spectrum_widget_destroy(player.spectrum);
         solar_os_storage_browser_destroy(player.browser);
         player.browser = NULL;
-        return err;
+        goto fail_preferences;
     }
     player.mode = launch_mode;
     if (player.mode == PLAYER_MODE_TUI) {
@@ -843,7 +828,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
             solar_os_context_set_graphics_active(ctx, true);
         }
     }
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) goto fail_preferences;
     player.ui_started = true;
     player_refresh_playlist();
     if (path_arg != NULL) {
@@ -854,7 +839,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
         if (err == ESP_OK) {
             player_refresh_playlist();
             player.cursor = index;
-            err = player_play_index(index);
+            if (player.track_count) err = player_play_index(index);
         }
         if (err != ESP_OK) {
             char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
@@ -870,11 +855,17 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     }
     player_render(ctx);
     return err;
+fail_preferences:
+    solar_os_media_preferences_destroy(player.preferences);
+    player.preferences = NULL;
+    return err;
 }
 
 static void player_stop(solar_os_context_t *ctx)
 {
     player_stop_playback();
+    solar_os_media_preferences_destroy(player.preferences);
+    player.preferences = NULL;
     if (player.mode == PLAYER_MODE_GRAPHICS) {
         player_disable_high_refresh();
         solar_os_cassette_widget_destroy(player.cassette);

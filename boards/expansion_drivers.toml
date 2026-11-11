@@ -2481,6 +2481,55 @@ hint = "0|1"
 min = 0
 max = 1
 
+[[drivers.inmp441.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+
+[drivers.ics43432]
+summary = "ICS-43432 microphone with optional shared I2S playback"
+package = "expansion_inmp441"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2s"]
+board_capabilities = ["audio_input"]
+board_driver = "audio_expansion"
+default_name = "mic0"
+
+[[drivers.ics43432.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+[[drivers.ics43432.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ics43432.bindings]]
+key = "dout"
+kind = "gpio"
+hint = "gpio"
+[[drivers.ics43432.bindings]]
+key = "slot"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+[[drivers.ics43432.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+
 [drivers.es7210]
 summary = "ES7210 I2S microphone array"
 package = "expansion_es7210"

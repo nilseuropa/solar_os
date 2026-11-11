@@ -1317,6 +1317,12 @@ static uint8_t ili9341_u8x8_display_cb(u8x8_t *u8x8, uint8_t message,
   }
 }
 
+static uint8_t *ili9341_alloc_framebuffer(size_t size) {
+  /* SPI transmits the converted pixels from the separate internal DMA buffers. */
+  uint8_t *buffer = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return buffer != NULL ? buffer : heap_caps_malloc(size, MALLOC_CAP_8BIT);
+}
+
 esp_err_t tft_ili9341_init(tft_ili9341_t *display,
                            const tft_ili9341_config_t *config) {
   if (display == NULL || config == NULL || config->spi_bus == NULL ||
@@ -1381,8 +1387,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
   }
 
   display->buffer_size = display->buffer_row_bytes * display->tile_height;
-  /* Driver framebuffer only requires byte-addressable memory. */
-  display->buffer = heap_caps_malloc(display->buffer_size, MALLOC_CAP_8BIT);
+  display->buffer = ili9341_alloc_framebuffer(display->buffer_size);
   if (display->buffer == NULL) {
     tft_ili9341_deinit(display);
     return ESP_ERR_NO_MEM;

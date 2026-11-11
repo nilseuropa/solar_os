@@ -274,7 +274,7 @@ the connected mechanism. Lua uses the same names and arguments after
 `local solaros = require("solaros")`.
 
 Native API and build instructions are in the
-[robot library README](../../modules/robot/README.md).
+[robot library README](https://github.com/nilseuropa/solar_os/blob/main/modules/robot/README.md).
 
 ## Quick reference
 
