@@ -5,11 +5,14 @@
 #include "driver/gpio.h"
 #include "audio_pdm.h"
 #include "solar_os_audio.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_stream.h"
 
 static struct {
     bool attached;
     int clk, data, power, slot;
+    bool has_power_line;
+    solar_os_gpio_line_ref_t power_line;
     char id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
     char capture[SOLAR_OS_STREAM_ID_MAX];
 } mic;
@@ -70,6 +73,8 @@ esp_err_t solar_os_audio_pdm_attach(const char *name,
     if (mic.attached) return ESP_ERR_INVALID_STATE;
     if (!name || !name[0] || strlen(name) >= sizeof(mic.id) || !bindings) return ESP_ERR_INVALID_ARG;
     int port = -1, clk = -1, data = -1, power = -1, slot = 0;
+    bool has_power_line = false;
+    solar_os_gpio_line_ref_t power_line = {0};
     unsigned seen = 0;
     for (size_t i = 0; i < count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -81,6 +86,15 @@ esp_err_t solar_os_audio_pdm_attach(const char *name,
             if (!strcmp(binding->role, "clk")) { destination = &clk; bit = 2; }
             else if (!strcmp(binding->role, "din")) { destination = &data; bit = 4; }
             else if (!strcmp(binding->role, "power")) { destination = &power; bit = 8; }
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                   !strcmp(binding->role, "power")) {
+            strlcpy(power_line.controller, binding->target, sizeof(power_line.controller));
+            power_line.line = (uint8_t)binding->value;
+            has_power_line = true;
+            bit = 8;
+            if (seen & bit) return ESP_ERR_INVALID_ARG;
+            seen |= bit;
+            continue;
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER && !strcmp(binding->role, "slot")) {
             destination = &slot; bit = 16;
         }
@@ -89,11 +103,21 @@ esp_err_t solar_os_audio_pdm_attach(const char *name,
     }
     if (port != 0 || !GPIO_IS_VALID_OUTPUT_GPIO(clk) || !GPIO_IS_VALID_GPIO(data) ||
         (power != -1 && !GPIO_IS_VALID_OUTPUT_GPIO(power)) || slot < 0 || slot > 1 ||
-        clk == data || clk == power || data == power) return ESP_ERR_INVALID_ARG;
-    esp_err_t ret = audio_pdm_prepare_power(power);
+        clk == data || (power != -1 && (clk == power || data == power))) return ESP_ERR_INVALID_ARG;
+    esp_err_t ret = ESP_OK;
+    if (has_power_line) {
+        ret = solar_os_gpio_line_configure(&power_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (ret == ESP_OK) ret = solar_os_gpio_line_write(&power_line, true);
+        power = -1;
+    } else {
+        ret = audio_pdm_prepare_power(power);
+    }
     if (ret != ESP_OK) return ret;
     memset(&mic, 0, sizeof(mic));
     mic.clk = clk; mic.data = data; mic.power = power; mic.slot = slot;
+    mic.has_power_line = has_power_line;
+    mic.power_line = power_line;
     strlcpy(mic.id, name, sizeof(mic.id));
     const int length = snprintf(mic.capture, sizeof(mic.capture), "%s.capture", name);
     if (length < 0 || (size_t)length >= sizeof(mic.capture)) return ESP_ERR_INVALID_SIZE;
@@ -119,6 +143,9 @@ esp_err_t solar_os_audio_pdm_detach(const char *name) {
     esp_err_t ret = solar_os_stream_unregister(mic.capture);
     if (ret != ESP_OK) return ret;
     ret = audio_pdm_close();
+    if (ret == ESP_OK && mic.has_power_line) {
+        (void)solar_os_gpio_line_write(&mic.power_line, false);
+    }
     if (ret == ESP_OK) ret = solar_os_audio_unregister_device(mic.id);
     if (ret != ESP_OK) { (void)register_stream(); return ret; }
     memset(&mic, 0, sizeof(mic));

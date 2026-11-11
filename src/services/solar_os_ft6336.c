@@ -10,6 +10,7 @@
 #include "freertos/task.h"
 #include "solar_os_display.h"
 #include "solar_os_input.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_task.h"
 
 #define FT6336_POLL_MS 10U
@@ -26,6 +27,10 @@ typedef struct {
     uint8_t address;
     int reset_pin;
     int irq_pin;
+    bool has_reset_line;
+    bool has_power_line;
+    solar_os_gpio_line_ref_t reset_line;
+    solar_os_gpio_line_ref_t power_line;
     uint8_t rotation;
     uint16_t target_width;
     uint16_t target_height;
@@ -87,6 +92,22 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                 return ESP_ERR_INVALID_ARG;
             }
             break;
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+            if (strcmp(binding->role, "reset") == 0 && !have_reset) {
+                strlcpy(device->reset_line.controller, binding->target,
+                        sizeof(device->reset_line.controller));
+                device->reset_line.line = (uint8_t)binding->value;
+                device->has_reset_line = true;
+                have_reset = true;
+            } else if (strcmp(binding->role, "power") == 0 && !device->has_power_line) {
+                strlcpy(device->power_line.controller, binding->target,
+                        sizeof(device->power_line.controller));
+                device->power_line.line = (uint8_t)binding->value;
+                device->has_power_line = true;
+            } else {
+                return ESP_ERR_INVALID_ARG;
+            }
+            break;
         case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
             if (strcmp(binding->role, "rotation") != 0 ||
                 have_rotation || binding->value < 0 || binding->value > 3) {
@@ -136,6 +157,26 @@ esp_err_t solar_os_ft6336_attach(const char *name,
     }
     candidate.target_width = target.native_width ? target.native_width : target.width;
     candidate.target_height = target.native_height ? target.native_height : target.height;
+    if (candidate.has_power_line) {
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_configure(&candidate.power_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE),
+            TAG, "touch power configure failed");
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(&candidate.power_line, true),
+            TAG, "touch power on failed");
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    if (candidate.has_reset_line) {
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_configure(&candidate.reset_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE),
+            TAG, "touch reset configure failed");
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(&candidate.reset_line, false),
+            TAG, "touch reset low failed");
+        vTaskDelay(pdMS_TO_TICKS(10));
+        ESP_RETURN_ON_ERROR(solar_os_gpio_line_write(&candidate.reset_line, true),
+            TAG, "touch reset high failed");
+        vTaskDelay(pdMS_TO_TICKS(500));
+        candidate.reset_pin = -1;
+    }
     ESP_RETURN_ON_ERROR(ft6336_init(candidate.i2c_bus,
                                     candidate.address,
                                     candidate.reset_pin,

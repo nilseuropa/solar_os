@@ -50,6 +50,7 @@
 
 #define SX1262_STANDBY_RC 0x00U
 #define SX1262_STANDBY_XOSC 0x01U
+#define SX1262_REGULATOR_LDO 0x00U
 #define SX1262_REGULATOR_DC_DC 0x01U
 #define SX1262_TCXO_VOLTAGE_3V0 0x06U
 #define SX1262_TCXO_DELAY_15625NS_UNITS 320U /* ~5 ms startup delay */
@@ -476,7 +477,8 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
         err = sx1262_write_register(dev, SX1262_REG_RX_GAIN, &gain, 1);
     }
     if (err == ESP_OK) {
-        const uint8_t regulator = SX1262_REGULATOR_DC_DC;
+        const uint8_t regulator = dev->regulator_ldo ? SX1262_REGULATOR_LDO :
+                                                       SX1262_REGULATOR_DC_DC;
         err = sx1262_transact(dev, SX1262_OP_SET_REGULATOR_MODE, &regulator, 1, NULL, 0);
     }
     if (err == ESP_OK) {
@@ -649,12 +651,22 @@ esp_err_t sx1262_set_state(sx1262_t *dev, solar_os_radio_state_t state)
         err = sx1262_set_standby(dev);
         break;
     case SOLAR_OS_RADIO_STATE_RX: {
-        err = sx1262_start_rx(dev);
+        if (dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, false);
+        }
+        if (err == ESP_OK) {
+            err = sx1262_start_rx(dev);
+        }
         break;
     }
     case SOLAR_OS_RADIO_STATE_TX: {
         const uint8_t params[3] = {0x00U, 0x00U, 0x00U}; /* no HW timeout */
-        err = sx1262_transact(dev, SX1262_OP_SET_TX, params, sizeof(params), NULL, 0);
+        if (dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, true);
+        }
+        if (err == ESP_OK) {
+            err = sx1262_transact(dev, SX1262_OP_SET_TX, params, sizeof(params), NULL, 0);
+        }
         break;
     }
     case SOLAR_OS_RADIO_STATE_UNKNOWN:
@@ -802,6 +814,9 @@ esp_err_t sx1262_send(sx1262_t *dev, const solar_os_radio_packet_t *packet, uint
     if (err == ESP_OK) {
         err = sx1262_write_buffer(dev, 0x00U, packet->data, packet->len);
     }
+    if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+        err = dev->set_antenna_tx(dev->antenna_ctx, true);
+    }
     if (err == ESP_OK) {
         const uint8_t params[3] = {0x00U, 0x00U, 0x00U};
         err = sx1262_transact(dev, SX1262_OP_SET_TX, params, sizeof(params), NULL, 0);
@@ -876,6 +891,9 @@ esp_err_t sx1262_receive(sx1262_t *dev, solar_os_radio_packet_t *packet, uint32_
      * there, never fall back to standby" contract. */
     if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
         err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+        if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, false);
+        }
         if (err == ESP_OK) {
             err = sx1262_start_rx(dev);
         }

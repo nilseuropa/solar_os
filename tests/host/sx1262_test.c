@@ -22,6 +22,7 @@ static uint8_t opcodes[1024];
 static uint8_t rx_gain = 0x94;
 static bool fail_gain;
 static uint8_t gfsk_bw;
+static int regulator = -1;
 
 int64_t esp_timer_get_time(void) { return now_us; }
 void esp_rom_delay_us(uint32_t us) { now_us += us; }
@@ -49,6 +50,7 @@ esp_err_t solar_os_bus_spi_transfer(const char *name, int cs, uint8_t mode,
     }
     assert(!asleep && !stuck_busy);
     if (tx[0] == SX1262_OP_SET_MODULATION_PARAMS && len == 9) gfsk_bw = tx[5];
+    if (tx[0] == SX1262_OP_SET_REGULATOR_MODE) { assert(len == 2); regulator = tx[1]; }
     if (tx[0] == SX1262_OP_GET_RSSI_INST) {
         assert(len == 3 && tx[1] == 0 && tx[2] == 0);
         rx[1] = 0x24; /* Status is not RSSI. */
@@ -134,6 +136,11 @@ int main(void)
     assert(sx1262_configure(&dev, &config) == ESP_OK);
     assert(!asleep && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
     assert(dev.config.frequency_hz == 915000000);
+    assert(regulator == SX1262_REGULATOR_DC_DC); /* Default: DC-DC. */
+    dev.regulator_ldo = true;
+    sleep_radio(&dev);
+    assert(sx1262_configure(&dev, &config) == ESP_OK && regulator == SX1262_REGULATOR_LDO);
+    dev.regulator_ldo = false;
     sleep_radio(&dev);
     assert(sx1262_receive(&dev, &packet, 8) == ESP_ERR_TIMEOUT);
     assert(!asleep && dev.state == SOLAR_OS_RADIO_STATE_RX && retained);

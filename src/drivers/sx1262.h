@@ -27,6 +27,11 @@ typedef struct {
     uint32_t image_cal_min_hz;
     uint32_t image_cal_max_hz;
     SemaphoreHandle_t mutex;
+    esp_err_t (*set_antenna_tx)(void *ctx, bool tx);
+    void *antenna_ctx;
+    /* Modules without the DC-DC inductor run the internal regulator in
+     * LDO mode (SetRegulatorMode 0). Default is DC-DC. */
+    bool regulator_ldo;
 } sx1262_t;
 
 esp_err_t sx1262_init(sx1262_t *dev,

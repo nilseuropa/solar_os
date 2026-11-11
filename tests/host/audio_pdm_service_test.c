@@ -4,6 +4,7 @@
 #include "solar_os_audio.h"
 #include "solar_os_stream.h"
 #include "audio_pdm.h"
+#include "solar_os_gpio_controller.h"
 
 static solar_os_stream_driver_t stream;
 static bool opened, registered;
@@ -23,6 +24,19 @@ esp_err_t audio_pdm_open(int clk, int data, int power, unsigned slot) {
 esp_err_t audio_pdm_close(void) { opened = false; return ESP_OK; }
 esp_err_t audio_pdm_read(void *data, size_t len, uint32_t timeout, size_t *read_len) {
     assert(opened && timeout == 100); memset(data, 0x21, len); *read_len = len; return ESP_OK;
+}
+/* No power binding is used here; native and controller lines are covered
+ * by the gpio_controller tests. */
+esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
+    solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull)
+{
+    (void)line; (void)mode; (void)pull;
+    return ESP_OK;
+}
+esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level)
+{
+    (void)line; (void)level;
+    return ESP_OK;
 }
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *value) {
     assert(!strcmp(value->info.id, "mic0.capture"));

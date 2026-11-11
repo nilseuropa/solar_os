@@ -2102,14 +2102,14 @@ capabilities = ["expansion_uart"]
 label = "expansion.st25r3916"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_st25r3916_expansion_driver"]
-depends = ["service_expansion", "service_nfc", "service_spi"]
+depends = ["service_expansion", "service_nfc", "service_spi", "service_i2c"]
 sources = [
   "drivers/st25r3916.c",
   "services/solar_os_st25r3916.c",
   "services/solar_os_st25r3916_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
-capabilities = ["expansion_gpio", "expansion_spi"]
+capabilities = ["expansion_gpio", "expansion_spi", "expansion_i2c"]
 
 [packages.bhi260ap]
 label = "expansion.bhi260ap"

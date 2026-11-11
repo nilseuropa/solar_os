@@ -23,6 +23,7 @@ typedef enum {
 } epd_ssd1677_refresh_mode_t;
 
 typedef esp_err_t (*epd_ssd1677_power_fn_t)(void *context, bool on);
+typedef esp_err_t (*epd_ssd1677_reset_fn_t)(void *context, bool level);
 
 #define EPD_SSD1677_PANEL_GENERIC 0U
 #define EPD_SSD1677_PANEL_STICKY 1U
@@ -44,6 +45,8 @@ typedef struct {
     const u8g2_cb_t *rotation;
     epd_ssd1677_power_fn_t set_power;
     void *power_context;
+    epd_ssd1677_reset_fn_t set_reset;
+    void *reset_context;
 } epd_ssd1677_config_t;
 
 typedef struct {
@@ -87,6 +90,8 @@ typedef struct {
     int power_active_level;
     epd_ssd1677_power_fn_t set_power;
     void *power_context;
+    epd_ssd1677_reset_fn_t set_reset;
+    void *reset_context;
     spi_host_device_t spi_host;
     bool bus_initialized;
     bool controller_ready;

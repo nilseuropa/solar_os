@@ -173,6 +173,17 @@ static esp_err_t ssd1677_wait_ready(const epd_ssd1677_t *display)
     return ESP_OK;
 }
 
+static esp_err_t ssd1677_set_reset(const epd_ssd1677_t *display, int level)
+{
+    if (display->set_reset != NULL) {
+        return display->set_reset(display->reset_context, level != 0);
+    }
+    if (display->reset_pin >= 0) {
+        return gpio_set_level((gpio_num_t)display->reset_pin, level);
+    }
+    return ESP_ERR_INVALID_STATE;
+}
+
 static esp_err_t ssd1677_set_power(epd_ssd1677_t *display, bool on)
 {
     if (display->set_power != NULL) {
@@ -196,8 +207,10 @@ static esp_err_t ssd1677_set_power(epd_ssd1677_t *display, bool on)
 
 static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
 {
-    uint64_t output_mask = (1ULL << (uint32_t)display->dc_pin) |
-        (1ULL << (uint32_t)display->reset_pin);
+    uint64_t output_mask = (1ULL << (uint32_t)display->dc_pin);
+    if (display->reset_pin >= 0) {
+        output_mask |= 1ULL << (uint32_t)display->reset_pin;
+    }
     if (display->power_pin >= 0) {
         output_mask |= 1ULL << (uint32_t)display->power_pin;
     }
@@ -218,7 +231,7 @@ static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
     };
     ESP_RETURN_ON_ERROR(gpio_config(&busy), TAG, "BUSY GPIO config failed");
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1), TAG, "D/C idle failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->reset_pin, 1), TAG, "reset idle failed");
+    ESP_RETURN_ON_ERROR(ssd1677_set_reset(display, 1), TAG, "reset idle failed");
     display->powered = true;
     return display->power_pin >= 0 || display->set_power != NULL ?
         ssd1677_set_power(display, false) : ESP_OK;
@@ -226,12 +239,12 @@ static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
 
 static void ssd1677_hardware_reset(const epd_ssd1677_t *display)
 {
-    gpio_set_level((gpio_num_t)display->reset_pin, 1);
+    ssd1677_set_reset(display, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    gpio_set_level((gpio_num_t)display->reset_pin, 0);
+    ssd1677_set_reset(display, 0);
     /* Match the working board sequence, including with a 100 Hz RTOS tick. */
     vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)display->reset_pin, 1);
+    ssd1677_set_reset(display, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
 }
 
@@ -890,7 +903,7 @@ static esp_err_t ssd1677_sleep(epd_ssd1677_t *display)
                                              sizeof(sleep_mode)),
                             TAG, "deep sleep failed");
         vTaskDelay(pdMS_TO_TICKS(10));
-        (void)gpio_set_level((gpio_num_t)display->reset_pin, 0);
+        (void)ssd1677_set_reset(display, 0);
         (void)gpio_set_level((gpio_num_t)display->dc_pin, 0);
     }
     display->controller_ready = false;
@@ -963,7 +976,8 @@ static bool ssd1677_pin_valid(int pin)
 static bool ssd1677_config_valid(const epd_ssd1677_config_t *config)
 {
     if (config == NULL || !ssd1677_pin_valid(config->cs_pin) ||
-        !ssd1677_pin_valid(config->dc_pin) || !ssd1677_pin_valid(config->reset_pin) ||
+        !ssd1677_pin_valid(config->dc_pin) ||
+        (config->set_reset == NULL && !ssd1677_pin_valid(config->reset_pin)) ||
         !ssd1677_pin_valid(config->busy_pin) || config->spi_clock_hz <= 0 ||
         config->rotation == NULL || config->panel > EPD_SSD1677_PANEL_STICKY ||
         (config->busy_level != 0 && config->busy_level != 1) ||
@@ -1016,6 +1030,8 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     display->busy_level = config->busy_level;
     display->power_active_level = config->power_active_level;
     display->set_power = config->set_power;
+    display->set_reset = config->set_reset;
+    display->reset_context = config->reset_context;
     display->power_context = config->power_context;
     display->spi_host = config->spi_host;
     ESP_RETURN_ON_ERROR(ssd1677_configure_pins(display), TAG, "control pin config failed");

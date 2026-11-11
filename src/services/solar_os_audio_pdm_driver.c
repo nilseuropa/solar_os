@@ -6,7 +6,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
         .required=true, .allowed_values=ports, .allowed_value_count=1},
     {.key="clk", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="clk", .required=true},
     {.key="din", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="din", .required=true},
-    {.key="power", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="power"},
+    {.key="power", .value_hint="gpio|controller:line", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role="power"},
     {.key="slot", .value_hint="0|1", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="slot",
         .has_value_range=true, .min_value=0, .max_value=1},
 };
