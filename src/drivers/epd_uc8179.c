@@ -45,9 +45,46 @@ static const epd_ultrachip_panel_t panel = {
     .reverse_rows = true, .initialize = initialize, .activate = activate, .finish = finish,
 };
 
+/* GDEY075T7 settings from Good Display's reference code: 800x480 resolution,
+ * VGH/VGL +-20 V, VDH/VDL +-15 V. */
+static esp_err_t gdey075t7_initialize(epd_ultrachip_t *d)
+{
+    SEND(0x01, 0x07, 0x07, 0x3f, 0x3f);
+    SEND(0x06, 0x17, 0x17, 0x28, 0x17);
+    SEND(0x00, 0x1f);
+    SEND(0x61, 0x03, 0x20, 0x01, 0xe0);
+    SEND(0x15, 0x00);
+    SEND(0x60, 0x22);
+    return ESP_OK;
+}
+
+static esp_err_t gdey075t7_activate(epd_ultrachip_t *d, bool partial)
+{
+    SEND(0x00, 0x1f);
+    SEND(0x50, partial ? 0xa9 : 0x29, 0x07);
+    /* Load the fast waveform for a full refresh; the partial waveform otherwise. */
+    SEND(0xe0, 0x02);
+    SEND(0xe5, partial ? 0x6e : 0x5a);
+    TRY(epd_ultrachip_power_on(d));
+    if (partial) {
+        TRY(epd_ultrachip_command(d, 0x91, NULL, 0));
+        SEND(0x90, 0x00, 0x00, 0x03, 0x1f, 0x00, 0x00, 0x01, 0xdf, 0x01);
+    }
+    return epd_ultrachip_command(d, 0x12, NULL, 0);
+}
+
+static const epd_ultrachip_panel_t gdey075t7 = {
+    .name = "UC8179 GDEY075T7", .gate_count = 480, .gate_offset = 0,
+    .reverse_rows = false, .initialize = gdey075t7_initialize,
+    .activate = gdey075t7_activate, .finish = finish,
+};
+
 esp_err_t epd_uc8179_init(epd_ultrachip_t *d, const epd_ultrachip_config_t *config)
 {
-    if (!config || config->panel != EPD_UC8179_PANEL_XTEINK_800X480)
-        return ESP_ERR_INVALID_ARG;
-    return epd_ultrachip_init(d, config, &panel);
+    if (!config) return ESP_ERR_INVALID_ARG;
+    switch (config->panel) {
+    case EPD_UC8179_PANEL_XTEINK_800X480: return epd_ultrachip_init(d, config, &panel);
+    case EPD_UC8179_PANEL_GDEY075T7: return epd_ultrachip_init(d, config, &gdey075t7);
+    default: return ESP_ERR_INVALID_ARG;
+    }
 }

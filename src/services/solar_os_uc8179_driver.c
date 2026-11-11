@@ -1,7 +1,7 @@
 #include "solar_os_uc8179.h"
 #include "epd_uc8179.h"
 
-static const int panels[] = {EPD_UC8179_PANEL_XTEINK_800X480};
+static const int panels[] = {EPD_UC8179_PANEL_XTEINK_800X480, EPD_UC8179_PANEL_GDEY075T7};
 
 
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
@@ -11,7 +11,7 @@ static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "reset", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .required = true},
     {.key = "busy", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy", .required = true},
     {.key = "power", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "power"},
-    {.key = "panel", .value_hint = "1", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .required = true, .allowed_values = panels, .allowed_value_count = sizeof(panels) / sizeof(panels[0])},
+    {.key = "panel", .value_hint = "1..2", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "panel", .required = true, .allowed_values = panels, .allowed_value_count = sizeof(panels) / sizeof(panels[0])},
     {.key = "clock", .value_hint = "khz", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "clock", .has_value_range = true, .min_value = 100, .max_value = 20000},
     {.key = "rotation", .value_hint = "0..3", .kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "rotation", .has_value_range = true, .min_value = 0, .max_value = 3},
 };
