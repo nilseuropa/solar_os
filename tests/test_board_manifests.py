@@ -509,6 +509,26 @@ class BoardManifestTest(unittest.TestCase):
                 with self.assertRaisesRegex(ManifestError, "either i2c or both siod and sioc"):
                     validate_board(broken, self.drivers)
 
+    def test_freenove_display_registers_fixed_onboard_neopixel(self) -> None:
+        board = load_board_manifest(
+            self.manifest_dir / "freenove_esp32_s3_display_4_0.toml",
+            self.manifest_dir,
+        )
+        validate_board(board, self.drivers)
+        pixels = next(device for device in board["devices"] if device["name"] == "pixels0")
+        self.assertEqual(pixels["driver"], "neopixel")
+        self.assertEqual(pixels["bindings"], {"data": 42, "count": 1})
+        self.assertFalse(pixels.get("detachable", False))
+        pin = next(pin for pin in board["pins"] if pin["gpio"] == 42)
+        self.assertEqual(pin["policy"], "fixed")
+        self.assertFalse(pin.get("expansion", False))
+        self.assertFalse(pin.get("user", False))
+        self.assertIn("expansion_neopixel", required_packages(board, self.drivers))
+        header = generate_header(board, self.drivers)
+        self.assertIn('.driver = "neopixel", .name = "pixels0", .binding_count = 2', header)
+        self.assertIn('.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "data", .value = 42', header)
+        self.assertIn('.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "count", .value = 1', header)
+
     def test_qdtech_es3n28p_uses_non_touch_fixed_hardware(self) -> None:
         board = load_board_manifest(
             self.manifest_dir / "qdtech_es3n28p.toml",

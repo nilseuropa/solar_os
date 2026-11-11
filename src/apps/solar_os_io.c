@@ -277,36 +277,6 @@ static void io_write_columns(size_t row, const io_column_t *columns,
     }
 }
 
-static size_t io_expansion_pin_count(void)
-{
-    size_t count = 0;
-    for (size_t i = 0; i < solar_os_pin_count(); i++) {
-        solar_os_pin_info_t info;
-        if (solar_os_pin_get_info(i, &info) && info.expansion) {
-            count++;
-        }
-    }
-    return count;
-}
-
-static bool io_expansion_pin_get(size_t index, solar_os_pin_info_t *info)
-{
-    size_t current = 0;
-    for (size_t i = 0; i < solar_os_pin_count(); i++) {
-        solar_os_pin_info_t candidate;
-        if (!solar_os_pin_get_info(i, &candidate) || !candidate.expansion) {
-            continue;
-        }
-        if (current++ == index) {
-            if (info != NULL) {
-                *info = candidate;
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
 static bool io_bus_uses_pin(const solar_os_bus_info_t *bus,
                             int pin,
                             char *assignment,
@@ -550,7 +520,7 @@ static size_t io_view_count(io_view_t view)
     case IO_VIEW_LAYOUT:
         return solar_os_connector_pin_count();
     case IO_VIEW_PINS:
-        return io_expansion_pin_count();
+        return solar_os_pin_count();
     case IO_VIEW_BUSES:
         return io_bus_count();
     case IO_VIEW_CLAIMS:
@@ -787,7 +757,7 @@ static void io_render_layout(void)
 
 static void io_render_pins(void)
 {
-    const size_t count = io_expansion_pin_count();
+    const size_t count = solar_os_pin_count();
     const size_t visible = io_content_rows();
     const size_t selected = io.selected[IO_VIEW_PINS];
     const size_t start = io_scroll_start(selected, count, visible);
@@ -803,7 +773,7 @@ static void io_render_pins(void)
             char number[16];
             char assignment[48];
             char owner[32];
-            if (io_expansion_pin_get(index, &pin)) {
+            if (solar_os_pin_get_info(index, &pin)) {
                 io_pin_summary(&pin, assignment, sizeof(assignment), owner, sizeof(owner));
                 snprintf(number, sizeof(number), "GPIO%d", pin.pin);
                 const char *values[] = {number, assignment, owner,
@@ -1003,7 +973,7 @@ static void io_action_add(io_action_kind_t kind, const char *label)
 
 static bool io_selected_pin_info(solar_os_pin_info_t *pin)
 {
-    return io_expansion_pin_get(io.selected[IO_VIEW_PINS], pin);
+    return solar_os_pin_get_info(io.selected[IO_VIEW_PINS], pin);
 }
 
 static bool io_selected_action_pin_info(solar_os_pin_info_t *pin)

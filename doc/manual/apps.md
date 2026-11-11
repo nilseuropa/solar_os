@@ -1388,6 +1388,10 @@ pin, named-bus, and resource-claim views. It uses the same ownership and
 validation services as the `gpio`, `i2c`, `spi`, `uart`, `midi`, `onewire`, and
 `expansion` commands.
 
+The Pins view lists all declared board pins, including fixed onboard devices,
+with their assignments, owners, and pin policies. Fixed pins remain protected
+from direct GPIO, PWM, and runtime bus assignment.
+
 Usage:
 
 ```text

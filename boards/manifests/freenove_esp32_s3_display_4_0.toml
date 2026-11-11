@@ -151,6 +151,11 @@ driver = "sdmmc"
 name = "storage0"
 bindings = { clk = 38, cmd = 40, d0 = 39, d1 = 41, d2 = 48, d3 = 47 }
 
+[[devices]]
+driver = "neopixel"
+name = "pixels0"
+bindings = { data = 42, count = 1 }
+
 [connector]
 title = "UART / I2C / GPIO connectors"
 view = "component side; connector labels as printed"
