@@ -707,6 +707,31 @@ label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
 
+[groups.m5ioe1]
+label = "M5IOE1 GPIO controller"
+category = "Expansion hardware"
+members = ["m5ioe1"]
+
+[groups.m5pm1]
+label = "M5PM1 power manager"
+category = "Expansion hardware"
+members = ["m5pm1"]
+
+[groups.rx8130]
+label = "RX8130CE real-time clock"
+category = "Expansion hardware"
+members = ["rx8130"]
+
+[groups.bmi270]
+label = "BMI270 IMU"
+category = "Expansion hardware"
+members = ["bmi270"]
+
+[groups.ip2315]
+label = "IP2315 USB charger"
+category = "Expansion hardware"
+members = ["ip2315"]
+
 [groups.can_twai]
 label = "TWAI classic CAN"
 category = "Expansion hardware"
@@ -2237,6 +2262,67 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.m5ioe1]
+label = "expansion.m5ioe1"
+depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_m5ioe1_expansion_driver"]
+sources = [
+  "drivers/m5ioe1.c",
+  "services/solar_os_m5ioe1.c",
+  "services/solar_os_m5ioe1_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.m5pm1]
+label = "expansion.m5pm1"
+depends = ["service_expansion", "service_i2c", "service_battery"]
+expansion_drivers = ["solar_os_m5pm1_expansion_driver"]
+sources = [
+  "drivers/m5pm1.c",
+  "services/solar_os_m5pm1.c",
+  "services/solar_os_m5pm1_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.rx8130]
+label = "expansion.rx8130"
+depends = ["service_expansion", "service_i2c", "service_rtc"]
+expansion_drivers = ["solar_os_rx8130_expansion_driver"]
+sources = [
+  "drivers/rtc_rx8130.c",
+  "services/solar_os_rx8130.c",
+  "services/solar_os_rx8130_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.bmi270]
+label = "expansion.bmi270"
+depends = ["service_expansion", "service_i2c", "service_imu"]
+expansion_drivers = ["solar_os_bmi270_expansion_driver"]
+sources = [
+  "drivers/bmi270.c",
+  "drivers/bmi270_config.c",
+  "services/solar_os_bmi270.c",
+  "services/solar_os_bmi270_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_timer"]
+capabilities = ["i2c"]
+
+[packages.ip2315]
+label = "expansion.ip2315"
+depends = ["service_expansion", "service_i2c", "service_charger"]
+expansion_drivers = ["solar_os_ip2315_expansion_driver"]
+sources = [
+  "drivers/ip2315.c",
+  "services/solar_os_ip2315.c",
+  "services/solar_os_ip2315_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_driver_gpio", "esp_timer"]
+capabilities = ["i2c", "expansion_gpio"]
 
 [packages.can_twai]
 label = "expansion.twai-can"

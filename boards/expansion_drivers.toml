@@ -454,6 +454,191 @@ hint = "0..65535"
 min = 0
 max = 65535
 
+[drivers.m5ioe1]
+summary = "M5IOE1 14-line I2C GPIO controller"
+package = "m5ioe1"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+early = true
+default_name = "gpiox0"
+
+[[drivers.m5ioe1.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.m5ioe1.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x4f"
+required = true
+allowed = [0x4F]
+
+[[drivers.m5ioe1.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..16383"
+min = 0
+max = 16383
+
+[[drivers.m5ioe1.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..16383"
+min = 0
+max = 16383
+
+[drivers.m5pm1]
+summary = "M5PM1 power manager"
+package = "m5pm1"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+board_capabilities = ["battery"]
+board_driver = "battery_expansion"
+early = true
+default_name = "pmic0"
+
+[[drivers.m5pm1.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.m5pm1.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6e"
+required = true
+allowed = [0x6E]
+
+[[drivers.m5pm1.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[[drivers.m5pm1.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..31"
+min = 0
+max = 31
+
+[[drivers.m5pm1.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..31"
+min = 0
+max = 31
+
+[[drivers.m5pm1.bindings]]
+key = "capacity"
+kind = "parameter"
+hint = "mAh"
+min = 0
+max = 20000
+
+[drivers.rx8130]
+summary = "RX8130CE real-time clock"
+package = "rx8130"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+board_capabilities = ["rtc"]
+board_driver = "rtc_rx8130"
+default_name = "rtc0"
+
+[[drivers.rx8130.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.rx8130.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x32"
+required = true
+allowed = [0x32]
+
+[[drivers.rx8130.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[drivers.bmi270]
+summary = "BMI270 six-axis IMU"
+package = "bmi270"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "imu0"
+
+[[drivers.bmi270.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bmi270.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68"
+required = true
+allowed = [0x68, 0x69]
+
+[[drivers.bmi270.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[[drivers.bmi270.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[drivers.ip2315]
+summary = "IP2315 USB charger with gated I2C"
+package = "ip2315"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c", "expansion_gpio"]
+default_name = "charger0"
+
+[[drivers.ip2315.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.ip2315.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x75"
+required = true
+allowed = [0x75]
+
+[[drivers.ip2315.bindings]]
+key = "gate"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+role = "gate"
+required = true
+
+[[drivers.ip2315.bindings]]
+key = "watch_sda"
+kind = "gpio"
+hint = "gpio"
+role = "watch_sda"
+
+[[drivers.ip2315.bindings]]
+key = "watch_scl"
+kind = "gpio"
+hint = "gpio"
+role = "watch_scl"
+
 [drivers.ublox-mia-m10q]
 summary = "u-blox MIA-M10Q GNSS receiver"
 package = "ublox_mia_m10q"
@@ -1135,10 +1320,10 @@ max = 3
 [[drivers.ssd1677.bindings]]
 key = "panel"
 kind = "parameter"
-hint = "0=generic,1=Sticky"
+hint = "0=generic,1=Sticky,2=Paper Mono"
 role = "panel"
 min = 0
-max = 1
+max = 2
 
 [drivers.ssd2677]
 summary = "SSD2677 800x480 e-paper"

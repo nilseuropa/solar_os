@@ -224,7 +224,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     if (!have_spi || !have_cs || !pins_ok ||
         config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
-        config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_STICKY ||
+        config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_MAX ||
         (config->has_reset_line && config->reset_pin >= 0) ||
         (config->has_power_line && (config->power_pin >= 0 || have_power_i2c)) ||
         have_power_i2c != have_power_address ||

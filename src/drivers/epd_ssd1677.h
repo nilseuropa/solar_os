@@ -27,6 +27,13 @@ typedef esp_err_t (*epd_ssd1677_reset_fn_t)(void *context, bool level);
 
 #define EPD_SSD1677_PANEL_GENERIC 0U
 #define EPD_SSD1677_PANEL_STICKY 1U
+/* M5Stack Paper Mono 3.97-inch panel: panel OTP waveform for normal
+ * updates, M5GFX's Quality MCU waveform only for full cleans (first frame,
+ * power-state frames, refresh=full, large solid-area clears, every 50
+ * updates), and high voltage off after every update because the PMIC
+ * button can cut power at any time. */
+#define EPD_SSD1677_PANEL_PAPERMONO 2U
+#define EPD_SSD1677_PANEL_MAX EPD_SSD1677_PANEL_PAPERMONO
 
 typedef struct {
     const char *spi_bus;

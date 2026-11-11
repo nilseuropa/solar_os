@@ -158,7 +158,7 @@ int main(void)
     };
     assert(solar_os_ssd1677_attach("epd0", bindings, 4) == ESP_ERR_INVALID_ARG);
     assert(initialized == 0);
-    bindings[5].value = 2;
+    bindings[5].value = 3;
     assert(solar_os_ssd1677_attach("epd0", bindings, 6) == ESP_ERR_INVALID_ARG);
     bindings[5].value = 1;
     init_error = ESP_FAIL;
