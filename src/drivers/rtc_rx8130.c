@@ -12,7 +12,9 @@
 #define REG_OFFSET 0x30U
 
 #define FLAG_VLF 0x02U
+#define FLAG_AF 0x08U
 #define EXT_TE 0x10U
+#define EXT_WADA 0x08U
 #define CTRL0_AIE 0x08U
 #define CTRL0_TIE 0x10U
 #define AE_BIT 0x80U
@@ -182,7 +184,7 @@ esp_err_t rtc_rx8130_set_alarm(rtc_rx8130_t *device, const rtc_rx8130_alarm_t *a
     if (!valid_device(device) || alarm == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    /* Date takes precedence over weekday, matching the RX8130 hardware rule. */
+    /* The shared alarm register holds either a BCD date or a weekday mask. */
     uint8_t min = AE_BIT;
     uint8_t hour = AE_BIT;
     uint8_t wday = AE_BIT;
@@ -202,20 +204,43 @@ esp_err_t rtc_rx8130_set_alarm(rtc_rx8130_t *device, const rtc_rx8130_alarm_t *a
         if (alarm->day < 1U || alarm->day > 31U) {
             return ESP_ERR_INVALID_ARG;
         }
-        wday = (uint8_t)(0x40U | bin_to_bcd(alarm->day));
+        wday = bin_to_bcd(alarm->day);
     } else if ((alarm->match_fields & RTC_RX8130_ALARM_MATCH_WEEKDAY) != 0U) {
         if (alarm->weekday > 6U) {
             return ESP_ERR_INVALID_ARG;
         }
         wday = (uint8_t)(1U << (alarm->weekday & 7U));
     }
-    const uint8_t raw[3] = {min, hour, wday};
-    esp_err_t ret = device->io.write(device->io.ctx, REG_ALARM_MIN, raw, sizeof(raw));
+    uint8_t ctrl0 = 0U;
+    esp_err_t ret = device->io.read(device->io.ctx, REG_CTRL0, &ctrl0, 1U);
     if (ret != ESP_OK) {
         return ret;
     }
-    uint8_t ctrl0 = 0U;
-    ret = device->io.read(device->io.ctx, REG_CTRL0, &ctrl0, 1U);
+    const uint8_t disabled = (uint8_t)(ctrl0 & (uint8_t)~CTRL0_AIE);
+    ret = device->io.write(device->io.ctx, REG_CTRL0, &disabled, 1U);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    uint8_t ext = 0U;
+    ret = device->io.read(device->io.ctx, REG_EXT, &ext, 1U);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    ext = (uint8_t)(ext & (uint8_t)~EXT_WADA);
+    if ((alarm->match_fields & RTC_RX8130_ALARM_MATCH_DAY) != 0U) {
+        ext = (uint8_t)(ext | EXT_WADA);
+    }
+    ret = device->io.write(device->io.ctx, REG_EXT, &ext, 1U);
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint8_t raw[3] = {min, hour, wday};
+    ret = device->io.write(device->io.ctx, REG_ALARM_MIN, raw, sizeof(raw));
+    if (ret != ESP_OK) {
+        return ret;
+    }
+    const uint8_t clear = (uint8_t)~FLAG_AF;
+    ret = device->io.write(device->io.ctx, REG_FLAG, &clear, 1U);
     if (ret != ESP_OK) {
         return ret;
     }
