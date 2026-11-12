@@ -23,7 +23,7 @@ esp_err_t ft6336_init(const char *i2c_bus,
 {
     if (i2c_bus == NULL || i2c_bus[0] == '\0' ||
         address != FT6336_ADDRESS ||
-        reset_pin < 0 || reset_pin >= 64 || irq_pin < 0 || irq_pin >= 64) {
+        reset_pin < -1 || reset_pin >= 64 || irq_pin < 0 || irq_pin >= 64) {
         return ESP_ERR_INVALID_ARG;
     }
     if (ft6336_ready) {
@@ -33,22 +33,24 @@ esp_err_t ft6336_init(const char *i2c_bus,
             : ESP_ERR_INVALID_STATE;
     }
 
-    const gpio_config_t output = {
-        .pin_bit_mask = 1ULL << (uint32_t)reset_pin,
-        .mode = GPIO_MODE_OUTPUT,
-        .pull_up_en = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    ESP_RETURN_ON_ERROR(gpio_config(&output), TAG, "reset pin config failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 0),
-                        TAG,
-                        "reset low failed");
-    vTaskDelay(pdMS_TO_TICKS(10));
-    ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 1),
-                        TAG,
-                        "reset high failed");
-    vTaskDelay(pdMS_TO_TICKS(500));
+    if (reset_pin >= 0) {
+        const gpio_config_t output = {
+            .pin_bit_mask = 1ULL << (uint32_t)reset_pin,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        ESP_RETURN_ON_ERROR(gpio_config(&output), TAG, "reset pin config failed");
+        ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 0),
+                            TAG,
+                            "reset low failed");
+        vTaskDelay(pdMS_TO_TICKS(10));
+        ESP_RETURN_ON_ERROR(gpio_set_level(reset_pin, 1),
+                            TAG,
+                            "reset high failed");
+        vTaskDelay(pdMS_TO_TICKS(500));
+    }
 
     const gpio_config_t input = {
         .pin_bit_mask = 1ULL << (uint32_t)irq_pin,

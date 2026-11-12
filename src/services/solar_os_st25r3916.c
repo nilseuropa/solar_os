@@ -24,6 +24,9 @@ typedef struct {
     bool active;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    uint8_t i2c_address;
+    bool i2c_transport;
     int cs_pin;
     int irq_pin;
     bool power_control;
@@ -38,12 +41,68 @@ typedef struct {
 static const char *TAG = "st25r3916";
 static st25r3916_device_t devices[ST25R3916_DEVICE_MAX];
 
+#define ST25_SPI_READ 0x40U
+#define ST25_SPI_FIFO_READ 0x9FU
+#define ST25_CMD_SPACE_B 0xFBU
+
+static bool st25_transfer_is_read(const uint8_t *tx, size_t len)
+{
+    if (tx == NULL || len == 0U) {
+        return false;
+    }
+    if (tx[0] == ST25_SPI_FIFO_READ) {
+        return true;
+    }
+    if (tx[0] == ST25_CMD_SPACE_B && len >= 2U &&
+        (tx[1] & 0xC0U) == ST25_SPI_READ) {
+        return true;
+    }
+    return (tx[0] & 0xC0U) == ST25_SPI_READ;
+}
+
+static esp_err_t chip_transfer_i2c(st25r3916_device_t *device,
+                                   const uint8_t *tx,
+                                   uint8_t *rx,
+                                   size_t len)
+{
+    if (tx == NULL || len == 0U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (rx != NULL) {
+        memset(rx, 0, len);
+    }
+    if (!st25_transfer_is_read(tx, len)) {
+        return solar_os_bus_i2c_transmit(device->i2c_bus,
+                                         device->i2c_address,
+                                         tx,
+                                         len);
+    }
+    size_t prefix = 1U;
+    if (tx[0] == ST25_CMD_SPACE_B) {
+        prefix = 2U;
+    }
+    if (prefix >= len) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    /* The I2C interface uses the same mode bytes as SPI. After writing the
+     * mode/register prefix, remaining bytes are read with a repeated start. */
+    return solar_os_bus_i2c_transmit_receive(device->i2c_bus,
+                                             device->i2c_address,
+                                             tx,
+                                             prefix,
+                                             rx != NULL ? rx + prefix : NULL,
+                                             len - prefix);
+}
+
 static esp_err_t chip_transfer(void *ctx,
                                const uint8_t *tx,
                                uint8_t *rx,
                                size_t len)
 {
     st25r3916_device_t *device = ctx;
+    if (device->i2c_transport) {
+        return chip_transfer_i2c(device, tx, rx, len);
+    }
     return solar_os_bus_spi_transfer(device->spi_bus,
                                      device->cs_pin,
                                      ST25R3916_SPI_MODE,
@@ -171,6 +230,10 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 char *spi_bus,
                                 size_t spi_bus_len,
+                                char *i2c_bus,
+                                size_t i2c_bus_len,
+                                uint8_t *i2c_address,
+                                bool *i2c_transport,
                                 int *cs_pin,
                                 int *irq_pin,
                                 bool *power_control,
@@ -178,9 +241,15 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 {
     bool have_spi = false;
     bool have_cs = false;
+    bool have_i2c = false;
+    bool have_address = false;
     bool have_irq = false;
     *power_control = false;
-    if (bindings == NULL || spi_bus == NULL || cs_pin == NULL || irq_pin == NULL) {
+    *i2c_transport = false;
+    *i2c_address = 0U;
+    *cs_pin = -1;
+    if (bindings == NULL || spi_bus == NULL || i2c_bus == NULL ||
+        i2c_address == NULL || cs_pin == NULL || irq_pin == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     for (size_t i = 0; i < binding_count; i++) {
@@ -191,6 +260,13 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_SPI_CS && !have_cs) {
             *cs_pin = binding->value;
             have_cs = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_I2C_BUS && !have_i2c) {
+            strlcpy(i2c_bus, binding->target, i2c_bus_len);
+            have_i2c = true;
+        } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS &&
+                   !have_address) {
+            *i2c_address = (uint8_t)binding->value;
+            have_address = true;
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO &&
                    strcmp(binding->role, "irq") == 0 && !have_irq) {
             *irq_pin = binding->value;
@@ -206,10 +282,16 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             return ESP_ERR_INVALID_ARG;
         }
     }
-    return have_spi && have_cs && have_irq &&
+    const bool spi = have_spi && have_cs &&
         solar_os_expansion_find_spi_bus(spi_bus, NULL, NULL) &&
-        solar_os_expansion_spi_cs_allowed(spi_bus, *cs_pin)
-        ? ESP_OK : ESP_ERR_INVALID_ARG;
+        solar_os_expansion_spi_cs_allowed(spi_bus, *cs_pin);
+    const bool i2c = have_i2c && have_address &&
+        solar_os_expansion_find_i2c_bus(i2c_bus, NULL, NULL);
+    if (!have_irq || spi == i2c) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *i2c_transport = i2c;
+    return ESP_OK;
 }
 
 esp_err_t solar_os_st25r3916_attach(
@@ -233,12 +315,17 @@ esp_err_t solar_os_st25r3916_attach(
         return ESP_ERR_NO_MEM;
     }
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
+    char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
+    uint8_t i2c_address = 0U;
+    bool i2c_transport = false;
     int cs_pin = -1;
     int irq_pin = -1;
     bool power_control = false;
     solar_os_gpio_line_ref_t power_line = {0};
     ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count,
                                        spi_bus, sizeof(spi_bus),
+                                       i2c_bus, sizeof(i2c_bus),
+                                       &i2c_address, &i2c_transport,
                                        &cs_pin, &irq_pin,
                                        &power_control, &power_line),
                         TAG,
@@ -256,10 +343,13 @@ esp_err_t solar_os_st25r3916_attach(
     device->active = true;
     device->cs_pin = cs_pin;
     device->irq_pin = irq_pin;
+    device->i2c_address = i2c_address;
+    device->i2c_transport = i2c_transport;
     device->power_control = power_control;
     device->power_line = power_line;
     strlcpy(device->name, name, sizeof(device->name));
     strlcpy(device->spi_bus, spi_bus, sizeof(device->spi_bus));
+    strlcpy(device->i2c_bus, i2c_bus, sizeof(device->i2c_bus));
     device->mutex = xSemaphoreCreateMutexStatic(&device->mutex_storage);
     if (device->mutex == NULL) {
         memset(device, 0, sizeof(*device));
@@ -267,7 +357,11 @@ esp_err_t solar_os_st25r3916_attach(
     }
     esp_err_t ret = ESP_OK;
     if (power_control) {
-        ret = solar_os_gpio_line_write(&device->power_line, false);
+        ret = solar_os_gpio_line_configure(&device->power_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (ret == ESP_OK) {
+            ret = solar_os_gpio_line_write(&device->power_line, false);
+        }
     } else {
         ret = init_chip(device);
         device->powered = ret == ESP_OK;
@@ -290,10 +384,9 @@ esp_err_t solar_os_st25r3916_attach(
         return ret;
     }
     ESP_LOGI(TAG,
-             "%s attached on %s cs=%d irq=%d power=%s identity=0x%02x",
+             "%s attached on %s irq=%d power=%s identity=0x%02x",
              name,
-             spi_bus,
-             cs_pin,
+             i2c_transport ? i2c_bus : spi_bus,
              irq_pin,
              power_control ? "off" : "always-on",
              device->chip.identity);

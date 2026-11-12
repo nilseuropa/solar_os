@@ -13,6 +13,7 @@
 #include "solar_os_board_display.h"
 #include "solar_os_buses.h"
 #include "solar_os_display.h"
+#include "solar_os_gpio_controller.h"
 
 #define SOLAR_OS_SSD1677_MAX 2
 #define SOLAR_OS_SSD1677_DEFAULT_SPI_CLOCK_KHZ 20000
@@ -29,6 +30,10 @@ typedef struct {
     int rotation;
     int panel;
     int power_i2c_address;
+    bool has_reset_line;
+    bool has_power_line;
+    solar_os_gpio_line_ref_t reset_line;
+    solar_os_gpio_line_ref_t power_line;
 } ssd1677_binding_config_t;
 
 typedef struct {
@@ -39,6 +44,10 @@ typedef struct {
     char power_i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int power_i2c_address;
     bool power_acquired;
+    solar_os_gpio_line_ref_t reset_line;
+    solar_os_gpio_line_ref_t power_line;
+    bool has_reset_line;
+    bool has_power_line;
     epd_ssd1677_t driver;
     solar_os_board_display_t display;
 } solar_os_ssd1677_device_t;
@@ -101,6 +110,25 @@ static esp_err_t axp2101_set_epaper_power(void *context, bool on)
     return solar_os_axp2101_set_aldo3(on);
 }
 
+static void copy_gpio_line(solar_os_gpio_line_ref_t *line,
+                           const solar_os_expansion_binding_t *binding)
+{
+    strlcpy(line->controller, binding->target, sizeof(line->controller));
+    line->line = (uint8_t)binding->value;
+}
+
+static esp_err_t gpio_line_set_reset(void *context, bool level)
+{
+    const solar_os_ssd1677_device_t *device = context;
+    return solar_os_gpio_line_write(&device->reset_line, level);
+}
+
+static esp_err_t gpio_line_set_power(void *context, bool on)
+{
+    const solar_os_ssd1677_device_t *device = context;
+    return solar_os_gpio_line_write(&device->power_line, on);
+}
+
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 ssd1677_binding_config_t *config)
@@ -120,6 +148,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         .spi_clock_khz = SOLAR_OS_SSD1677_DEFAULT_SPI_CLOCK_KHZ,
         .rotation = 0,
         .power_i2c_address = -1,
+        .has_reset_line = false,
+        .has_power_line = false,
     };
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -146,6 +176,19 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             if (err != ESP_OK) return err;
             break;
         }
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+            if (role_is(binding, "reset") && !config->has_reset_line &&
+                config->reset_pin < 0) {
+                copy_gpio_line(&config->reset_line, binding);
+                config->has_reset_line = true;
+            } else if (role_is(binding, "power") && !config->has_power_line &&
+                       config->power_pin < 0) {
+                copy_gpio_line(&config->power_line, binding);
+                config->has_power_line = true;
+            } else {
+                return ESP_ERR_INVALID_ARG;
+            }
+            break;
         case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
             if (role_is(binding, "clock")) {
                 config->spi_clock_khz = binding->value;
@@ -165,15 +208,29 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             return ESP_ERR_INVALID_ARG;
         }
     }
-    if (!have_spi || !have_cs || config->dc_pin < 0 || config->reset_pin < 0 ||
-        config->busy_pin < 0 || config->spi_clock_khz < 100 ||
+    const bool have_reset = config->reset_pin >= 0 || config->has_reset_line;
+    const int pins[] = {
+        config->cs_pin, config->dc_pin,
+        config->has_reset_line ? -1 : config->reset_pin,
+        config->busy_pin,
+        config->has_power_line ? -1 : config->power_pin,
+    };
+    bool pins_ok = pins[0] >= 0 && pins[1] >= 0 && pins[3] >= 0 && have_reset;
+    for (size_t a = 0; pins_ok && a < 5; a++) {
+        for (size_t b = a + 1; b < 5; b++) {
+            if (pins[a] >= 0 && pins[a] == pins[b]) pins_ok = false;
+        }
+    }
+    if (!have_spi || !have_cs || !pins_ok ||
+        config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
-        config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_STICKY ||
-        !solar_os_display_pins_valid(config->cs_pin, config->dc_pin,
-            config->reset_pin, config->busy_pin, config->power_pin) ||
+        config->panel < 0 || config->panel > (int)EPD_SSD1677_PANEL_MAX ||
+        (config->has_reset_line && config->reset_pin >= 0) ||
+        (config->has_power_line && (config->power_pin >= 0 || have_power_i2c)) ||
         have_power_i2c != have_power_address ||
         (have_power_i2c &&
          (config->power_i2c_address != 0x34 || config->power_pin >= 0 ||
+          config->has_power_line ||
           !solar_os_expansion_find_i2c_bus(config->power_i2c_bus, NULL, NULL))) ||
         !solar_os_expansion_find_spi_bus(config->spi_bus, NULL, NULL) ||
         !solar_os_expansion_spi_cs_allowed(config->spi_bus, config->cs_pin)) {
@@ -350,6 +407,30 @@ static esp_err_t attach_locked(const char *name,
             binding_config.power_i2c_bus,
             sizeof(device->power_i2c_bus));
     device->power_i2c_address = binding_config.power_i2c_address;
+    device->has_reset_line = binding_config.has_reset_line;
+    device->has_power_line = binding_config.has_power_line;
+    device->reset_line = binding_config.reset_line;
+    device->power_line = binding_config.power_line;
+    if (device->has_reset_line) {
+        const esp_err_t reset_cfg = solar_os_gpio_line_configure(
+            &device->reset_line, SOLAR_OS_GPIO_LINE_MODE_OUTPUT,
+            SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (reset_cfg != ESP_OK) {
+            heap_caps_free(device);
+            devices[slot] = NULL;
+            return reset_cfg;
+        }
+    }
+    if (device->has_power_line) {
+        const esp_err_t power_cfg = solar_os_gpio_line_configure(
+            &device->power_line, SOLAR_OS_GPIO_LINE_MODE_OUTPUT,
+            SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (power_cfg != ESP_OK) {
+            heap_caps_free(device);
+            devices[slot] = NULL;
+            return power_cfg;
+        }
+    }
     if (binding_config.power_i2c_address >= 0) {
         const esp_err_t power_ret = solar_os_axp2101_acquire_aldo3(
             device->power_i2c_bus, (uint8_t)device->power_i2c_address);
@@ -373,8 +454,11 @@ static esp_err_t attach_locked(const char *name,
         .panel = (unsigned)binding_config.panel,
         .rotation = rotation_callback(binding_config.rotation),
         .set_power = binding_config.power_i2c_address >= 0 ?
-            axp2101_set_epaper_power : NULL,
+            axp2101_set_epaper_power :
+            (binding_config.has_power_line ? gpio_line_set_power : NULL),
         .power_context = device,
+        .set_reset = binding_config.has_reset_line ? gpio_line_set_reset : NULL,
+        .reset_context = device,
     };
     esp_err_t ret = epd_ssd1677_init(&device->driver, &config);
     if (ret != ESP_OK) {

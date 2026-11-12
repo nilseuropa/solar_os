@@ -1,5 +1,6 @@
 #include "epd_ssd1677.h"
 #include "epd_ssd1677_waveform.h"
+#include "epd_ssd1677_papermono_lut.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -25,6 +26,12 @@
 #define SSD1677_TRANSFER_BYTES (SSD1677_PANEL_ROW_BYTES * 8U)
 #define SSD1677_BUSY_TIMEOUT_MS 30000U
 #define SSD1677_AUTO_FULL_INTERVAL 20U
+#define SSD1677_PAPERMONO_FULL_INTERVAL 50U
+/* A partial frame that clears this many solid black 8x8 blocks (each with
+ * solid black blocks above and below, so at least 24 px tall) runs a full
+ * Quality clean instead: splash logo -> shell, sleep screen -> UI, leaving
+ * a dark image. Text, scrolling and highlight bars stay partial. */
+#define SSD1677_PAPERMONO_CLEAN_BLOCKS 32U
 
 static const char *TAG = "epd_ssd1677";
 #define TRY(call) do { esp_err_t result_ = (call); if (result_ != ESP_OK) return result_; } while (0)
@@ -173,6 +180,17 @@ static esp_err_t ssd1677_wait_ready(const epd_ssd1677_t *display)
     return ESP_OK;
 }
 
+static esp_err_t ssd1677_set_reset(const epd_ssd1677_t *display, int level)
+{
+    if (display->set_reset != NULL) {
+        return display->set_reset(display->reset_context, level != 0);
+    }
+    if (display->reset_pin >= 0) {
+        return gpio_set_level((gpio_num_t)display->reset_pin, level);
+    }
+    return ESP_ERR_INVALID_STATE;
+}
+
 static esp_err_t ssd1677_set_power(epd_ssd1677_t *display, bool on)
 {
     if (display->set_power != NULL) {
@@ -196,8 +214,10 @@ static esp_err_t ssd1677_set_power(epd_ssd1677_t *display, bool on)
 
 static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
 {
-    uint64_t output_mask = (1ULL << (uint32_t)display->dc_pin) |
-        (1ULL << (uint32_t)display->reset_pin);
+    uint64_t output_mask = (1ULL << (uint32_t)display->dc_pin);
+    if (display->reset_pin >= 0) {
+        output_mask |= 1ULL << (uint32_t)display->reset_pin;
+    }
     if (display->power_pin >= 0) {
         output_mask |= 1ULL << (uint32_t)display->power_pin;
     }
@@ -218,7 +238,7 @@ static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
     };
     ESP_RETURN_ON_ERROR(gpio_config(&busy), TAG, "BUSY GPIO config failed");
     ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->dc_pin, 1), TAG, "D/C idle failed");
-    ESP_RETURN_ON_ERROR(gpio_set_level((gpio_num_t)display->reset_pin, 1), TAG, "reset idle failed");
+    ESP_RETURN_ON_ERROR(ssd1677_set_reset(display, 1), TAG, "reset idle failed");
     display->powered = true;
     return display->power_pin >= 0 || display->set_power != NULL ?
         ssd1677_set_power(display, false) : ESP_OK;
@@ -226,12 +246,12 @@ static esp_err_t ssd1677_configure_pins(epd_ssd1677_t *display)
 
 static void ssd1677_hardware_reset(const epd_ssd1677_t *display)
 {
-    gpio_set_level((gpio_num_t)display->reset_pin, 1);
+    ssd1677_set_reset(display, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
-    gpio_set_level((gpio_num_t)display->reset_pin, 0);
+    ssd1677_set_reset(display, 0);
     /* Match the working board sequence, including with a 100 Hz RTOS tick. */
     vTaskDelay(pdMS_TO_TICKS(10));
-    gpio_set_level((gpio_num_t)display->reset_pin, 1);
+    ssd1677_set_reset(display, 1);
     vTaskDelay(pdMS_TO_TICKS(50));
 }
 
@@ -266,8 +286,10 @@ static esp_err_t ssd1677_controller_init(epd_ssd1677_t *display)
 
     static const uint8_t temperature_sensor[] = {0x80};
     static const uint8_t booster[] = {0xae, 0xc7, 0xc3, 0xc0, 0x80};
+    /* Paper Mono init matches M5Stack's OTP demo: same booster, border 0x01. */
+    const bool papermono = display->panel == EPD_SSD1677_PANEL_PAPERMONO;
     static const uint8_t driver_output[] = {0xdf, 0x01, 0x02};
-    static const uint8_t border[] = {0x80};
+    const uint8_t border[] = {papermono ? 0x01 : 0x80};
     ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x18,
                                          temperature_sensor,
                                          sizeof(temperature_sensor)),
@@ -421,6 +443,94 @@ static esp_err_t ssd1677_activate(epd_ssd1677_t *display, bool full)
     return ssd1677_wait_ready(display);
 }
 
+/* Paper Mono: M5GFX's Quality MCU waveform for full cleans only (Mode 1,
+ * absolute, both planes inverted), and the panel's own OTP waveform for
+ * every normal update, as in M5Stack's Paper Mono OTP demo (border 0x80,
+ * 0x22 0xFF: load temperature and the OTP Mode 2 LUT, display, then analog
+ * and clock off). Every update ends with the high voltage off because the
+ * PMIC button can cut power at any time. */
+static esp_err_t ssd1677_papermono_activate(epd_ssd1677_t *display, bool absolute)
+{
+    static const uint8_t control[] = {0x00};
+    if (absolute) {
+        const uint8_t *lut = epd_ssd1677_papermono_lut_quality;
+        /* M5GFX Panel_SSD1677 init list booster for its MCU waveforms. */
+        static const uint8_t booster[] = {0xae, 0xc7, 0xc3, 0xc0, 0x40};
+        static const uint8_t border[] = {0x01};
+        static const uint8_t update_mode[] = {0xc7};
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x0c, booster, sizeof(booster)),
+                            TAG, "booster setup failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x32, lut, SOLAR_OS_SSD1677_LUT_BYTES),
+                            TAG, "LUT write failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x03, &lut[105], 1U),
+                            TAG, "gate voltage failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x04, &lut[106], 3U),
+                            TAG, "source voltage failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x2c, &lut[109], 1U),
+                            TAG, "VCOM failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x21, control, sizeof(control)),
+                            TAG, "update control failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x3c, border, sizeof(border)),
+                            TAG, "update border setup failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x22, update_mode, sizeof(update_mode)),
+                            TAG, "update mode failed");
+    } else {
+        static const uint8_t border[] = {0x80};
+        static const uint8_t update_mode[] = {0xff};
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x21, control, sizeof(control)),
+                            TAG, "update control failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x3c, border, sizeof(border)),
+                            TAG, "update border setup failed");
+        ESP_RETURN_ON_ERROR(ssd1677_cmd_data(display, 0x22, update_mode, sizeof(update_mode)),
+                            TAG, "update mode failed");
+    }
+    ESP_RETURN_ON_ERROR(ssd1677_cmd(display, 0x20), TAG, "update activation failed");
+    display->analog_on = false;
+    ESP_RETURN_ON_ERROR(ssd1677_wait_ready(display), TAG, "update wait failed");
+    if (absolute) {
+        /* Drop the MCU LUT, booster, voltages and VCOM: hardware and
+         * software reset return every register to its OTP/POR value, so the
+         * next OTP partial starts from the same state as the vendor demo.
+         * The caller rewrites both RAM planes afterwards. */
+        ESP_RETURN_ON_ERROR(ssd1677_controller_init(display), TAG, "OTP restore failed");
+    }
+    return ESP_OK;
+}
+
+static bool ssd1677_block_black(const uint8_t *frame, size_t tile_row, size_t x)
+{
+    const uint8_t *block = frame + tile_row * SSD1677_BUFFER_ROW_BYTES + x;
+    for (size_t i = 0; i < 8U; i++) {
+        if (block[i] != 0x00U) return false;
+    }
+    return true;
+}
+
+/* Count solid black areas (at least 8x24 px) that this frame turns lighter.
+ * Partial OTP updates leave a ghost of such areas; a Quality clean does not. */
+static bool ssd1677_clears_solid_area(const epd_ssd1677_t *display, const uint8_t *source)
+{
+    unsigned cleared = 0;
+    for (size_t row = 1; row + 1U < SSD1677_TILE_HEIGHT; row++) {
+        for (size_t x = 0; x + 8U <= SSD1677_WIDTH; x += 8U) {
+            if (!ssd1677_block_black(display->shadow, row, x) ||
+                ssd1677_block_black(source, row, x) ||
+                !ssd1677_block_black(display->shadow, row - 1U, x) ||
+                !ssd1677_block_black(display->shadow, row + 1U, x)) {
+                continue;
+            }
+            if (++cleared >= SSD1677_PAPERMONO_CLEAN_BLOCKS) return true;
+        }
+    }
+    return false;
+}
+
+static uint8_t ssd1677_auto_full_interval(const epd_ssd1677_t *display)
+{
+    return display->panel == EPD_SSD1677_PANEL_PAPERMONO ?
+        SSD1677_PAPERMONO_FULL_INTERVAL : SSD1677_AUTO_FULL_INTERVAL;
+}
+
 static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *source, bool force_full)
 {
     if (!display->controller_ready || display->fastwave_loaded) {
@@ -431,19 +541,25 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
         memcmp(source, display->shadow, display->buffer_size) == 0) {
         return ESP_OK;
     }
-    const bool full = force_full || !display->shadow_valid || display->shadow == NULL ||
+    bool full = force_full || !display->shadow_valid || display->shadow == NULL ||
         display->refresh_mode == EPD_SSD1677_REFRESH_FULL ||
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO &&
-         display->partial_refresh_count >= SSD1677_AUTO_FULL_INTERVAL - 1U);
+         display->partial_refresh_count >= ssd1677_auto_full_interval(display) - 1U);
     ssd1677_window_t window = {0};
-    const bool partial = !full && display->shadow != NULL &&
+    bool partial = !full && display->shadow != NULL &&
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO ||
          display->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL);
-    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
     if (partial && !ssd1677_find_change_window(display, &window)) {
         memcpy(display->shadow, source, display->buffer_size);
         return ESP_OK;
     }
+    if (partial && display->panel == EPD_SSD1677_PANEL_PAPERMONO &&
+        display->refresh_mode == EPD_SSD1677_REFRESH_AUTO &&
+        ssd1677_clears_solid_area(display, source)) {
+        full = true;
+        partial = false;
+    }
+    const bool mode1 = full && display->panel == EPD_SSD1677_PANEL_STICKY;
 
     const bool log_refresh = display->refresh_log_count < 4U;
     if (log_refresh) {
@@ -467,13 +583,19 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
             .y_start = 0, .y_end = SSD1677_HEIGHT - 1U,
         };
     }
-    ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, source, &window, false),
+    /* Quality groups are absolute (0 = white), so both planes carry the
+     * inverted frame; partial updates use BW = new, RED = previous. */
+    const bool mcu_lut = display->panel == EPD_SSD1677_PANEL_PAPERMONO;
+    ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x24, source, &window,
+                                           mcu_lut && !partial),
                         TAG, "current frame write failed");
     ESP_RETURN_ON_ERROR(ssd1677_write_plane(display, 0x26,
                                            partial ? display->shadow : source,
-                                           &window, !partial && !mode1),
+                                           &window,
+                                           mcu_lut ? !partial : (!partial && !mode1)),
                         TAG, "previous frame write failed");
-    esp_err_t ret = ssd1677_activate(display, full);
+    esp_err_t ret = mcu_lut ? ssd1677_papermono_activate(display, !partial) :
+                              ssd1677_activate(display, full);
     if (ret == ESP_OK) {
         /* Keep both controller planes aligned with the displayed frame. */
         ret = ssd1677_write_plane(display, 0x24, source, &window, false);
@@ -890,7 +1012,7 @@ static esp_err_t ssd1677_sleep(epd_ssd1677_t *display)
                                              sizeof(sleep_mode)),
                             TAG, "deep sleep failed");
         vTaskDelay(pdMS_TO_TICKS(10));
-        (void)gpio_set_level((gpio_num_t)display->reset_pin, 0);
+        (void)ssd1677_set_reset(display, 0);
         (void)gpio_set_level((gpio_num_t)display->dc_pin, 0);
     }
     display->controller_ready = false;
@@ -963,9 +1085,10 @@ static bool ssd1677_pin_valid(int pin)
 static bool ssd1677_config_valid(const epd_ssd1677_config_t *config)
 {
     if (config == NULL || !ssd1677_pin_valid(config->cs_pin) ||
-        !ssd1677_pin_valid(config->dc_pin) || !ssd1677_pin_valid(config->reset_pin) ||
+        !ssd1677_pin_valid(config->dc_pin) ||
+        (config->set_reset == NULL && !ssd1677_pin_valid(config->reset_pin)) ||
         !ssd1677_pin_valid(config->busy_pin) || config->spi_clock_hz <= 0 ||
-        config->rotation == NULL || config->panel > EPD_SSD1677_PANEL_STICKY ||
+        config->rotation == NULL || config->panel > EPD_SSD1677_PANEL_MAX ||
         (config->busy_level != 0 && config->busy_level != 1) ||
         (config->power_active_level != 0 && config->power_active_level != 1)) {
         return false;
@@ -1016,6 +1139,8 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
     display->busy_level = config->busy_level;
     display->power_active_level = config->power_active_level;
     display->set_power = config->set_power;
+    display->set_reset = config->set_reset;
+    display->reset_context = config->reset_context;
     display->power_context = config->power_context;
     display->spi_host = config->spi_host;
     ESP_RETURN_ON_ERROR(ssd1677_configure_pins(display), TAG, "control pin config failed");

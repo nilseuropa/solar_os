@@ -257,6 +257,122 @@ static void test_generic_preserves_native_sequence(void)
     assert(d.analog_on);
 }
 
+static size_t command_index(uint8_t command, size_t occurrence)
+{
+    return (size_t)(find_command(command, occurrence) - commands);
+}
+
+static bool has_command(uint8_t command)
+{
+    for (size_t i = 0; i < command_count; i++) {
+        if (commands[i].command == command) return true;
+    }
+    return false;
+}
+
+static void test_papermono_powers_down_after_every_update(void)
+{
+    epd_ssd1677_t d = make_display();
+    d.panel = EPD_SSD1677_PANEL_PAPERMONO;
+    frame[0] &= (uint8_t)~1U;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    /* Init follows M5Stack's OTP demo: booster ends 0x80, border 0x01. */
+    expect_data(0x0c, (uint8_t[]){0xae, 0xc7, 0xc3, 0xc0, 0x80}, 5);
+    expect_data(0x3c, (uint8_t[]){0x01}, 1);
+    /* Full clean: M5GFX booster and Quality LUT, Mode 1, analog and clock off. */
+    assert(find_command(0x0c, 1)->data[4] == 0x40);
+    expect_data(0x32, epd_ssd1677_papermono_lut_quality, SOLAR_OS_SSD1677_LUT_BYTES);
+    expect_data(0x03, (uint8_t[]){0x17}, 1);
+    expect_data(0x04, (uint8_t[]){0x46, 0xa8, 0x36}, 3);
+    expect_data(0x2c, (uint8_t[]){0x30}, 1);
+    expect_data(0x21, (uint8_t[]){0x00}, 1);
+    expect_data(0x22, (uint8_t[]){0xc7}, 1);
+    assert(find_command(0x3c, 1)->data[0] == 0x01);
+    /* Quality groups are absolute (0 = white): both planes inverted. */
+    assert(find_command(0x24, 0)->data[0] == 0x80);
+    assert(find_command(0x26, 0)->data[0] == 0x80);
+    /* After Quality the controller is reset so the MCU LUT, voltages and
+     * VCOM do not leak into OTP updates; booster returns to 0x80. */
+    assert(command_index(0x12, 1) > command_index(0x20, 0));
+    assert(find_command(0x0c, 2)->data[4] == 0x80);
+    /* Then both planes hold the plain frame as the next baseline. */
+    assert(command_index(0x24, 1) > command_index(0x12, 1));
+    assert(find_command(0x24, 1)->data[0] == 0x7f);
+    assert(find_command(0x26, 1)->data[0] == 0x7f);
+    assert(!d.analog_on && d.controller_ready);
+
+    frame[800 + 17] &= (uint8_t)~4U;
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    assert(d.partial_refresh_count == 1);
+    /* Normal update: panel OTP Mode 2 (load temperature + LUT), BW = new,
+     * RED = previous, border 0x80, HV off. No MCU LUT or voltages. */
+    assert(!has_command(0x32) && !has_command(0x03) && !has_command(0x04) &&
+           !has_command(0x2c) && !has_command(0x12));
+    expect_data(0x21, (uint8_t[]){0x00}, 1);
+    expect_data(0x3c, (uint8_t[]){0x80}, 1);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+    expect_data(0x24, (uint8_t[]){0xbf}, 1);
+    expect_data(0x26, (uint8_t[]){0xff}, 1);
+    assert(find_command(0x26, 1)->data[0] == 0xbf);
+    assert(!d.analog_on);
+
+    /* Safety Quality clean every SSD1677_PAPERMONO_FULL_INTERVAL updates. */
+    assert(SSD1677_PAPERMONO_FULL_INTERVAL == 50U);
+    d.partial_refresh_count = SSD1677_PAPERMONO_FULL_INTERVAL - 2U;
+    frame[1] &= (uint8_t)~1U;
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+    frame[2] &= (uint8_t)~1U;
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xc7}, 1);
+    assert(find_command(0x24, 0)->length == sizeof(frame));
+    assert(d.partial_refresh_count == 0 && !d.analog_on);
+}
+
+static void test_papermono_clears_solid_areas_with_quality(void)
+{
+    epd_ssd1677_t d = make_display();
+    d.panel = EPD_SSD1677_PANEL_PAPERMONO;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+
+    /* A 400 x 48 px solid block appears: partial OTP update. */
+    for (size_t row = 10; row < 16; row++) memset(frame + row * 800U, 0x00, 400U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+
+    /* Removing it (splash logo -> shell) runs a Quality clean. */
+    for (size_t row = 10; row < 16; row++) memset(frame + row * 800U, 0xff, 400U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xc7}, 1);
+    assert(d.partial_refresh_count == 0);
+
+    /* A full-width 16 px highlight bar moving stays partial. */
+    for (size_t row = 20; row < 22; row++) memset(frame + row * 800U, 0x00, 800U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+    for (size_t row = 20; row < 22; row++) memset(frame + row * 800U, 0xff, 800U);
+    for (size_t row = 22; row < 24; row++) memset(frame + row * 800U, 0x00, 800U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+
+    /* refresh=partial never upgrades to a full clean. */
+    for (size_t row = 30; row < 40; row++) memset(frame + row * 800U, 0x00, 800U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    d.refresh_mode = EPD_SSD1677_REFRESH_PARTIAL;
+    for (size_t row = 30; row < 40; row++) memset(frame + row * 800U, 0xff, 800U);
+    command_count = 0;
+    assert(ssd1677_refresh(&d) == ESP_OK);
+    expect_data(0x22, (uint8_t[]){0xff}, 1);
+}
+
 static void test_failure_and_no_shadow(void)
 {
     epd_ssd1677_t display = make_display();
@@ -733,6 +849,8 @@ int main(void)
     test_initial_full();
     test_partial_and_cleanup();
     test_generic_preserves_native_sequence();
+    test_papermono_powers_down_after_every_update();
+    test_papermono_clears_solid_areas_with_quality();
     test_failure_and_no_shadow();
     test_relax_transaction();
     test_fastwave_layout();

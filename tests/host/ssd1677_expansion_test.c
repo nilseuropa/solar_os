@@ -5,6 +5,24 @@
 #include "../../src/services/solar_os_ssd1677.c"
 #include "../../src/services/solar_os_ssd1677_driver.c"
 
+/* Controller-backed reset/power lines are covered by gpio_controller_test. */
+esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
+                                       solar_os_gpio_line_mode_t mode,
+                                       solar_os_gpio_line_pull_t pull)
+{
+    (void)line;
+    (void)mode;
+    (void)pull;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level)
+{
+    (void)line;
+    (void)level;
+    return ESP_OK;
+}
+
 static int initialized, deinited;
 bool solar_os_expansion_find_i2c_bus(const char *name, solar_os_expansion_i2c_bus_t *bus, size_t *index)
 { (void)name; (void)bus; (void)index; return false; }
@@ -140,7 +158,7 @@ int main(void)
     };
     assert(solar_os_ssd1677_attach("epd0", bindings, 4) == ESP_ERR_INVALID_ARG);
     assert(initialized == 0);
-    bindings[5].value = 2;
+    bindings[5].value = 3;
     assert(solar_os_ssd1677_attach("epd0", bindings, 6) == ESP_ERR_INVALID_ARG);
     bindings[5].value = 1;
     init_error = ESP_FAIL;

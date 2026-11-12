@@ -5,35 +5,51 @@
 
 #include "sd_card.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_storage.h"
 
 typedef struct {
     bool active;
+    bool has_power_line;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
+    solar_os_gpio_line_ref_t power_line;
+    int power_active;
 } solar_os_sdmmc_device_t;
 
 static solar_os_sdmmc_device_t sdmmc;
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
-                                int pins[6], int *power, int *active)
+                                int pins[6], int *power, int *active,
+                                bool *has_power_line, solar_os_gpio_line_ref_t *power_line)
 {
     static const char *const roles[] = {"clk", "cmd", "d0", "d1", "d2", "d3"};
     bool present[6] = {false};
     bool have_power = false, have_active = false;
-    if (bindings == NULL || pins == NULL || power == NULL || active == NULL) {
+    if (bindings == NULL || pins == NULL || power == NULL || active == NULL ||
+        has_power_line == NULL || power_line == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     *power = -1;
     *active = 1;
+    *has_power_line = false;
     for (size_t i = 0; i < 6; i++) {
         pins[i] = -1;
     }
 
     for (size_t i = 0; i < binding_count; i++) {
-        if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_GPIO && !have_power &&
-            strcmp(bindings[i].role, "power") == 0) {
-            *power = bindings[i].value;
+        if (!have_power && strcmp(bindings[i].role, "power") == 0 &&
+            (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_GPIO ||
+             bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE)) {
+            if (bindings[i].kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+                bindings[i].target[0] != '\0') {
+                strlcpy(power_line->controller, bindings[i].target,
+                        sizeof(power_line->controller));
+                power_line->line = (uint8_t)bindings[i].value;
+                *has_power_line = true;
+            } else {
+                *power = bindings[i].value;
+            }
             have_power = true;
             continue;
         }
@@ -71,6 +87,8 @@ esp_err_t solar_os_sdmmc_attach(const char *name,
 {
     int pins[6];
     int power, active;
+    bool has_power_line = false;
+    solar_os_gpio_line_ref_t power_line = {0};
     if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
@@ -78,7 +96,8 @@ esp_err_t solar_os_sdmmc_attach(const char *name,
         return strcmp(sdmmc.name, name) == 0 ?
             solar_os_storage_mount() : ESP_ERR_INVALID_ARG;
     }
-    esp_err_t ret = parse_bindings(bindings, binding_count, pins, &power, &active);
+    esp_err_t ret = parse_bindings(bindings, binding_count, pins, &power, &active,
+                                   &has_power_line, &power_line);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -88,7 +107,17 @@ esp_err_t solar_os_sdmmc_attach(const char *name,
         return ret;
     }
 
-    if (power >= 0) {
+    if (has_power_line) {
+        ret = solar_os_gpio_line_configure(&power_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (ret == ESP_OK) {
+            ret = solar_os_gpio_line_write(&power_line, active != 0);
+        }
+        if (ret != ESP_OK) {
+            (void)sd_card_clear_sdmmc_config();
+            return ret;
+        }
+    } else if (power >= 0) {
         ret = sd_card_configure_sdmmc_power(power, active);
         if (ret != ESP_OK) {
             (void)sd_card_clear_sdmmc_config();
@@ -108,6 +137,9 @@ esp_err_t solar_os_sdmmc_attach(const char *name,
 
     memset(&sdmmc, 0, sizeof(sdmmc));
     sdmmc.active = true;
+    sdmmc.has_power_line = has_power_line;
+    sdmmc.power_line = power_line;
+    sdmmc.power_active = active;
     strlcpy(sdmmc.name, name, sizeof(sdmmc.name));
     return ESP_OK;
 }
@@ -122,7 +154,14 @@ esp_err_t solar_os_sdmmc_detach(const char *name)
     }
 
     (void)sd_card_unmount();
-    const esp_err_t ret = sd_card_clear_sdmmc_config();
+    esp_err_t ret = ESP_OK;
+    if (sdmmc.has_power_line) {
+        ret = solar_os_gpio_line_write(&sdmmc.power_line, sdmmc.power_active == 0);
+    }
+    const esp_err_t cleared = sd_card_clear_sdmmc_config();
+    if (ret == ESP_OK) {
+        ret = cleared;
+    }
     if (ret == ESP_OK) {
         memset(&sdmmc, 0, sizeof(sdmmc));
     }
