@@ -44,8 +44,12 @@ static const solar_os_cc_header_v1_t sdk[] = {
 };
 struct virtual_file { const char *data; uint32_t bytes, offset; bool open; };
 static struct virtual_file files[32];
+static solar_os_cc_header_v1_t loaded_headers[32];
+static uint32_t loaded_count, loaded_bytes;
 extern int solar_os_cc_generate(const solar_os_cc_request_v1_t *, void **, size_t *);
 extern int solar_tcc_module(const void *, size_t, const char *, void **, size_t *, const char **);
+const char *solar_os_cc_source_name(void)
+{ return request->source_name ? request->source_name : "<string>"; }
 
 void solar_os_cc_diagnostic(void *unused, const char *text)
 {
@@ -250,6 +254,7 @@ struct tm *localtime(const time_t *value)
 int open(const char *path, int flags, ...)
 {
     if (flags != O_RDONLY) { private_errno = EACCES; return -1; }
+    const char *requested = path;
     while (!strncmp(path, "./", 2)) path += 2;
     if (!strncmp(path, "/sdk/", 5)) path += 5;
     const solar_os_cc_header_v1_t *header = NULL;
@@ -257,6 +262,26 @@ int open(const char *path, int flags, ...)
         if (!strcmp(path, request->headers[i].name)) header = request->headers + i;
     if (!header) for (unsigned i = 0; i < sizeof(sdk)/sizeof(sdk[0]); i++)
         if (!strcmp(path, sdk[i].name)) header = sdk + i;
+    if (!header) for (unsigned i = 0; i < loaded_count; ++i)
+        if (!strcmp(requested, loaded_headers[i].name)) header = loaded_headers + i;
+    if (!header && request->read_header && strncmp(requested, "/sdk/", 5)) {
+        uint32_t bytes = 0;
+        int code = request->read_header(request->header_user, requested, NULL, 0, &bytes);
+        if (code && code != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) fail(code, "could not read include file");
+        if (!code) {
+            if (loaded_count + request->header_count == 32 || bytes > 32768 || bytes > 262144 - loaded_bytes)
+                fail(SOLAR_OS_NATIVE_ERROR_INVALID_SIZE, "include file limit exceeded");
+            char *data = malloc((size_t)bytes + 1);
+            uint32_t actual = 0;
+            code = request->read_header(request->header_user, requested, data, bytes, &actual);
+            if (code) fail(code, "could not read include file");
+            if (actual != bytes || memchr(data, 0, bytes)) fail(-10, "include file changed or contains NUL bytes");
+            data[bytes] = 0;
+            char *name = malloc(strlen(requested) + 1); strcpy(name, requested);
+            loaded_headers[loaded_count] = (solar_os_cc_header_v1_t){name, data, bytes};
+            header = loaded_headers + loaded_count++; loaded_bytes += bytes;
+        }
+    }
     if (!header) { private_errno = ENOENT; return -1; }
     for (unsigned i = 0; i < 32; i++) if (!files[i].open) {
         files[i] = (struct virtual_file){header->text, header->bytes, 0, true}; return i + 3;
@@ -309,7 +334,8 @@ static void compile_worker(void *unused)
     /* No compiler pointer escapes. Sweeping and restoring private globals also
      * handles OOM/cancel during partially initialized TinyCC data structures. */
     while (allocations) free(allocations + 1);
-    memset(files, 0, sizeof(files)); reset_core();
+    memset(files, 0, sizeof(files)); memset(loaded_headers, 0, sizeof(loaded_headers));
+    loaded_count = loaded_bytes = 0; reset_core();
 }
 static size_t bounded_length(const char *text, size_t maximum)
 { size_t n = 0; if (text) while (n < maximum && text[n]) n++; return n; }
@@ -318,7 +344,11 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
 {
     if (metrics && metrics->struct_size >= sizeof(*metrics))
         *metrics = (solar_os_cc_result_v1_t){.struct_size = sizeof(*metrics)};
-    if (!input || input->struct_size < sizeof(*input) || !metrics || metrics->struct_size < sizeof(*metrics) ||
+    if (!input || input->struct_size < SOLAR_OS_CC_REQUEST_BASE_SIZE) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    solar_os_cc_request_v1_t normalized = {0};
+    memcpy(&normalized, input, input->struct_size >= sizeof(normalized) ? sizeof(normalized) : SOLAR_OS_CC_REQUEST_BASE_SIZE);
+    input = &normalized;
+    if (!metrics || metrics->struct_size < sizeof(*metrics) ||
         !input->source || !input->source_bytes || input->source_bytes > SOLAR_OS_CC_SOURCE_MAX ||
         bounded_length(input->source, input->source_bytes + 1) != input->source_bytes ||
         input->header_count > 32 || (input->header_count && !input->headers) ||
@@ -327,6 +357,11 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
         (input->heap_limit && (input->heap_limit < 65536 || input->heap_limit > SOLAR_OS_CC_HEAP_MAX)) ||
         input->timeout_ms > 5000 || (input->entry && bounded_length(input->entry, 64) >= 64))
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if ((input->source_name && bounded_length(input->source_name, 160) >= 160) || input->include_count > 8 ||
+        (input->include_count && !input->include_paths)) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    for (unsigned i = 0; i < input->include_count; ++i)
+        if (!input->include_paths[i] || !*input->include_paths[i] || bounded_length(input->include_paths[i], 160) >= 160)
+            return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     size_t header_bytes = 0;
     for (unsigned i = 0; i < input->header_count; i++) {
         const solar_os_cc_header_v1_t *h = input->headers + i;
@@ -339,6 +374,7 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
     request = input; destination = output; destination_size = capacity; result = metrics;
     diagnostics = messages; diagnostics_size = message_bytes; diagnostics_used = 0; messages[0] = 0;
     allocated = peak = polls = 0; heap_limit = input->heap_limit ? input->heap_limit : SOLAR_OS_CC_HEAP_MAX;
+    loaded_bytes = header_bytes;
     status = 0; private_errno = 0; reset_core();
     void *worker = NULL;
     int error = threads->worker_start(&worker, compile_worker, NULL, 16384, 0);

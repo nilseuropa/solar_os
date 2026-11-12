@@ -28,7 +28,7 @@ def main():
     run(pio / "python", tool, "--chip", "esp32s3", "merge-bin", "--pad-to-size", "8MB",
         "-o", flash, "0x0", "bootloader.bin", "0x8000", "partitions.bin",
         "0x10000", "firmware.bin", cwd=build)
-    marker = "SOLAR_CC_NATIVE_PASS:" if args.native else "SOLAR_TCC_PASS:"
+    marker = "SOLAR_CC_FILE_ADAPTER_PASS:" if args.native else "SOLAR_TCC_PASS:"
     console = output / "console.log"
     with console.open("wb") as log:
         process = subprocess.Popen([str(qemu), "-machine", "esp32s3", "-nographic", *(["-m", "8M"] if args.native else []),
@@ -44,7 +44,7 @@ def main():
             if process.poll() is None: process.terminate()
             process.wait(timeout=5)
     text = console.read_text(errors="replace")
-    if marker not in text or (not args.native and "SCALAR result=0" not in text):
+    if marker not in text or (args.native and "SOLAR_CC_NATIVE_PASS:" not in text) or (not args.native and "SCALAR result=0" not in text):
         raise RuntimeError("emulator checks failed: " + str(output / "console.log"))
     paths = ["native/tinycc.library.elf", "native/cc.app.elf"] if args.native else [
         "scalar_probe.elf", "library_probe.elf", "hello-library.elf", "library-user.elf"]
@@ -52,6 +52,8 @@ def main():
               "target": "esp32s3", "compiler_ran_on_target": args.native,
               "artifacts": {name: hashlib.sha256((CACHE / name).read_bytes()).hexdigest() for name in paths}}
     if not args.native: report.update(abi_cycles=100, generated_provider_and_job_callbacks=True)
+    else: report.update(legacy_request_abi=True, standalone_main=True, nested_file_headers=True,
+                        unsupported_import_rejected=True)
     (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
     print(next(line for line in text.splitlines() if marker in line))
 

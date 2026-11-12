@@ -25,9 +25,36 @@ int solar_os_cc_generate(const solar_os_cc_request_v1_t *request,
     tcc_undefine_symbol(s1, "linux"); tcc_undefine_symbol(s1, "__unix__");
     tcc_undefine_symbol(s1, "__unix"); tcc_undefine_symbol(s1, "unix");
     tcc_add_include_path(s1, "/sdk");
+    for (uint32_t i = 0; i < request->include_count; ++i)
+        tcc_add_include_path(s1, request->include_paths[i]);
     tcc_set_output_type(s1, TCC_OUTPUT_OBJ);
     status = tcc_compile_string(s1, request->source);
     if (status) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }
+    static const char *const imports[] = {
+        "solar_os_native_host_v1", "solar_os_native_job_host_v1", "solar_os_native_driver_host_v1",
+        "solar_os_native_library_host_v1", "memcpy", "memset", "memmove", "memcmp", "strlen", "setjmp", "longjmp",
+    };
+    int host_import = 0;
+    for (unsigned i = 1; i < s1->symtab->data_offset / sizeof(Elf32_Sym); ++i) {
+        Elf32_Sym *symbol = (Elf32_Sym *)s1->symtab->data + i;
+        if (symbol->st_shndx != SHN_UNDEF) continue;
+        const char *name = (const char *)s1->symtab->link->data + symbol->st_name;
+        unsigned n;
+        for (n = 0; n < sizeof(imports)/sizeof(imports[0]); ++n) if (!strcmp(name, imports[n])) break;
+        if (n == sizeof(imports)/sizeof(imports[0])) {
+            char message[160]; snprintf(message, sizeof(message), "unsupported native import: %s", name);
+            solar_os_cc_diagnostic(NULL, message); tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+        }
+        if (n < 4) host_import = 1;
+    }
+    /* Even a standalone main needs the target's versioned ABI marker. Keep a
+     * relocated data anchor when the source itself does not call a host API. */
+    if (!host_import) {
+        int symbol = set_elf_sym(s1->symtab, 0, 0, ELF32_ST_INFO(STB_GLOBAL, STT_NOTYPE), 0,
+                                 SHN_UNDEF, "solar_os_native_host_v1");
+        size_t offset = section_add(data_section, 4, 4);
+        put_elf_reloc(s1->symtab, data_section, offset, R_XTENSA_32, symbol);
+    }
     solar_os_cc_checkpoint();
     alloc_sec_names(s1, 1);
     sort_syms(s1, s1->symtab);

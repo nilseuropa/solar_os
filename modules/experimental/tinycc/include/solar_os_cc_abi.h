@@ -13,6 +13,12 @@ typedef struct {
     uint32_t bytes;
 } solar_os_cc_header_v1_t;
 
+/* Optional file adapter, called on the compiler worker. With buffer=NULL,
+ * return the size through bytes; otherwise read the complete file into the
+ * bounded buffer. Return NOT_FOUND to continue include-path searching. */
+typedef int (*solar_os_cc_read_header_fn)(void *user, const char *path,
+    void *buffer, uint32_t capacity, uint32_t *bytes);
+
 typedef struct {
     uint32_t struct_size;
     const char *source;
@@ -24,7 +30,15 @@ typedef struct {
     uint32_t timeout_ms; /* 0 selects 2000 ms; otherwise 1..5000 ms. */
     solar_os_native_cancel_fn cancel;
     void *cancel_user;
+    /* Append-only extension. Older request prefixes remain supported. */
+    const char *source_name;
+    const char *const *include_paths;
+    uint32_t include_count;
+    solar_os_cc_read_header_fn read_header;
+    void *header_user;
 } solar_os_cc_request_v1_t;
+
+#define SOLAR_OS_CC_REQUEST_BASE_SIZE offsetof(solar_os_cc_request_v1_t, source_name)
 
 typedef struct {
     uint32_t struct_size;
@@ -36,8 +50,9 @@ typedef struct {
 /* One compile at a time. Inputs remain immutable and cancellation code valid until the
  * call returns; cancel runs on a joined compiler worker. Output and diagnostics
  * are caller-owned and remain valid after releasing the library lease.
- * Headers form a read-only virtual filesystem; the compiler opens no host
- * files. It frees all request allocations and joins the worker before return.
+ * Headers form a read-only virtual filesystem; optional file access is routed
+ * through the caller's bounded adapter. It frees request allocations and joins
+ * the worker before return.
  * A library lease must protect this call and its callbacks throughout. */
 typedef struct {
     uint32_t abi_version, struct_size;

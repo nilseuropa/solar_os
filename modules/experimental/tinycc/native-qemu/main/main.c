@@ -76,6 +76,16 @@ static const char program[] =
 static const char scalar_program[] =
 #include "scalar_probe.inc"
 ;
+static int header_reader(void *user, const char *path, void *buffer, uint32_t capacity, uint32_t *bytes)
+{
+    assert(user == &library_calls);
+    const char *text = !strcmp(path, "/project/include/outer.h") ? "#include \"detail/answer.h\"\n" :
+        !strcmp(path, "/project/include/detail/answer.h") ? "#define ANSWER 42\n" : NULL;
+    if (!text) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *bytes = strlen(text);
+    if (buffer) { assert(capacity == *bytes); memcpy(buffer, text, *bytes); }
+    return 0;
+}
 void app_main(void)
 {
     esp_elf_t library_elf, client_elf, program_elf;
@@ -107,7 +117,34 @@ void app_main(void)
     assert(!code && metrics.output_bytes);
     assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf, output));
     assert(!((int (*)(int,char **))program_elf.entry)(0,NULL));
-    esp_elf_deinit(&program_elf); heap_caps_free(output);
+    esp_elf_deinit(&program_elf);
+    /* The old request prefix remains compatible with the extended library. */
+    request = (solar_os_cc_request_v1_t){.struct_size=SOLAR_OS_CC_REQUEST_BASE_SIZE,
+        .source="int main(void) { return 42; }", .source_bytes=28};
+    request.source_bytes = strlen(request.source);
+    metrics = (solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(!api->compile(&request, output, 8192, &metrics, error, sizeof(error)));
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf, output));
+    assert(((int (*)(int,char **))program_elf.entry)(0,NULL) == 42);
+    esp_elf_deinit(&program_elf);
+    const char *paths[] = {"/project/include"};
+    request = (solar_os_cc_request_v1_t){.struct_size=sizeof(request),
+        .source="#include <outer.h>\nint main(void) { return ANSWER; }",
+        .source_name="/project/src/input.c", .include_paths=paths, .include_count=1,
+        .read_header=header_reader, .header_user=&library_calls};
+    request.source_bytes = strlen(request.source);
+    metrics = (solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(!api->compile(&request, output, 8192, &metrics, error, sizeof(error)));
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf, output));
+    assert(((int (*)(int,char **))program_elf.entry)(0,NULL) == 42);
+    esp_elf_deinit(&program_elf);
+    request.source = "extern int unknown(void); int main(void) { return unknown(); }";
+    request.source_bytes = strlen(request.source);
+    metrics = (solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request, output, 8192, &metrics, error, sizeof(error)) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!metrics.output_bytes && strstr(error, "unsupported native import"));
+    heap_caps_free(output);
     assert(!compiler->shutdown()); esp_elf_deinit(&library_elf);
     printf("SOLAR_CC_NATIVE_PASS: compiled C on ESP32-S3, then loaded and executed its ELF\n");
+    printf("SOLAR_CC_FILE_ADAPTER_PASS: legacy requests, standalone main, nested disk headers and imports\n");
 }

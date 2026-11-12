@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -16,6 +17,8 @@ def main():
     parser.add_argument("--archive", type=Path)
     args = parser.parse_args()
     source = prepare(args.archive)
+    replace(source / "libtcc.c", 'tcc_open_bf(s1, "<string>", len);',
+            'tcc_open_bf(s1, solar_os_cc_source_name(), len);')
     # set_elf_sym can append a name already inside its own string table.
     # An always-moving bounded realloc must rebase that alias after growth.
     replace(source / "tccelf.c",
@@ -36,13 +39,18 @@ def main():
         stream.write('\n#include "embedded.c"\n')
     shutil.copyfile(HERE / "embedded.c", source / "embedded.c")
     # Declarations precede the single-source compiler includes.
-    (source / "embedded-hook.h").write_text("void solar_os_cc_checkpoint(void);\n")
+    (source / "embedded-hook.h").write_text("void solar_os_cc_checkpoint(void);\nconst char *solar_os_cc_source_name(void);\n")
     output = CACHE / "native"; output.mkdir(parents=True, exist_ok=True)
     cc = Path.home() / ".platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc"
     prefix = str(cc)[:-3]
     flags = ["-std=gnu11", "-Os", "-g0", "-fPIC", "-fvisibility=hidden", "-ffunction-sections",
              "-fno-asynchronous-unwind-tables", "-fno-unwind-tables", "-fno-builtin",
              "-I" + str(ROOT / "include"), "-I" + str(HERE / "include"), "-I" + str(source)]
+    # The standalone ELF validator only needs ESP error constants/compiler
+    # attributes; it has no configured ESP-IDF runtime dependencies.
+    (output / "sdkconfig.h").write_text("#pragma once\n")
+    flags += ["-I" + str(ROOT / "src/services"), "-I" + str(output),
+              "-I" + str(Path.home() / ".platformio/packages/framework-espidf/components/esp_common/include")]
     run(cc, *flags, "-finstrument-functions", "-DTCC_TARGET_XTENSA=1", "-DCONFIG_TCC_STATIC=1",
         "-DCONFIG_TCC_SEMLOCK=0", "-DCONFIG_TCC_BACKTRACE=0", "-DCONFIG_TCC_BCHECK=0",
         "-include", source / "embedded-hook.h", "-c", source / "libtcc.c", "-o", output / "core.raw.o")
@@ -71,7 +79,8 @@ def main():
     (output / "sdk.inc").write_text("\n".join(sdk) + "\n")
     for name in ("library_probe", "scalar_probe"):
         (output / (name + ".inc")).write_text(json.dumps((HERE / "examples" / (name + ".c")).read_text()) + "\n")
-    for name, path in (("runtime", HERE / "runtime.c"), ("module", HERE / "module.c"), ("client", HERE / "client.c")):
+    for name, path in (("runtime", HERE / "runtime.c"), ("module", HERE / "module.c"), ("client", HERE / "client.c"),
+                       ("validator", ROOT / "src/services/solar_os_native_elf.c")):
         run(cc, *flags, "-I", output, "-c", path, "-o", output / (name + ".o"))
     layout = (ROOT / "modules/espdl/layout.ld").read_text()
     marker = "*(.solaros_cpp_anchor)"
@@ -84,7 +93,7 @@ def main():
     run(prefix + "objcopy", "--set-section-flags", ".rodata*=alloc,load,data,contents",
         "--remove-section=.eh_frame", libgcc, output / "libgcc.a")
     # Hide all private runtime/compiler names; only the versioned host imports escape.
-    for name, objects in (("tinycc.library", ["core.o", "runtime.o", "module.o"]), ("cc.app", ["client.o"])):
+    for name, objects in (("tinycc.library", ["core.o", "runtime.o", "module.o"]), ("cc.app", ["client.o", "validator.o"])):
         run(cc, "-r", "-nostdlib", *[output / p for p in objects], output / "libgcc.a", "-o", output / (name + ".o"))
         run(prefix + "objcopy", "--keep-global-symbol=app_main", output / (name + ".o"), output / (name + ".local.o"))
         run(cc, "-nostdlib", "-nostartfiles", "-shared", "-Wl,-Bsymbolic", "-Wl,--gc-sections",
@@ -101,8 +110,9 @@ def main():
     report = {"upstream": json.loads((HERE / "upstream.json").read_text())["revision"],
               "gcc": subprocess.check_output([str(cc), "-dumpfullversion"], text=True).strip(),
               "sdk": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in headers.items()},
-              "sources": {str(path.relative_to(HERE)): hashlib.sha256(path.read_bytes()).hexdigest()
-                          for path in [HERE / name for name in ("runtime.c", "embedded.c", "client.c", "module.c",
+              "sources": {os.path.relpath(path, HERE): hashlib.sha256(path.read_bytes()).hexdigest()
+                          for path in [ROOT / "src/services/solar_os_native_elf.c",
+                                       ROOT / "src/services/solar_os_native_elf.h"] + [HERE / name for name in ("runtime.c", "embedded.c", "client.c", "module.c",
                                                                "native_build.py", "xtensa-gen.c", "xtensa-link.c",
                                                                "include/solar_os_cc_abi.h")]}, "artifacts": {}}
     for name in ("tinycc.library.elf", "cc.app.elf"):

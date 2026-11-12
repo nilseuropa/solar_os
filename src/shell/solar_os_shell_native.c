@@ -2,6 +2,8 @@
 
 #include "solar_os_native.h"
 #include "solar_os_native_foreground.h"
+#include "solar_os_native_storage.h"
+#include "solar_os_input.h"
 #include <string.h>
 #include "solar_os_module_packages.h"
 #include "solar_os_shell.h"
@@ -37,16 +39,42 @@ static esp_err_t native_shell_launch_foreground(solar_os_context_t *ctx,
     return err;
 }
 
+static bool native_shell_cancelled(void *user)
+{
+    solar_os_context_t *ctx = user;
+    if (ctx->exit_requested || ctx->sleep_requested || ctx->deep_sleep_requested) return true;
+    solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
+    char keys[16]; size_t count = 0;
+    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+        esp_err_t code = solar_os_port_read(&io->port, (uint8_t *)keys, sizeof(keys), 0, &count);
+        if (code != ESP_OK && code != ESP_ERR_TIMEOUT) return true;
+    } else count = solar_os_input_read_chars(keys, sizeof(keys));
+    for (size_t i = 0; i < count; ++i)
+        if ((uint8_t)keys[i] == SOLAR_OS_KEY_APP_EXIT || keys[i] == 0x1d || keys[i] == 0x03) return true;
+    return false;
+}
+
 static esp_err_t native_shell_run(solar_os_shell_io_t *io,
                                   const char *command,
                                   const char *path,
                                   int argc,
                                   char **argv,
-                                  solar_os_native_run_result_t *result)
+                                  solar_os_native_run_result_t *result,
+                                  solar_os_context_t *ctx)
 {
+    char cwd[SOLAR_OS_STORAGE_PATH_MAX];
+    solar_os_native_storage_context_t storage;
+    esp_err_t prepared = solar_os_shell_resolve_path(ctx, NULL, cwd, sizeof(cwd));
+    if (prepared == ESP_OK) prepared = solar_os_native_storage_init(&storage, cwd, native_shell_cancelled, ctx);
+    if (prepared != ESP_OK) {
+        solar_os_shell_diag_esp(io, command, prepared, "could not resolve shell working directory", NULL);
+        return prepared;
+    }
     const solar_os_native_run_options_t options = {
         .write = native_shell_write,
         .write_user = io,
+        .get_service = solar_os_native_storage_get_service,
+        .service_user = &storage,
     };
     char detail[128];
     const esp_err_t err = solar_os_native_run(path,
@@ -117,7 +145,8 @@ void solar_os_shell_cmd_load(solar_os_context_t *ctx, int argc, char **argv)
                                            path,
                                            module_argc,
                                            module_argv,
-                                           &result);
+                                           &result,
+                                           ctx);
     if (err != ESP_OK) {
         return;
     }
@@ -169,6 +198,7 @@ bool solar_os_shell_try_native_module(solar_os_context_t *ctx,
                            path,
                            argc,
                            argv,
-                           NULL);
+                           NULL,
+                           ctx);
     return true;
 }

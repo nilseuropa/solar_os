@@ -1,10 +1,12 @@
-/* Experimental compiler client: no filesystem or kernel-private imports. */
+/* Native compiler command. All storage and runtime access uses versioned APIs. */
 #include <stdarg.h>
 #include <string.h>
 #include "solar_os_cc_abi.h"
 #include "solar_os_native_abi.h"
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_libc_abi.h"
+#include "solar_os_native_storage_abi.h"
+#include "solar_os_native_elf.h"
 
 static const char library_source[] =
 #include "library_probe.inc"
@@ -16,6 +18,13 @@ static const solar_os_native_host_api_v1_t *host;
 static const solar_os_native_libc_api_v1_t *libc_api;
 static const solar_os_cc_api_v1_t *compiler;
 static char diagnostics[512];
+/* Private helpers for the production ELF validator linked into this client. */
+int strcmp(const char *a, const char *b)
+{ while (*a && *a == *b) { ++a; ++b; } return (unsigned char)*a - (unsigned char)*b; }
+void *memchr(const void *data, int ch, size_t bytes)
+{ const unsigned char *p = data; for (size_t i = 0; i < bytes; ++i) if (p[i] == (unsigned char)ch) return (void *)(p+i); return NULL; }
+int snprintf(char *buffer, size_t bytes, const char *format, ...)
+{ va_list args; va_start(args, format); int n = libc_api->format(buffer, bytes, format, args); va_end(args); return n; }
 static void print(const char *format, ...)
 {
     char text[256]; va_list args; va_start(args, format);
@@ -93,6 +102,94 @@ static int self_test(void *output, unsigned capacity)
     print("CC_SELF_TEST_OK syntax, heap, stack, output, cancellation, deadline, headers, recovery\n");
     return 0;
 }
+
+static const char *error_text(int code)
+{
+    switch (code) {
+    case SOLAR_OS_NATIVE_ERROR_NOT_FOUND: return "not found";
+    case SOLAR_OS_NATIVE_ERROR_INVALID_SIZE: return "file or output exceeds the supported size";
+    case SOLAR_OS_NATIVE_ERROR_NO_MEMORY: return "not enough memory";
+    case SOLAR_OS_NATIVE_ERROR_TIMEOUT: return "cancelled or timed out";
+    case SOLAR_OS_NATIVE_ERROR_INVALID_STATE: return "file is busy";
+    default: return "operation failed";
+    }
+}
+static int read_header(void *user, const char *name, void *buffer, uint32_t capacity, uint32_t *bytes)
+{
+    const solar_os_native_storage_api_v1_t *storage = user;
+    char path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    int code = storage->resolve_path(storage->context, name, path, sizeof(path));
+    if (code) return code;
+    if (!buffer) return storage->file_size(storage->context, path, bytes);
+    size_t count = 0;
+    code = storage->read_file(storage->context, path, 0, buffer, capacity, &count);
+    *bytes = count;
+    return code;
+}
+static int compile_file(int argc, char **argv, const solar_os_native_memory_api_v1_t *memory,
+                         void *output, unsigned capacity)
+{
+    const solar_os_native_storage_api_v1_t *storage = host->get_service("storage", 1, sizeof(*storage));
+    if (!storage) { print("cc: file compilation requires the native storage service\n"); return -6; }
+    const char *input = NULL, *output_name = "a.elf";
+    bool output_seen = false;
+    char include_paths[8][SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    const char *includes[8]; unsigned include_count = 0;
+    for (int i = 1; i < argc; ++i) {
+        if (equal(argv[i], "-o")) {
+            if (output_seen || ++i == argc) { print("cc: -o requires one output path\n"); return -2; }
+            output_seen = true; output_name = argv[i];
+        } else if (argv[i][0] == '-' && argv[i][1] == 'I') {
+            const char *path = argv[i] + 2;
+            if (!*path && ++i < argc) path = argv[i];
+            if (!*path || include_count == 8) { print("cc: expected an include path (maximum eight)\n"); return -2; }
+            int code = storage->resolve_path(storage->context, path, include_paths[include_count], sizeof(include_paths[0]));
+            if (code) { print("cc: include path: %s\n", error_text(code)); return code; }
+            includes[include_count] = include_paths[include_count]; include_count++;
+        } else if (argv[i][0] == '-') { print("cc: unknown option %s\n", argv[i]); return -2; }
+        else if (input) { print("cc: expected one source file\n"); return -2; }
+        else input = argv[i];
+    }
+    if (!input) { print("usage: cc input.c [-I directory] [-o output.elf]\n"); return -2; }
+    char source_path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX], output_path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    int code = storage->resolve_path(storage->context, input, source_path, sizeof(source_path));
+    if (!code) code = storage->resolve_path(storage->context, output_name, output_path, sizeof(output_path));
+    if (code) { print("cc: path: %s\n", error_text(code)); return code; }
+    if (equal(source_path, output_path)) { print("cc: output must differ from the source file\n"); return -2; }
+    uint32_t source_bytes = 0;
+    code = storage->file_size(storage->context, source_path, &source_bytes);
+    if (code) { print("cc: %s: %s\n", input, error_text(code)); return code; }
+    if (!source_bytes || source_bytes > SOLAR_OS_CC_SOURCE_MAX) { print("cc: source must contain 1..65536 bytes\n"); return -10; }
+    char *source = memory->alloc((size_t)source_bytes + 1);
+    if (!source) { print("cc: not enough memory for source\n"); return -4; }
+    size_t count = 0;
+    code = storage->read_file(storage->context, source_path, 0, source, source_bytes, &count);
+    if (!code && (count != source_bytes || memchr(source, 0, count))) code = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    source[source_bytes] = 0;
+    if (code) { print("cc: %s: %s\n", input, error_text(code)); memory->free(source); return code; }
+    solar_os_cc_request_v1_t request = {
+        .struct_size = sizeof(request), .source = source, .source_bytes = source_bytes,
+        .source_name = source_path, .include_paths = includes, .include_count = include_count,
+        .read_header = read_header, .header_user = (void *)storage,
+        .cancel = storage->stop_requested, .cancel_user = storage->context,
+    };
+    code = compile(&request, output, capacity);
+    memory->free(source);
+    if (code) {
+        print("cc: compilation failed (%d)\n", code);
+        if (*diagnostics) host->write_utf8(diagnostics, strlen(diagnostics));
+        return code;
+    }
+    char detail[160];
+    if (solar_os_native_elf_validate(output, metrics.output_bytes, SOLAR_OS_NATIVE_ELF_MACHINE_XTENSA,
+                                     NULL, detail, sizeof(detail)) != ESP_OK) {
+        print("cc: invalid native output: %s\n", detail); return -1;
+    }
+    code = storage->replace_file(storage->context, output_path, output, metrics.output_bytes);
+    if (code) { print("cc: %s: %s\n", output_name, error_text(code)); return code; }
+    print("cc: %s (%u bytes, %u ms)\n", output_name, metrics.output_bytes, metrics.elapsed_ms);
+    return 0;
+}
 int app_main(int argc, char **argv)
 {
     host = solar_os_native_host_v1();
@@ -101,14 +198,16 @@ int app_main(int argc, char **argv)
     const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
     const solar_os_native_library_service_api_v1_t *libraries = host->get_service("library", 1, sizeof(*libraries));
     if (!libc_api || !memory || !libraries) return 2;
-    if (argc != 2 && argc != 3) { print("usage: cc --self-test | --demo-hex | --emit-hex SOURCE\n"); return 2; }
+    if (argc < 2 || equal(argv[1], "--help")) { print("usage: cc input.c [-I directory] [-o output.elf]\n"); return argc < 2 ? 2 : 0; }
     const void *table = NULL; uint32_t lease = 0;
     int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, sizeof(*compiler), &lease, &table);
     if (code) { print("CC_ERROR acquire=%d\n", code); return code; }
     compiler = table;
-    const unsigned capacity = 256 * 1024;
+    bool diagnostic_mode = equal(argv[1], "--self-test") || equal(argv[1], "--demo-hex") ||
+                           equal(argv[1], "--scalar-hex") || equal(argv[1], "--emit-hex");
+    const unsigned capacity = diagnostic_mode ? 256 * 1024 : SOLAR_OS_CC_OUTPUT_MAX;
     void *output = memory->alloc(capacity);
-    if (!output) { libraries->release(lease); return -4; }
+    if (!output) { print("cc: not enough memory for output\n"); libraries->release(lease); return -4; }
     if (equal(argv[1], "--self-test")) {
         code = self_test(output, capacity);
         if (code) print("CC_ERROR self-test=%d: %s\n", code, diagnostics);
@@ -131,6 +230,6 @@ int app_main(int argc, char **argv)
             }
             print("CC_ELF_END\n");
         }
-    } else { code = 2; print("usage: cc --self-test | --demo-hex | --emit-hex SOURCE\n"); }
+    } else code = compile_file(argc, argv, memory, output, capacity);
     memory->free(output); libraries->release(lease); return code;
 }

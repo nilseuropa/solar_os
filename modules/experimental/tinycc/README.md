@@ -2,15 +2,15 @@
 
 This prototype compiles C **on ESP32-S3** into native modules that use the
 published SolarOS host and library ABIs. The `tinycc` native library exposes
-a bounded in-memory compilation API; the `cc` prototype client tests it and
-can emit the resulting ELF as hex. A Linux-hosted driver is also available.
-File-based shell compilation and normal SDK/package installation remain
-the next integration stage.
+a bounded compilation API; the `cc` client reads source and headers from
+device storage and writes validated native ELF files. A Linux-hosted driver
+is also available. These modules remain an experimental installation.
 
 TinyCC is pinned by commit and archive checksum in `upstream.json`. Upstream
 does not provide an Xtensa backend; `xtensa-gen.c` is a new, restricted backend
-for the ESP32-S3 windowed calling convention. The overlay and build steps are
-local and reproducible; no upstream checkout or firmware source is modified.
+for the ESP32-S3 windowed calling convention. The build verifies and extracts
+the pinned archive under `.pio/tinycc/source`, then applies the local overlays
+there.
 TinyCC and these backend changes use LGPL-2.0-or-later; the fetched source
 contains upstream licensing and copyright notices.
 
@@ -84,6 +84,7 @@ Build the library and client with the installed ESP32-S3 GCC toolchain:
 python3 modules/experimental/tinycc/native_build.py
 python3 modules/experimental/tinycc/qemu.py --native --qemu /path/to/qemu-system-xtensa
 python3 modules/experimental/tinycc/native_hil.py --telnet go
+python3 modules/experimental/tinycc/file_hil.py --telnet go
 ```
 
 Artifacts are `.pio/tinycc/native/tinycc.library.elf` and `cc.app.elf`.
@@ -95,13 +96,61 @@ The library uses the existing `memory`, `thread`, `time` and `libc` services.
 It imports no private firmware symbols. Each request runs on a joined 16 KiB
 worker, owns a tracked private heap and reads headers from a virtual filesystem.
 The SDK embeds the published native ABI headers and basic C type headers.
-Clients can supply additional module-library headers as named memory buffers.
-The compiler neither opens device files nor writes storage.
+Clients can supply additional module-library headers as named memory buffers
+or through a bounded header-reader callback. The `cc` client uses the shell's
+`storage` service to resolve paths, read files and replace the output after
+compilation and validation. The library itself has no filesystem imports.
+
+### Compile files on SolarOS
+
+The file command requires firmware with
+`include/solar_os_native_storage_abi.h` support. Install `cc.app.elf` as
+`/modules/apps/cc.elf` and `tinycc.library.elf` as
+`/modules/libraries/tinycc.elf`. Paths use SolarOS's preferred storage volume.
+For the example library probe, also install the GCC-built
+`.pio/tinycc/hello-library.library.elf` as
+`/modules/libraries/hello-library.elf`.
+
+```text
+cd /dev/cc-examples
+cc hello.c -o hello.elf
+load hello.elf
+cc headers.c -I include -o headers.elf
+load headers.elf
+```
+
+The examples print `TinyCC: native library returned 42` after acquiring,
+calling and releasing the installed library. Users can edit `hello.c` with
+the device's editor and compile it again. `cc input.c` defaults to `a.elf`.
+Use `-I directory` or `-Idirectory` for additional library declarations;
+quoted includes also search beside the source/header containing them.
+The built-in SDK supplies the SolarOS native ABI headers and basic C types.
+An installed module library supplies executable code; its C header must be
+available to the compiler separately. The prototype does not discover or
+install header packages automatically.
+
+Paths are relative to the calling shell, including when invoking `cc` by
+its installed name. One invocation compiles one translation unit, with at
+most eight include directories. Diagnostics include source filenames and
+line numbers. Unsupported kernel imports are rejected. The client validates
+the completed ELF with the production SolarOS validator before writing it.
+Errors and cooperative cancellation leave an existing output intact; output
+replacement uses synced staging plus backup/restore on filesystem errors.
+It reserves `.native.tmp` and `.native.bak` siblings and does not promise
+power-loss atomicity. Ctrl+C or Ctrl+] requests cancellation.
+
+`file_hil.py` requires the test paths and module names to be unused. It
+installs the compiler, provider and examples, compiles and executes the
+programs entirely on the device, checks header paths and error recovery,
+compares output hashes, and leaves the useful files installed. It does not
+update firmware. Its report and retrieved/validated ELFs are under
+`.pio/tinycc/file-hil`.
 
 | Resource | Limit |
 | --- | --- |
 | Source | 64 KiB, NUL-terminated |
 | Additional headers | 32 files, 32 KiB each, 256 KiB total |
+| Additional include directories | 8 |
 | Private compile heap | Default/max 2 MiB, configurable down to 64 KiB |
 | Output ELF | 2 MiB maximum, also limited by caller capacity |
 | Deadline | Cooperative, default 2000 ms, maximum 5000 ms |
@@ -117,7 +166,7 @@ Output buffers belong to the caller and remain valid after releasing its lease.
 The embedded runtime rejects floating literals and fixes `__DATE__`/`__TIME__`
 to the Unix epoch; it defines `__SOLAROS__` and `__ESP32S3__`.
 
-When the client is loaded, its modes are:
+The client also retains diagnostic modes:
 
 ```text
 cc --self-test
@@ -129,8 +178,9 @@ cc --emit-hex SOURCE
 `--demo-hex` compiles `examples/library_probe.c` on the device. The hardware
 test retrieves that ELF as hex, validates it on the host, transfers the same
 bytes back to the device, and executes them through SolarOS's native loader.
-Compilation occurs entirely on the device. The host supplies the temporary
-file transport because the file-based shell interface is not implemented yet.
+Compilation occurs entirely on the device. This earlier in-memory harness
+uses host transport for the returned ELF and can also run on firmware without
+the native storage service.
 The test refuses existing test paths, removes its libraries and files, and
 does not change firmware or package catalogs. Results are under
 `.pio/tinycc/native-hil`; emulator results are under `native-qemu`.
@@ -190,7 +240,7 @@ On 2026-11-12, branch `feature/embcc`, firmware baseline
   compiler stack frame was 2,096 bytes. These are object/frame measurements,
   not an installed compiler footprint, total stack bound or runtime budget.
 
-## Next integration boundary
+## In-memory integration evidence
 
 The on-device library was also validated on `go` with SolarOS 4.17.10 on
 2026-11-12. Two self-test runs checked identical repeated output, syntax-error
@@ -205,8 +255,7 @@ function pointers with a 32-bit compiler host. Both libraries unloaded and tempo
 removed. The ESP32-S3 emulator independently compiled and executed the same
 program and passed the recovery tests.
 
-The next stage is a file-based `cc input.c -o output.elf` interface with shell
-working-directory handling and safe storage replacement. SDK/header package
-discovery, compiler diagnostics presentation, additional language support and
-wider correctness tests remain work for that stage. The present proof covers
-in-memory compilation and native library interoperability.
+SDK/header package discovery, additional language support and wider
+correctness tests remain future work. File compilation uses the same bounded
+compiler API and native library interoperability path. The request extension
+is append-only: callers using the original request prefix remain supported.

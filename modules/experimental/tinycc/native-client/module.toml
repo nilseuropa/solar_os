@@ -1,9 +1,9 @@
 schema_version = 2
 type = "app"
 id = "cc"
-name = "C compiler prototype client"
-version = "0.1.0"
-description = "Exercise the on-device compiler and emit compiled ELF as hex."
+name = "C compiler prototype"
+version = "0.2.0"
+description = "Compile C files and local headers into validated SolarOS native ELF."
 target = "esp32s3"
 native_abi = 1
 lifecycle_abi = 1
