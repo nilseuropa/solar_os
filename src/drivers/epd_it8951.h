@@ -29,6 +29,10 @@ typedef struct {
     solar_os_it8951_config_t config;
     u8g2_t u8g2;
     uint8_t *mono, *gray, *transfer, *mono_shadow, *gray_pending;
+    uint64_t *dirty_rows, *pending_rows;
+    uint8_t *row_bpp;
+    bool row_bpp_valid;
+    unsigned transfer_size, gray_levels, shadow_bpp;
     uint32_t image_address;
     unsigned spi_clock_khz;
     char firmware_version[17], waveform_version[17];
@@ -37,10 +41,11 @@ typedef struct {
     StaticSemaphore_t frame_mutex_storage;
     SemaphoreHandle_t frame_mutex;
     esp_err_t last_error;
-    bool ready, powered, shadow_valid, shadow_binary, full_refresh;
+    bool ready, powered, shadow_valid, full_refresh;
     unsigned updates;
     unsigned last_x, last_y, last_width, last_height, last_bpp;
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
+    unsigned last_upload_bytes, last_chunks, last_regions;
     epd_scan_worker_t scan_worker;
     uint32_t scan_submit_ready;
     uint32_t frame_generation;

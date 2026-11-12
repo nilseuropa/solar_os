@@ -22,6 +22,12 @@ static unsigned phase, preamble, current_command, arg_count, last_reg;
 static unsigned updates, last_waveform, rows, removed;
 static unsigned image_x, image_y, image_width, image_height, image_format;
 static size_t upload_bytes;
+static size_t image_received;
+static bool upload_cycle;
+static unsigned loaded_x0,loaded_x1,loaded_y0,loaded_y1;
+static unsigned upload_calls,interrupt_calls,load_calls;
+static unsigned spi_transfer_limit = 4096;
+static int fail_bulk_after = -1;
 static int fail_after = -1;
 static int fail_power_pin = -1;
 static uint16_t registers[0x1300];
@@ -121,6 +127,14 @@ esp_err_t solar_os_bus_spi_add_device(const char *bus,
     *spi = (void *)1;
     return ESP_OK;
 }
+bool solar_os_bus_find(const char *name, solar_os_bus_protocol_t protocol,
+    solar_os_bus_info_t *info)
+{
+    assert(!strcmp(name,"spi0") && protocol == SOLAR_OS_BUS_PROTOCOL_SPI);
+    *info = (solar_os_bus_info_t){0};
+    info->config.spi.max_transfer_size = spi_transfer_limit;
+    return true;
+}
 esp_err_t spi_bus_remove_device(spi_device_handle_t spi) { assert(spi); removed++; return ESP_OK; }
 esp_err_t spi_device_get_actual_freq(spi_device_handle_t spi, int *freq_khz)
 { assert(spi && freq_khz); *freq_khz = overspeed ? 26666 : spi_clock_khz; return ESP_OK; }
@@ -168,39 +182,65 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
         assert(size == 2 && phase == 2);
         current_command = ((unsigned)tx[0] << 8) | tx[1]; arg_count = 0;
         if (current_command == 0x0302) info_words = 0;
-        if (current_command == 0x0021) rows = 0;
-    } else if (current_command == 0x0021 && arg_count == 5) {
-        assert(rows < image_height);
-        const unsigned width = image_format == 0x0030 ? image_width * 8U : image_width;
-        const unsigned x0 = image_format == 0x0030 ? image_x * 8U : image_x;
-        assert(size == (image_format == 0x0030 ? width / 8U : width / 2U));
-        for (unsigned x = 0; x < width; x++) {
-            uint8_t gray;
-            if (image_format == 0x0030) {
-                /* Words arrive high byte first, pixel 0 is word bit 0. */
-                const unsigned group = x / 16U;
-                const uint16_t bits = ((uint16_t)tx[group*2] << 8) | tx[group*2+1];
-                gray = bits & (1U << (x & 15U)) ? 255 : 0;
-            } else {
-                assert(image_format == 0x0120);
-                gray = (uint8_t)((x & 1U ? tx[x/2] & 15U : tx[x/2] >> 4) * 17U);
-            }
-            uploaded[(size_t)(image_y+rows)*WIDTH+x0+x] = gray;
+        if (current_command == 0x0001) upload_cycle = false;
+        if (current_command == 0x0022) {
+            const unsigned bpp = image_format == 0x0030 ? 1U : image_format == 0x0100 ? 2U : 4U;
+            const unsigned width = bpp == 1 ? image_width*8U : image_width;
+            assert(image_received == (size_t)width*image_height*bpp/8U);
         }
-        rows++; upload_bytes += size;
+    } else if (current_command == 0x0021 && arg_count == 5) {
+        if (fail_bulk_after == 0) { fail_bulk_after=-1; return ESP_FAIL; }
+        if (fail_bulk_after > 0) --fail_bulk_after;
+        const unsigned bpp = image_format == 0x0030 ? 1U : image_format == 0x0100 ? 2U : 4U;
+        const unsigned width = bpp == 1 ? image_width*8U : image_width;
+        const unsigned x0 = bpp == 1 ? image_x*8U : image_x;
+        const size_t stride = width*bpp/8U;
+        assert(size && size <= spi_transfer_limit);
+        assert(image_received+size <= stride*image_height);
+        for (size_t i = 0; i < size; i++) {
+            const unsigned y = (image_received+i)/stride;
+            const unsigned byte = (image_received+i)%stride;
+            for (unsigned p = 0; p < 8U/bpp; p++) {
+                unsigned x,gray;
+                if (bpp == 1) {
+                    x = (byte ^ 1U)*8U+p;
+                    gray = (tx[i] & (1U << p)) ? 255 : 0;
+                } else {
+                    x = byte*(8U/bpp)+p;
+                    const unsigned sample = (tx[i] >> (8U-bpp-p*bpp)) & ((1U << bpp)-1U);
+                    /* Datasheet Fig. 7-16 zero-pads 2-bit samples to the
+                     * high bits: max 3 becomes level 12, not white 15. */
+                    gray = sample*(bpp == 2 ? 4U : 1U)*17U;
+                }
+                uploaded[(size_t)(image_y+y)*WIDTH+x0+x] = gray;
+            }
+        }
+        image_received += size; upload_bytes += size;
+        rows = image_received/stride;
+        ++upload_calls;
     } else {
         assert(size == 2 && arg_count < 8);
         args[arg_count++] = (uint16_t)(((unsigned)tx[0] << 8) | tx[1]);
         if (current_command == 0x0010) last_reg = args[0];
         if (current_command == 0x0011 && arg_count == 2) registers[args[0]] = args[1];
         if (current_command == 0x0021 && arg_count == 5) {
+            if (!upload_cycle) {
+                upload_bytes = upload_calls = interrupt_calls = load_calls = 0;
+                loaded_x0 = WIDTH; loaded_x1 = 0; loaded_y0 = HEIGHT; loaded_y1 = 0;
+                upload_cycle = true;
+            }
+            ++load_calls; rows = 0; image_received = 0;
             image_format = args[0]; image_x = args[1]; image_y = args[2];
-            image_width = args[3]; image_height = args[4]; upload_bytes = 0;
-            assert(image_format == 0x0030 || image_format == 0x0120);
+            image_width = args[3]; image_height = args[4];
+            assert(image_format == 0x0030 || image_format == 0x0100 || image_format == 0x0120);
             const unsigned x = image_format == 0x0030 ? image_x*8U : image_x;
             const unsigned w = image_format == 0x0030 ? image_width*8U : image_width;
             assert(!(x & 31U) && !(w & 15U) && w && image_height);
             assert(x + w <= WIDTH && image_y + image_height <= HEIGHT);
+            if (x < loaded_x0) loaded_x0 = x;
+            if (x+w > loaded_x1) loaded_x1 = x+w;
+            if (image_y < loaded_y0) loaded_y0 = image_y;
+            if (image_y+image_height > loaded_y1) loaded_y1 = image_y+image_height;
         }
         if (current_command == 0x0039 && arg_count == 2) assert(args[0] == 2 && args[1] == 1400);
         if (current_command == 0x0040 && arg_count == 2) {
@@ -209,15 +249,23 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
         }
         if (current_command == 0x0034 && arg_count == 5) {
             const bool binary = image_format == 0x0030;
-            assert(rows == image_height && args[0] == image_x * (binary ? 8U : 1U));
-            assert(args[1] == image_y && args[2] == image_width * (binary ? 8U : 1U));
-            assert(args[3] == image_height);
+            assert(rows == image_height && args[0] <= loaded_x0 && args[1] <= loaded_y0);
+            assert(args[0]+args[2] >= loaded_x1 && args[1]+args[3] >= loaded_y1);
             assert(!!(registers[0x113a] & 4U) == binary);
             if (binary) assert(registers[0x1250] == 0x00ff);
             updates++; last_waveform = args[4];
+            upload_cycle = false;
         }
     }
     return ESP_OK;
+}
+
+esp_err_t spi_device_transmit(spi_device_handle_t spi, spi_transaction_t *t)
+{
+    assert(current_command == 0x0021 && arg_count == 5 && t->length >= 64U*8U);
+    const esp_err_t err = spi_device_polling_transmit(spi,t);
+    ++interrupt_calls;
+    return err;
 }
 
 static solar_os_it8951_config_t config(void)
@@ -229,6 +277,13 @@ static solar_os_it8951_config_t config(void)
 
 static void test_upload_packing(solar_os_it8951_t *d)
 {
+    uint8_t row[WIDTH/2U];memset(row,0xff,sizeof(row));
+    for (unsigned pair=0;pair<256U;pair++) {
+        row[0]=(uint8_t)pair;
+        const unsigned hi=pair >> 4,lo=pair & 15U;
+        const unsigned expected=(hi==0 || hi==15) && (lo==0 || lo==15) ? 1U : 4U;
+        assert(row_bpp(row)==expected);
+    }
     for (unsigned bits = 0; bits < 256; bits++) {
         uint8_t source[4];
         for (unsigned i = 0; i < 4; i++) {
@@ -237,7 +292,7 @@ static void test_upload_packing(solar_os_it8951_t *d)
         }
         assert(pack_binary_byte(source) == bits);
     }
-    const dirty_area_t full = {0,WIDTH,0,HEIGHT};
+    const dirty_area_t full = {0,WIDTH,0,HEIGHT,NULL};
     for (unsigned binary = 0; binary < 2; binary++) {
         uint32_t random = 42;
         for (size_t i = 0; i < GRAY_BYTES; i++) {
@@ -247,10 +302,119 @@ static void test_upload_packing(solar_os_it8951_t *d)
         }
         assert(finish_refresh(d,binary,&full) == ESP_OK);
         assert(upload_bytes == (size_t)WIDTH*HEIGHT/(binary ? 8U : 2U));
+        assert(load_calls == 1 && d->last_regions == 1);
+        assert(upload_calls == d->last_chunks && upload_calls <= HEIGHT/4U);
+        assert(interrupt_calls == upload_calls);
         for (unsigned y = 0; y < HEIGHT; y++)
             for (unsigned x = 0; x < WIDTH; x++)
                 assert(uploaded[(size_t)y*WIDTH+x] == gray_at(d->gray,WIDTH-1U-x,y)*17U);
     }
+}
+
+static void test_sparse_uploads(solar_os_it8951_t *d)
+{
+    assert(solar_os_it8951_set_mode(d,"refresh=auto")==ESP_OK);
+    uint8_t pixel = 1;
+    const uint16_t palette[] = {0,0xffff};
+    solar_os_display_raster_t f = {.data=&pixel,.data_size=1,
+        .source_width=1,.source_height=1,.source_stride=1,.width=1,.height=1,
+        .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8,.palette_rgb565=palette,.palette_size=2,
+        .clear_background=true,.background_index=1};
+    assert(present_frame_and_wait(d,&f)==ESP_OK);
+    const unsigned before = updates;
+    f.clear_background=false; f.x=32;f.y=16;pixel=0;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    f.x=1840;f.y=1380;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    pump(&d->scan_worker);
+    assert(updates==before+1 && last_waveform==1);
+    assert(load_calls==2 && upload_bytes==8 && d->last_regions==2);
+    assert(d->last_upload_bytes==8 && d->last_chunks==2 && interrupt_calls==0);
+    assert(uploaded[(size_t)16*WIDTH+WIDTH-1U-32U]==0);
+    assert(uploaded[(size_t)1380*WIDTH+WIDTH-1U-1840U]==0);
+    assert(uploaded[(size_t)700*WIDTH+WIDTH/2U]==255);
+    /* A queued edit that is replaced with the current image is a no-op. */
+    pixel=1;assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    pixel=0;assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    pump(&d->scan_worker);
+    assert(updates==before+1);
+    /* Distant changes within one indexed row must also remain sparse. */
+    uint8_t line[WIDTH];memset(line,1,sizeof(line));line[32]=line[1840]=0;
+    f.data=line;f.data_size=sizeof(line);f.source_width=f.source_stride=f.width=WIDTH;
+    f.x=0;f.y=200;
+    assert(present_frame_and_wait(d,&f)==ESP_OK);
+    assert(load_calls==2 && upload_bytes==8 && d->last_regions==2);
+    /* Excessive fragmentation falls back to one bounded rectangle. */
+    f.data=&pixel;f.data_size=1;f.source_width=f.source_stride=f.width=1;
+    for (unsigned i=0;i<MAX_REGIONS+1U;i++) {
+        f.x=32+(i%20U)*64;f.y=300+i*2U;
+        assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    }
+    const unsigned before_fragmented = updates;
+    pump(&d->scan_worker);
+    assert(updates==before_fragmented+1 && load_calls==1 && d->last_regions==1);
+    for (unsigned i=0;i<MAX_REGIONS+1U;i++)
+        assert(uploaded[(size_t)(300+i*2U)*WIDTH+WIDTH-1U-(32+(i%20U)*64)]==0);
+    /* Native U8g2 damage uses the same sparse upload plan. */
+    memset(d->mono,0xff,MONO_BYTES);
+    assert(solar_os_it8951_present_sync(d)==ESP_OK);
+    d->mono[2U*WIDTH+32U]^=1U;
+    d->mono[(1380U/8U)*WIDTH+1840U]^=(uint8_t)(1U << (1380U & 7U));
+    assert(solar_os_it8951_present_sync(d)==ESP_OK);
+    assert(load_calls==2 && upload_bytes==8 && last_waveform==1);
+}
+
+static void test_encoding_cache(solar_os_it8951_t *d)
+{
+    assert(solar_os_it8951_set_mode(d,"grayscale=16")==ESP_OK);
+    const uint16_t palette[]={0x52aa,0x8410,0xffff};
+    assert(rgb_gray(palette[0])==5 && rgb_gray(palette[1])==8);
+    uint8_t pixel=2;
+    solar_os_display_raster_t f={.data=&pixel,.data_size=1,
+        .source_width=1,.source_height=1,.source_stride=1,.width=1,.height=1,
+        .x=7,.y=7,.format=SOLAR_OS_DISPLAY_FORMAT_INDEX8,
+        .palette_rgb565=palette,.palette_size=3,.clear_background=true,.background_index=2};
+    assert(present_frame_and_wait(d,&f)==ESP_OK && d->last_bpp==1);
+    f.clear_background=false;pixel=0;
+    assert(present_frame_and_wait(d,&f)==ESP_OK && d->last_bpp==4);
+    f.x=17;f.y=1300;pixel=1;
+    assert(present_frame_and_wait(d,&f)==ESP_OK && d->last_bpp==4);
+    pixel=2;
+    assert(present_frame_and_wait(d,&f)==ESP_OK && d->last_bpp==4);
+    f.x=7;f.y=7;
+    assert(present_frame_and_wait(d,&f)==ESP_OK && d->last_bpp==1);
+}
+
+static void test_four_level_uploads(solar_os_it8951_t *d)
+{
+    const dirty_area_t full = {0,WIDTH,0,HEIGHT,NULL};
+    assert(solar_os_it8951_set_mode(d,"grayscale=16")==ESP_OK);
+    /* Four-level images still need 4-bit transport to reach true white. */
+    for (size_t i=0;i<GRAY_BYTES;i++)
+        d->gray[i]=(uint8_t)((((i*2U)%4U)*5U << 4) | (((i*2U+1U)%4U)*5U));
+    assert(finish_refresh(d,false,&full)==ESP_OK);
+    assert(d->last_bpp==4 && image_format==0x0120 && last_waveform==2);
+    assert(upload_bytes==(size_t)WIDTH*HEIGHT/2U && interrupt_calls==upload_calls);
+    for (unsigned y=0;y<HEIGHT;y++) for (unsigned x=0;x<WIDTH;x++)
+        assert(uploaded[(size_t)y*WIDTH+x]==gray_at(d->gray,WIDTH-1U-x,y)*17U);
+    /* Four-level output quantizes every shade; retained image stays exact. */
+    for (size_t i=0;i<GRAY_BYTES;i++)
+        d->gray[i]=(uint8_t)((((i*2U)%16U) << 4) | ((i*2U+1U)%16U));
+    assert(solar_os_it8951_set_mode(d,"grayscale=4")==ESP_OK);
+    assert(finish_refresh(d,false,&full)==ESP_OK && d->last_bpp==4);
+    assert(image_format==0x0120 && uploaded[0]==255 && uploaded[WIDTH-1U]==0);
+    assert(strstr(solar_os_it8951_mode(d),"grayscale=4"));
+    for (unsigned y=0;y<HEIGHT;y++) for (unsigned x=0;x<WIDTH;x++)
+        assert(uploaded[(size_t)y*WIDTH+x]==((gray_at(d->gray,WIDTH-1U-x,y)+2U)/5U)*85U);
+    assert(solar_os_it8951_set_mode(d,"grayscale=8")==ESP_ERR_INVALID_ARG);
+    assert(solar_os_it8951_set_mode(d,"grayscale=16")==ESP_OK);
+    fail_bulk_after=1;
+    assert(finish_refresh(d,false,&full)==ESP_FAIL);
+    assert(!d->ready && !d->shadow_valid && !held && !selected);
+    assert(finish_refresh(d,false,&full)==ESP_OK && d->last_bpp==4);
+    assert(upload_bytes==(size_t)WIDTH*HEIGHT/2U);
+    for (unsigned y=0;y<HEIGHT;y++) for (unsigned x=0;x<WIDTH;x++)
+        assert(uploaded[(size_t)y*WIDTH+x]==gray_at(d->gray,WIDTH-1U-x,y)*17U);
 }
 
 static void test_indexed_palette(solar_os_it8951_t *d)
@@ -422,6 +586,8 @@ int main(void)
     assert(!d.spi && !levels[11] && !levels[21]);
     assert(solar_os_it8951_init(&d, &cfg) == ESP_OK);
     assert(d.ready && d.image_address == 0x123456 && !updates);
+    assert(d.gray_levels == 4 && strstr(solar_os_it8951_mode(&d),"grayscale=4"));
+    assert(!strcmp(solar_os_it8951_mode(NULL),"refresh=auto grayscale=4"));
     assert(info_words == 20 && !info_word_pending);
     assert(d.spi_clock_khz == 10000 && strstr(solar_os_it8951_mode(&d),"spi=10000kHz"));
     assert(d.scan_worker.task && d.mono_shadow);
@@ -470,6 +636,8 @@ int main(void)
     assert(solar_os_it8951_set_mode(&d,"refresh=full") == ESP_OK);
     assert(solar_os_it8951_present_sync(&d) == ESP_OK && last_waveform == 2);
     assert(solar_os_it8951_set_mode(&d,"refresh=auto") == ESP_OK);
+    /* Full-fidelity fixtures explicitly select the optional 16-level mode. */
+    assert(solar_os_it8951_set_mode(&d,"grayscale=16") == ESP_OK);
     const uint16_t palette[] = {0, 0x8410, 0xffff};
     uint8_t pixels[] = {0, 1, 2};
     solar_os_display_raster_t f = {.data=pixels, .data_size=3, .source_width=3, .source_height=1,
@@ -606,6 +774,9 @@ int main(void)
     test_scaled_indexed_rows(&d);
     test_graphics_queue(&d);
     test_indexed_palette(&d);
+    test_sparse_uploads(&d);
+    test_encoding_cache(&d);
+    test_four_level_uploads(&d);
     test_upload_packing(&d);
     test_read_recovery(&d);
     solar_os_it8951_deinit(&d);
@@ -614,6 +785,17 @@ int main(void)
     assert(solar_os_it8951_init(&d,&cfg) == ESP_OK);
     assert(d.spi_clock_khz == 5000 && strstr(solar_os_it8951_mode(&d),"spi=5000kHz"));
     solar_os_it8951_deinit(&d);
+    /* Expansion buses with the previous row-sized transfer limit still work. */
+    spi_transfer_limit=WIDTH;
+    cfg=config();
+    assert(solar_os_it8951_init(&d,&cfg)==ESP_OK && d.transfer_size==WIDTH);
+    assert(solar_os_it8951_set_mode(&d,"grayscale=16")==ESP_OK);
+    memset(d.gray,0x88,GRAY_BYTES);
+    const dirty_area_t full={0,WIDTH,0,HEIGHT,NULL};
+    assert(finish_refresh(&d,false,&full)==ESP_OK && d.last_bpp==4);
+    assert(upload_calls==HEIGHT/2U && upload_bytes==GRAY_BYTES);
+    solar_os_it8951_deinit(&d);
+    spi_transfer_limit=4096;
     puts("IT8951 protocol, framebuffer, grayscale, rotation and recovery tests passed");
     return 0;
 }

@@ -1425,15 +1425,24 @@ SPI rate.
 The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the
 controller geometry before configuring the panel's -1.4 V VCOM. Indexed and
-RGB565 graphics are converted to 16 gray levels.
+RGB565 graphics retain 16 gray levels internally and use four-level output by default.
 `display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
 GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
-Automatic updates upload and refresh only the changed rectangle, aligned to
-the controller's source-driver boundaries. Binary images use packed 1-bit
-transfers; grayscale uses packed 4-bit transfers. A change between those formats,
+Automatic updates upload separate changed regions, aligned to the controller's
+source-driver boundaries, then refresh their bounding rectangle once. Dense or
+highly fragmented changes use one upload rectangle. Binary images use packed
+1-bit transfers. Grayscale uses packed 4-bit uploads so the white endpoint is
+preserved. The default `grayscale=4` quantizes output to levels 0, 5, 10 and 15;
+`display mode display0 grayscale=16` enables all 16 gray levels.
+Both grayscale settings use the same transfer size. Native 2-bit uploads are
+not used: the controller maps them to levels 0, 4, 8 and 12, which omit white.
+The retained image keeps its original shades in either mode.
+A change between transfer formats,
 startup, recovery, and periodic cleanup use the full panel. `display mode display0`
 reports the last refresh time, upload/preparation time, waveform wait, rectangle,
-and transfer bit depth. These timings cover the driver refresh, after rendering.
+and transfer bit depth, plus upload bytes, chunks and regions. These timings
+cover the driver refresh, after rendering. Bulk uploads use interrupt-driven
+DMA in chunks of up to 4 KiB and release the shared SD bus between chunks.
 Mode status also reports the controller firmware (`fw`) and waveform identity (`lut-id`).
 Monochrome and raster graphics presentations use the shared e-paper worker:
 input processing continues during panel uploads and waveform waits, and newer
