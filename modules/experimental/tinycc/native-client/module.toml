@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "cc"
+name = "C compiler prototype client"
+version = "0.1.0"
+description = "Exercise the on-device compiler and emit compiled ELF as hex."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "cc.app.elf"

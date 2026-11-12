@@ -1,9 +1,11 @@
 # TinyCC Xtensa prototype
 
-This prototype compiles C on a Linux host into ESP32-S3 native modules that
-use the published SolarOS host and library ABIs. The generated programs run
-on SolarOS. The compiler is **not yet an on-device command or installable
-module**: its file/runtime adapters and resource controls remain to be built.
+This prototype compiles C **on ESP32-S3** into native modules that use the
+published SolarOS host and library ABIs. The `tinycc` native library exposes
+a bounded in-memory compilation API; the `cc` prototype client tests it and
+can emit the resulting ELF as hex. A Linux-hosted driver is also available.
+File-based shell compilation and normal SDK/package installation remain
+the next integration stage.
 
 TinyCC is pinned by commit and archive checksum in `upstream.json`. Upstream
 does not provide an Xtensa backend; `xtensa-gen.c` is a new, restricted backend
@@ -74,6 +76,67 @@ inspect the final `SHT_RELA` ELF instead.
 
 ## Execution checks
 
+### On-device compiler library
+
+Build the library and client with the installed ESP32-S3 GCC toolchain:
+
+```sh
+python3 modules/experimental/tinycc/native_build.py
+python3 modules/experimental/tinycc/qemu.py --native --qemu /path/to/qemu-system-xtensa
+python3 modules/experimental/tinycc/native_hil.py --telnet go
+```
+
+Artifacts are `.pio/tinycc/native/tinycc.library.elf` and `cc.app.elf`.
+`native/build.json` records their hashes, imports, SDK hashes, compiler version
+and source hashes. The manifests are in `native-library` and `native-client`;
+these experimental modules are not added to the published package catalog.
+
+The library uses the existing `memory`, `thread`, `time` and `libc` services.
+It imports no private firmware symbols. Each request runs on a joined 16 KiB
+worker, owns a tracked private heap and reads headers from a virtual filesystem.
+The SDK embeds the published native ABI headers and basic C type headers.
+Clients can supply additional module-library headers as named memory buffers.
+The compiler neither opens device files nor writes storage.
+
+| Resource | Limit |
+| --- | --- |
+| Source | 64 KiB, NUL-terminated |
+| Additional headers | 32 files, 32 KiB each, 256 KiB total |
+| Private compile heap | Default/max 2 MiB, configurable down to 64 KiB |
+| Output ELF | 2 MiB maximum, also limited by caller capacity |
+| Deadline | Cooperative, default 2000 ms, maximum 5000 ms |
+| Stack | Function-entry guard at 12,000 bytes on the 16 KiB worker |
+
+The private heap limit includes compiler allocations, the intermediate object
+and module-writer allocations. Resident code/data, the worker and caller-owned
+input/output buffers are separate; host allocator overhead is additional.
+The library serializes compilation and
+rejects concurrent requests. Errors, resource-limit failures and cancellation
+free request allocations and restore private compiler globals before returning.
+Output buffers belong to the caller and remain valid after releasing its lease.
+The embedded runtime rejects floating literals and fixes `__DATE__`/`__TIME__`
+to the Unix epoch; it defines `__SOLAROS__` and `__ESP32S3__`.
+
+When the client is loaded, its modes are:
+
+```text
+cc --self-test
+cc --demo-hex
+cc --scalar-hex
+cc --emit-hex SOURCE
+```
+
+`--demo-hex` compiles `examples/library_probe.c` on the device. The hardware
+test retrieves that ELF as hex, validates it on the host, transfers the same
+bytes back to the device, and executes them through SolarOS's native loader.
+Compilation occurs entirely on the device. The host supplies the temporary
+file transport because the file-based shell interface is not implemented yet.
+The test refuses existing test paths, removes its libraries and files, and
+does not change firmware or package catalogs. Results are under
+`.pio/tinycc/native-hil`; emulator results are under `native-qemu`.
+
+### Host-generated code
+
 With the official Espressif Xtensa QEMU installed locally:
 
 ```sh
@@ -129,12 +192,21 @@ On 2026-11-12, branch `feature/embcc`, firmware baseline
 
 ## Next integration boundary
 
-To compile on the device, package the compiler with bounded filesystem,
-allocator and C-runtime adapters exposed through a versioned SolarOS service.
-Set compile heap/stack/source/output limits and make errors and cancellation
-release all compiler state. Then compile source on the actual device, write
-the output through SolarOS's safe storage replacement API and execute the
-result through the existing native loader. SDK/header packaging, diagnostics,
-additional language support and wider correctness tests remain work for that
-stage. Running generated code on the device does not establish that the
-compiler itself has run there.
+The on-device library was also validated on `go` with SolarOS 4.17.10 on
+2026-11-12. Two self-test runs checked identical repeated output, syntax-error
+recovery, heap/stack/output limits, cancellation, deadlines, extra headers and
+successful compilation after failures. The example compiled in about 70 ms,
+with a 577,287-byte peak private heap; reported free memory matched before
+and after the repeated self-test. Its 1,448-byte generated ELF passed the
+production validator and executed on the device, returning 42 through the
+GCC-built example library. The device also compiled and executed the scalar
+probe, covering arithmetic, branches, arrays, stack arguments, recursion and
+function pointers with a 32-bit compiler host. Both libraries unloaded and temporary files were
+removed. The ESP32-S3 emulator independently compiled and executed the same
+program and passed the recovery tests.
+
+The next stage is a file-based `cc input.c -o output.elf` interface with shell
+working-directory handling and safe storage replacement. SDK/header package
+discovery, compiler diagnostics presentation, additional language support and
+wider correctness tests remain work for that stage. The present proof covers
+in-memory compilation and native library interoperability.
