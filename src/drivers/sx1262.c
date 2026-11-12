@@ -762,6 +762,9 @@ esp_err_t sx1262_tune_rx(sx1262_t *dev, uint32_t frequency_hz, uint32_t *settle_
         err = sx1262_transact(dev, SX1262_OP_SET_RF_FREQUENCY, params, 4, NULL, 0);
     }
     if (err == ESP_OK) err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+    if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+        err = dev->set_antenna_tx(dev->antenna_ctx, false);
+    }
     if (err == ESP_OK) {
         const uint8_t params[3] = {0xff, 0xff, 0xff};
         err = sx1262_transact(dev, SX1262_OP_SET_RX, params, 3, NULL, 0);

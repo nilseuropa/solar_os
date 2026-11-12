@@ -24,6 +24,17 @@ static bool fail_gain;
 static uint8_t gfsk_bw;
 static uint8_t lora_ldro = 0xff;
 static int regulator = -1;
+static bool antenna_tx, fail_antenna;
+static unsigned antenna_calls;
+
+static esp_err_t set_antenna(void *ctx, bool tx)
+{
+    assert(ctx == &antenna_tx);
+    antenna_calls++;
+    if (fail_antenna) return ESP_FAIL;
+    antenna_tx = tx;
+    return ESP_OK;
+}
 
 int64_t esp_timer_get_time(void) { return now_us; }
 void esp_rom_delay_us(uint32_t us) { now_us += us; }
@@ -65,6 +76,7 @@ esp_err_t solar_os_bus_spi_transfer(const char *name, int cs, uint8_t mode,
     }
     if (tx[0] == SX1262_OP_SET_RX) {
         assert(rx_gain == 0x94 || rx_gain == 0x96);
+        assert(!antenna_tx);
     }
     if (tx[0] == SX1262_OP_SET_SLEEP) {
         assert(len == 2);
@@ -226,6 +238,28 @@ int main(void)
     config.frequency_hz = 1000000000;
     assert(sx1262_configure(&dev, &config) == ESP_ERR_INVALID_ARG && transfers == before);
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_RX) == ESP_OK);
+    /* A fast band scan can start directly after transmitting in standby. */
+    dev.set_antenna_tx = set_antenna;
+    dev.antenna_ctx = &antenna_tx;
+    const solar_os_radio_packet_t tx_packet = {.len = 1, .data = {0x42}};
+    assert(sx1262_send(&dev, &tx_packet, 100) == ESP_OK);
+    assert(antenna_tx && antenna_calls == 1 && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
+    const uint32_t scan_frequency = dev.config.frequency_hz + 125000U;
+    assert(sx1262_tune_rx(&dev, scan_frequency, &settle_ms) == ESP_OK);
+    assert(!antenna_tx && antenna_calls == 2 && dev.state == SOLAR_OS_RADIO_STATE_RX);
+    assert(dev.config.frequency_hz == scan_frequency);
+
+    assert(sx1262_send(&dev, &tx_packet, 100) == ESP_OK && antenna_tx);
+    fail_antenna = true;
+    before = transfers;
+    settle_ms = 1234;
+    assert(sx1262_tune_rx(&dev, scan_frequency + 125000U, &settle_ms) == ESP_FAIL);
+    assert(antenna_tx && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
+    assert(dev.config.frequency_hz == scan_frequency && settle_ms == 1234);
+    for (unsigned i = before; i < transfers; i++) assert(opcodes[i] != SX1262_OP_SET_RX);
+    fail_antenna = false;
+    assert(sx1262_tune_rx(&dev, scan_frequency + 125000U, &settle_ms) == ESP_OK);
+    assert(!antenna_tx && dev.state == SOLAR_OS_RADIO_STATE_RX);
     /* Ordinary BUSY waits still apply when the radio is already awake. */
     stuck_busy = true;
     before = transfers;
