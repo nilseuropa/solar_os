@@ -1398,10 +1398,10 @@ pio run -e waveshare_esp32_s3_epaper_3_97
 The `seeed_reterminal_e1003` target uses an ESP32-S3R8, 32 MB flash, 8 MB
 PSRAM, and the 10.3-inch ED103TC2 panel with an IT8951 controller. Its native
 landscape geometry is 1872x1404. The default display scale is 3, giving a
-624x468 logical canvas. The USB-C connector exposes the UART bridge;
-UART0 on GPIO43/44 starts a separate console shell alongside the display shell.
-Native USB CDC is disabled because
-GPIO19/20 carry the onboard I2C bus.
+624x468 logical canvas. The display shell starts at boot. The USB-C connector
+exposes UART0 on GPIO43/44 through the UART bridge; start a USB serial shell
+when needed with `session create shell uart0`.
+Native USB CDC is disabled because GPIO19/20 carry the onboard I2C bus.
 
 | Peripheral | Connections |
 | --- | --- |
@@ -1413,11 +1413,12 @@ GPIO19/20 carry the onboard I2C bus.
 | MicroSD | Power enable 39, card detect 15; shared SPI with the display |
 | Microphone | PDM clock 42, data 41, power enable 38 |
 | Buzzer and LED | PWM buzzer 45; active-low green LED 16 |
-| Buttons | GPIO3 confirm/wake; GPIO4 up, hold for BLE pairing; GPIO5 down, hold for app exit |
+| Buttons | GPIO3 confirm/wake; GPIO4 up, hold for BLE pairing; GPIO5 down, hold for two seconds to send Escape |
 | J2 | 3.3 V, ground, GPIO47, GPIO6/ADC, SCL20, SDA19; header power enable 46 |
 
 GPIO47 has no ADC function. Only GPIO6 and GPIO47 are free GPIO/PWM slots;
 GPIO6 is also an ADC slot. The I2C pins on J2 remain owned by `i2c0`.
+The `io` Layout view shows all six J2 positions in pin order, including 3V3 and GND.
 
 The display defaults to 10 MHz SPI. `display mode display0` reports the actual
 SPI rate.

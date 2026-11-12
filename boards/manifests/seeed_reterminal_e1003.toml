@@ -66,7 +66,7 @@ SOLAR_OS_BOARD_PIN_TOUCH_RST = "GPIO_NUM_48"
 SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_3"
 SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY = "SOLAR_OS_KEY_ENTER"
 SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_4"
-SOLAR_OS_BOARD_PIN_APP_EXIT = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_ESCAPE = "GPIO_NUM_5"
 SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_4, .name = "UP", .key = SOLAR_OS_KEY_UP, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}, {.pin = GPIO_NUM_5, .name = "DOWN", .key = SOLAR_OS_KEY_DOWN, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}}'
 SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
 SOLAR_OS_BOARD_KEY_PULL_UP = "1"
@@ -74,7 +74,6 @@ SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
 SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "3000U"
 SOLAR_OS_BOARD_PIN_STATUS_LED = "GPIO_NUM_16"
 SOLAR_OS_BOARD_STATUS_LED_ACTIVE_LEVEL = "0"
-SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
 SOLAR_OS_BOARD_PIN_MIC_CLK = "GPIO_NUM_42"
 SOLAR_OS_BOARD_PIN_MIC_DATA = "GPIO_NUM_41"
 SOLAR_OS_BOARD_PIN_MIC_EN = "GPIO_NUM_38"
@@ -178,7 +177,7 @@ role = "UP / hold for BLE pairing"
 [[pins]]
 gpio = 5
 policy = "fixed"
-role = "DOWN / hold for app exit"
+role = "DOWN / hold for Escape"
 [[pins]]
 gpio = 6
 policy = "free"
@@ -287,6 +286,26 @@ gpio = 48
 policy = "fixed"
 role = "GT911 reset"
 
+[connector]
+title = "E1003 J2 expansion header"
+view = "pins 1 to 6, top to bottom"
+rows = 6
+columns = 1
+
+[[connectors]]
+connector = "J2"
+position = 1
+row = 0
+column = 0
+kind = "power"
+label = "3V3"
+[[connectors]]
+connector = "J2"
+position = 2
+row = 1
+column = 0
+kind = "ground"
+label = "GND"
 [[connectors]]
 connector = "J2"
 position = 3
