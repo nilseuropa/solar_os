@@ -36,6 +36,8 @@ static int spi_clock_khz;
 static bool overspeed;
 static unsigned info_words;
 static bool info_word_pending;
+static const uint8_t info_firmware[16] = "Seeed_v.0.1";
+static const uint8_t info_waveform[16] = "3M29T";
 static void (*during_upload)(void);
 
 static esp_err_t sample_temperature(int16_t *value)
@@ -151,7 +153,10 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
         if (current_command == 0x0302) {
             assert(size == 2 && info_words < 20 && !info_word_pending);
             const uint16_t info[] = {wrong_panel ? 800 : WIDTH, HEIGHT, 0x3456, 0x12};
-            const uint16_t value = info_words < 4 ? info[info_words] : 0;
+            const uint8_t *identity = info_words < 12 ? info_firmware : info_waveform;
+            const unsigned offset = (info_words < 12 ? info_words-4U : info_words-12U)*2U;
+            const uint16_t value = info_words < 4 ? info[info_words] :
+                (uint16_t)((uint16_t)identity[offset] << 8) | identity[offset+1U];
             rx[0] = value >> 8; rx[1] = value;
             info_word_pending = ++info_words < 20;
         } else {
@@ -284,6 +289,20 @@ static void test_read_recovery(solar_os_it8951_t *d)
     assert(info_words == 20 && !held && !selected);
     assert((((unsigned)info[0] << 8) | info[1]) == WIDTH);
     assert((((unsigned)info[2] << 8) | info[3]) == HEIGHT);
+}
+
+static void test_device_info(solar_os_it8951_t *d)
+{
+    assert(!strcmp(d->firmware_version,"Seeed_v.0.1") && !strcmp(d->waveform_version,"3M29T"));
+    assert(strstr(solar_os_it8951_mode(d),"fw=Seeed_v.0.1"));
+    assert(strstr(solar_os_it8951_mode(d),"lut-id=3M29T"));
+    uint8_t raw[16]; char text[17];
+    memset(raw,'X',sizeof(raw)); device_info_string(text,raw);
+    assert(strlen(text)==16 && text[16]=='\0');
+    memcpy(raw,"name  \0",7); device_info_string(text,raw); assert(!strcmp(text,"name"));
+    raw[0]=1;raw[1]=0;device_info_string(text,raw);assert(!strcmp(text,"?"));
+    raw[0]='A';raw[1]=0xff;device_info_string(text,raw);assert(!strcmp(text,"A"));
+    raw[0]=0;device_info_string(text,raw);assert(!strcmp(text,""));
 }
 
 static solar_os_it8951_t *graphics_fixture;
@@ -583,6 +602,7 @@ int main(void)
     assert(scan_process(&d,d.scan_worker.snapshot,false,&pending,&scanned) == ESP_OK);
     assert(scanned && !pending && updates == before_full_duplicate+1 && last_waveform == 2);
     assert(solar_os_it8951_set_mode(&d,"refresh=auto")==ESP_OK);
+    test_device_info(&d);
     test_scaled_indexed_rows(&d);
     test_graphics_queue(&d);
     test_indexed_palette(&d);

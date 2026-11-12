@@ -162,6 +162,17 @@ static esp_err_t update_temperature(solar_os_it8951_t *d)
     return ESP_OK;
 }
 
+static void device_info_string(char out[17], const uint8_t *raw)
+{
+    size_t n = 0;
+    while (n < 16U && raw[n] && raw[n] != 0xffU) {
+        out[n] = raw[n] >= 32U && raw[n] <= 126U ? (char)raw[n] : '?';
+        ++n;
+    }
+    while (n && out[n-1U] == ' ') --n;
+    out[n] = '\0';
+}
+
 static esp_err_t controller_init(solar_os_it8951_t *d)
 {
     d->ready = d->shadow_valid = false;
@@ -185,6 +196,8 @@ static esp_err_t controller_init(solar_os_it8951_t *d)
     d->image_address = ((uint32_t)info[6] << 24) | ((uint32_t)info[7] << 16) |
                        ((uint32_t)info[4] << 8) | info[5];
     if (!d->image_address || d->image_address == UINT32_MAX) return ESP_ERR_INVALID_RESPONSE;
+    device_info_string(d->firmware_version,info+8);
+    device_info_string(d->waveform_version,info+24);
     const uint16_t vcom[] = {2, d->config.vcom_mv};
     TRY(command(d, 0x0039, vcom, 2));
     TRY(write_reg(d, 0x0004, 1)); /* packed SPI host interface */
@@ -193,8 +206,9 @@ static esp_err_t controller_init(solar_os_it8951_t *d)
     TRY(update_temperature(d));
     d->ready = true;
     d->updates = 0;
-    ESP_LOGI(TAG, "ED103TC2 %ux%u image=0x%08lx VCOM=-%umV",
-             WIDTH, HEIGHT, (unsigned long)d->image_address, d->config.vcom_mv);
+    ESP_LOGI(TAG, "ED103TC2 %ux%u image=0x%08lx VCOM=-%umV fw=%s lut=%s",
+             WIDTH, HEIGHT, (unsigned long)d->image_address, d->config.vcom_mv,
+             d->firmware_version,d->waveform_version);
     return ESP_OK;
 }
 
@@ -625,12 +639,14 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
     const epd_scan_stats_t stats = epd_scan_worker_stats(&state->scan_worker);
     snprintf(state->mode_description, sizeof(state->mode_description),
         "refresh=%s grayscale=16 spi=%ukHz last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
-        "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus",
+        "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus "
+        "fw=%s lut-id=%s",
         d->full_refresh ? "full" : "auto", d->spi_clock_khz, d->last_refresh_ms, d->last_upload_ms,
         d->last_lut_ms, d->last_x, d->last_y, d->last_width, d->last_height, d->last_bpp,
         (int)d->temperature_c,d->scan_worker.task ? "async" : "sync",
         (unsigned long)stats.submitted,(unsigned long)stats.coalesced,
-        (unsigned long)stats.frames,(long long)stats.last_scan_us);
+        (unsigned long)stats.frames,(long long)stats.last_scan_us,
+        d->firmware_version,d->waveform_version);
     xSemaphoreGive(state->mutex);
     return state->mode_description;
 }

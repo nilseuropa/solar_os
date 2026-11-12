@@ -31,6 +31,7 @@ typedef struct {
     uint8_t *mono, *gray, *transfer, *mono_shadow, *gray_pending;
     uint32_t image_address;
     unsigned spi_clock_khz;
+    char firmware_version[17], waveform_version[17];
     StaticSemaphore_t mutex_storage;
     SemaphoreHandle_t mutex;
     StaticSemaphore_t frame_mutex_storage;
@@ -50,7 +51,7 @@ typedef struct {
     bool temperature_valid;
     int16_t temperature_c;
     int64_t temperature_due;
-    char mode_description[256];
+    char mode_description[384];
 } solar_os_it8951_t;
 
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *display,

@@ -1434,6 +1434,7 @@ transfers; grayscale uses packed 4-bit transfers. A change between those formats
 startup, recovery, and periodic cleanup use the full panel. `display mode display0`
 reports the last refresh time, upload/preparation time, waveform wait, rectangle,
 and transfer bit depth. These timings cover the driver refresh, after rendering.
+Mode status also reports the controller firmware (`fw`) and waveform identity (`lut-id`).
 Monochrome and raster graphics presentations use the shared e-paper worker:
 input processing continues during panel uploads and waveform waits, and newer
 frames replace queued older frames. Image preparation still runs before a
