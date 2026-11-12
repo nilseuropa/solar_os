@@ -25,6 +25,15 @@ static const solar_os_stream_audio_format_t native_format = {
     .frames_per_block = AUDIO_PDM_FRAMES_PER_BLOCK,
 };
 
+static esp_err_t close_capture(void) {
+    esp_err_t ret = audio_pdm_close();
+    if (mic.has_power_line) {
+        const esp_err_t power_ret = solar_os_gpio_line_write(&mic.power_line, false);
+        if (ret == ESP_OK) ret = power_ret;
+    }
+    return ret;
+}
+
 static esp_err_t open_stream(void *user, const char *owner,
     const solar_os_stream_open_options_t *options, solar_os_stream_handle_t *handle) {
     (void)owner;
@@ -36,14 +45,19 @@ static esp_err_t open_stream(void *user, const char *owner,
             (format->channels && format->channels != 1) ||
             (format->bits_per_sample && format->bits_per_sample != 16)) return ESP_ERR_NOT_SUPPORTED;
     }
-    const esp_err_t ret = audio_pdm_open(mic.clk, mic.data, mic.power, (unsigned)mic.slot);
+    esp_err_t ret = mic.has_power_line
+        ? solar_os_gpio_line_write(&mic.power_line, true) : ESP_OK;
+    if (ret == ESP_OK) ret = audio_pdm_open(mic.clk, mic.data, mic.power, (unsigned)mic.slot);
+    if (ret != ESP_OK && mic.has_power_line) {
+        (void)solar_os_gpio_line_write(&mic.power_line, false);
+    }
     if (ret == ESP_OK) { handle->context = &mic; handle->audio = native_format; }
     return ret;
 }
 
 static void close_stream(void *user, solar_os_stream_handle_t *handle) {
     if (user == &mic && handle && handle->context == &mic) {
-        (void)audio_pdm_close(); handle->context = NULL;
+        (void)close_capture(); handle->context = NULL;
     }
 }
 
@@ -88,9 +102,13 @@ esp_err_t solar_os_audio_pdm_attach(const char *name,
             else if (!strcmp(binding->role, "power")) { destination = &power; bit = 8; }
         } else if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
                    !strcmp(binding->role, "power")) {
-            strlcpy(power_line.controller, binding->target, sizeof(power_line.controller));
-            power_line.line = (uint8_t)binding->value;
-            has_power_line = true;
+            if (binding->target[0] == '\0') {
+                power = binding->value;
+            } else {
+                strlcpy(power_line.controller, binding->target, sizeof(power_line.controller));
+                power_line.line = (uint8_t)binding->value;
+                has_power_line = true;
+            }
             bit = 8;
             if (seen & bit) return ESP_ERR_INVALID_ARG;
             seen |= bit;
@@ -108,7 +126,7 @@ esp_err_t solar_os_audio_pdm_attach(const char *name,
     if (has_power_line) {
         ret = solar_os_gpio_line_configure(&power_line,
             SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
-        if (ret == ESP_OK) ret = solar_os_gpio_line_write(&power_line, true);
+        if (ret == ESP_OK) ret = solar_os_gpio_line_write(&power_line, false);
         power = -1;
     } else {
         ret = audio_pdm_prepare_power(power);
@@ -142,10 +160,7 @@ esp_err_t solar_os_audio_pdm_detach(const char *name) {
     if (!name || !mic.attached || strcmp(name, mic.id)) return ESP_ERR_NOT_FOUND;
     esp_err_t ret = solar_os_stream_unregister(mic.capture);
     if (ret != ESP_OK) return ret;
-    ret = audio_pdm_close();
-    if (ret == ESP_OK && mic.has_power_line) {
-        (void)solar_os_gpio_line_write(&mic.power_line, false);
-    }
+    ret = close_capture();
     if (ret == ESP_OK) ret = solar_os_audio_unregister_device(mic.id);
     if (ret != ESP_OK) { (void)register_stream(); return ret; }
     memset(&mic, 0, sizeof(mic));
