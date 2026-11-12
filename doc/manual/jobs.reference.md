@@ -1542,8 +1542,13 @@ new configurations can attach the device directly.
 expansion bus create ps2 ps2kbd clock=gpio17 data=gpio18
 job start ps2-keyboard ps2kbd
 job status ps2-keyboard
+input test ps2-kbd-job
 job stop ps2-keyboard
 ```
+
+The job and a direct keyboard attachment are alternatives. If `keyboard0` is
+already attached to this bus, use it directly or run `expansion detach keyboard0`
+before starting the job.
 
 These commands cover an expansion bus. Boards with an integrated PS/2 keyboard
 declare the bus and a default expansion attachment. On TTGO VGA32 v1.4,
@@ -1551,7 +1556,7 @@ declare the bus and a default expansion attachment. On TTGO VGA32 v1.4,
 with `expansion devices` and `input test keyboard0`.
 
 The bus descriptor owns the CLOCK and DATA pins as `bus:ps2kbd`; the wrapper's
-`ps2-keyboard-job` attachment holds the exclusive lease. Normal and
+`ps2-kbd-job` attachment holds the exclusive lease. Normal and
 extended keys, modifiers, navigation keys, function keys, and keypad usages are
 translated to canonical USB HID identities. The configured `setterm keyboard`
 layout and `setterm keyrate` repeat policy apply equally to BLE and PS/2.
