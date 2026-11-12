@@ -198,16 +198,18 @@ static esp_err_t controller_init(solar_os_it8951_t *d)
     return ESP_OK;
 }
 
-static uint8_t gray_at(const solar_os_it8951_t *d, unsigned x, unsigned y)
+static uint8_t gray_at(const uint8_t *image, unsigned x, unsigned y)
 {
-    const uint8_t b = d->gray[(size_t)y * (WIDTH / 2U) + x / 2U];
+    const uint8_t b = image[(size_t)y * (WIDTH / 2U) + x / 2U];
     return (x & 1U) ? b & 15U : b >> 4;
 }
 
 static bool set_pixel(solar_os_it8951_t *d, unsigned x, unsigned y, uint8_t gray)
 {
-    const bool changed = gray_at(d,x,y) != gray;
-    uint8_t *b = &d->gray[(size_t)y * (WIDTH / 2U) + x / 2U];
+    uint8_t *image = d->gray_pending ? d->gray_pending : d->gray;
+    uint8_t *b = &image[(size_t)y * (WIDTH / 2U) + x / 2U];
+    const uint8_t old = gray_at(image,x,y);
+    const bool changed = old != gray;
     *b = (x & 1U) ? (uint8_t)((*b & 0xf0U) | gray) :
                     (uint8_t)((*b & 0x0fU) | (gray << 4));
     b = &d->mono[(size_t)(y / 8U) * WIDTH + x];
@@ -386,14 +388,36 @@ static void scan_enable(solar_os_it8951_t *d, bool enabled)
     epd_scan_worker_enable(&d->scan_worker,enabled);
 }
 
-/* Join before synchronous graphics, mode or power changes. Merely disabling
+/* Join before changing presentation formats, mode or power. Merely disabling
  * submissions cannot cancel a callback already waiting for the panel lock. */
 static void scan_stop(solar_os_it8951_t *d)
 {
     scan_enable(d,false);
     epd_scan_worker_deinit(&d->scan_worker);
     solar_os_memory_free(d->mono_shadow); d->mono_shadow = NULL;
+    solar_os_memory_free(d->gray_pending); d->gray_pending = NULL;
     d->mono_shadow_valid = false;
+    d->graphics_scan = false;
+}
+
+/* The producer lock protects only image composition/copying. Never retain it
+ * during SPI or waveform waits: the foreground must be able to replace the
+ * queued target while the panel is busy. */
+static dirty_area_t take_graphics_target(solar_os_it8951_t *d)
+{
+    xSemaphoreTake(d->frame_mutex,portMAX_DELAY);
+    dirty_area_t dirty = {d->pending_x0,d->pending_x1,d->pending_y0,d->pending_y1};
+    if (dirty.x1) {
+        const unsigned x0 = dirty.x0 & ~1U, x1 = (dirty.x1+1U) & ~1U;
+        for (unsigned y = dirty.y0; y < dirty.y1; y++) {
+            const size_t offset = (size_t)y*(WIDTH/2U)+x0/2U;
+            memcpy(d->gray+offset,d->gray_pending+offset,(x1-x0)/2U);
+        }
+    }
+    d->pending_x0 = WIDTH; d->pending_x1 = 0;
+    d->pending_y0 = HEIGHT; d->pending_y1 = 0;
+    xSemaphoreGive(d->frame_mutex);
+    return dirty;
 }
 
 static esp_err_t scan_process(void *context, const uint8_t *source,
@@ -405,17 +429,21 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
     esp_err_t err = ESP_OK;
     if ((fresh || d->full_refresh) && !d->suspended &&
         __atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE)) {
-        dirty_area_t dirty = mono_dirty_area(d,source);
-        if (dirty.x1) dirty = mono_to_gray_area(d,source,&dirty);
-        err = finish_refresh(d,true,&dirty);
+        dirty_area_t dirty;
+        if (d->graphics_scan) dirty = take_graphics_target(d);
+        else {
+            dirty = mono_dirty_area(d,source);
+            if (dirty.x1) dirty = mono_to_gray_area(d,source,&dirty);
+        }
+        err = finish_refresh(d,!d->graphics_scan,&dirty);
         *scanned = err == ESP_OK;
         if (err != ESP_OK) {
             /* Retry once after controller reset, even if the app stops painting. */
-            err = finish_refresh(d,true,&dirty);
+            err = finish_refresh(d,!d->graphics_scan,&dirty);
             *scanned = err == ESP_OK;
             if (err != ESP_OK) __atomic_store_n(&d->scan_submit_ready,false,__ATOMIC_RELEASE);
         }
-        if (err == ESP_OK) {
+        if (err == ESP_OK && !d->graphics_scan) {
             memcpy(d->mono_shadow,source,MONO_BYTES);
             d->mono_shadow_valid = true;
         }
@@ -424,15 +452,30 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
     return err;
 }
 
-static esp_err_t scan_start(solar_os_it8951_t *d)
+static esp_err_t scan_start(solar_os_it8951_t *d, bool graphics)
 {
     /* A fresh worker needs a complete baseline even after synchronous frames. */
     d->shadow_valid = false;
-    d->mono_shadow = solar_os_memory_alloc(MONO_BYTES,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.mono-shadow");
-    if (!d->mono_shadow) return ESP_ERR_NO_MEM;
-    const esp_err_t err = epd_scan_worker_init(&d->scan_worker,MONO_BYTES,scan_process,d);
+    d->graphics_scan = graphics;
+    if (graphics) {
+        d->gray_pending = solar_os_memory_alloc(GRAY_BYTES,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.gray-pending");
+        if (!d->gray_pending) return ESP_ERR_NO_MEM;
+        memcpy(d->gray_pending,d->gray,GRAY_BYTES);
+        d->pending_x0 = WIDTH; d->pending_x1 = 0;
+        d->pending_y0 = HEIGHT; d->pending_y1 = 0;
+    } else {
+        d->mono_shadow = solar_os_memory_alloc(MONO_BYTES,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.mono-shadow");
+        if (!d->mono_shadow) return ESP_ERR_NO_MEM;
+    }
+    /* Graphics snapshots live in gray/gray_pending. The common worker only
+     * queues generation notifications, avoiding two more full gray copies. */
+    const esp_err_t err = epd_scan_worker_init(&d->scan_worker,
+        graphics ? sizeof(d->frame_generation) : MONO_BYTES,scan_process,d);
     if (err == ESP_OK) scan_enable(d,true);
-    else { solar_os_memory_free(d->mono_shadow); d->mono_shadow = NULL; }
+    else {
+        solar_os_memory_free(d->mono_shadow); d->mono_shadow = NULL;
+        solar_os_memory_free(d->gray_pending); d->gray_pending = NULL;
+    }
     return err;
 }
 
@@ -453,12 +496,12 @@ esp_err_t solar_os_it8951_present_sync(solar_os_it8951_t *d)
 esp_err_t solar_os_it8951_present(solar_os_it8951_t *d)
 {
     if (!d || !d->spi || !d->mono) return ESP_ERR_INVALID_STATE;
-    if (__atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE) &&
+    if (!d->graphics_scan && __atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE) &&
         epd_scan_worker_submit(&d->scan_worker,d->mono) == ESP_OK) return ESP_OK;
     scan_stop(d);
     xSemaphoreTake(d->mutex,portMAX_DELAY);
     esp_err_t err = d->suspended ? ESP_ERR_INVALID_STATE :
-        scan_start(d);
+        scan_start(d,false);
     xSemaphoreGive(d->mutex);
     if (err == ESP_OK) return epd_scan_worker_submit(&d->scan_worker,d->mono);
     if (err == ESP_ERR_NO_MEM) return solar_os_it8951_present_sync(d);
@@ -519,7 +562,8 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     /* No caller-owned strings are retained after initialization. */
     d->config.spi_bus = NULL;
     d->mutex = xSemaphoreCreateMutexStatic(&d->mutex_storage);
-    if (!d->mutex) return ESP_ERR_NO_MEM;
+    d->frame_mutex = xSemaphoreCreateMutexStatic(&d->frame_mutex_storage);
+    if (!d->mutex || !d->frame_mutex) return ESP_ERR_NO_MEM;
     const gpio_config_t outputs = {.pin_bit_mask = (1ULL << cfg->cs) | (1ULL << cfg->reset) |
         (1ULL << cfg->power) | (1ULL << cfg->ite_power), .mode = GPIO_MODE_OUTPUT};
     TRY(gpio_config(&outputs));
@@ -555,7 +599,7 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
         err = d->last_error;
     }
     if (err == ESP_OK) {
-        err = scan_start(d);
+        err = scan_start(d,false);
     }
     if (err != ESP_OK) solar_os_it8951_deinit(d);
     return err;
@@ -620,6 +664,53 @@ static uint8_t rgb_gray(uint16_t rgb)
     return (uint8_t)(((r * 77U + g * 150U + b * 29U) * 15U + 32640U) / 65280U);
 }
 
+/* Pack a source row once, then reuse it for repeated destination rows. The
+ * common unrotated scaled canvas otherwise quantizes and writes each native
+ * pixel separately, including multiple read/modify/writes of one mono byte. */
+static dirty_area_t compose_index8_rows(solar_os_it8951_t *d,
+    const solar_os_display_raster_t *f, const uint8_t *palette)
+{
+    uint8_t packed[WIDTH/2U];
+    uint8_t *image = d->gray_pending ? d->gray_pending : d->gray;
+    dirty_area_t dirty = {WIDTH,0,HEIGHT,0};
+    const unsigned bytes = f->width/2U;
+    for (unsigned y = 0; y < f->height;) {
+        const unsigned sy = (uint32_t)y*f->source_height/f->height;
+        const uint8_t *row = f->data+(size_t)sy*f->source_stride;
+        unsigned end = y+1U;
+        while (end < f->height && (uint32_t)end*f->source_height/f->height == sy) ++end;
+        for (unsigned x = 0; x < f->width; x += 2U) {
+            const unsigned sx0 = (uint32_t)x*f->source_width/f->width;
+            const unsigned sx1 = (uint32_t)(x+1U)*f->source_width/f->width;
+            packed[x/2U] = (uint8_t)((palette[row[sx0]] << 4) | palette[row[sx1]]);
+        }
+        for (unsigned yy = y; yy < end; yy++) {
+            uint8_t *out = image+(size_t)(f->y+yy)*(WIDTH/2U)+f->x/2U;
+            if (!memcmp(out,packed,bytes)) continue;
+            unsigned first = 0, last = bytes;
+            while (out[first] == packed[first]) ++first;
+            while (out[last-1U] == packed[last-1U]) --last;
+            memcpy(out+first,packed+first,last-first);
+            dirty_include(&dirty,f->x+first*2U,f->y+yy,(last-first)*2U);
+        }
+        /* Set all repeated rows in a mono tile with one write per column. */
+        for (unsigned yy = y; yy < end;) {
+            const unsigned ny = f->y+yy, shift = ny & 7U;
+            const unsigned count = end-yy < 8U-shift ? end-yy : 8U-shift;
+            const uint8_t mask = (uint8_t)(((1U << count)-1U) << shift);
+            uint8_t *mono = d->mono+(size_t)(ny/8U)*WIDTH+f->x;
+            for (unsigned x = 0; x < f->width; x += 2U) {
+                const uint8_t pair = packed[x/2U];
+                mono[x] = (mono[x] & (uint8_t)~mask) | (pair & 0x80U ? mask : 0);
+                mono[x+1U] = (mono[x+1U] & (uint8_t)~mask) | (pair & 8U ? mask : 0);
+            }
+            yy += count;
+        }
+        y = end;
+    }
+    return dirty;
+}
+
 esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
                                        const solar_os_display_raster_t *f)
 {
@@ -658,11 +749,20 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
             }
         }
     }
-    scan_stop(d);
-    xSemaphoreTake(d->mutex, portMAX_DELAY);
-    esp_err_t err = d->suspended ? ESP_ERR_INVALID_STATE : ESP_OK;
-    if (err != ESP_OK) {
+    esp_err_t err = ESP_OK;
+    if (!d->graphics_scan || !__atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE)) {
+        scan_stop(d);
+        xSemaphoreTake(d->mutex,portMAX_DELAY);
+        err = d->suspended ? ESP_ERR_INVALID_STATE : scan_start(d,true);
         xSemaphoreGive(d->mutex);
+        /* Allocation failure retains synchronous raster support. */
+        if (err == ESP_ERR_NO_MEM) { scan_stop(d); err = ESP_OK; }
+    }
+    const bool async = d->gray_pending != NULL;
+    SemaphoreHandle_t lock = async ? d->frame_mutex : d->mutex;
+    xSemaphoreTake(lock, portMAX_DELAY);
+    if (err != ESP_OK) {
+        xSemaphoreGive(lock);
         return err;
     }
     dirty_area_t dirty = {WIDTH,0,HEIGHT,0};
@@ -671,10 +771,17 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
         const uint8_t background = indexed ? palette_gray[f->background_index] :
             f->format == SOLAR_OS_DISPLAY_FORMAT_RGB565 ? rgb_gray(f->background_rgb565) :
             ((!!f->background_index != f->palette_inverted) ? 0 : 15);
-        memset(d->gray, (background << 4) | background, GRAY_BYTES);
+        memset(async ? d->gray_pending : d->gray, (background << 4) | background, GRAY_BYTES);
         memset(d->mono, background >= 8 ? 0xff : 0, MONO_BYTES);
     }
-    for (unsigned y = 0; y < f->height; y++) {
+    if (f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 && d->u8g2.cb == U8G2_R0 &&
+        !(f->x & 1U) && !(f->width & 1U)) {
+        const dirty_area_t changed = compose_index8_rows(d,f,palette_gray);
+        if (changed.x1) {
+            dirty_include(&dirty,changed.x0,changed.y0,changed.x1-changed.x0);
+            dirty_include(&dirty,changed.x0,changed.y1-1U,changed.x1-changed.x0);
+        }
+    } else for (unsigned y = 0; y < f->height; y++) {
         const unsigned sy = (uint32_t)y * f->source_height / f->height;
         const uint8_t *row = f->data + (size_t)sy * f->source_stride;
         for (unsigned x = 0; x < f->width; x++) {
@@ -695,8 +802,19 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
             if (set_pixel(d,nx,ny,gray)) dirty_include(&dirty,nx,ny,1);
         }
     }
-    err = finish_refresh(d,false,&dirty);
-    xSemaphoreGive(d->mutex);
+    if (async) {
+        /* Accumulate all patches until the worker takes the target. Replacing
+         * the notification must never lose an earlier disjoint rectangle. */
+        if (dirty.x1) {
+            if (dirty.x0 < d->pending_x0) d->pending_x0 = dirty.x0;
+            if (dirty.x1 > d->pending_x1) d->pending_x1 = dirty.x1;
+            if (dirty.y0 < d->pending_y0) d->pending_y0 = dirty.y0;
+            if (dirty.y1 > d->pending_y1) d->pending_y1 = dirty.y1;
+        }
+        ++d->frame_generation;
+        err = epd_scan_worker_submit(&d->scan_worker,(const uint8_t *)&d->frame_generation);
+    } else err = finish_refresh(d,false,&dirty);
+    xSemaphoreGive(lock);
     return err;
 }
 

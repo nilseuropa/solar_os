@@ -2,6 +2,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../../src/drivers/epd_it8951.h"
+
+/* Detect a producer accidentally taking a lock held by the scan callback. */
+static SemaphoreHandle_t test_mutex_create(StaticSemaphore_t *s) { *s=1; return s; }
+static int test_mutex_take(SemaphoreHandle_t s, unsigned timeout)
+{ (void)timeout; assert(s && *s==1); *s=0; return 1; }
+static int test_mutex_give(SemaphoreHandle_t s)
+{ assert(s && *s==0); *s=1; return 1; }
+#define xSemaphoreCreateMutexStatic test_mutex_create
+#define xSemaphoreTake test_mutex_take
+#define xSemaphoreGive test_mutex_give
 #include "../../src/drivers/epd_it8951.c"
 #include "ssd2677_memory_stubs.h"
 
@@ -25,6 +36,7 @@ static int spi_clock_khz;
 static bool overspeed;
 static unsigned info_words;
 static bool info_word_pending;
+static void (*during_upload)(void);
 
 static esp_err_t sample_temperature(int16_t *value)
 {
@@ -69,6 +81,14 @@ static void pump(epd_scan_worker_t *w)
     assert(!pending && scanned);
 }
 
+static esp_err_t present_frame_and_wait(solar_os_it8951_t *d,
+    const solar_os_display_raster_t *f)
+{
+    const esp_err_t err = solar_os_it8951_present_frame(d,f);
+    if (err == ESP_OK && d->scan_worker.task && d->scan_worker.has_target) pump(&d->scan_worker);
+    return err;
+}
+
 int64_t esp_timer_get_time(void) { return now; }
 void vTaskDelay(TickType_t ticks) { assert(ticks); now += (int64_t)ticks * 1000; }
 esp_err_t gpio_config(const gpio_config_t *cfg) { assert(cfg); return ESP_OK; }
@@ -110,6 +130,9 @@ void spi_device_release_bus(spi_device_handle_t spi)
 esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t *t)
 {
     assert(spi && selected && held);
+    if (during_upload && preamble == 0 && t->length > 16U) {
+        void (*hook)(void) = during_upload; during_upload = NULL; hook();
+    }
     if (fail_after == 0) { fail_after = -1; return ESP_FAIL; }
     if (fail_after > 0) fail_after--;
     const uint8_t *tx = t->tx_buffer;
@@ -221,7 +244,7 @@ static void test_upload_packing(solar_os_it8951_t *d)
         assert(upload_bytes == (size_t)WIDTH*HEIGHT/(binary ? 8U : 2U));
         for (unsigned y = 0; y < HEIGHT; y++)
             for (unsigned x = 0; x < WIDTH; x++)
-                assert(uploaded[(size_t)y*WIDTH+x] == gray_at(d,WIDTH-1U-x,y)*17U);
+                assert(uploaded[(size_t)y*WIDTH+x] == gray_at(d->gray,WIDTH-1U-x,y)*17U);
     }
 }
 
@@ -239,11 +262,11 @@ static void test_indexed_palette(solar_os_it8951_t *d)
         .palette_rgb565=palette, .palette_size=256,
         .clear_background=true, .background_index=255};
     for (unsigned pass = 0; pass < 2; pass++) {
-        assert(solar_os_it8951_present_frame(d,&f) == ESP_OK);
-        assert(gray_at(d,WIDTH-1,HEIGHT-1) == rgb_gray(palette[255]));
+        assert(present_frame_and_wait(d,&f) == ESP_OK);
+        assert(gray_at(d->gray,WIDTH-1,HEIGHT-1) == rgb_gray(palette[255]));
         for (unsigned i = 0; i < 256; i++) {
-            assert(gray_at(d,7+2*i,9) == rgb_gray(palette[i]));
-            assert(gray_at(d,8+2*i,10) == rgb_gray(palette[i]));
+            assert(gray_at(d->gray,7+2*i,9) == rgb_gray(palette[i]));
+            assert(gray_at(d->gray,8+2*i,10) == rgb_gray(palette[i]));
             palette[i] ^= 0xffff;
         }
     }
@@ -261,6 +284,102 @@ static void test_read_recovery(solar_os_it8951_t *d)
     assert(info_words == 20 && !held && !selected);
     assert((((unsigned)info[0] << 8) | info[1]) == WIDTH);
     assert((((unsigned)info[2] << 8) | info[3]) == HEIGHT);
+}
+
+static solar_os_it8951_t *graphics_fixture;
+static void test_scaled_indexed_rows(solar_os_it8951_t *d)
+{
+    uint16_t palette[16];
+    uint8_t pixels[5*7];
+    for (unsigned i=0;i<16;i++) palette[i]=(uint16_t)(i*0x1111U);
+    for (unsigned i=0;i<sizeof(pixels);i++) pixels[i]=(uint8_t)(i%16U);
+    solar_os_display_raster_t f = {.data=pixels,.data_size=sizeof(pixels),
+        .source_width=5,.source_height=5,.source_stride=7,.x=4,.y=5,.width=18,.height=23,
+        .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8,.palette_rgb565=palette,.palette_size=16,
+        .clear_background=true,.background_index=15};
+    const unsigned heights[]={23,3,8,16,1};
+    for (unsigned pass=0;pass<5;pass++) {
+        f.height=heights[pass];
+        assert(present_frame_and_wait(d,&f)==ESP_OK);
+        for (unsigned y=0;y<f.height;y++) for (unsigned x=0;x<f.width;x++) {
+            const unsigned sx=x*5U/f.width,sy=y*5U/f.height;
+            const uint8_t expected=rgb_gray(palette[pixels[sy*7+sx]]);
+            const unsigned nx=f.x+x,ny=f.y+y;
+            assert(gray_at(d->gray,nx,ny)==expected);
+            assert(!!(d->mono[(size_t)(ny/8U)*WIDTH+nx] & (1U << (ny&7U)))==(expected>=8));
+        }
+        assert(gray_at(d->gray,f.x-1,f.y)==15 && gray_at(d->gray,f.x+f.width,f.y)==15);
+        f.clear_background=false;
+        const unsigned before=updates;
+        assert(present_frame_and_wait(d,&f)==ESP_OK && updates==before);
+        f.clear_background=true;
+    }
+}
+
+static void replace_graphics_during_upload(void)
+{
+    solar_os_it8951_t *d = graphics_fixture;
+    uint8_t index = 0;
+    uint16_t palette = 0x8410;
+    solar_os_display_raster_t patch = {.data=&index, .data_size=1,
+        .source_width=1, .source_height=1, .source_stride=1, .width=1, .height=1,
+        .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8, .palette_rgb565=&palette, .palette_size=1};
+    const unsigned before = updates;
+    const uint8_t active = gray_at(d->gray,0,0);
+    assert(solar_os_it8951_present_frame(d,&patch)==ESP_OK);
+    palette=0x4208; patch.x=WIDTH-1; patch.y=HEIGHT-1;
+    assert(solar_os_it8951_present_frame(d,&patch)==ESP_OK);
+    palette=0xffff; patch.x=patch.y=0;
+    assert(solar_os_it8951_present_frame(d,&patch)==ESP_OK);
+    assert(updates==before && gray_at(d->gray,0,0)==active);
+    /* Neither the borrowed palette nor source pixels may outlive submission. */
+    palette=0; index=99;
+}
+
+static void test_graphics_queue(solar_os_it8951_t *d)
+{
+    assert(solar_os_it8951_set_mode(d,"refresh=auto")==ESP_OK);
+    uint8_t index=0;
+    uint16_t palette=0x8410;
+    solar_os_display_raster_t f = {.data=&index, .data_size=1,
+        .source_width=1, .source_height=1, .source_stride=1, .width=1, .height=1,
+        .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8, .palette_rgb565=&palette, .palette_size=1,
+        .clear_background=true};
+    const unsigned before=updates;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK && updates==before);
+    assert(d->graphics_scan && d->gray_pending && !d->mono_shadow);
+    assert(d->scan_worker.frame_size==sizeof(uint32_t));
+    graphics_fixture=d; during_upload=replace_graphics_during_upload;
+    palette=0; index=99;
+    pump(&d->scan_worker);
+    assert(!during_upload && updates==before+1 && gray_at(d->gray,0,0)==8);
+    assert(d->scan_worker.has_target && d->scan_worker.stats.coalesced==2);
+    pump(&d->scan_worker);
+    assert(updates==before+2 && gray_at(d->gray,0,0)==15 && gray_at(d->gray,WIDTH-1,HEIGHT-1)==4);
+    assert(uploaded[WIDTH-1]==255 && uploaded[(size_t)(HEIGHT-1)*WIDTH]==4*17);
+    /* An identical target must not refresh; a pending frame must be cancelled
+     * safely when returning to native text or changing power/mode. */
+    index=0; palette=0xffff; f.clear_background=false;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    pump(&d->scan_worker);
+    assert(updates==before+2);
+    palette=0;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    fail_after=2; pump(&d->scan_worker);
+    assert(d->ready && d->shadow_valid && gray_at(d->gray,0,0)==0);
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    assert(solar_os_it8951_set_power_save(d,true)==ESP_OK);
+    assert(!d->gray_pending && !d->scan_worker.task);
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_ERR_INVALID_STATE);
+    assert(solar_os_it8951_set_power_save(d,false)==ESP_OK);
+    worker_init_fail=true;
+    palette=0x8410;
+    assert(solar_os_it8951_present_frame(d,&f)==ESP_OK && !d->scan_worker.task && !d->gray_pending);
+    assert(gray_at(d->gray,0,0)==8);
+    worker_init_fail=false;
+    assert(solar_os_it8951_present(d)==ESP_OK && !d->graphics_scan && d->mono_shadow);
+    pump(&d->scan_worker);
+    assert(d->last_bpp==1);
 }
 
 int main(void)
@@ -337,43 +456,43 @@ int main(void)
     solar_os_display_raster_t f = {.data=pixels, .data_size=3, .source_width=3, .source_height=1,
         .source_stride=3, .x=5, .y=7, .width=3, .height=1, .format=SOLAR_OS_DISPLAY_FORMAT_INDEX8,
         .palette_rgb565=palette, .palette_size=3};
-    assert(solar_os_it8951_present_frame(&d, &f) == ESP_OK && last_waveform == 2);
+    assert(present_frame_and_wait(&d, &f) == ESP_OK && last_waveform == 2);
     assert(image_format == 0x0120 && upload_bytes == (size_t)WIDTH*HEIGHT/2U);
     assert(!(registers[0x113a] & 4U));
-    assert(gray_at(&d,5,7) == 0 && gray_at(&d,6,7) == 8 && gray_at(&d,7,7) == 15);
+    assert(gray_at(d.gray,5,7) == 0 && gray_at(d.gray,6,7) == 8 && gray_at(d.gray,7,7) == 15);
     assert(uploaded[(size_t)7*WIDTH+WIDTH-1-6] == 136);
     pixels[1] = 0;
-    assert(solar_os_it8951_present_frame(&d,&f) == ESP_OK);
+    assert(present_frame_and_wait(&d,&f) == ESP_OK);
     /* All gray pixels were removed: bitmap mode needs a full new encoding. */
     assert(image_format == 0x0030 && upload_bytes == (size_t)WIDTH*HEIGHT/8U);
     pixels[1] = 1;
-    assert(solar_os_it8951_present_frame(&d,&f) == ESP_OK);
+    assert(present_frame_and_wait(&d,&f) == ESP_OK);
     const uint8_t gray_pixel = 2;
     const uint16_t shades[] = {0,0x8410,0x4208};
     solar_os_display_raster_t dot = f;
     dot.data = &gray_pixel; dot.data_size = 1;
     dot.source_width = dot.width = dot.source_stride = 1;
     dot.x = 6; dot.palette_rgb565 = shades;
-    assert(solar_os_it8951_present_frame(&d,&dot) == ESP_OK);
+    assert(present_frame_and_wait(&d,&dot) == ESP_OK);
     assert(image_format == 0x0120 && d.last_width == 16 && d.last_height == 1);
     assert(upload_bytes == 8 && uploaded[(size_t)7*WIDTH+WIDTH-1-6] == 4*17);
-    assert(solar_os_it8951_present_frame(&d,&f) == ESP_OK);
+    assert(present_frame_and_wait(&d,&f) == ESP_OK);
     const uint8_t packed_pixels = 0x24; /* LSB-first palette indices 0,1,2 */
     solar_os_display_raster_t packed = f;
     packed.data = &packed_pixels; packed.data_size = 1; packed.source_stride = 1;
     packed.format = SOLAR_OS_DISPLAY_FORMAT_INDEX2;
-    assert(solar_os_it8951_present_frame(&d,&packed) == ESP_OK);
-    assert(gray_at(&d,5,7) == 0 && gray_at(&d,6,7) == 8 && gray_at(&d,7,7) == 15);
+    assert(present_frame_and_wait(&d,&packed) == ESP_OK);
+    assert(gray_at(d.gray,5,7) == 0 && gray_at(d.gray,6,7) == 8 && gray_at(d.gray,7,7) == 15);
     const uint8_t rgb_pixels[] = {0xf8,0x00,0x00,0x1f}; /* wire-order red and blue */
     packed.data = rgb_pixels; packed.data_size = 4; packed.source_stride = 4;
     packed.format = SOLAR_OS_DISPLAY_FORMAT_RGB565; packed.source_width = packed.width = 2;
-    assert(solar_os_it8951_present_frame(&d,&packed) == ESP_OK);
-    assert(gray_at(&d,5,7) == 5 && gray_at(&d,6,7) == 2);
+    assert(present_frame_and_wait(&d,&packed) == ESP_OK);
+    assert(gray_at(d.gray,5,7) == 5 && gray_at(d.gray,6,7) == 2);
     const unsigned before = updates;
     pixels[1] = 3;
-    assert(solar_os_it8951_present_frame(&d, &f) == ESP_ERR_INVALID_ARG && updates == before);
+    assert(present_frame_and_wait(&d, &f) == ESP_ERR_INVALID_ARG && updates == before);
     pixels[1] = 1; f.data_size=2;
-    assert(solar_os_it8951_present_frame(&d, &f) == ESP_ERR_INVALID_SIZE);
+    assert(present_frame_and_wait(&d, &f) == ESP_ERR_INVALID_SIZE);
     f.data_size=3;
     assert(solar_os_it8951_present_sync(&d) == ESP_OK && last_waveform == 2);
     /* DU must not be used to transition old gray pixels back to monochrome. */
@@ -381,10 +500,10 @@ int main(void)
         static const u8g2_cb_t *const cb[] = {U8G2_R0,U8G2_R1,U8G2_R2,U8G2_R3};
         u8g2_SetDisplayRotation(&d.u8g2, cb[r]);
         f.x=0; f.y=0; f.width=3; f.height=1;
-        assert(solar_os_it8951_present_frame(&d, &f) == ESP_OK);
+        assert(present_frame_and_wait(&d, &f) == ESP_OK);
         static const unsigned xs[] = {1, WIDTH-1, WIDTH-2, 0};
         static const unsigned ys[] = {0, 1, HEIGHT-1, HEIGHT-2};
-        assert(gray_at(&d,xs[r],ys[r]) == 8);
+        assert(gray_at(d.gray,xs[r],ys[r]) == 8);
     }
     u8g2_SetDisplayRotation(&d.u8g2, U8G2_R0);
     const uint8_t white_pixel = 1;
@@ -392,8 +511,8 @@ int main(void)
         .source_width=1, .source_height=1, .source_stride=1, .width=1, .height=1,
         .format=SOLAR_OS_DISPLAY_FORMAT_MONO1, .palette_inverted=true,
         .clear_background=true, .background_index=0};
-    assert(solar_os_it8951_present_frame(&d,&f) == ESP_OK);
-    assert(gray_at(&d,0,0) == 15 && gray_at(&d,1,0) == 0);
+    assert(present_frame_and_wait(&d,&f) == ESP_OK);
+    assert(gray_at(d.gray,0,0) == 15 && gray_at(d.gray,1,0) == 0);
     assert(solar_os_it8951_set_power_save(&d,true) == ESP_OK);
     assert(!d.ready && !levels[11] && !levels[21]);
     assert(solar_os_it8951_set_power_save(&d,false) == ESP_OK && d.ready && !d.shadow_valid);
@@ -424,7 +543,7 @@ int main(void)
     assert(d.scan_worker.stats.submitted == 2 && d.scan_worker.stats.coalesced == 1);
     uint8_t saved = d.mono[11]; d.mono[11] ^= 2U;
     pump(&d.scan_worker);
-    assert(updates == before_async+1 && gray_at(&d,11,1) == (saved & 2U ? 15 : 0));
+    assert(updates == before_async+1 && gray_at(d.gray,11,1) == (saved & 2U ? 15 : 0));
     assert(d.mono_shadow_valid);
     memcpy(d.mono,d.mono_shadow,MONO_BYTES);
     const size_t last_byte = (size_t)((HEIGHT-1)/8U)*WIDTH+WIDTH-1U;
@@ -437,11 +556,10 @@ int main(void)
     assert(d.last_x == 0 && d.last_y == 1403 && d.last_height == 1 && d.last_width == 32);
     assert(upload_bytes == 4); /* Only the changed pixel row, not all eight tile rows. */
     assert(uploaded[(size_t)(HEIGHT-1)*WIDTH] == (d.mono[last_byte] & 8U ? 255 : 0));
-    /* Graphics can allocate its INDEX8 surface without a second full gray image;
-     * raster presentation joins and releases the native worker snapshots. */
+    /* Switching presentation formats releases the previous queue buffers. */
     assert(d.mono_shadow);
-    assert(solar_os_it8951_present_frame(&d,&dot) == ESP_OK);
-    assert(!d.scan_worker.task && !d.mono_shadow && d.last_bpp == 4);
+    assert(present_frame_and_wait(&d,&dot) == ESP_OK);
+    assert(d.scan_worker.task && d.graphics_scan && d.gray_pending && !d.mono_shadow && d.last_bpp == 4);
     assert(solar_os_it8951_present(&d) == ESP_OK);
     assert(d.scan_worker.task && d.mono_shadow);
     pump(&d.scan_worker);
@@ -464,6 +582,9 @@ int main(void)
     const unsigned before_full_duplicate = updates;
     assert(scan_process(&d,d.scan_worker.snapshot,false,&pending,&scanned) == ESP_OK);
     assert(scanned && !pending && updates == before_full_duplicate+1 && last_waveform == 2);
+    assert(solar_os_it8951_set_mode(&d,"refresh=auto")==ESP_OK);
+    test_scaled_indexed_rows(&d);
+    test_graphics_queue(&d);
     test_indexed_palette(&d);
     test_upload_packing(&d);
     test_read_recovery(&d);

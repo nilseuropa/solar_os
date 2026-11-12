@@ -1434,19 +1434,22 @@ transfers; grayscale uses packed 4-bit transfers. A change between those formats
 startup, recovery, and periodic cleanup use the full panel. `display mode display0`
 reports the last refresh time, upload/preparation time, waveform wait, rectangle,
 and transfer bit depth. These timings cover the driver refresh, after rendering.
-Native monochrome presentations use the shared e-paper worker: input processing
-continues during panel updates, and newer frames replace queued older frames.
-The worker uses two queued monochrome snapshots and one saved monochrome image
-in PSRAM. The saved image limits conversion and comparison work to changed tiles
-and rectangles. Raster changes are detected as pixels are converted into the
-retained packed image, without a second full grayscale image, so the native
-INDEX8 graphics surface still fits in PSRAM. The worker is stopped and
-joined before synchronous grayscale/raster presentation, mode changes, or power
-transitions; the next native presentation starts it again. Final power-state
-overlays are flushed synchronously. Mode status includes worker counters and
-the last complete worker time, including monochrome conversion.
-If snapshot allocation fails, native presentation falls back to synchronous
-updates; mode status shows `scan=sync`.
+Monochrome and raster graphics presentations use the shared e-paper worker:
+input processing continues during panel uploads and waveform waits, and newer
+frames replace queued older frames. Image preparation still runs before a
+raster presentation returns; source pixels and palettes can then be reused.
+Disjoint queued raster patches are combined into the next image.
+The native monochrome queue uses two snapshots and one saved monochrome image
+in PSRAM. The saved image limits conversion to changed tiles and rectangles.
+The graphics queue uses a packed 4-bit target alongside the image being
+refreshed. Scaled indexed canvases use raster scaling where possible to avoid
+an additional native-size indexed image.
+Switching between native monochrome and raster presentation, changing modes,
+and power transitions wait for the active worker before releasing its buffers.
+Final power-state overlays are flushed synchronously. Mode status includes
+worker counters and the last complete worker time.
+If queue allocation fails, presentation falls back to synchronous updates;
+mode status shows `scan=sync`.
 Waveform temperature follows the default environmental temperature provider
 (the onboard SHT40 on this board), sampled at most every 30 seconds. Startup
 uses 25 C until the provider is available; failed or out-of-range samples retain

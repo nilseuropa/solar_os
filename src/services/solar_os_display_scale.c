@@ -332,6 +332,33 @@ esp_err_t solar_os_display_scale_bitmap(solar_os_display_scale_t *state,
     return ESP_OK;
 }
 
+esp_err_t solar_os_display_scale_surface_raster(solar_os_display_scale_t *state,
+    const solar_os_display_surface_t *source, solar_os_display_raster_t *output)
+{
+    const unsigned factor = state->factor;
+    if (state->physical_info->pixel_width % factor ||
+        state->physical_info->pixel_height % factor) return ESP_ERR_NOT_SUPPORTED;
+    const solar_os_display_rotation_t rotation = state->canvas->cb == U8G2_R1 ? SOLAR_OS_DISPLAY_ROTATION_90 :
+        state->canvas->cb == U8G2_R2 ? SOLAR_OS_DISPLAY_ROTATION_180 :
+        state->canvas->cb == U8G2_R3 ? SOLAR_OS_DISPLAY_ROTATION_270 : SOLAR_OS_DISPLAY_ROTATION_0;
+    if (source->format != SOLAR_OS_DISPLAY_FORMAT_INDEX8 || !source->data ||
+        source->rotation != rotation ||
+        source->native_width != state->physical_info->pixel_width / factor ||
+        source->native_height != state->physical_info->pixel_height / factor ||
+        source->width != u8g2_GetDisplayWidth(state->canvas) ||
+        source->height != u8g2_GetDisplayHeight(state->canvas) ||
+        source->stride < source->width ||
+        source->data_size < (size_t)source->stride * source->height) return ESP_ERR_INVALID_SIZE;
+    const solar_os_display_raster_t logical = {
+        .data = source->data, .data_size = source->data_size,
+        .palette_rgb565 = source->palette_rgb565, .palette_size = source->palette_size,
+        .source_width = source->width, .source_height = source->height,
+        .source_stride = source->stride, .width = source->width, .height = source->height,
+        .format = source->format,
+    };
+    return solar_os_display_scale_raster(state,&logical,output);
+}
+
 esp_err_t solar_os_display_scale_surface(solar_os_display_scale_t *state,
     const solar_os_display_surface_t *source, solar_os_display_surface_t *output)
 {

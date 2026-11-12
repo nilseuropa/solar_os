@@ -28,11 +28,13 @@ typedef struct {
     spi_device_handle_t spi;
     solar_os_it8951_config_t config;
     u8g2_t u8g2;
-    uint8_t *mono, *gray, *transfer, *mono_shadow;
+    uint8_t *mono, *gray, *transfer, *mono_shadow, *gray_pending;
     uint32_t image_address;
     unsigned spi_clock_khz;
     StaticSemaphore_t mutex_storage;
     SemaphoreHandle_t mutex;
+    StaticSemaphore_t frame_mutex_storage;
+    SemaphoreHandle_t frame_mutex;
     esp_err_t last_error;
     bool ready, powered, shadow_valid, shadow_binary, full_refresh;
     unsigned updates;
@@ -40,6 +42,9 @@ typedef struct {
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
     epd_scan_worker_t scan_worker;
     uint32_t scan_submit_ready;
+    uint32_t frame_generation;
+    unsigned pending_x0, pending_x1, pending_y0, pending_y1;
+    bool graphics_scan;
     bool suspended;
     bool mono_shadow_valid;
     bool temperature_valid;
@@ -55,6 +60,8 @@ esp_err_t solar_os_it8951_set_power_save(solar_os_it8951_t *display, bool sleep)
 esp_err_t solar_os_it8951_present(solar_os_it8951_t *display);
 /* Flush final overlays synchronously before entering a power state. */
 esp_err_t solar_os_it8951_present_sync(solar_os_it8951_t *display);
+/* Raster and surface data are copied before returning. Newer presentations
+ * coalesce while the worker uploads and refreshes its private packed image. */
 esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *display,
                                        const solar_os_display_raster_t *frame);
 esp_err_t solar_os_it8951_present_surface(solar_os_it8951_t *display,
