@@ -967,6 +967,20 @@ static bool writer_handle_dialog(solar_os_context_t *ctx, uint8_t ch)
     return true;
 }
 
+static void writer_insert_key(uint8_t ch)
+{
+    if (ch >= 0x20U && ch < 0x7fU) {
+        const char value = (char)ch;
+        (void)writer_insert(&value, 1);
+    } else if (ch >= 0xc0U) {
+        const char value[] = {
+            (char)(0xc0U | (ch >> 6)),
+            (char)(0x80U | (ch & 0x3fU)),
+        };
+        (void)writer_insert(value, sizeof(value));
+    }
+}
+
 static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
 {
     writer_wake_cursor();
@@ -1083,10 +1097,7 @@ static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
         }
         break;
     default:
-        if (ch >= 0x20U && ch != 0x7fU) {
-            const char value = (char)ch;
-            (void)writer_insert(&value, 1);
-        }
+        writer_insert_key(ch);
         break;
     }
     return true;
