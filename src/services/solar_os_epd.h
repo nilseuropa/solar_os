@@ -13,6 +13,7 @@ typedef struct {
     epd_pixel_budget_t budget;
     uint32_t updates;
     int64_t last_frame_start;
+    int64_t last_transfer_us, last_busy_us;
 } solar_os_epd_t;
 
 typedef struct {

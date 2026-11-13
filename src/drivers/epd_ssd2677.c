@@ -396,6 +396,7 @@ static esp_err_t pulse_prepare(epd_ssd2677_t *d, const uint8_t *source,
 static esp_err_t pulse_cycle(void *context)
 {
     epd_ssd2677_t *d = context;
+    const int64_t transfer_started = esp_timer_get_time();
     TRY(load_fastwave(d));
     if (d->pulse_mask_dirty || d->pulse_mask_pending != d->epd.budget.pending) {
         uint8_t *black = d->pulse_planes, *white = black + SSD2677_BUFFER_BYTES;
@@ -458,6 +459,8 @@ static esp_err_t pulse_cycle(void *context)
     }
     TRY(wait_ready(d));
     d->last_drive_us = (uint32_t)(esp_timer_get_time()-began);
+    d->epd.last_transfer_us = began - transfer_started;
+    d->epd.last_busy_us = d->last_drive_us;
     if (!d->pulse_power_hold) TRY(powerdown(d));
     epd_pixel_budget_advance(&d->epd.budget);
     return ESP_OK;
@@ -605,7 +608,7 @@ esp_err_t epd_ssd2677_init(epd_ssd2677_t *d, const epd_ssd2677_config_t *c)
     d->epd.tuning = (epd_pulse_tuning_t){.drive_cycles=8,.pulse_frames=4,
         .waveform_fr=5,.cleanup_every=64,.cleanup_adaptive=true};
     d->scan_async = d->pulse_power_hold = true;
-    d->scan_period_ms = 100;
+    d->scan_period_ms = 0;
     d->pulse_spi_clock_hz = c->spi_clock_hz;
     uint64_t outputs = (1ULL << c->dc_pin) | (1ULL << c->reset_pin);
     if (c->power_pin >= 0) outputs |= 1ULL << c->power_pin;
@@ -875,7 +878,7 @@ const char *epd_ssd2677_controller_mode_values(const epd_ssd2677_t *d)
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
         SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..5> "
         "cleanup-every=<1..128> cleanup-policy=<fixed,adaptive> "
-        "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<hold,cycle> "
+        "pulse-scan=<sync,async> pulse-period=<auto,67..1000> pulse-power=<hold,cycle> "
         "pulse-spi-khz=<100..20000> invert=<true,false>";
 }
 
@@ -926,6 +929,9 @@ static esp_err_t set_controller_mode(epd_ssd2677_t *d, const char *mode)
     } else if (strcmp(mode, "pulse-power=hold") == 0 || strcmp(mode, "pulse-power=cycle") == 0) {
         d->pulse_power_hold = strcmp(mode, "pulse-power=hold") == 0;
         restart = true;
+    } else if (strcmp(mode, "pulse-period=auto") == 0) {
+        if (d->scan_worker.task) TRY(epd_scan_worker_set_period(&d->scan_worker, 0));
+        d->scan_period_ms = 0;
     } else if (strncmp(mode, "pulse-period=", 13) == 0 || strncmp(mode, "pulse-spi-khz=", 14) == 0) {
         const bool spi = mode[6] == 's';
         unsigned value;

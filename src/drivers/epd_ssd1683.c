@@ -182,7 +182,7 @@ static void ssd1683_pulse_defaults(epd_ssd1683_t *display,
     display->epd.tuning = ssd1683_default_pulse_tuning(config->panel_variant);
     display->scan_async = dual || config->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 ||
         config->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER;
-    display->scan_period_ms = dual || green ? SSD1683_FASTWAVE_MIN_FRAME_PERIOD_MS : 100;
+    display->scan_period_ms = 0; /* BUSY-paced; explicit throttling remains available. */
     display->pulse_power_hold = dual;
     display->pulse_ramp_fast = dual || green;
     display->pulse_spi_clock_hz = dual || green ? 20000000 : config->spi_clock_hz;
@@ -1398,6 +1398,7 @@ static esp_err_t ssd1683_pulse_activate(epd_ssd1683_t *display)
 static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
                                          int64_t *transfer_us, int64_t *drive_us)
 {
+    const int64_t transfer_before = *transfer_us;
     const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
     if (profile == NULL) return ESP_ERR_NOT_SUPPORTED;
     if (!display->pulse_lut_loaded)
@@ -1428,6 +1429,8 @@ static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
         return ESP_ERR_TIMEOUT;
     }
     *drive_us += esp_timer_get_time() - drive_started;
+    display->epd.last_transfer_us = *transfer_us - transfer_before;
+    display->epd.last_busy_us = esp_timer_get_time() - drive_started;
     epd_pixel_budget_advance(&display->epd.budget);
     return ESP_OK;
 }
@@ -2530,19 +2533,19 @@ const char *epd_ssd1683_controller_mode_values(const epd_ssd1683_t *display)
         return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..5,9..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
-               "pulse-scan=<sync,async> pulse-period=<67..1000> "
+               "pulse-scan=<sync,async> pulse-period=<auto,67..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     if (display != NULL && display->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER)
         return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
-               "pulse-scan=<sync,async> pulse-period=<67..1000> "
+               "pulse-scan=<sync,async> pulse-period=<auto,67..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     if (ssd1683_pulse_profile(display) != NULL)
         return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
-               "pulse-scan=<sync,async> pulse-period=<10..1000> "
+               "pulse-scan=<sync,async> pulse-period=<auto,10..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     return "refresh=<auto,fast,full>";
 }
@@ -2600,6 +2603,10 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
             display->pulse_ramp_fast = true;
         } else if (strcmp(mode, "pulse-ramp=normal") == 0) {
             display->pulse_ramp_fast = false;
+        } else if (strcmp(mode, "pulse-period=auto") == 0) {
+            if (display->scan_worker.task)
+                err = epd_scan_worker_set_period(&display->scan_worker, 0);
+            if (err == ESP_OK) display->scan_period_ms = 0;
         } else if (strncmp(mode, "pulse-period=", 13) == 0 ||
                    strncmp(mode, "pulse-spi-khz=", 14) == 0) {
             const bool spi_option = mode[6] == 's';

@@ -293,6 +293,7 @@ static esp_err_t pulse_prepare(epd_ssd1685_t *d, const uint8_t *source,
 static esp_err_t pulse_cycle(void *context)
 {
     epd_ssd1685_t *d = context;
+    const int64_t transfer_started = esp_timer_get_time();
     TRY(load_fastwave(d));
     if (d->pulse_mask_dirty || d->pulse_mask_pending != d->epd.budget.pending) {
         uint8_t *hold = d->pulse_planes, *white = hold + EPD_SSD1685_BUFFER_BYTES;
@@ -315,6 +316,7 @@ static esp_err_t pulse_cycle(void *context)
         d->pulse_mask_dirty = false;
         d->pulse_mask_pending = d->epd.budget.pending;
     }
+    const int64_t drive_started = esp_timer_get_time();
     const uint8_t update = d->pulse_power_hold ? (d->analog_on ? 0x04 : 0xc4) : 0xc7;
     TRY(epd_ssd1685_command(d, 0x22, &update, 1));
     TRY(epd_ssd1685_command(d, 0x20, NULL, 0));
@@ -325,6 +327,8 @@ static esp_err_t pulse_cycle(void *context)
         delay_ms(1);
     }
     TRY(epd_ssd1685_wait_ready(d));
+    d->epd.last_transfer_us = drive_started - transfer_started;
+    d->epd.last_busy_us = esp_timer_get_time() - drive_started;
     epd_pixel_budget_advance(&d->epd.budget); /* only after BUSY completes */
     return ESP_OK;
 }
@@ -576,7 +580,7 @@ esp_err_t epd_ssd1685_init(epd_ssd1685_t *d, const epd_ssd1685_config_t *c)
         .reset_pin = c->reset_pin, .busy_pin = c->busy_pin, .power_pin = c->power_pin,
         .epd.tuning = {.drive_cycles = 3, .pulse_frames = 10, .waveform_fr = 5,
                          .cleanup_every = 64, .cleanup_adaptive = true},
-        .scan_async = true, .scan_period_ms = 100, .pulse_power_hold = true,
+        .scan_async = true, .scan_period_ms = 0, .pulse_power_hold = true,
         .pulse_spi_clock_hz = c->spi_clock_hz};
     d->lock = xSemaphoreCreateMutexStatic(&d->lock_storage);
     esp_err_t err = configure_pins(d);
@@ -684,7 +688,7 @@ const char *epd_ssd1685_controller_mode_values(const epd_ssd1685_t *d)
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
            SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..12> "
            "cleanup-every=<1..128> cleanup-policy=<adaptive,fixed> "
-           "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<cycle,hold> "
+           "pulse-scan=<sync,async> pulse-period=<auto,67..1000> pulse-power=<cycle,hold> "
            "pulse-ramp=<normal,fast> pulse-spi-khz=<100..10000> invert=<false,true>";
 }
 
@@ -776,6 +780,9 @@ static esp_err_t set_controller_mode(epd_ssd1685_t *d, const char *mode)
     } else if (strcmp(mode, "pulse-ramp=fast") == 0 || strcmp(mode, "pulse-ramp=normal") == 0) {
         d->pulse_ramp_fast = strcmp(mode, "pulse-ramp=fast") == 0;
         restart = true;
+    } else if (strcmp(mode, "pulse-period=auto") == 0) {
+        if (d->scan_worker.task) TRY(epd_scan_worker_set_period(&d->scan_worker, 0));
+        d->scan_period_ms = 0;
     } else if (strncmp(mode, "pulse-period=", 13) == 0 || strncmp(mode, "pulse-spi-khz=", 14) == 0) {
         const bool spi = mode[6] == 's';
         unsigned value;

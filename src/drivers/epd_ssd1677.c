@@ -738,6 +738,7 @@ static esp_err_t pulse_prepare(epd_ssd1677_t *d, const uint8_t *source,
 static esp_err_t pulse_cycle(void *context)
 {
     epd_ssd1677_t *d = context;
+    const int64_t transfer_started = esp_timer_get_time();
     TRY(load_fastwave(d));
     if (d->pulse_mask_dirty || d->pulse_mask_pending != d->epd.budget.pending) {
         ssd1677_window_t active = {SSD1677_PANEL_ROW_BYTES - 1U, 0, SSD1677_HEIGHT - 1U, 0};
@@ -780,6 +781,7 @@ static esp_err_t pulse_cycle(void *context)
         d->pulse_mask_pending = d->epd.budget.pending;
     }
     /* Mode 2 with the MCU LUT: omit temperature/LUT reload stages. */
+    const int64_t drive_started = esp_timer_get_time();
     const uint8_t update = d->pulse_power_hold ? (d->analog_on ? 0x0c : 0xcc) : 0xcf;
     TRY(ssd1677_cmd_data(d, 0x22, &update, 1));
     TRY(ssd1677_cmd(d, 0x20));
@@ -790,6 +792,8 @@ static esp_err_t pulse_cycle(void *context)
         delay_ms(1);
     }
     TRY(ssd1677_wait_ready(d));
+    d->epd.last_transfer_us = drive_started - transfer_started;
+    d->epd.last_busy_us = esp_timer_get_time() - drive_started;
     epd_pixel_budget_advance(&d->epd.budget);
     return ESP_OK;
 }
@@ -1116,7 +1120,7 @@ esp_err_t epd_ssd1677_init(epd_ssd1677_t *display,
         .drive_cycles = config->panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3, .pulse_frames=8,
         .waveform_fr=8, .cleanup_every=64, .cleanup_adaptive=true};
     display->scan_async = true;
-    display->scan_period_ms = 100;
+    display->scan_period_ms = 0;
     display->pulse_power_hold = true;
     display->pulse_spi_clock_hz = config->spi_clock_hz;
     display->dc_pin = config->dc_pin;
@@ -1303,7 +1307,7 @@ const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *d)
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
            SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..8> "
            "cleanup-every=<1..128> cleanup-policy=<adaptive,fixed> "
-           "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<cycle,hold> "
+           "pulse-scan=<sync,async> pulse-period=<auto,67..1000> pulse-power=<cycle,hold> "
            "pulse-spi-khz=<100..20000> invert=<false,true>";
 }
 
@@ -1392,6 +1396,9 @@ static esp_err_t set_controller_mode(epd_ssd1677_t *d, const char *mode)
     } else if (strcmp(mode, "pulse-power=hold") == 0 || strcmp(mode, "pulse-power=cycle") == 0) {
         d->pulse_power_hold = strcmp(mode, "pulse-power=hold") == 0;
         restart = true;
+    } else if (strcmp(mode, "pulse-period=auto") == 0) {
+        if (d->scan_worker.task) TRY(epd_scan_worker_set_period(&d->scan_worker, 0));
+        d->scan_period_ms = 0;
     } else if (strncmp(mode, "pulse-period=", 13) == 0 || strncmp(mode, "pulse-spi-khz=", 14) == 0) {
         const bool spi = mode[6] == 's';
         unsigned value;

@@ -96,7 +96,7 @@ esp_err_t epd_scan_worker_submit(epd_scan_worker_t *w, const uint8_t *frame)
 esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *w, unsigned ms)
 {
     if (!w->task) return ESP_ERR_INVALID_STATE;
-    if (ms < 10 || ms > 1000) return ESP_ERR_INVALID_ARG;
+    if ((ms != 0 && ms < 10) || ms > 1000) return ESP_ERR_INVALID_ARG;
     w->period_ms = ms; return ESP_OK;
 }
 epd_scan_stats_t epd_scan_worker_stats(epd_scan_worker_t *w) { return w->stats; }

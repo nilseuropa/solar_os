@@ -19,8 +19,9 @@ void solar_os_epd_append_mode(const solar_os_epd_t *s, char *text, size_t size)
     const size_t used = strlen(text);
     if (used < size)
         snprintf(text + used, size - used,
-            " black-redrives=%u white-redrives=%u changed-drive-frames=%u",
-            s->tuning.black_redrives, s->tuning.white_redrives, s->tuning.pulse_frames);
+            " black-redrives=%u white-redrives=%u changed-drive-frames=%u pulse-transfer-us=%lld pulse-busy-us=%lld",
+            s->tuning.black_redrives, s->tuning.white_redrives, s->tuning.pulse_frames,
+            (long long)s->last_transfer_us, (long long)s->last_busy_us);
 }
 
 bool solar_os_epd_cleanup_due(const solar_os_epd_t *s)

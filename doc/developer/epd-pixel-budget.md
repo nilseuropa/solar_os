@@ -57,7 +57,9 @@ frame-rate code, not a portable frequency. Profiles may impose narrower limits.
 mailbox. Submitting copies the frame without waiting for panel I/O; repeated
 queued submissions coalesce. The adapter callback performs at most one drive
 cycle and reports whether work remains. The worker continues until settling
-finishes and accepts retargeting between cycles. The requested minimum interval
+finishes and accepts retargeting between cycles. The default zero period
+schedules the latest target immediately after the adapter's physical completion
+wait returns. `pulse-period=auto` restores that behavior. An optional minimum interval
 paces distinct target snapshots; pending settling drives run as fast as the
 panel callback permits. Targets queued before their image slot coalesce while
 the preceding snapshot continues settling. Identical snapshots neither consume

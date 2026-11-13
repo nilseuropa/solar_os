@@ -727,7 +727,7 @@ CL-32 EPD starts with these settings; inspect them with the last command:
 display mode display0 cleanup-every=64
 display mode display0 cleanup-policy=adaptive
 display mode display0 drive-cycles=3
-display mode display0 pulse-period=100
+display mode display0 pulse-period=auto
 display mode display0 refresh=pulse
 display mode display0
 ```
@@ -738,8 +738,8 @@ display mode display0
 Identical frames do not refill budgets. `pulse-scan=async` is the default;
 settling pulses continue in the background, and newer targets can replace older
 ones between drives. `pulse-scan=sync` finishes the pending drives before
-returning. `pulse-period=67..1000` sets the minimum new-image interval in
-milliseconds (default 100), independently of settling pulses.
+returning. `pulse-period=auto` schedules updates after actual completion.
+An explicit `pulse-period=67..1000` limits the new-image interval in milliseconds, independently of settling pulses.
 
 In pulse mode, `cleanup-policy=fixed` schedules a full OTP cleanup every
 `cleanup-every` changed images. The default `cleanup-policy=adaptive` cleans

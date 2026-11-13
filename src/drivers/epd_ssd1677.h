@@ -84,7 +84,7 @@ typedef struct {
     uint16_t scan_period_ms;
     bool scan_async, suspended, power_state_present, pulse_power_hold;
     bool fastwave_loaded, pulse_needs_cleanup, pulse_mask_dirty, analog_on, invert;
-    char mode_description[640];
+    char mode_description[1024];
     uint8_t partial_refresh_count;
     uint8_t refresh_log_count;
     int dc_pin;

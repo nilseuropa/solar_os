@@ -73,7 +73,7 @@ typedef struct {
     bool temperature_valid, waveform_valid, waveform_partial;
     bool bus_initialized, controller_ready, shadow_valid, powered, analog_on;
     bool suspended, power_state_present;
-    char mode_description[896];
+    char mode_description[1024];
 } epd_ssd2677_t;
 
 esp_err_t epd_ssd2677_init(epd_ssd2677_t *display, const epd_ssd2677_config_t *config);

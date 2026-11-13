@@ -69,7 +69,7 @@ esp_err_t epd_scan_worker_submit(epd_scan_worker_t *w, const uint8_t *frame)
 esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *w, unsigned ms)
 {
     if (!w->task) return ESP_ERR_INVALID_STATE;
-    if (ms < 10 || ms > 1000) return ESP_ERR_INVALID_ARG;
+    if ((ms != 0 && ms < 10) || ms > 1000) return ESP_ERR_INVALID_ARG;
     w->period_ms = ms; return ESP_OK;
 }
 epd_scan_stats_t epd_scan_worker_stats(epd_scan_worker_t *w) { return w->stats; }
@@ -666,7 +666,7 @@ static void test_startup_profile(void)
                 assert(d.scan_async && d.scan_worker.enabled && d.scan_submit_ready);
                 assert(d.pulse_spi_clock_hz == 20000000);
                 assert(d.epd.tuning.pulse_frames == 8);
-                assert(d.epd.tuning.waveform_fr == 8 && d.scan_period_ms == 100);
+                assert(d.epd.tuning.waveform_fr == 8 && d.scan_period_ms == 0);
                 assert(ssd1677_refresh(&d) == ESP_OK);
                 assert(worker_tick(&d.scan_worker) == ESP_OK && d.shadow_valid);
                 assert(spi_hz == 20000000);

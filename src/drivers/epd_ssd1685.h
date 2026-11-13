@@ -57,7 +57,7 @@ typedef struct {
     bool pulse_mask_dirty;
     bool scan_async, suspended, pulse_power_hold, pulse_ramp_fast;
     bool power_state_present;
-    char mode_description[640];
+    char mode_description[1024];
 } epd_ssd1685_t;
 
 esp_err_t epd_ssd1685_init(epd_ssd1685_t *display, const epd_ssd1685_config_t *config);

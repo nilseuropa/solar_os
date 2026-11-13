@@ -61,7 +61,7 @@ esp_err_t epd_scan_worker_submit(epd_scan_worker_t *w, const uint8_t *frame)
 esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *w, unsigned ms)
 {
     if (!w->task) return ESP_ERR_INVALID_STATE;
-    if (ms < 10 || ms > 1000) return ESP_ERR_INVALID_ARG;
+    if ((ms != 0 && ms < 10) || ms > 1000) return ESP_ERR_INVALID_ARG;
     w->period_ms = ms; return ESP_OK;
 }
 epd_scan_stats_t epd_scan_worker_stats(epd_scan_worker_t *w) { return w->stats; }
@@ -317,7 +317,7 @@ static void test_pulse_sync_and_cleanup(void)
     expect(0x0c, (uint8_t[]){0x8b,0x9c,0x96,0}, 4);
     assert(last_spi_hz == 500000);
     assert(strstr(epd_ssd1685_controller_mode(&d), "cleanup-policy=adaptive"));
-    assert(strstr(epd_ssd1685_controller_mode_values(&d), "pulse-period=<67..1000>"));
+    assert(strstr(epd_ssd1685_controller_mode_values(&d), "pulse-period=<auto,67..1000>"));
     const char *invalid[] = {"pulse-period=66", "pulse-period=1001", "pulse-spi-khz=10001",
         "pulse-spi-khz=99", "drive-cycles=0", "cleanup-every=129", "cleanup-policy=bad",
         "pulse-frames=-1", "pulse-frames=", "pulse-frames=33", "waveform-fr=13"};
@@ -479,8 +479,8 @@ static void test_raster_async_snapshot(void)
     assert(d.refresh_mode == EPD_SSD1685_REFRESH_PULSE && d.scan_submit_ready);
     assert(d.scan_worker.task && d.scan_worker.enabled && d.scan_async);
     assert(d.epd.tuning.cleanup_every == 64 && d.epd.tuning.cleanup_adaptive);
-    assert(d.epd.tuning.drive_cycles == 3 && d.scan_period_ms == 100);
-    assert(d.scan_worker.period_ms == 100);
+    assert(d.epd.tuning.drive_cycles == 3 && d.scan_period_ms == 0);
+    assert(d.scan_worker.period_ms == 0);
     watched_panel_lock = d.lock;
     uint8_t bitmap[160 / 8 * 144] = {1}; /* Game Boy-sized MONO1 frame */
     uint8_t snapshot[EPD_SSD1685_BUFFER_BYTES];

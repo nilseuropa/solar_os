@@ -42,7 +42,9 @@ esp_err_t epd_scan_worker_init(epd_scan_worker_t *worker, size_t frame_size,
  */
 void epd_scan_worker_enable(epd_scan_worker_t *worker, bool enabled);
 esp_err_t epd_scan_worker_submit(epd_scan_worker_t *worker, const uint8_t *frame);
-/* Minimum interval between distinct target snapshots. Pending settling cycles
+/* Zero (the default) schedules the latest target after actual panel completion.
+ * A nonzero value limits the interval between distinct target snapshots.
+ * Pending settling cycles
  * run as fast as the panel callback permits and do not consume this interval.
  */
 esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *worker, unsigned period_ms);
