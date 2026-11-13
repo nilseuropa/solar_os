@@ -8,7 +8,7 @@
 #include "esp_err.h"
 #include "u8g2.h"
 #include "epd_relax.h"
-#include "epd_pixel_budget.h"
+#include "solar_os_epd.h"
 #include "epd_scan_worker.h"
 
 #ifdef __cplusplus
@@ -73,17 +73,15 @@ typedef struct {
     SemaphoreHandle_t lock;
     StaticSemaphore_t mode_lock_storage;
     SemaphoreHandle_t mode_lock;
-    epd_pulse_tuning_t pulse_tuning;
-    epd_pixel_budget_t pixel_budget;
+    solar_os_epd_t epd;
     epd_scan_worker_t scan_worker;
     uint8_t *pulse_planes;
     size_t pulse_mask_pending;
     uint8_t pulse_x_start, pulse_x_end;
     uint16_t pulse_y_start, pulse_y_end;
     bool pulse_window_valid;
-    uint32_t pulse_updates, scan_submit_ready, pulse_spi_clock_hz;
+    uint32_t scan_submit_ready, pulse_spi_clock_hz;
     uint16_t scan_period_ms;
-    int64_t pulse_last_frame_start;
     bool scan_async, suspended, power_state_present, pulse_power_hold;
     bool fastwave_loaded, pulse_needs_cleanup, pulse_mask_dirty, analog_on, invert;
     char mode_description[640];

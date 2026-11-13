@@ -179,7 +179,7 @@ static void ssd1683_pulse_defaults(epd_ssd1683_t *display,
 {
     const bool dual = config->panel_variant == EPD_SSD1683_PANEL_ELECROW_579_DUAL;
     const bool green = config->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER;
-    display->pulse_tuning = ssd1683_default_pulse_tuning(config->panel_variant);
+    display->epd.tuning = ssd1683_default_pulse_tuning(config->panel_variant);
     display->scan_async = dual || config->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 ||
         config->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER;
     display->scan_period_ms = dual || green ? SSD1683_FASTWAVE_MIN_FRAME_PERIOD_MS : 100;
@@ -599,7 +599,7 @@ static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
         display->pulse_mask_pending = 0;
         display->pulse_analog_on = false;
         display->pulse_last_drive_start = 0;
-        display->pulse_last_frame_start = 0;
+        display->epd.last_frame_start = 0;
         display->pulse_drive_interval = 0;
         display->pulse_needs_cleanup = false;
         display->controller_ready = true;
@@ -652,7 +652,7 @@ static esp_err_t ssd1683_controller_init(epd_ssd1683_t *display)
     display->pulse_mask_pending = 0;
     display->pulse_analog_on = false;
     display->pulse_last_drive_start = 0;
-    display->pulse_last_frame_start = 0;
+    display->epd.last_frame_start = 0;
     display->pulse_drive_interval = 0;
     display->pulse_needs_cleanup = false;
     return ESP_OK;
@@ -846,8 +846,8 @@ static esp_err_t ssd1683_dual_write_frame(epd_ssd1683_t *display, bool auxiliary
 static esp_err_t ssd1683_dual_load_pulse_lut(epd_ssd1683_t *display)
 {
     solar_os_ssd1683_waveform_params_t params = solar_os_ssd1683_waveform_defaults();
-    params.drive_tp = display->pulse_tuning.pulse_frames;
-    params.fr = display->pulse_tuning.waveform_fr;
+    params.drive_tp = display->epd.tuning.pulse_frames;
+    params.fr = display->epd.tuning.waveform_fr;
     /* Keep the tested nominal rails and scan duration. VCOM uses Fastwave's
      * legal 0x08 setting; EOPT is deliberately excluded from register loading.
      * The pulse-mask adapter maps block 2 to black and block 3 to white, so
@@ -900,7 +900,7 @@ static esp_err_t ssd1683_single_load_pulse_lut(epd_ssd1683_t *display)
 {
     /* Preserve Waveshare V2's established table and voltage setup. */
     uint8_t lut[227] = {0};
-    const uint8_t frames = display->pulse_tuning.pulse_frames;
+    const uint8_t frames = display->epd.tuning.pulse_frames;
     for (unsigned group = 0; group < 5; ++group) {
         const size_t offset = group * 42U;
         lut[offset] = 1;
@@ -910,7 +910,7 @@ static esp_err_t ssd1683_single_load_pulse_lut(epd_ssd1683_t *display)
     }
     lut[85] |= 0x40;  /* old white -> new black: VSH1 */
     lut[127] |= 0x80; /* old black -> new white: VSL */
-    lut[224] = display->pulse_tuning.waveform_fr;
+    lut[224] = display->epd.tuning.waveform_fr;
     const uint8_t end[] = {0x22}; /* Documented two-frame discharge. */
     const uint8_t border[] = {0x80};
     const uint8_t cascade[] = {0x00, 0x00};
@@ -949,25 +949,13 @@ static esp_err_t ssd1683_single_load_pulse_lut(epd_ssd1683_t *display)
     return ESP_OK;
 }
 
-static bool ssd1683_pulse_pixel_white(const epd_ssd1683_t *display,
-                                      const uint8_t *source, size_t pixel)
-{
-    const unsigned width = ssd1683_pulse_profile(display)->width;
-    const size_t x = pixel % width;
-    const size_t y = pixel / width;
-    return (source[(y / 8U) * width + x] &
-             (1U << (y % 8U))) != 0;
-}
-
 static void ssd1683_pulse_seed_budget(epd_ssd1683_t *display, const uint8_t *source)
 {
-    epd_pixel_budget_reset(&display->pixel_budget);
+    const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
+    solar_os_epd_seed(&display->epd, source, profile->width, profile->height, false);
     display->pulse_window_valid = false;
     display->pulse_mask_dirty = true;
     display->pulse_mask_pending = 0;
-    for (size_t p = 0; p < display->pixel_budget.count; ++p)
-        epd_pixel_budget_seed(&display->pixel_budget, p,
-                              ssd1683_pulse_pixel_white(display, source, p));
 }
 
 static esp_err_t ssd1683_dual_pulse_window(epd_ssd1683_t *display, unsigned chip,
@@ -995,9 +983,9 @@ static esp_err_t ssd1683_dual_write_pulse(epd_ssd1683_t *display)
     const size_t plane_size = SSD1683_DUAL_PADDED_ROW_BYTES * SSD1683_DUAL_HEIGHT;
     memset(display->pulse_planes, 0, plane_size * 2U);
     unsigned first = 99, last = 0, top = 271, bottom = 0;
-    for (size_t i = 0; i < display->pixel_budget.active_count; ++i) {
-        const size_t p = display->pixel_budget.active[i];
-        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->pixel_budget, p);
+    for (size_t i = 0; i < display->epd.budget.active_count; ++i) {
+        const size_t p = display->epd.budget.active[i];
+        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->epd.budget, p);
         if (drive == EPD_PIXEL_HOLD)
             continue;
         unsigned x = p % SSD1683_DUAL_WIDTH;
@@ -1100,9 +1088,9 @@ static esp_err_t ssd1683_single_write_pulse(epd_ssd1683_t *display)
     memset(display->pulse_planes, 0, plane_size * 2U);
     unsigned first = SSD1683_PANEL_ROW_BYTES - 1U, last = 0;
     unsigned top = SSD1683_HEIGHT - 1U, bottom = 0;
-    for (size_t i = 0; i < display->pixel_budget.active_count; ++i) {
-        const size_t p = display->pixel_budget.active[i];
-        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->pixel_budget, p);
+    for (size_t i = 0; i < display->epd.budget.active_count; ++i) {
+        const size_t p = display->epd.budget.active[i];
+        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->epd.budget, p);
         if (drive == EPD_PIXEL_HOLD) continue;
         const unsigned x = p % SSD1683_WIDTH, y = p / SSD1683_WIDTH;
         const unsigned column = x / 8U;
@@ -1182,9 +1170,9 @@ static esp_err_t ssd1683_green_write_pulse(epd_ssd1683_t *display)
 {
     const size_t plane_size = SSD1683_PANEL_ROW_BYTES * SSD1683_HEIGHT;
     memset(display->pulse_planes, 0, 2U * plane_size);
-    for (size_t i = 0; i < display->pixel_budget.active_count; ++i) {
-        const size_t p = display->pixel_budget.active[i];
-        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->pixel_budget, p);
+    for (size_t i = 0; i < display->epd.budget.active_count; ++i) {
+        const size_t p = display->epd.budget.active[i];
+        const epd_pixel_drive_t drive = epd_pixel_budget_drive(&display->epd.budget, p);
         if (drive == EPD_PIXEL_HOLD) continue;
         const unsigned x = p % SSD1683_WIDTH, y = p / SSD1683_WIDTH;
         const unsigned plane = drive == EPD_PIXEL_DRIVE_BLACK;
@@ -1204,7 +1192,7 @@ static esp_err_t ssd1683_green_load_pulse_lut(epd_ssd1683_t *display)
      * opposite to the dual-panel adapter's rail selections.
      */
     solar_os_ssd1683_waveform_params_t params = solar_os_ssd1683_waveform_defaults();
-    params.drive_tp = display->pulse_tuning.pulse_frames;
+    params.drive_tp = display->epd.tuning.pulse_frames;
     params.invert = true;
     params.volt_mask = 0;
     uint8_t waveform[SOLAR_OS_SSD1683_WAVEFORM_BYTES];
@@ -1216,7 +1204,7 @@ static esp_err_t ssd1683_green_load_pulse_lut(epd_ssd1683_t *display)
     ESP_RETURN_ON_ERROR(ssd1683_green_init(display), TAG, "green pulse initialization failed");
     display->pulse_mask_dirty = true;
     const uint8_t interval[] = {0xd7}; /* Floating border, DDX=01. */
-    const uint8_t pll[] = {(uint8_t)display->pulse_tuning.waveform_fr};
+    const uint8_t pll[] = {(uint8_t)display->epd.tuning.waveform_fr};
     const uint8_t booster[] = {
         display->pulse_ramp_fast ? 0x16 : 0x96,
         display->pulse_ramp_fast ? 0x16 : 0x96, 0x29,
@@ -1298,38 +1286,30 @@ static const ssd1683_pulse_profile_t *ssd1683_pulse_profile(const epd_ssd1683_t 
     return display != NULL && display->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 ? &single : NULL;
 }
 
-static bool ssd1683_pulse_retarget(epd_ssd1683_t *display, const uint8_t *source)
-{
-    const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
-    bool changed = false;
-    size_t index = 0;
-    for (unsigned tile = 0; tile < (profile->height + 7U) / 8U; ++tile) {
-        const unsigned rows = profile->height - tile * 8U;
-        const uint8_t visible = rows >= 8 ? 0xffU : (1U << rows) - 1U;
-        for (unsigned x = 0; x < profile->width; ++x, ++index) {
-            const uint8_t bits = (source[index] ^ display->shadow[index]) & visible;
-            if (bits == 0) continue;
-            changed = true;
-            for (unsigned bit = 0; bit < 8; ++bit) {
-                if (bits & (1U << bit))
-                    epd_pixel_budget_target(&display->pixel_budget,
-                        (tile * 8U + bit) * profile->width + x,
-                        (source[index] & (1U << bit)) != 0, display->pulse_tuning.drive_cycles);
-            }
-        }
-    }
-    memcpy(display->shadow, source, display->buffer_size);
-    if (changed) display->pulse_mask_dirty = true;
-    return changed;
-}
+
 
 static bool ssd1683_pulse_cleanup_due(const epd_ssd1683_t *display)
 {
-    const unsigned age_limit = display->pulse_tuning.cleanup_every *
-        (display->pulse_tuning.cleanup_adaptive ? 4U : 1U);
-    const unsigned drive_limit = display->pulse_tuning.cleanup_every * display->pulse_tuning.drive_cycles;
-    return display->pulse_updates >= age_limit || (display->pulse_tuning.cleanup_adaptive &&
-        display->pixel_budget.peak_drive_cycles >= drive_limit);
+    return solar_os_epd_cleanup_due(&display->epd);
+}
+
+static esp_err_t ssd1683_pulse_baseline(void *context, const uint8_t *source)
+{
+    epd_ssd1683_t *display = context;
+    const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
+    const char *reason = !display->shadow_valid || display->pulse_needs_cleanup ? "baseline" :
+        (display->epd.tuning.cleanup_adaptive && display->epd.budget.peak_drive_cycles >=
+         display->epd.tuning.cleanup_every * display->epd.tuning.drive_cycles ? "pixel-drive" : "age");
+    const int64_t started = esp_timer_get_time();
+    if (display->pulse_lut_loaded)
+        ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "pulse cleanup reset failed");
+    ESP_RETURN_ON_ERROR(profile->write_target(display, source), TAG, "pulse cleanup frame failed");
+    ESP_RETURN_ON_ERROR(ssd1683_trigger_update(display, true, false), TAG, "pulse cleanup failed");
+    display->pulse_lut_loaded = false;
+    display->partial_refresh_active = false;
+    SOLAR_OS_LOGI(TAG, "pulse baseline native total=%lldus reason=%s",
+        (long long)(esp_timer_get_time() - started), reason);
+    return ESP_OK;
 }
 
 static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
@@ -1342,12 +1322,12 @@ static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
         ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "pulse controller init failed");
     if (display->shadow == NULL)
         return ESP_ERR_NO_MEM;
-    if (display->pixel_budget.pixels == NULL) {
+    if (display->epd.budget.pixels == NULL) {
         const size_t count = profile->width * profile->height;
         uint8_t *storage = heap_caps_malloc(count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
         if (storage == NULL)
             return ESP_ERR_NO_MEM;
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_init(&display->pixel_budget,
+        ESP_RETURN_ON_ERROR(epd_pixel_budget_init(&display->epd.budget,
                                                    storage, count), TAG,
                             "pixel budget init failed");
         uint32_t *active = heap_caps_malloc(count * sizeof(*active), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -1357,66 +1337,28 @@ static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
         if (active == NULL || history == NULL || display->pulse_planes == NULL) {
             heap_caps_free(active);
             heap_caps_free(history);
-            heap_caps_free(display->pixel_budget.pixels);
-            memset(&display->pixel_budget, 0, sizeof(display->pixel_budget));
+            heap_caps_free(display->epd.budget.pixels);
+            memset(&display->epd.budget, 0, sizeof(display->epd.budget));
             heap_caps_free(display->pulse_planes);
             display->pulse_planes = NULL;
             return ESP_ERR_NO_MEM;
         }
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_active_storage(&display->pixel_budget, active, count),
+        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_active_storage(&display->epd.budget, active, count),
                             TAG, "active storage failed");
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_drive_history(&display->pixel_budget, history, count),
+        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_drive_history(&display->epd.budget, history, count),
                             TAG, "drive history failed");
         display->pulse_needs_cleanup = true;
     }
-    const unsigned drive_limit = display->pulse_tuning.cleanup_every * display->pulse_tuning.drive_cycles;
-    const bool drive_cleanup = display->pulse_tuning.cleanup_adaptive &&
-        display->pixel_budget.peak_drive_cycles >= drive_limit;
-    if (!display->shadow_valid || display->pulse_needs_cleanup || ssd1683_pulse_cleanup_due(display)) {
-        const char *reason = !display->shadow_valid || display->pulse_needs_cleanup ? "baseline" :
-            (drive_cleanup ? "pixel-drive" : "age");
-        const int64_t cleanup_started = esp_timer_get_time();
-        if (display->pulse_lut_loaded)
-            ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG,
-                                "pulse cleanup reset failed");
-        ESP_RETURN_ON_ERROR(profile->write_target(display, source), TAG,
-                            "pulse cleanup frame failed");
-        ESP_RETURN_ON_ERROR(ssd1683_trigger_update(display, true, false), TAG,
-                            "pulse cleanup failed");
-        memcpy(display->shadow, source, display->buffer_size);
-        ssd1683_pulse_seed_budget(display, source);
-        display->shadow_valid = true;
-        display->pulse_lut_loaded = false;
-        display->partial_refresh_active = false;
-        display->pulse_needs_cleanup = false;
-        display->pulse_updates = 0;
-        SOLAR_OS_LOGI(TAG, "pulse baseline native total=%lldus reason=%s",
-                 (long long)(esp_timer_get_time() - cleanup_started), reason);
-        *baseline = true;
-        return ESP_OK;
-    }
-    if (new_target && ssd1683_pulse_retarget(display, source)) {
-        /* The worker paces new snapshots. Synchronous presentations need the
-         * same image interval here; redrives never wait for an image slot.
-         */
-        if (!display->scan_async && display->pulse_last_frame_start != 0) {
-            const int64_t due = display->pulse_last_frame_start +
-                (int64_t)display->scan_period_ms * 1000;
-            int64_t remaining;
-            while ((remaining = due - esp_timer_get_time()) > 0) {
-                TickType_t ticks = pdMS_TO_TICKS((remaining + 999) / 1000);
-                vTaskDelay(ticks != 0 ? ticks : 1);
-            }
-        }
-        display->pulse_last_frame_start = esp_timer_get_time();
-        if (display->scan_async) {
-            /* Continuous retargeting can keep some pixels pending forever.
-             * Age cleanup by changed targets, independently of completion.
-             */
-            ++display->pulse_updates;
-        }
-    }
-    return ESP_OK;
+    const solar_os_epd_adapter_t adapter = {
+        .state = &display->epd, .context = display, .shadow = display->shadow,
+        .frame_bytes = display->buffer_size, .width = profile->width, .height = profile->height,
+        .shadow_valid = &display->shadow_valid, .needs_cleanup = &display->pulse_needs_cleanup,
+        .mask_dirty = &display->pulse_mask_dirty, .window_valid = &display->pulse_window_valid,
+        .require_baseline = !display->controller_ready,
+        .asynchronous = display->scan_async, .count_on_accept = display->scan_async,
+        .period_ms = display->scan_period_ms, .baseline = ssd1683_pulse_baseline,
+    };
+    return solar_os_epd_prepare(&adapter, source, new_target, baseline);
 }
 
 static esp_err_t ssd1683_pulse_power_off(epd_ssd1683_t *display)
@@ -1461,11 +1403,11 @@ static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
     if (!display->pulse_lut_loaded)
         ESP_RETURN_ON_ERROR(profile->load_waveform(display), TAG,
                             "pulse waveform setup failed");
-    if (display->pulse_mask_dirty || display->pulse_mask_pending != display->pixel_budget.pending) {
+    if (display->pulse_mask_dirty || display->pulse_mask_pending != display->epd.budget.pending) {
         const int64_t transfer_started = esp_timer_get_time();
         ESP_RETURN_ON_ERROR(profile->write_mask(display), TAG, "pulse transfer failed");
         *transfer_us += esp_timer_get_time() - transfer_started;
-        display->pulse_mask_pending = display->pixel_budget.pending;
+        display->pulse_mask_pending = display->epd.budget.pending;
         display->pulse_mask_dirty = false;
     }
     const int64_t drive_started = esp_timer_get_time();
@@ -1486,7 +1428,7 @@ static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
         return ESP_ERR_TIMEOUT;
     }
     *drive_us += esp_timer_get_time() - drive_started;
-    epd_pixel_budget_advance(&display->pixel_budget);
+    epd_pixel_budget_advance(&display->epd.budget);
     return ESP_OK;
 }
 
@@ -1496,20 +1438,20 @@ static esp_err_t ssd1683_pulse_refresh(epd_ssd1683_t *display)
     ESP_RETURN_ON_ERROR(ssd1683_pulse_prepare(display, display->buffer, true, &baseline),
                         TAG, "pulse prepare failed");
     if (baseline) return ESP_OK;
-    if (display->pixel_budget.pending == 0) return ssd1683_pulse_powerdown(display);
+    if (display->epd.budget.pending == 0) return ssd1683_pulse_powerdown(display);
     const int64_t started = esp_timer_get_time();
-    const size_t changed = display->pixel_budget.pending;
+    const size_t changed = display->epd.budget.pending;
     int64_t transfer_us = 0, drive_us = 0;
     unsigned cycles = 0;
     SOLAR_OS_LOGI(TAG, "pulse start pixels=%u cycles=%u frames=%u fr=%u",
-        (unsigned)changed, display->pulse_tuning.drive_cycles,
-        display->pulse_tuning.pulse_frames, display->pulse_tuning.waveform_fr);
-    while (display->pixel_budget.pending != 0) {
+        (unsigned)changed, display->epd.tuning.drive_cycles,
+        display->epd.tuning.pulse_frames, display->epd.tuning.waveform_fr);
+    while (display->epd.budget.pending != 0) {
         ESP_RETURN_ON_ERROR(ssd1683_pulse_cycle(display, &transfer_us, &drive_us), TAG, "pulse cycle failed");
         ++cycles;
     }
     ESP_RETURN_ON_ERROR(ssd1683_pulse_powerdown(display), TAG, "pulse idle power-down failed");
-    ++display->pulse_updates;
+    ++display->epd.updates;
     SOLAR_OS_LOGI(TAG, "pulse pixels=%u cycles=%u transfer=%lldus drive=%lldus total=%lldus",
         (unsigned)changed, cycles, (long long)transfer_us, (long long)drive_us,
         (long long)(esp_timer_get_time() - started));
@@ -1549,19 +1491,19 @@ static esp_err_t ssd1683_scan_process(void *context, const uint8_t *source,
         const int64_t started = esp_timer_get_time();
         bool baseline;
         err = ssd1683_pulse_prepare(display, source, fresh, &baseline);
-        if (err == ESP_OK && !baseline && display->pixel_budget.pending != 0) {
-            const size_t pixels = display->pixel_budget.pending;
+        if (err == ESP_OK && !baseline && display->epd.budget.pending != 0) {
+            const size_t pixels = display->epd.budget.pending;
             int64_t transfer_us = 0, drive_us = 0;
             err = ssd1683_pulse_cycle(display, &transfer_us, &drive_us);
             if (err == ESP_OK) {
                 *scanned = true;
                 SOLAR_OS_LOGI(TAG, "pulse scan pixels=%u pending=%u transfer=%lldus drive=%lldus total=%lldus interval=%lldus",
-                    (unsigned)pixels, (unsigned)display->pixel_budget.pending,
+                    (unsigned)pixels, (unsigned)display->epd.budget.pending,
                     (long long)transfer_us, (long long)drive_us,
                     (long long)(esp_timer_get_time() - started), (long long)display->pulse_drive_interval);
             }
         }
-        if (err == ESP_OK && display->pixel_budget.pending == 0)
+        if (err == ESP_OK && display->epd.budget.pending == 0)
             err = ssd1683_pulse_powerdown(display);
         if (err != ESP_OK) {
             ssd1683_pulse_failed(display, err);
@@ -1585,7 +1527,7 @@ static esp_err_t ssd1683_scan_process(void *context, const uint8_t *source,
                 SOLAR_OS_LOGE(TAG, "pulse native recovery failed err=0x%x", (unsigned)recovery);
             }
         } else {
-            *pending = display->pixel_budget.pending != 0 || ssd1683_pulse_cleanup_due(display);
+            *pending = display->epd.budget.pending != 0 || ssd1683_pulse_cleanup_due(display);
         }
     }
     display->last_error = err;
@@ -1600,11 +1542,11 @@ static esp_err_t ssd1683_restore_native(epd_ssd1683_t *display)
                             "native waveform restore failed");
         display->pulse_needs_cleanup = false;
     }
-    if (display->pixel_budget.pixels != NULL) {
-        heap_caps_free(display->pixel_budget.active);
-        heap_caps_free(display->pixel_budget.drive_history);
-        heap_caps_free(display->pixel_budget.pixels);
-        memset(&display->pixel_budget, 0, sizeof(display->pixel_budget));
+    if (display->epd.budget.pixels != NULL) {
+        heap_caps_free(display->epd.budget.active);
+        heap_caps_free(display->epd.budget.drive_history);
+        heap_caps_free(display->epd.budget.pixels);
+        memset(&display->epd.budget, 0, sizeof(display->epd.budget));
     }
     heap_caps_free(display->pulse_planes);
     display->pulse_planes = NULL;
@@ -2405,10 +2347,10 @@ esp_err_t epd_ssd1683_relax(epd_ssd1683_t *display,
             if (err == ESP_OK && display->shadow != NULL) {
                 memcpy(display->shadow, image, display->buffer_size);
                 display->shadow_valid = true;
-                if (profile && display->pixel_budget.pixels != NULL)
+                if (profile && display->epd.budget.pixels != NULL)
                     ssd1683_pulse_seed_budget(display, image);
             }
-            display->pulse_updates = 0;
+            display->epd.updates = 0;
             display->pulse_needs_cleanup = err != ESP_OK;
             heap_caps_free(display->relax_storage);
             display->relax_storage = NULL;
@@ -2492,11 +2434,11 @@ void epd_ssd1683_deinit(epd_ssd1683_t *display)
         heap_caps_free(display->shadow);
         display->shadow = NULL;
     }
-    if (display->pixel_budget.pixels != NULL) {
-        heap_caps_free(display->pixel_budget.active);
-        heap_caps_free(display->pixel_budget.drive_history);
-        heap_caps_free(display->pixel_budget.pixels);
-        memset(&display->pixel_budget, 0, sizeof(display->pixel_budget));
+    if (display->epd.budget.pixels != NULL) {
+        heap_caps_free(display->epd.budget.active);
+        heap_caps_free(display->epd.budget.drive_history);
+        heap_caps_free(display->epd.budget.pixels);
+        memset(&display->epd.budget, 0, sizeof(display->epd.budget));
     }
     heap_caps_free(display->pulse_planes);
     display->pulse_planes = NULL;
@@ -2553,19 +2495,19 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
             "scan-submitted=%u scan-coalesced=%u pending=%u",
             refresh, ssd1683_is_dual(d) ? " waveform=fastwave" :
                 (d->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER ? " waveform=fastwave-uc8276" : ""),
-            d->pulse_tuning.drive_cycles, d->pulse_tuning.pulse_frames,
-            d->pulse_tuning.waveform_fr, d->pulse_tuning.cleanup_every,
-            d->pulse_tuning.cleanup_adaptive ? "adaptive" : "fixed",
-            (unsigned)d->pixel_budget.peak_drive_cycles,
-            d->pulse_tuning.cleanup_every * d->pulse_tuning.drive_cycles,
-            (unsigned)d->pulse_updates,
+            d->epd.tuning.drive_cycles, d->epd.tuning.pulse_frames,
+            d->epd.tuning.waveform_fr, d->epd.tuning.cleanup_every,
+            d->epd.tuning.cleanup_adaptive ? "adaptive" : "fixed",
+            (unsigned)d->epd.budget.peak_drive_cycles,
+            d->epd.tuning.cleanup_every * d->epd.tuning.drive_cycles,
+            (unsigned)d->epd.updates,
             d->scan_async ? "async" : "sync", d->scan_period_ms,
             d->pulse_power_hold ? "hold" : "cycle", d->pulse_ramp_fast ? "fast" : "normal",
             (unsigned)(d->pulse_spi_clock_hz / 1000U),
             (long long)stats.last_scan_us, (long long)stats.last_interval_us,
             (unsigned)stats.scans, (unsigned)stats.frames, (long long)stats.last_frame_interval_us,
             (unsigned)stats.submitted, (unsigned)stats.coalesced,
-            (unsigned)d->pixel_budget.pending);
+            (unsigned)d->epd.budget.pending);
         if (d->lock != NULL)
             xSemaphoreGive(d->lock);
         return d->mode_description;
@@ -2637,7 +2579,7 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
                 display->pulse_needs_cleanup = true;
         }
     } else if (ssd1683_pulse_profile(display) != NULL) {
-        const epd_pulse_tuning_t previous = display->pulse_tuning;
+        const epd_pulse_tuning_t previous = display->epd.tuning;
         const bool was_async = display->scan_async;
         const bool was_hold = display->pulse_power_hold, was_fast = display->pulse_ramp_fast;
         if (strcmp(mode, "pulse-scan=async") == 0) {
@@ -2676,17 +2618,17 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
                 else display->scan_period_ms = value;
             }
         } else {
-            err = epd_pulse_tuning_set(&display->pulse_tuning, mode);
+            err = epd_pulse_tuning_set(&display->epd.tuning, mode);
             if (err == ESP_OK && ssd1683_is_dual(display) &&
-                !solar_os_ssd1683_waveform_fr_valid(display->pulse_tuning.waveform_fr)) {
-                display->pulse_tuning = previous;
+                !solar_os_ssd1683_waveform_fr_valid(display->epd.tuning.waveform_fr)) {
+                display->epd.tuning = previous;
                 err = ESP_ERR_INVALID_ARG;
             }
         }
         if (err == ESP_OK && display->refresh_mode == EPD_SSD1683_REFRESH_PULSE &&
             (was_async != display->scan_async || was_hold != display->pulse_power_hold ||
-            was_fast != display->pulse_ramp_fast || previous.pulse_frames != display->pulse_tuning.pulse_frames ||
-            previous.waveform_fr != display->pulse_tuning.waveform_fr))
+            was_fast != display->pulse_ramp_fast || previous.pulse_frames != display->epd.tuning.pulse_frames ||
+            previous.waveform_fr != display->epd.tuning.waveform_fr))
             display->pulse_needs_cleanup = true;
     } else {
         err = ESP_ERR_INVALID_ARG;

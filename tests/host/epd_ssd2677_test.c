@@ -472,9 +472,9 @@ static void test_pulse_settling_async_and_recovery(void)
     assert(epd_ssd2677_set_controller_mode(&d,"refresh=pulse") == ESP_OK);
     assert(refresh(&d) == ESP_OK && d.shadow_valid); /* native optical baseline */
     command_count = 0; d.buffer[10] ^= 1;
-    assert(refresh(&d) == ESP_OK && !d.pixel_budget.pending);
+    assert(refresh(&d) == ESP_OK && !d.epd.budget.pending);
     assert(find(0x20) && find(0x20)->size == SOLAR_OS_SSD2677_LUT_BYTES);
-    assert(d.pixel_budget.drive_history[10*8] == 3);
+    assert(d.epd.budget.drive_history[10*8] == 3);
     const captured_t *wire = find(0x10);
     assert(((wire->data[479*200+10/4] >> (6-(10%4)*2)) & 3U) == 2U);
     assert(!d.analog_on && d.fastwave_loaded);
@@ -485,16 +485,16 @@ static void test_pulse_settling_async_and_recovery(void)
     command_count = 0; d.buffer[20] ^= 1;
     assert(refresh(&d) == ESP_OK && !command_count);
     assert(refresh(&d) == ESP_OK && d.scan_worker.stats.coalesced);
-    assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
-    assert(d.pixel_budget.drive_history[20*8] == 1);
+    assert(worker_tick(&d.scan_worker) == ESP_OK && d.epd.budget.pending == 1);
+    assert(d.epd.budget.drive_history[20*8] == 1);
     command_count = 0;
-    assert(worker_tick(&d.scan_worker) == ESP_OK && d.pixel_budget.pending == 1);
+    assert(worker_tick(&d.scan_worker) == ESP_OK && d.epd.budget.pending == 1);
     assert(!find(0x10) && !find(0x20)); /* reuse unchanged drive mask and LUT */
-    assert(worker_tick(&d.scan_worker) == ESP_OK && !d.pixel_budget.pending);
-    assert(d.pixel_budget.drive_history[20*8] == 3 && !d.analog_on);
+    assert(worker_tick(&d.scan_worker) == ESP_OK && !d.epd.budget.pending);
+    assert(d.epd.budget.drive_history[20*8] == 3 && !d.analog_on);
     assert(strstr(epd_ssd2677_controller_mode(&d),"waveform=fastwave"));
     assert(epd_ssd2677_set_controller_mode(&d,"waveform-fr=6") == ESP_ERR_INVALID_ARG);
-    assert(d.pulse_tuning.waveform_fr == 5);
+    assert(d.epd.tuning.waveform_fr == 5);
     assert(epd_ssd2677_set_controller_mode(&d,"pulse-frames=33") == ESP_ERR_INVALID_ARG);
     command_count = 0;
     assert(epd_ssd2677_set_controller_mode(&d,"pulse-scan=sync") == ESP_OK);

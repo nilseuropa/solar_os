@@ -158,7 +158,7 @@ static epd_ssd1677_t make_display(void)
         .line_buffer_size = sizeof(line), .dc_pin = 9, .reset_pin = 46,
         .busy_pin = 3, .busy_level = 1, .power_pin = -1,
         .set_power = set_power,
-        .pulse_tuning = {.drive_cycles=3, .pulse_frames=8, .waveform_fr=8,
+        .epd.tuning = {.drive_cycles=3, .pulse_frames=8, .waveform_fr=8,
             .cleanup_every=64, .cleanup_adaptive=true},
         .scan_period_ms=100, .pulse_spi_clock_hz=20000000, .pulse_power_hold=true,
     };
@@ -437,18 +437,18 @@ static void test_pulse_masks_and_settling(void)
 {
     epd_ssd1677_t d;
     pulse_display(&d, false);
-    assert(!d.pixel_budget.pending && d.shadow_valid);
+    assert(!d.epd.budget.pending && d.shadow_valid);
     frame[0] &= (uint8_t)~1U;
     frame[799] &= (uint8_t)~1U;
     assert(ssd1677_refresh(&d) == ESP_OK);
-    assert(!d.pixel_budget.pending && d.pixel_budget.peak_drive_cycles == 3);
+    assert(!d.epd.budget.pending && d.epd.budget.peak_drive_cycles == 3);
     expect_data(0x22, (uint8_t[]){0x80}, 1);
     assert(find_command(0x32, 0)->length == 105);
     assert(find_command(0x32, 0)->data[54] == 0);
     assert(find_command(0x26, 0)->data[0] == 0x80);
     assert(find_command(0x26, 0)->data[99] == 0x01);
     assert(find_command(0x24, 0)->data[0] == 0);
-    assert(d.pulse_updates == 1 && !d.analog_on && spi_hz == 20000000);
+    assert(d.epd.updates == 1 && !d.analog_on && spi_hz == 20000000);
     command_count = 0;
     assert(ssd1677_refresh(&d) == ESP_OK && !command_count);
     frame[0] |= 1;
@@ -457,11 +457,11 @@ static void test_pulse_masks_and_settling(void)
     assert(find_command(0x24, 0)->data[0] == 0x80);
     assert(find_command(0x26, 0)->data[0] == 0);
     assert(find_command(0x26, 0)->data[99] == 0); /* settled black is neutral */
-    assert(d.pixel_budget.peak_drive_cycles == 6);
+    assert(d.epd.budget.peak_drive_cycles == 6);
     command_count = 0;
-    d.pulse_updates = d.pulse_tuning.cleanup_every * 4;
+    d.epd.updates = d.epd.tuning.cleanup_every * 4;
     assert(ssd1677_refresh(&d) == ESP_OK);
-    assert(d.pulse_updates == 0 && d.pixel_budget.peak_drive_cycles == 0);
+    assert(d.epd.updates == 0 && d.epd.budget.peak_drive_cycles == 0);
     assert(find_command(0x24, 0)->length == sizeof(frame));
     assert(!d.fastwave_loaded);
     dispose_pulse(&d);
@@ -474,11 +474,11 @@ static void test_async_retarget_failure_and_power(void)
     frame[0] &= (uint8_t)~1U;
     assert(ssd1677_refresh(&d) == ESP_OK && !command_count);
     assert(worker_tick(&d.scan_worker) == ESP_OK && worker_pending);
-    assert(d.pixel_budget.pending == 1 && d.pixel_budget.peak_drive_cycles == 1);
+    assert(d.epd.budget.pending == 1 && d.epd.budget.peak_drive_cycles == 1);
     command_count = 0;
     assert(ssd1677_refresh(&d) == ESP_OK); /* identical input must not refill */
     assert(worker_tick(&d.scan_worker) == ESP_OK && worker_pending);
-    assert(d.pulse_updates == 1);
+    assert(d.epd.updates == 1);
     command_count = 0;
     frame[0] |= 1;
     assert(ssd1677_refresh(&d) == ESP_OK);
@@ -498,9 +498,9 @@ static void test_async_retarget_failure_and_power(void)
     missing_busy = false;
     assert(d.refresh_mode == EPD_SSD1677_REFRESH_AUTO && !d.scan_worker.enabled);
     assert(d.shadow_valid && shadow[0] == frame[0]); /* native recovery */
-    assert(d.pixel_budget.pending == 1); /* failed waveform consumed no budget */
+    assert(d.epd.budget.pending == 1); /* failed waveform consumed no budget */
     assert(epd_ssd1677_set_controller_mode(&d, "waveform=otp") == ESP_OK);
-    assert(!d.pixel_budget.pixels && !d.scan_worker.task);
+    assert(!d.epd.budget.pixels && !d.scan_worker.task);
     dispose_pulse(&d);
 }
 
@@ -510,25 +510,25 @@ static void test_mode_limits_and_rollback(void)
     d.scan_async = true;
     worker_init_fail = true;
     assert(epd_ssd1677_set_controller_mode(&d, "refresh=pulse") == ESP_ERR_NO_MEM);
-    assert(d.refresh_mode == EPD_SSD1677_REFRESH_AUTO && !d.pixel_budget.pixels);
+    assert(d.refresh_mode == EPD_SSD1677_REFRESH_AUTO && !d.epd.budget.pixels);
     worker_init_fail = false;
     const char *invalid[] = {"waveform-fr=9", "waveform-fr=0", "pulse-period=66",
         "pulse-spi-khz=20001", "pulse-frames=33", "pulse-period=100ms"};
     for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); ++i)
         assert(epd_ssd1677_set_controller_mode(&d, invalid[i]) == ESP_ERR_INVALID_ARG);
-    assert(d.pulse_tuning.waveform_fr == 8 && d.scan_period_ms == 100);
+    assert(d.epd.tuning.waveform_fr == 8 && d.scan_period_ms == 100);
     assert(epd_ssd1677_set_controller_mode(&d, "refresh=fast") == ESP_OK);
     assert(d.refresh_mode == EPD_SSD1677_REFRESH_PARTIAL);
     assert(epd_ssd1677_set_controller_mode(&d, "refresh=pulse") == ESP_OK);
     assert(strstr(epd_ssd1677_controller_mode(&d), "waveform=fastwave"));
     assert(epd_ssd1677_set_controller_mode(&d, "waveform=otp") == ESP_OK);
-    assert(!d.pixel_budget.pixels && !d.scan_worker.enabled);
+    assert(!d.epd.budget.pixels && !d.scan_worker.enabled);
     assert(!d.scan_worker.task && !d.scan_worker.latest && !d.scan_worker.snapshot);
     assert(epd_ssd1677_set_controller_mode(&d, "waveform=fastwave") == ESP_OK);
     assert(d.scan_worker.task && d.scan_worker.latest && d.scan_worker.snapshot);
     assert(epd_ssd1677_set_controller_mode(&d, "pulse-scan=sync") == ESP_OK);
     assert(!d.scan_worker.task && !d.scan_worker.latest && !d.scan_worker.snapshot);
-    assert(d.pixel_budget.pixels);
+    assert(d.epd.budget.pixels);
     assert(epd_ssd1677_set_controller_mode(&d, "pulse-scan=async") == ESP_OK);
     assert(d.scan_worker.task && d.scan_worker.latest && d.scan_worker.snapshot);
     dispose_pulse(&d);
@@ -549,7 +549,7 @@ static void test_pulse_relax_and_sleep(void)
     command_count = 0;
     assert(epd_ssd1677_relax(&d, SOLAR_OS_DISPLAY_RELAX_END) == ESP_OK);
     assert(d.refresh_mode == EPD_SSD1677_REFRESH_PULSE && d.scan_worker.enabled);
-    assert(!d.pixel_budget.pending && !d.pulse_needs_cleanup && shadow[0] == frame[0]);
+    assert(!d.epd.budget.pending && !d.pulse_needs_cleanup && shadow[0] == frame[0]);
     command_count = 0;
     assert(ssd1677_sleep(&d) == ESP_OK);
     assert(d.suspended && !d.powered && !d.scan_worker.enabled);
@@ -632,11 +632,11 @@ static void test_pulse_byte_diff_coordinates(void)
     for (size_t p = 0; p < SSD1677_WIDTH * SSD1677_HEIGHT; p++) {
         const size_t x = p % SSD1677_WIDTH, y = p / SSD1677_WIDTH;
         const bool white = (frame[y / 8U * SSD1677_WIDTH + x] & (1U << (y % 8U))) != 0;
-        assert(epd_pixel_budget_drive(&d.pixel_budget, p) ==
+        assert(epd_pixel_budget_drive(&d.epd.budget, p) ==
             (white ? EPD_PIXEL_HOLD : EPD_PIXEL_DRIVE_BLACK));
         if (!white) pending++;
     }
-    assert(d.pixel_budget.pending == pending);
+    assert(d.epd.budget.pending == pending);
     assert(memcmp(d.shadow, frame, sizeof(frame)) == 0);
     dispose_pulse(&d);
 }
@@ -660,13 +660,13 @@ static void test_startup_profile(void)
             const bool pulse = panel == EPD_SSD1677_PANEL_STICKY && !fail_worker;
             assert(d.refresh_mode == (pulse ? EPD_SSD1677_REFRESH_PULSE : EPD_SSD1677_REFRESH_AUTO));
             assert((d.scan_worker.task != NULL) == pulse);
-            assert((d.pixel_budget.pixels != NULL) == pulse);
-            assert(d.pulse_tuning.drive_cycles == (panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3));
+            assert((d.epd.budget.pixels != NULL) == pulse);
+            assert(d.epd.tuning.drive_cycles == (panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3));
             if (pulse) {
                 assert(d.scan_async && d.scan_worker.enabled && d.scan_submit_ready);
                 assert(d.pulse_spi_clock_hz == 20000000);
-                assert(d.pulse_tuning.pulse_frames == 8);
-                assert(d.pulse_tuning.waveform_fr == 8 && d.scan_period_ms == 100);
+                assert(d.epd.tuning.pulse_frames == 8);
+                assert(d.epd.tuning.waveform_fr == 8 && d.scan_period_ms == 100);
                 assert(ssd1677_refresh(&d) == ESP_OK);
                 assert(worker_tick(&d.scan_worker) == ESP_OK && d.shadow_valid);
                 assert(spi_hz == 20000000);

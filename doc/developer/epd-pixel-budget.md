@@ -1,5 +1,13 @@
 # EPD pixel-budget layer
 
+`src/services/solar_os_epd.c` owns the shared pulse target lifecycle: visible
+pixel comparison, budget seeding, cleanup decisions, one-drive worker steps,
+and synchronous completion. SSD1683, SSD1677, SSD2677 and SSD1685 use this
+service through panel adapters. Adapters own allocation, native baseline
+commands, mask packing, waveform execution, BUSY completion and power. Pixel
+budgets can follow physical row order or tile-byte order without changing the
+policy. Panel serialization remains outside the service.
+
 `src/drivers/epd_pixel_budget.h` provides a controller-independent monochrome
 target and remaining-cycle model. It owns no SPI bus, GPIO, display task,
 allocation, or waveform. A panel driver supplies storage, maps physical pixel

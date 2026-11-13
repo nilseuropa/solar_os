@@ -1,0 +1,120 @@
+#include "solar_os_epd.h"
+
+#include <string.h>
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+bool solar_os_epd_cleanup_due(const solar_os_epd_t *s)
+{
+    const epd_pulse_tuning_t *t = &s->tuning;
+    return s->updates >= t->cleanup_every * (t->cleanup_adaptive ? 4U : 1U) ||
+        (t->cleanup_adaptive && s->budget.peak_drive_cycles >=
+         t->cleanup_every * t->drive_cycles);
+}
+
+void solar_os_epd_seed(solar_os_epd_t *s, const uint8_t *target,
+                       unsigned width, unsigned height, bool tile_budget)
+{
+    epd_pixel_budget_reset(&s->budget);
+    for (unsigned y = 0; y < height; ++y) {
+        for (unsigned x = 0; x < width; ++x) {
+            const size_t byte = (size_t)(y / 8U) * width + x;
+            const size_t p = tile_budget ? byte * 8U + y % 8U : (size_t)y * width + x;
+            epd_pixel_budget_seed(&s->budget, p, (target[byte] & (1U << (y % 8U))) != 0);
+        }
+    }
+}
+
+bool solar_os_epd_retarget(const solar_os_epd_adapter_t *a, const uint8_t *target)
+{
+    bool changed = false;
+    for (unsigned tile = 0; tile < (a->height + 7U) / 8U; ++tile) {
+        const unsigned rows = a->height - tile * 8U;
+        const uint8_t visible = rows >= 8U ? 0xffU : (1U << rows) - 1U;
+        for (unsigned x = 0; x < a->width; ++x) {
+            const size_t byte = (size_t)tile * a->width + x;
+            const uint8_t bits = (target[byte] ^ a->shadow[byte]) & visible;
+            if (!bits) continue;
+            changed = true;
+            for (unsigned bit = 0; bit < 8U; ++bit) {
+                if (!(bits & (1U << bit))) continue;
+                const size_t p = a->tile_budget ? byte * 8U + bit :
+                    (size_t)(tile * 8U + bit) * a->width + x;
+                epd_pixel_budget_target(&a->state->budget, p,
+                    (target[byte] & (1U << bit)) != 0, a->state->tuning.drive_cycles);
+            }
+        }
+    }
+    memcpy(a->shadow, target, a->frame_bytes);
+    if (changed) *a->mask_dirty = true;
+    return changed;
+}
+
+esp_err_t solar_os_epd_prepare(const solar_os_epd_adapter_t *a,
+                              const uint8_t *target, bool fresh, bool *baseline)
+{
+    solar_os_epd_t *s = a->state;
+    *baseline = false;
+    if (a->allocate) {
+        const esp_err_t err = a->allocate(a->context);
+        if (err != ESP_OK) return err;
+    }
+    if (a->require_baseline || !*a->shadow_valid || *a->needs_cleanup ||
+        solar_os_epd_cleanup_due(s)) {
+        const esp_err_t err = a->baseline(a->context, target);
+        if (err != ESP_OK) return err;
+        memcpy(a->shadow, target, a->frame_bytes);
+        solar_os_epd_seed(s, target, a->width, a->height, a->tile_budget);
+        *a->shadow_valid = true;
+        *a->needs_cleanup = false;
+        *a->mask_dirty = true;
+        if (a->window_valid) *a->window_valid = false;
+        s->updates = 0;
+        s->last_frame_start = 0;
+        *baseline = true;
+        return ESP_OK;
+    }
+    if (fresh && solar_os_epd_retarget(a, target)) {
+        if (!a->asynchronous && s->last_frame_start) {
+            const int64_t due = s->last_frame_start + (int64_t)a->period_ms * 1000;
+            int64_t remaining;
+            while ((remaining = due - esp_timer_get_time()) > 0) {
+                TickType_t ticks = pdMS_TO_TICKS((remaining + 999) / 1000);
+                vTaskDelay(ticks ? ticks : 1);
+            }
+        }
+        s->last_frame_start = esp_timer_get_time();
+        if (a->count_on_accept) ++s->updates;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_epd_step(const solar_os_epd_adapter_t *a,
+                           const uint8_t *target, bool fresh,
+                           bool *pending, bool *scanned)
+{
+    bool baseline;
+    *pending = *scanned = false;
+    esp_err_t err = solar_os_epd_prepare(a, target, fresh, &baseline);
+    if (err == ESP_OK && !baseline && a->state->budget.pending) {
+        err = a->drive(a->context);
+        *scanned = err == ESP_OK;
+    }
+    if (err == ESP_OK && !a->state->budget.pending) err = a->idle(a->context);
+    if (err == ESP_OK)
+        *pending = a->state->budget.pending != 0 || solar_os_epd_cleanup_due(a->state);
+    return err;
+}
+
+esp_err_t solar_os_epd_flush(const solar_os_epd_adapter_t *a, const uint8_t *target)
+{
+    bool pending, scanned;
+    bool fresh = true;
+    do {
+        const esp_err_t err = solar_os_epd_step(a, target, fresh, &pending, &scanned);
+        if (err != ESP_OK) return err;
+        fresh = false;
+    } while (pending);
+    return ESP_OK;
+}

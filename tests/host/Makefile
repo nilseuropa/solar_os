@@ -204,6 +204,7 @@ TARGETS += tab5_keyboard_test
 TARGETS += i2c_buses_test
 TARGETS += inmp441_test
 TARGETS += epd_pixel_budget_test
+TARGETS += epd_service_test
 TARGETS += epd_scan_worker_test
 TARGETS += epd_ssd1683_test epd_ssd1683_waveform_test
 TARGETS += shell_table_test
@@ -239,10 +240,13 @@ epd_ssd1683_waveform_test: epd_ssd1683_waveform_test.c $(ROOT)/src/drivers/epd_s
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers epd_ssd1683_waveform_test.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c -o $@
 
 epd_ssd1683_test: epd_ssd1683_test.c $(ROOT)/src/drivers/epd_ssd1683.c $(ROOT)/src/drivers/epd_ssd1683.h $(ROOT)/src/drivers/epd_ssd1683_waveform.c $(ROOT)/src/drivers/epd_ssd1683_waveform.h $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(wildcard epd_stubs/*.h epd_stubs/driver/*.h)
-	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/drivers -I$(ROOT)/src/services epd_ssd1683_test.c $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c -Wl,--gc-sections -o $@
+	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections -Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/drivers -I$(ROOT)/src/services epd_ssd1683_test.c $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_ssd1683_waveform.c $(ROOT)/src/services/solar_os_epd.c -Wl,--gc-sections -o $@
 
 epd_pixel_budget_test: epd_pixel_budget_test.c $(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers epd_pixel_budget_test.c $(ROOT)/src/drivers/epd_pixel_budget.c -o $@
+
+epd_service_test: epd_service_test.c $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/services/solar_os_epd.h $(ROOT)/src/drivers/epd_pixel_budget.c
+	$(CC) $(CFLAGS) -Iepd_stubs -I. -I$(ROOT)/src epd_service_test.c $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/drivers/epd_pixel_budget.c -o $@
 
 epd_scan_worker_test: epd_scan_worker_test.c $(ROOT)/src/drivers/epd_scan_worker.c $(ROOT)/src/drivers/epd_scan_worker.h $(wildcard epd_scan_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Iepd_scan_stubs -I. -I$(ROOT)/src/drivers epd_scan_worker_test.c $(ROOT)/src/drivers/epd_scan_worker.c -o $@
@@ -460,7 +464,7 @@ epd_ssd2677_test: epd_ssd2677_test.c ssd2677_memory_stubs.h $(ROOT)/src/drivers/
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_ssd2677_test.c $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_ssd2677_test.c $(ROOT)/src/drivers/epd_ssd2677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c -Wl,--gc-sections -o $@
 epd_ssd2677_test: override CFLAGS += -I$(ROOT)/src
 
 epd_sticky_identify_test: epd_sticky_identify_test.c $(ROOT)/src/drivers/epd_sticky_identify.c $(ROOT)/src/drivers/epd_sticky_identify.h
@@ -517,7 +521,7 @@ epd_ssd1685_test: epd_ssd1685_test.c $(ROOT)/src/drivers/epd_ssd1685.c $(ROOT)/s
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_ssd1685_test.c $(ROOT)/src/drivers/epd_ssd1685_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_ssd1685_test.c $(ROOT)/src/drivers/epd_ssd1685_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c -Wl,--gc-sections -o $@
 
 uc8179_expansion_test: uc8179_expansion_test.c $(ROOT)/src/services/solar_os_uc8179.c \
         $(ROOT)/src/services/solar_os_uc8179_driver.c $(ROOT)/src/drivers/epd_ultrachip.h
@@ -542,7 +546,7 @@ epd_ssd1677_test: epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677.c $(ROOT)/s
 	$(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677_waveform.c $(ROOT)/src/drivers/epd_pixel_budget.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c -Wl,--gc-sections -o $@
 
 irc_protocol_test: irc_protocol_test.c $(ROOT)/src/services/solar_os_irc_protocol.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I$(ROOT)/src/services $^ -o $@
@@ -1446,6 +1450,7 @@ test: $(TARGETS)
 	./i2c_buses_test
 	./inmp441_test
 	./epd_pixel_budget_test
+	./epd_service_test
 	./epd_scan_worker_test
 	./epd_ssd1683_test
 	./epd_ssd1683_waveform_test
@@ -1882,3 +1887,7 @@ robot_integration_test: $(MOTION_ENDPOINT_HEADERS)
 controllers_test: $(MOTION_ENDPOINT_HEADERS)
 
 robot_joint_test: $(MOTION_ENDPOINT_HEADERS)
+
+# Shared EPD policy is linked once into each panel transport fixture.
+epd_ssd1683_test epd_ssd1677_test epd_ssd2677_test epd_ssd1685_test: override CFLAGS += -I$(ROOT)/src
+epd_ssd1683_test epd_ssd1677_test epd_ssd2677_test epd_ssd1685_test: $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/services/solar_os_epd.h

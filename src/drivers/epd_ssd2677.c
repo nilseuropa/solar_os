@@ -305,17 +305,18 @@ static void scan_disable(epd_ssd2677_t *d)
 static void free_budget(epd_ssd2677_t *d)
 {
     d->pulse_window_valid = false;
-    solar_os_memory_free(d->pixel_budget.active);
-    solar_os_memory_free(d->pixel_budget.drive_history);
-    solar_os_memory_free(d->pixel_budget.pixels);
+    solar_os_memory_free(d->epd.budget.active);
+    solar_os_memory_free(d->epd.budget.drive_history);
+    solar_os_memory_free(d->epd.budget.pixels);
     solar_os_memory_free(d->pulse_planes);
-    memset(&d->pixel_budget,0,sizeof(d->pixel_budget));
+    memset(&d->epd.budget,0,sizeof(d->epd.budget));
     d->pulse_planes = NULL;
 }
 
-static esp_err_t allocate_budget(epd_ssd2677_t *d)
+static esp_err_t allocate_budget(void *context)
 {
-    if (d->pixel_budget.pixels) return ESP_OK;
+    epd_ssd2677_t *d = context;
+    if (d->epd.budget.pixels) return ESP_OK;
     if (!d->shadow) return ESP_ERR_NO_MEM;
     const size_t count = SSD2677_WIDTH*SSD2677_HEIGHT;
     uint8_t *pixels = solar_os_memory_alloc(count,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"ssd2677.budget");
@@ -327,9 +328,9 @@ static esp_err_t allocate_budget(epd_ssd2677_t *d)
         solar_os_memory_free(d->pulse_planes); d->pulse_planes = NULL;
         return ESP_ERR_NO_MEM;
     }
-    TRY(epd_pixel_budget_init(&d->pixel_budget,pixels,count));
-    TRY(epd_pixel_budget_set_active_storage(&d->pixel_budget,active,count));
-    TRY(epd_pixel_budget_set_drive_history(&d->pixel_budget,history,count));
+    TRY(epd_pixel_budget_init(&d->epd.budget,pixels,count));
+    TRY(epd_pixel_budget_set_active_storage(&d->epd.budget,active,count));
+    TRY(epd_pixel_budget_set_drive_history(&d->epd.budget,history,count));
     d->pulse_needs_cleanup = true;
     return ESP_OK;
 }
@@ -338,7 +339,7 @@ static esp_err_t load_fastwave(epd_ssd2677_t *d)
 {
     if (d->fastwave_loaded) return ESP_OK;
     uint8_t lut[SOLAR_OS_SSD2677_LUT_BYTES];
-    if (!solar_os_ssd2677_waveform_build(lut,d->pulse_tuning.pulse_frames,d->invert))
+    if (!solar_os_ssd2677_waveform_build(lut,d->epd.tuning.pulse_frames,d->invert))
         return ESP_ERR_INVALID_ARG;
     /* Clear the factory waveform latch before RAM upload. Keep PSR LUT_EN=0:
      * analog rail settings continue to come from this panel's own OTP. */
@@ -347,78 +348,63 @@ static esp_err_t load_fastwave(epd_ssd2677_t *d)
     TRY(controller_init(d));
     d->shadow_valid = shadow_valid;
     TRY(command(d,0x20,lut,sizeof(lut)));
-    TRY(command(d,0x30,&d->pulse_tuning.waveform_fr,1));
+    TRY(command(d,0x30,&d->epd.tuning.waveform_fr,1));
     d->fastwave_loaded = true;
     return ESP_OK;
 }
 
-static bool pixel_white(const uint8_t *source, size_t p)
-{
-    /* Budget order follows u8g2 tile bytes. Adjacent budget/history entries
-     * then share cache lines and the hot mask loop needs no pixel division. */
-    return (source[p >> 3U] & (1U << (p & 7U))) != 0;
-}
-
 static bool cleanup_due(const epd_ssd2677_t *d)
 {
-    const epd_pulse_tuning_t *t = &d->pulse_tuning;
-    return d->pulse_updates >= t->cleanup_every * (t->cleanup_adaptive ? 4U : 1U) ||
-        (t->cleanup_adaptive && d->pixel_budget.peak_drive_cycles >= t->cleanup_every * t->drive_cycles);
+    return solar_os_epd_cleanup_due(&d->epd);
+}
+
+static esp_err_t pulse_cycle(void *context);
+
+static esp_err_t pulse_idle(void *context)
+{
+    return powerdown(context);
+}
+
+static esp_err_t pulse_baseline(void *context, const uint8_t *source)
+{
+    epd_ssd2677_t *d = context;
+    return refresh_image(d, source, true);
+}
+
+static solar_os_epd_adapter_t pulse_adapter(epd_ssd2677_t *d)
+{
+    return (solar_os_epd_adapter_t){
+        .state = &d->epd, .context = d, .shadow = d->shadow,
+        .frame_bytes = SSD2677_BUFFER_BYTES, .width = SSD2677_WIDTH, .height = SSD2677_HEIGHT,
+        .tile_budget = true,
+        .shadow_valid = &d->shadow_valid, .needs_cleanup = &d->pulse_needs_cleanup,
+        .mask_dirty = &d->pulse_mask_dirty, .window_valid = &d->pulse_window_valid,
+        .require_baseline = !d->controller_ready,
+        .asynchronous = d->scan_async, .count_on_accept = true,
+        .period_ms = d->scan_period_ms, .allocate = allocate_budget,
+        .baseline = pulse_baseline, .drive = pulse_cycle, .idle = pulse_idle,
+    };
 }
 
 static esp_err_t pulse_prepare(epd_ssd2677_t *d, const uint8_t *source,
                                 bool fresh, bool *baseline)
 {
-    *baseline = false;
-    TRY(allocate_budget(d));
-    if (!d->controller_ready || !d->shadow_valid || d->pulse_needs_cleanup || cleanup_due(d)) {
-        TRY(refresh_image(d, source, true));
-        epd_pixel_budget_reset(&d->pixel_budget);
-        for (size_t p = 0; p < d->pixel_budget.count; ++p)
-            epd_pixel_budget_seed(&d->pixel_budget, p, pixel_white(source, p));
-        d->pulse_needs_cleanup = false;
-        d->pulse_mask_dirty = true;
-        d->pulse_window_valid = false;
-        d->pulse_updates = 0;
-        d->pulse_last_frame_start = 0;
-        *baseline = true;
-        return ESP_OK;
-    }
-    if (fresh && memcmp(source, d->shadow, SSD2677_BUFFER_BYTES) != 0) {
-        if (!d->scan_async && d->pulse_last_frame_start) {
-            const int64_t due = d->pulse_last_frame_start + (int64_t)d->scan_period_ms * 1000;
-            while (esp_timer_get_time() < due) delay_ms(1);
-        }
-        d->pulse_last_frame_start = esp_timer_get_time();
-        for (size_t i = 0; i < SSD2677_BUFFER_BYTES; ++i) {
-            const uint8_t changed = source[i] ^ d->shadow[i];
-            if (!changed) continue;
-            for (unsigned bit = 0; bit < 8U; bit++) {
-                if (changed & (1U << bit)) {
-                    const size_t p = i * 8U + bit;
-                    epd_pixel_budget_target(&d->pixel_budget, p,
-                        (source[i] & (1U << bit)) != 0, d->pulse_tuning.drive_cycles);
-                }
-            }
-        }
-        memcpy(d->shadow, source, SSD2677_BUFFER_BYTES);
-        ++d->pulse_updates; /* changed targets, never physical settling scans */
-        d->pulse_mask_dirty = true;
-    }
-    return ESP_OK;
+    const solar_os_epd_adapter_t adapter = pulse_adapter(d);
+    return solar_os_epd_prepare(&adapter, source, fresh, baseline);
 }
 
-static esp_err_t pulse_cycle(epd_ssd2677_t *d)
+static esp_err_t pulse_cycle(void *context)
 {
+    epd_ssd2677_t *d = context;
     TRY(load_fastwave(d));
-    if (d->pulse_mask_dirty || d->pulse_mask_pending != d->pixel_budget.pending) {
+    if (d->pulse_mask_dirty || d->pulse_mask_pending != d->epd.budget.pending) {
         uint8_t *black = d->pulse_planes, *white = black + SSD2677_BUFFER_BYTES;
         ssd2677_window_t active = {SSD2677_WIDTH-1U,0,SSD2677_HEIGHT-1U,0};
         bool changed = false;
         memset(d->pulse_planes,0,SSD2677_BUFFER_BYTES*2U);
-        for (size_t i = 0; i < d->pixel_budget.active_count; i++) {
-            const size_t p = d->pixel_budget.active[i];
-            const epd_pixel_drive_t drive = epd_pixel_budget_drive(&d->pixel_budget,p);
+        for (size_t i = 0; i < d->epd.budget.active_count; i++) {
+            const size_t p = d->epd.budget.active[i];
+            const epd_pixel_drive_t drive = epd_pixel_budget_drive(&d->epd.budget,p);
             if (drive == EPD_PIXEL_HOLD) continue;
             (drive == EPD_PIXEL_DRIVE_BLACK ? black : white)[p >> 3U] |= 1U << (p & 7U);
         }
@@ -456,7 +442,7 @@ static esp_err_t pulse_cycle(epd_ssd2677_t *d)
         d->pulse_y_start = active.y_start; d->pulse_y_end = active.y_end;
         d->pulse_window_valid = true;
         d->pulse_mask_dirty = false;
-        d->pulse_mask_pending = d->pixel_budget.pending;
+        d->pulse_mask_pending = d->epd.budget.pending;
     }
     if (!d->analog_on) {
         d->analog_on = true;
@@ -473,7 +459,7 @@ static esp_err_t pulse_cycle(epd_ssd2677_t *d)
     TRY(wait_ready(d));
     d->last_drive_us = (uint32_t)(esp_timer_get_time()-began);
     if (!d->pulse_power_hold) TRY(powerdown(d));
-    epd_pixel_budget_advance(&d->pixel_budget);
+    epd_pixel_budget_advance(&d->epd.budget);
     return ESP_OK;
 }
 
@@ -494,13 +480,8 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
     esp_err_t err = ESP_OK;
     if (__atomic_load_n(&d->scan_submit_ready, __ATOMIC_ACQUIRE) && !d->suspended &&
         d->refresh_mode == EPD_SSD2677_REFRESH_PULSE && d->scan_async) {
-        bool baseline;
-        err = pulse_prepare(d, source, fresh, &baseline);
-        if (err == ESP_OK && !baseline && d->pixel_budget.pending) {
-            err = pulse_cycle(d);
-            *scanned = err == ESP_OK;
-        }
-        if (err == ESP_OK && !d->pixel_budget.pending) err = powerdown(d);
+        const solar_os_epd_adapter_t adapter = pulse_adapter(d);
+        err = solar_os_epd_step(&adapter, source, fresh, pending, scanned);
         if (err != ESP_OK) {
             pulse_failed(d);
             /* Recover the newest accepted image even if the app stops painting. */
@@ -509,7 +490,7 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
             xSemaphoreGive(d->scan_worker.lock);
             if (refresh_image(d, d->scan_worker.snapshot, true) != ESP_OK)
                 d->controller_ready = d->shadow_valid = false;
-        } else *pending = d->pixel_budget.pending != 0 || cleanup_due(d);
+        }
         d->last_error = err;
     }
     if (d->lock) xSemaphoreGive(d->lock);
@@ -522,7 +503,7 @@ static esp_err_t refresh_frame(epd_ssd2677_t *d)
         return refresh_image(d, d->buffer, false);
     bool baseline;
     TRY(pulse_prepare(d, d->buffer, true, &baseline));
-    if (!baseline) while (d->pixel_budget.pending) TRY(pulse_cycle(d));
+    if (!baseline) while (d->epd.budget.pending) TRY(pulse_cycle(d));
     TRY(powerdown(d));
     if (cleanup_due(d)) TRY(pulse_prepare(d, d->buffer, false, &baseline));
     return ESP_OK;
@@ -621,7 +602,7 @@ esp_err_t epd_ssd2677_init(epd_ssd2677_t *d, const epd_ssd2677_config_t *c)
     d->lock = xSemaphoreCreateMutexStatic(&d->lock_storage);
     d->mode_lock = xSemaphoreCreateMutexStatic(&d->mode_lock_storage);
     if (!d->lock || !d->mode_lock) return ESP_ERR_NO_MEM;
-    d->pulse_tuning = (epd_pulse_tuning_t){.drive_cycles=8,.pulse_frames=4,
+    d->epd.tuning = (epd_pulse_tuning_t){.drive_cycles=8,.pulse_frames=4,
         .waveform_fr=5,.cleanup_every=64,.cleanup_adaptive=true};
     d->scan_async = d->pulse_power_hold = true;
     d->scan_period_ms = 100;
@@ -872,12 +853,12 @@ const char *epd_ssd2677_controller_mode(const epd_ssd2677_t *display)
         d->refresh_mode == EPD_SSD2677_REFRESH_FAST ? "fast" :
         d->refresh_mode == EPD_SSD2677_REFRESH_PULSE ? "pulse" : "auto",
         d->refresh_mode == EPD_SSD2677_REFRESH_PULSE ? "fastwave" : "otp",
-        d->pulse_tuning.drive_cycles,d->pulse_tuning.pulse_frames,d->pulse_tuning.waveform_fr,
-        d->pulse_tuning.cleanup_every,d->pulse_tuning.cleanup_adaptive ? "adaptive" : "fixed",
-        (unsigned)d->pixel_budget.peak_drive_cycles,(unsigned)d->pulse_updates,
+        d->epd.tuning.drive_cycles,d->epd.tuning.pulse_frames,d->epd.tuning.waveform_fr,
+        d->epd.tuning.cleanup_every,d->epd.tuning.cleanup_adaptive ? "adaptive" : "fixed",
+        (unsigned)d->epd.budget.peak_drive_cycles,(unsigned)d->epd.updates,
         d->scan_async ? "async" : "sync",d->scan_period_ms,d->pulse_power_hold ? "hold" : "cycle",
         (unsigned)(d->pulse_spi_clock_hz/1000),d->invert ? "true" : "false",
-        (unsigned)d->pixel_budget.pending,(unsigned)stats.scans,(unsigned)stats.frames,
+        (unsigned)d->epd.budget.pending,(unsigned)stats.scans,(unsigned)stats.frames,
         (unsigned)stats.submitted,(unsigned)stats.coalesced,
         (long long)stats.last_scan_us,(long long)stats.last_interval_us,
         d->temperature, d->partial_refresh_count, (unsigned)(d->spi_clock_hz / 1000),
@@ -919,7 +900,7 @@ static esp_err_t set_controller_mode(epd_ssd2677_t *d, const char *mode)
         d->refresh_mode = EPD_SSD2677_REFRESH_PARTIAL;
     else if (strcmp(mode, "refresh=full") == 0) d->refresh_mode = EPD_SSD2677_REFRESH_FULL;
     else if (strcmp(mode, "refresh=pulse") == 0 || strcmp(mode, "waveform=fastwave") == 0) {
-        const bool allocated = d->pixel_budget.pixels != NULL;
+        const bool allocated = d->epd.budget.pixels != NULL;
         TRY(allocate_budget(d));
         if (d->scan_async && !d->scan_worker.task) {
             const esp_err_t err = epd_scan_worker_init(&d->scan_worker, SSD2677_BUFFER_BYTES, scan_process, d);
@@ -958,18 +939,18 @@ static esp_err_t set_controller_mode(epd_ssd2677_t *d, const char *mode)
         d->invert = strcmp(mode, "invert=true") == 0;
         restart = true;
     } else {
-        const epd_pulse_tuning_t previous = d->pulse_tuning;
-        TRY(epd_pulse_tuning_set(&d->pulse_tuning, mode));
-        if (d->pulse_tuning.waveform_fr > 5) {
-            d->pulse_tuning = previous;
+        const epd_pulse_tuning_t previous = d->epd.tuning;
+        TRY(epd_pulse_tuning_set(&d->epd.tuning, mode));
+        if (d->epd.tuning.waveform_fr > 5) {
+            d->epd.tuning = previous;
             return ESP_ERR_INVALID_ARG;
         }
-        restart = previous.pulse_frames != d->pulse_tuning.pulse_frames ||
-            previous.waveform_fr != d->pulse_tuning.waveform_fr;
+        restart = previous.pulse_frames != d->epd.tuning.pulse_frames ||
+            previous.waveform_fr != d->epd.tuning.waveform_fr;
     }
     if (restart || (before == EPD_SSD2677_REFRESH_PULSE && before != d->refresh_mode))
         d->pulse_needs_cleanup = true;
-    if (d->refresh_mode != EPD_SSD2677_REFRESH_PULSE && d->pixel_budget.pixels) {
+    if (d->refresh_mode != EPD_SSD2677_REFRESH_PULSE && d->epd.budget.pixels) {
         scan_disable(d);
         TRY(powerdown(d));
         d->controller_ready = d->shadow_valid = false;
