@@ -76,15 +76,27 @@ power = "AXP2101 battery and charger monitoring."
 sensors = "PCF85063 RTC; SHTC3 temperature/humidity sensor; QMI8658 six-axis IMU."
 expansion = "I2C and UART expansion."
 
+[devices.seeed_reterminal_e1003]
+display = "10.3-inch 1872×1404 IT8951/ED103TC2 grayscale e-paper; defaults to four gray levels and display scale 3 (624×468 logical canvas); 16 gray levels selectable."
+keyboard = "GT911 capacitive touch and confirm/up/down buttons; hold UP for BLE pairing or DOWN for Escape; no built-in keyboard."
+sound = "PWM buzzer output and PDM microphone capture."
+storage = "microSD over SPI shared with the display; internal FAT storage on 32 MB flash."
+connectivity = "Wi-Fi, BLE, and USB-to-UART console; start the console with session create shell uart0."
+power = "SY6974B charger monitoring and control; calibrated battery voltage with percentage estimated from voltage; confirm-button sleep/wake."
+sensors = "PCF8563 RTC; SHT40 temperature/humidity sensor."
+expansion = "J2: 3.3 V, GND, GPIO47, GPIO6/ADC, SCL20, and SDA19. GPIO6/47 support GPIO and PWM; onboard I2C remains shared."
+notes = "Native USB CDC and host mode are unavailable because GPIO19/20 carry onboard I2C. Format the internal storage volume after first installation if it contains no readable FAT filesystem."
+
 [devices.m5stack_papermono]
 display = "3.97-inch 480×800 SSD1677 monochrome e-paper with M5PM1 frontlight PWM."
 keyboard = "FT6336 capacitive touch and two front buttons; no built-in keyboard."
 sound = "PWM buzzer output and PDM microphone capture."
 storage = "microSD over four-bit SDMMC."
 connectivity = "Wi-Fi, BLE, SX1262 LoRa, ST25R3916 NFC-A, native USB CDC/host, and UART."
-power = "M5PM1 battery voltage, power-off, and wake; IP2315 USB charger."
+power = "M5PM1 battery voltage, frontlight control, and clean shutdown; button A sleep/wake; IP2315 USB charger."
 sensors = "RX8130CE RTC; BMI270 six-axis IMU."
-expansion = "I2C, SPI, UART, GPIO, PWM, and I2S expansion."
+expansion = "Onboard peripherals share I2C and SPI buses and M5IOE1/M5PM1 control lines. No free ESP32 GPIO slots are available with this target profile."
+notes = "NFC power starts disabled; enable it with nfc power on. Native USB host operation requires an externally powered data adapter. Charger status remains undetermined if the IP2315 has entered LED mode, until USB input power is removed."
 
 [devices.seeed_reterminal_sticky]
 display = "3.97-inch 800×480 SSD1677 monochrome e-paper with Fastwave pulse refresh."

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added the Seeed Studio reTerminal E1003 target with its 10.3-inch grayscale
+  e-paper display, touch, microSD, microphone, buzzer, battery and charger
+  monitoring, RTC, and temperature/humidity sensor.
 - Added the M5Stack Paper Mono target with its e-paper display, touch,
   frontlight, LoRa, NFC, RTC, IMU, microSD, microphone, buzzer, battery
   and charger. Button B shuts the device down cleanly on a long press.

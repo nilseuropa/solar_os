@@ -1640,6 +1640,29 @@ DIO1 GPIO5) and defaults to 868 MHz; override the `frequency` binding for
 supply and the LDO regulator (`regulator=1`). The ST25R3916 NFC reader is on I2C address `0x50` (IRQ
 GPIO6). NFC power starts off like the T-LoRa-Pager (`nfc power on`).
 
+The onboard devices have the following service names:
+
+| Peripheral | Service name | Connections |
+| --- | --- | --- |
+| E-paper display | `display0` | SPI2, CS16, DC17, BUSY18; reset/power through M5IOE1 |
+| Capacitive touch | `touch0` | FT6336G, I2C `0x38`, IRQ4; reset/power through M5IOE1 |
+| Power manager and frontlight | `pmic0` | M5PM1, I2C `0x6e`, IRQ1 |
+| GPIO controller | `gpiox0` | M5IOE1, I2C `0x4f` |
+| RTC | `rtc0` | RX8130CE, I2C `0x32` |
+| Six-axis IMU | `imu0` | BMI270, I2C `0x68` |
+| MicroSD | `storage0` | Four-bit SDMMC: CLK13, CMD12, D0–D3 on GPIO11/10/9/8; switched power |
+| Buzzer | `audio0` | PWM GPIO42 |
+| Microphone | `mic0` | PDM clock45, data46; power enabled only during capture |
+| LoRa | `radio0` | SX1262 on SPI3, CS41, BUSY21, IRQ5 |
+| NFC-A | `nfc0` | ST25R3916, I2C `0x50`, IRQ6 |
+| USB charger | `charger0` | IP2315, I2C `0x75` behind the M5IOE1 gate |
+
+`battery` reports voltage from `pmic0`; `charger status charger0` reads the
+IP2315 through its gated I2C connection. If the charger enters LED mode after
+USB input power is connected, its status stays undetermined until that input
+power is removed. This target reserves all ESP32 GPIO slots for board functions;
+the I2C and SPI buses remain shared with their onboard devices.
+
 The hardware power button is handled by the M5PM1 (click on/reset, a fast
 double-click within 250 ms off, hold for download), not by an ESP32 GPIO.
 GPIO0 is the M5PM1 BOOT_OUT strapping line. Front buttons A (GPIO2) and B
@@ -1656,12 +1679,9 @@ pull-downs, VBUS to the IP2315 charger) and never supplies 5 V; host
 operation needs an externally powered data adapter. See
 [USB host input](usb.host.md).
 
-Pin assignments were cross-checked against the official Paper Mono PinMap
-and schematic V0.6.2, M5Unified, M5GFX, and the M5PM1/M5IOE1 register
-maps. Display, front buttons, frontlight, and power control were
-exercised on a unit; LoRa, NFC, IMU, microphone, and USB host were not.
+The target defaults to the `full` flavor. Build it with:
 
-```
+```sh
 pio run -e m5stack_papermono
 ```
 
