@@ -8,6 +8,7 @@
 #include "freertos/semphr.h"
 #include "solar_os_display_surface.h"
 #include "u8g2.h"
+#include "solar_os_epd.h"
 #include "epd_scan_worker.h"
 
 #define SOLAR_OS_IT8951_WIDTH 1872U
@@ -26,6 +27,7 @@ typedef struct {
 
 typedef struct {
     spi_device_handle_t spi;
+    solar_os_epd_maintenance_t maintenance;
     solar_os_it8951_config_t config;
     u8g2_t u8g2;
     uint8_t *mono, *gray, *transfer, *mono_shadow, *gray_pending;
@@ -43,6 +45,7 @@ typedef struct {
     esp_err_t last_error;
     bool ready, powered, shadow_valid, full_refresh;
     unsigned updates;
+    uint32_t refreshes;
     unsigned last_x, last_y, last_width, last_height, last_bpp;
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
     unsigned last_upload_bytes, last_chunks, last_regions;
@@ -56,7 +59,7 @@ typedef struct {
     bool temperature_valid;
     int16_t temperature_c;
     int64_t temperature_due;
-    char mode_description[384];
+    char mode_description[512];
 } solar_os_it8951_t;
 
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *display,

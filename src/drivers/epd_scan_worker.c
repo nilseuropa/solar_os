@@ -108,7 +108,9 @@ esp_err_t epd_scan_worker_init(epd_scan_worker_t *w, size_t size,
     w->frame_size = size;
     w->process = process;
     w->context = context;
-    w->period_ms = 100;
+    /* The callback waits for physical completion. With no optional image
+     * throttle, its return is the next safe scheduling boundary. */
+    w->period_ms = 0;
     if (xTaskCreate(scan_task, "epd-pulse", 4096, w,
                     EPD_SCAN_TASK_PRIORITY, &w->task) != pdPASS) {
         epd_scan_worker_deinit(w);
@@ -153,7 +155,7 @@ esp_err_t epd_scan_worker_submit(epd_scan_worker_t *w, const uint8_t *frame)
 esp_err_t epd_scan_worker_set_period(epd_scan_worker_t *w, unsigned ms)
 {
     if (w == NULL || w->lock == NULL) return ESP_ERR_INVALID_STATE;
-    if (ms < 10 || ms > 1000) return ESP_ERR_INVALID_ARG;
+    if ((ms != 0 && ms < 10) || ms > 1000) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(w->lock, portMAX_DELAY);
     if (w->task == NULL || w->stopping) {
         xSemaphoreGive(w->lock);

@@ -53,7 +53,7 @@ static void deinit(solar_os_board_display_t *display)
 
 static const char *target_mode(const void *driver) { return solar_os_it8951_mode(driver); }
 static const char *target_modes(const void *driver)
-{ (void)driver; return "refresh=auto|full grayscale=4|16"; }
+{ (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=auto|full grayscale=4|16"; }
 static esp_err_t target_set_mode(void *driver, const char *mode) { return solar_os_it8951_set_mode(driver, mode); }
 static const char *mode(const solar_os_board_display_t *d) { return target_mode(d->driver); }
 static const char *modes(const solar_os_board_display_t *d) { return target_modes(d->driver); }

@@ -965,14 +965,15 @@ selects the matching command and waveform path automatically.
 The green-sticker revision starts in `refresh=pulse` with the Fastwave phase
 builder adapted to its UC8276 controller. `display mode display0` reports
 `waveform=fastwave-uc8276`. Its preset is
-8 drive cycles, 8 scan frames, raw PLL code 12, asynchronous scanning with a
-67 ms new-image interval, supply cycling, fast ramp, and 20000 kHz pulse SPI.
+8 drive cycles, 8 scan frames, raw PLL code 12, asynchronous scanning with
+hardware completion pacing, supply cycling, fast ramp, and 20000 kHz pulse SPI.
 Fixed cleanup runs every 8 changed targets consumed by the worker.
 It shares per-pixel drive budgets and the scan worker with the other
 pulse-capable panels. The builder drives only changing pixels, with no reset
 kick and one neutral settle frame. The adapter keeps the UC8276's own voltage,
-PLL, RAM, and power commands. `pulse-period` accepts 67–1000 ms between new
-images. Settling drives run as BUSY permits, independently of this interval.
+PLL, RAM, and power commands. `pulse-period=auto` follows hardware completion;
+an explicit interval accepts 67–1000 ms between new images. Settling drives run
+as BUSY permits, independently of this interval.
 New targets can interrupt settling between drives; identical targets retain
 their remaining budgets. The requested interval does not guarantee an achieved rate.
 Runtime tuning remains available through `display mode display0`; internal scan frequency is
@@ -1039,8 +1040,7 @@ one contiguous 792x272 graphics surface.
 The panel uses GPIO12 SCK, GPIO11 MOSI, GPIO47 reset, GPIO46 D/C, GPIO45 chip
 select, GPIO48 BUSY, and GPIO7 display-power enable. The driver follows
 Elecrow's master/slave RAM addressing and temperature-load sequence. The board
-starts in asynchronous monochrome pulse mode with a 67 ms minimum new-image
-interval, held supplies, and automatic cleanup, as described under
+starts in asynchronous monochrome pulse mode with hardware completion pacing, held supplies, and automatic cleanup, as described under
 [SolarWriter](#solarwriter). To select the native waveform, use
 `display mode display0 refresh=auto`. Auto mode
 uses one full cleanup refresh after initialization, then transfers changed
@@ -1137,7 +1137,7 @@ display mode display0 waveform-fr=4
 display mode display0 cleanup-every=64
 display mode display0 cleanup-policy=adaptive
 display mode display0 pulse-scan=async
-display mode display0 pulse-period=67
+display mode display0 pulse-period=auto
 display mode display0 pulse-power=hold
 display mode display0 pulse-ramp=fast
 display mode display0 pulse-spi-khz=20000
@@ -1196,11 +1196,11 @@ Select asynchronous operation with:
 
 ```text
 display mode display0 pulse-scan=async
-display mode display0 pulse-period=67
+display mode display0 pulse-period=auto
 ```
 
 On this dual-controller panel, `pulse-period` requests a minimum new-image
-interval of 67–1000 ms; the default is 67 ms. Settling drives continue as BUSY
+interval of 67–1000 ms when explicitly configured; the default is `auto`. Settling drives continue as BUSY
 permits without waiting for another image slot. When its slot is due, a queued
 target replaces the current target between drives, even with older pixels still
 settling. Pixels whose target is unchanged retain their remaining budgets.
@@ -1318,7 +1318,7 @@ display mode display0
 ```
 
 Initial pulse defaults are 3 drive cycles, 8 scan frames, FR code 4,
-asynchronous operation, a 100 ms requested minimum new-image interval, supply
+asynchronous operation, hardware completion pacing, supply
 cycling, normal booster ramp, the configured board SPI clock, and adaptive
 cleanup with a baseline of 64. These values are a calibration starting point;
 optical contrast, erasure, ghosting, and achieved cadence require inspection
@@ -1432,8 +1432,19 @@ The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the
 controller geometry before configuring the panel's -1.4 V VCOM. Indexed and
 RGB565 graphics retain 16 gray levels internally and use four-level output by default.
+`display mode display0 cleanup-interval=3600` selects timed routine cleanup on
+the next changed image after an hour. The default interval 0 retains the normal
+19-partial-update limit. Initialization, encoding changes, recovery and explicit
+full refresh still require native cleanup. Longer intervals need panel-specific
+optical validation; a fully unchanged image does not trigger a timed refresh.
+
 `display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
 GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
+Switching between terminal and raster presentation preserves the retained image;
+an unchanged handoff does not require a cleanup. Repeating the current mode or
+resuming an already-awake panel preserves queued frames. Mode output includes
+`refreshes`, the number of successfully completed physical refreshes; graphics
+worker `frames` also counts accepted composition notifications.
 Automatic updates upload separate changed regions, aligned to the controller's
 source-driver boundaries, then refresh their bounding rectangle once. Dense or
 highly fragmented changes use one upload rectangle. Binary images use packed
@@ -1528,7 +1539,7 @@ An SSD1677 display starts with asynchronous `refresh=pulse` / `waveform=fastwave
 The Sticky panel profile (`panel=1`) uses matching black/white data in both RAM
 planes for its factory full-refresh waveform.
 Pulse mode uses short monochrome drives with per-pixel settling budgets.
-Defaults are 100 ms between new images, five drive cycles, eight scan frames, frame-rate
+Defaults are hardware completion pacing, five drive cycles, eight scan frames, frame-rate
 code 8, retained supplies during settling, and adaptive cleanup with baseline 64.
 `refresh=fast` aliases native `refresh=partial`; `waveform=otp` restores auto.
 If pulse resources cannot be allocated at startup, native auto mode remains available.
@@ -1545,7 +1556,7 @@ SSD2677 uses its own Sticky 3D97 V2 monochrome profile at 20 MHz. Sticky's
 `panel=1` starts in asynchronous `refresh=pulse` / `waveform=fastwave`.
 The driver uploads an SSD2677-specific 535-byte RAM waveform and uses the same
 pixel-budget and scan worker as SSD1677. Defaults are `drive-cycles=8`,
-`pulse-frames=4`, `waveform-fr=5` (85 Hz), `pulse-period=100`,
+`pulse-frames=4`, `waveform-fr=5` (85 Hz), `pulse-period=auto`,
 `pulse-power=hold`, and adaptive cleanup every 64 changed targets. Static
 pixels continue settling after the application stops painting; newer frames
 replace queued targets without waiting for every preceding frame to settle.

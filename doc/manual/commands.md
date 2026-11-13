@@ -1610,7 +1610,7 @@ cleanup (default 64). `refresh=partial` bypasses periodic cleanup;
 SSD2677 Sticky V2 starts in asynchronous `refresh=pulse` / `waveform=fastwave`
 with its own 535-byte RAM waveform, shared pixel budgets, background settling,
 and adaptive native cleanup. Defaults are `drive-cycles=8`, `pulse-frames=4`,
-`waveform-fr=5`, `pulse-period=100`, `pulse-power=hold`, and
+`waveform-fr=5`, `pulse-period=auto`, `pulse-power=hold`, and
 `cleanup-every=64`. Pulse tuning follows SSD1677, except `waveform-fr` accepts
 1..5 (25, 50, 65, 75, 85 Hz). `pulse-frames` and `drive-cycles` accept 1..32.
 `pulse-scan=sync` waits for settling; `pulse-scan=async` coalesces new targets
@@ -1634,80 +1634,69 @@ manufacturer's Mode 1 OTP waveform with identical monochrome data in both RAM
 planes for full cleanup. Generic profiles retain their differential full-frame
 sequence. Pulse mode uses the controller's 105-byte LUT,
 nominal vendor voltages, and neutral masks for settled pixels. Pulse defaults
-are asynchronous, 100 ms between new images, five drive cycles on Sticky
+are asynchronous, hardware completion pacing, five drive cycles on Sticky
 (three on other profiles), eight scan
 frames, `waveform-fr=8`, retained supplies during settling, and adaptive cleanup
 with baseline 64. `waveform-fr=<1..8>` selects a nibble repeated across its
-five frame-rate bytes. It supports `pulse-period=<67..1000>`,
+five frame-rate bytes. It supports `pulse-period=<auto,67..1000>`,
 `pulse-spi-khz=<100..20000>`, `pulse-power=<cycle,hold>`, and
 `invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
 restores native auto. Pulse memory is allocated in PSRAM on demand.
 
-The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker,
-Waveshare 4.2-inch V2/revision-2.2, SSD1677, and SSD1685 GDEY029T71H profiles provide the
-`refresh=pulse` monochrome mode. `display mode <target> drive-cycles=<1..32>`
-sets the per-pixel budget, `pulse-frames=<1..32>` sets each drive phase's scan
-duration, `waveform-fr=<1..12>` selects a raw frame-rate code (the dual SSD1683
-accepts only 1–5 or 9–12; SSD1677 accepts 1–8), and
-`cleanup-every=<1..128>` sets the cleanup baseline.
-`cleanup-policy=adaptive` tracks actual successful drives per pixel.
-It cleans up when the most-driven pixel reaches `cleanup-every * drive-cycles`
-activations, or after `4 * cleanup-every` changed images, whichever comes first.
-`cleanup-policy=fixed` cleans up every `cleanup-every` changed images.
-Synchronous mode counts completed changed presentations; asynchronous mode
-counts changed targets consumed by the worker. Identical targets do not advance
-the image count. At a limit, the asynchronous worker schedules a native cleanup
-without waiting for another presentation or for all pending pixels to settle.
-Mode output includes the policy, peak/limit drive cycles, and changed-image age.
-These counters estimate accumulated activity and do not measure ghosting.
-These runtime settings apply to pulse mode, with SSD1685's `cleanup-every`
-also controlling its native auto-mode cleanup interval. They are listed by
-`display mode <target>`. `pulse-scan=sync` completes a presentation's pending
-cycles before returning. `pulse-scan=async` runs one cycle per scan in a
-persistent worker and accepts new targets while earlier pixels settle.
-`pulse-period=<10..1000>` requests the minimum new-image interval in milliseconds;
-the dual-SSD1683, Elecrow green-sticker, SSD1677, and SSD1685 profiles instead accept 67–1000 ms.
-Settling drives run as BUSY permits without consuming new-image slots. A new
-target can replace the current target between drives when its image slot is due;
-unchanged pixels keep their remaining budgets. Identical submissions do not
-consume image slots. Synchronous operation still completes all pending drives
-before returning and applies the requested interval between changed targets.
-Mode output separates `frame-count` and `frame-interval-us` for distinct target
-snapshots from `scan-count` and `scan-interval-us` for physical drives. The frame
-count includes native baseline snapshots; submitted/coalesced counts also appear.
-`pulse-power=<cycle,hold>` selects supply cycling or retention during settling,
-`pulse-ramp=<normal,fast>` selects booster duration, and
-`pulse-spi-khz=<100..20000>` overrides the SPI clock only for pulse operation.
-SSD1685 limits pulse SPI to 100–10000 kHz and also exposes `invert=<false,true>`
-for polarity testing; its custom waveform requires panel validation. See the
-[SSD1685 reference](expansion.reference.md#gdey029t71h-e-paper-ssd1685) for defaults.
-Elecrow 5.79-inch defaults are asynchronous, 67 ms new-image interval, retained supplies, fast
-booster ramp, 20000 kHz pulse SPI, 6 drive cycles, 8 scan frames, FR code 4,
-and adaptive cleanup with a baseline of 64. This profile uses the Fastwave
-waveform builder on both controllers, reported as `waveform=fastwave`, with
-no reset kick and one VSS settle frame after the configured drive phase.
-Grayscale images use the existing dithering path.
-CrowPanel 5.79-inch and SolarWriter
-start in pulse mode, with native auto as the fallback if the worker cannot start. Requested
-image cadence is not a guarantee of achieved cadence or optical settling.
-Waveshare 4.2-inch defaults are asynchronous, 100 ms new-image interval,
-supply cycling, normal ramp, the configured SPI clock, 3 drive cycles,
-8 scan frames, FR code 4, and adaptive cleanup with baseline 64. Native and
-pulse timing logs support comparison on that panel.
-The Elecrow green-sticker profile adapts the Fastwave phase builder to its
-UC8276 OLD/NEW RAM and programmable waveform registers, reported as
-`waveform=fastwave-uc8276`. It retains the controller's voltage and PLL setup,
-uploads both full RAM masks, and leaves unbudgeted pixels undriven. Its defaults
-are asynchronous, 67 ms new-image interval, supply cycling, fast ramp,
-20000 kHz pulse SPI, 8 drive cycles,
-8 scan frames, raw PLL code 12, and fixed cleanup every 8 changed images.
-The Elecrow 4.2-inch board starts this revision in pulse mode. For this profile,
-`waveform-fr` selects a raw PLL code; internal scan frequency is separate from
-image update rate.
-The mode requires physical panel calibration; other EPD
-profiles reject it until they have a matching waveform adapter. See the
-[SolarWriter display controls](boards.md#solarwriter) and
-[Waveshare 4G E-paper](boards.md#waveshare-4g-e-paper) for behavior and recovery.
+All built-in EPD profiles accept `cleanup-interval=<0..86400>` in seconds.
+Zero preserves the profile's normal cleanup policy. A nonzero value selects
+timed routine cleanup; `cleanup-interval=3600` requests an hourly interval.
+Cleanup runs on the next changed image after the deadline, so an idle image,
+duplicate presentation or padded framebuffer bits cannot cause a timed flash.
+Initialization, encoding changes, errors and explicit full refreshes still
+establish a native baseline immediately. Native partial modes keep their
+profile-specific bypass behavior. Longer intervals need optical validation on
+the actual panel. Mode output reports the interval, completed cleanup count,
+and last cleanup reason. This setting is runtime-only.
+
+Pulse-capable profiles share the following controls through
+`display mode <target> <option>`; use one option per command:
+
+| Option | Meaning |
+| --- | --- |
+| `drive-cycles=1..32` | Base successful activations per changed pixel. |
+| `pulse-frames=1..32` or `changed-drive-frames=1..32` | Waveform scan frames per activation. |
+| `black-redrives=0..31`, `white-redrives=0..31` | Extra activations after a pixel changes to that color; both default to zero. |
+| `waveform-fr=1..12` | Panel-specific frame-rate code; some profiles accept a narrower range. |
+| `cleanup-every=1..128` | Native cleanup baseline. |
+| `cleanup-policy=adaptive` | Clean at peak per-pixel exposure or four times the changed-image baseline. |
+| `cleanup-policy=fixed` | Clean every `cleanup-every` changed images. |
+| `pulse-scan=async` or `sync` | Background settling or complete settling before returning. |
+| `pulse-period=auto` | Default: take the latest target after actual hardware completion. Mode output reports period 0. |
+| `pulse-period=10..1000` | Optional minimum interval between new images. Dual SSD1683, green-sticker, SSD1677, SSD2677 and SSD1685 require at least 67 ms for an explicit limit. |
+| `pulse-power=hold` or `cycle` | Retain supplies during settling or cycle them between drives. |
+| `pulse-ramp=normal` or `fast` | Booster startup duration where supported. |
+| `pulse-spi-khz=100..20000` | Pulse-only SPI override; SSD1685 is limited to 10000 kHz. |
+
+The common policy supports dual-SSD1683 CrowPanel 5.79/SolarWriter, CrowPanel
+4.2 green-sticker UC8276, Waveshare 4.2 V2/revision 2.2, SSD1677, Sticky V2
+SSD2677, and GDEY029T71H SSD1685. Native-only panels reject pulse controls.
+The maximum drive budget is `drive-cycles` plus the target color's extra
+redrives. Identical images never refill it; a reversal replaces the remaining
+direction. Settled pixels return to HOLD. White reinforcement is disabled by
+default and additional redrives need panel-specific optical calibration.
+
+Asynchronous presentation coalesces queued images and accepts a newer target
+between physical drives. Settling runs as BUSY permits, independently of any
+explicit new-image interval. Duplicate images consume no image slots and do
+not age cleanup. Adaptive cleanup counts actual successful drives, with a
+limit of `cleanup-every * (drive-cycles + max(black-redrives, white-redrives))`;
+these counters estimate exposure, not measured ghosting. At a limit the worker
+cleans without waiting for another presentation.
+
+Mode output separates distinct `frame-count`/`frame-interval-us` from physical
+`scan-count`/`scan-interval-us`, and reports `pulse-transfer-us` and
+`pulse-busy-us` separately. Requested cadence does not guarantee optical settling.
+Panel presets, waveform constraints and native fallback behavior are described
+under [SolarWriter](boards.md#solarwriter), [CrowPanel 4.2](boards.md#elecrow-crowpanel-esp32-s3-42-inch-e-paper),
+[Waveshare 4G E-paper](boards.md#waveshare-4g-e-paper),
+[Sticky](boards.md#seeed-reterminal-sticky), and
+[SSD1685](expansion.reference.md#gdey029t71h-e-paper-ssd1685).
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
 byte-stream ports. The common radio layer preserves packet metadata such as RSSI

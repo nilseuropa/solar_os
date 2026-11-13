@@ -1950,6 +1950,13 @@ label = "driver.epd_pixel_budget"
 targets = ["esp32", "esp32s3"]
 sources = ["drivers/epd_pixel_budget.c"]
 
+[packages.service_epd]
+label = "service.epd"
+targets = ["esp32", "esp32s3"]
+depends = ["driver_epd_pixel_budget", "driver_epd_scan_worker"]
+sources = ["services/solar_os_epd.c"]
+requires = ["esp_timer"]
+
 [packages.driver_epd_scan_worker]
 label = "driver.epd_scan_worker"
 targets = ["esp32", "esp32s3"]
@@ -1960,7 +1967,7 @@ requires = ["esp_timer"]
 label = "expansion.ssd1680"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_ssd1680_expansion_driver"]
-depends = ["service_expansion", "service_spi"]
+depends = ["service_expansion", "service_spi", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1680.c",
@@ -1974,7 +1981,7 @@ capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 label = "expansion.ssd1683"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_ssd1683_expansion_driver"]
-depends = ["service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+depends = ["service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1683.c",
@@ -1989,7 +1996,7 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "expansion.it8951"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_it8951_expansion_driver"]
-depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker"]
+depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_it8951.c",
@@ -2002,7 +2009,7 @@ capabilities = ["gfx", "psram"]
 label = "expansion.ssd1677"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_ssd1677_expansion_driver"]
-depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",
@@ -2017,7 +2024,7 @@ capabilities = ["gfx"]
 label = "expansion.ssd2677"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_ssd2677_expansion_driver"]
-depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+depends = ["axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd2677.c",
@@ -3641,7 +3648,7 @@ members = ["expansion_ssd1685"]
 label = "expansion.ssd1685"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_ssd1685_expansion_driver"]
-depends = ["service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+depends = ["service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1685.c",
@@ -3676,7 +3683,7 @@ label = "driver.epd_ultrachip"
 targets = ["esp32", "esp32s3"]
 sources = ["drivers/epd_ultrachip.c"]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
-depends = ["service_spi"]
+depends = ["service_spi", "service_epd"]
 capabilities = ["gfx"]
 
 [packages.expansion_uc8179]
@@ -3721,7 +3728,7 @@ members = ["expansion_x4pro"]
 label = "expansion.x4pro"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_x4pro_expansion_driver"]
-depends = ["driver_epd_ultrachip", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"]
+depends = ["driver_epd_ultrachip", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1677.c",

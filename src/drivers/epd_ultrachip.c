@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <stdio.h>
 #include "driver/gpio.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
@@ -127,9 +128,11 @@ static esp_err_t refresh_frame(epd_ultrachip_t *d, const uint8_t *source, bool f
     const bool baseline = d->shadow && d->shadow_valid;
     if (!force_full && baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
         memcmp(d->shadow, source, EPD_ULTRACHIP_BUFFER_BYTES) == 0) return ESP_OK;
-    const bool partial = !force_full && baseline && d->refresh_mode != EPD_ULTRACHIP_REFRESH_FULL &&
-        (d->refresh_mode == EPD_ULTRACHIP_REFRESH_PARTIAL ||
-         d->partial_count + 1U < AUTO_FULL_INTERVAL);
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(
+        d->refresh_mode == EPD_ULTRACHIP_REFRESH_PARTIAL ? NULL : &d->maintenance,
+        true, baseline, force_full || d->refresh_mode == EPD_ULTRACHIP_REFRESH_FULL, false,
+        d->refresh_mode != EPD_ULTRACHIP_REFRESH_PARTIAL && d->partial_count + 1U >= AUTO_FULL_INTERVAL);
+    const bool partial = plan.action == SOLAR_OS_EPD_PARTIAL;
     TRY(write_plane(d, 0x13, source, false));
     /* Full cleanup drives every visible pixel through a transition; a partial
      * uses the last successfully displayed frame, including erased ink. */
@@ -147,6 +150,7 @@ static esp_err_t refresh_frame(epd_ultrachip_t *d, const uint8_t *source, bool f
         d->shadow_valid = true;
     }
     d->partial_count = partial ? d->partial_count + 1U : 0;
+    if (!partial) solar_os_epd_note_cleanup(&d->maintenance, plan.reason);
     return ESP_OK;
 }
 
@@ -311,21 +315,26 @@ u8g2_t *epd_ultrachip_get_u8g2(epd_ultrachip_t *d) { return d ? &d->u8g2 : NULL;
 const char *epd_ultrachip_controller_mode(const epd_ultrachip_t *d)
 {
     if (!d) return NULL;
-    if (d->refresh_mode == EPD_ULTRACHIP_REFRESH_PARTIAL) return "refresh=partial";
-    if (d->refresh_mode == EPD_ULTRACHIP_REFRESH_FULL) return "refresh=full";
-    return "refresh=auto";
+    char *text = ((epd_ultrachip_t *)d)->mode_description;
+    snprintf(text, sizeof(d->mode_description), "refresh=%s",
+        d->refresh_mode == EPD_ULTRACHIP_REFRESH_PARTIAL ? "partial" :
+        d->refresh_mode == EPD_ULTRACHIP_REFRESH_FULL ? "full" : "auto");
+    solar_os_epd_append_maintenance(&d->maintenance, text, sizeof(d->mode_description));
+    return text;
 }
 
 const char *epd_ultrachip_controller_mode_values(const epd_ultrachip_t *d)
 {
     (void)d;
-    return "refresh=<auto,partial,full>";
+    return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=<auto,partial,full>";
 }
 
 esp_err_t epd_ultrachip_set_controller_mode(epd_ultrachip_t *d, const char *mode)
 {
     if (!d || !mode) return ESP_ERR_INVALID_ARG;
     if (d->relax.storage) return ESP_ERR_INVALID_STATE;
+    if (!strncmp(mode, "cleanup-interval=", 17))
+        return solar_os_epd_set_maintenance(&d->maintenance, mode);
     if (strcmp(mode, "refresh=auto") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_AUTO;
     else if (strcmp(mode, "refresh=partial") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_PARTIAL;
     else if (strcmp(mode, "refresh=full") == 0) d->refresh_mode = EPD_ULTRACHIP_REFRESH_FULL;

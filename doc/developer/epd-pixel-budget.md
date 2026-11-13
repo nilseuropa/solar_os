@@ -1,5 +1,32 @@
 # EPD pixel-budget layer
 
+`src/services/solar_os_epd.c` owns the shared pulse target lifecycle: visible
+pixel comparison, budget seeding, cleanup decisions, one-drive worker steps,
+and synchronous completion. SSD1683, SSD1677, SSD2677 and SSD1685 use this
+service through panel adapters. Adapters own allocation, native baseline
+commands, mask packing, waveform execution, BUSY completion and power. Pixel
+budgets can follow physical row order or tile-byte order without changing the
+policy. Panel serialization remains outside the service. Pulse storage allocation
+and rollback are shared, using the adapter's allocator so memory class and
+accounting stay explicit. Failure recovery copies the latest accepted mailbox
+image and requests a native baseline. The aborted budget remains diagnostic
+until re-entering pulse mode reseeds it. A queued changed image keeps retained
+supplies available between worker steps; no queued work invokes the idle hook.
+Paper Mono rejects retained pulse supplies because its PMIC can cut power.
+
+All EPD backends share `solar_os_epd_native_plan()` and the lightweight
+`solar_os_epd_maintenance_t` lifecycle. IT8951, SSD1680 and UltraChip allocate
+no pixel budgets. The plan distinguishes unchanged content, a required baseline,
+explicit full refresh, an encoding change, and a routine cleanup deadline or
+profile count limit. Successful native full updates alone advance the cleanup
+clock. An opt-in `cleanup-interval` replaces routine count/exposure limits;
+zero retains the existing profile. A deadline is serviced on a changed image,
+never by a timer, idle callback, duplicate image or unused tile padding.
+Native explicit-partial bypasses remain profile-specific. Recovery and encoding
+changes retain mandatory cleanup. The one-hour setting and any subtle white
+maintenance waveform require physical calibration; no universal white touch-up
+or darker baseline waveform is enabled.
+
 `src/drivers/epd_pixel_budget.h` provides a controller-independent monochrome
 target and remaining-cycle model. It owns no SPI bus, GPIO, display task,
 allocation, or waveform. A panel driver supplies storage, maps physical pixel
@@ -30,6 +57,16 @@ Pixels with zero remaining cycles return HOLD. A failed waveform leaves
 optical state unknown: reset/reseed from a native cleanup before continuing.
 
 The common tuning parser handles `drive-cycles`, `pulse-frames`,
+`changed-drive-frames` (the same waveform-duration setting), `black-redrives`,
+and `white-redrives`. The last two accept 0..31 extra activations after a target
+change and default to zero. The shared service grants `drive-cycles` plus the
+target polarity's extra count once per transition. The packed budget supports
+up to 63 successful activations; unchanged targets do not refill it. Adaptive
+exposure limits include the larger extra count. Panel masks encode these drives
+using the existing synthetic transitions; enabling an unused BB LUT block alone
+would not reach settled pixels held neutral by those masks.
+
+The parser also handles
 `waveform-fr`, `cleanup-every`, and `cleanup-policy=<adaptive,fixed>`.
 Unknown keys return `ESP_ERR_NOT_FOUND`;
 invalid values leave configuration unchanged. `waveform-fr` is a profile's raw
@@ -39,7 +76,9 @@ frame-rate code, not a portable frequency. Profiles may impose narrower limits.
 mailbox. Submitting copies the frame without waiting for panel I/O; repeated
 queued submissions coalesce. The adapter callback performs at most one drive
 cycle and reports whether work remains. The worker continues until settling
-finishes and accepts retargeting between cycles. The requested minimum interval
+finishes and accepts retargeting between cycles. The default zero period
+schedules the latest target immediately after the adapter's physical completion
+wait returns. `pulse-period=auto` restores that behavior. An optional minimum interval
 paces distinct target snapshots; pending settling drives run as fast as the
 panel callback permits. Targets queued before their image slot coalesce while
 the preceding snapshot continues settling. Identical snapshots neither consume
@@ -95,9 +134,11 @@ two-frame discharge sequence. This profile starts with normal ramp and supply
 cycling and leaves native auto refresh as the boot policy. Native operation is
 restored by reset before resuming the existing partial/full path.
 
-SSD1677 and UltraChip profiles need their own validated waveform adapters
-before enabling the same controls. Matching a controller family alone does
-not establish a panel's electrical or optical compatibility.
+SSD1677, SSD2677 and SSD1685 use their own pulse waveform adapters with the
+same shared policy. Native-only SSD1680, UltraChip and IT8951 paths retain
+controller-provided waveforms; their shared cleanup policy does not add custom
+LUT or per-pixel redrive support. Matching a controller family alone does not
+establish a panel's electrical or optical compatibility.
 
 Waveform register layout follows Solomon Systech's SSD1683 Rev 1.0, sections
 6.5–6.7. Dual-controller custom-LUT programming was cross-checked against

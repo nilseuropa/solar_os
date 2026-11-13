@@ -224,7 +224,24 @@ static void test_shutdown_joins_callback(void) {
     assert(w.task == NULL && w.latest == NULL && w.snapshot == NULL);
     finish(&w, &f);
 }
+static void test_hardware_pacing(void) {
+    epd_scan_worker_t w; fixture_t f; begin(&w, &f);
+    assert(epd_scan_worker_set_period(&w, 0) == ESP_OK && w.period_ms == 0);
+    uint8_t image[4] = {2};
+    assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    sleep_ms(10);
+    assert(epd_scan_worker_stats(&w).scans == 0); /* First hardware operation is still busy. */
+    release(&f); wait_scans(&w, 4);
+    assert(f.seen[0] == 1 && f.seen[1] == 2 && f.seen[3] == 2);
+    assert(epd_scan_worker_stats(&w).frames == 2);
+    assert(epd_scan_worker_submit(&w, image) == ESP_OK);
+    sleep_ms(10);
+    assert(epd_scan_worker_stats(&w).scans == 4);
+    finish(&w, &f);
+}
+
 int main(void) {
+    test_hardware_pacing();
     test_busy_submission_and_coalescing(); test_disable_discards_inflight_budget();
     test_redrives_between_image_slots(); test_new_image_interrupts_unfinished_redrives();
     test_error_drops_queued_target();

@@ -6,6 +6,7 @@
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "u8g2.h"
+#include "solar_os_epd.h"
 #include "epd_relax.h"
 
 /* Shared transport and monochrome framebuffer for 800x480 UltraChip panels.
@@ -42,6 +43,7 @@ typedef enum {
 
 struct epd_ultrachip {
     spi_device_handle_t spi;
+    solar_os_epd_maintenance_t maintenance;
     u8g2_t u8g2;
     uint8_t *buffer, *shadow, *line_buffer;
     const epd_ultrachip_panel_t *panel;
@@ -49,6 +51,7 @@ struct epd_ultrachip {
     epd_ultrachip_refresh_mode_t refresh_mode;
     epd_relax_t relax;
     unsigned partial_count;
+    char mode_description[256];
     int dc_pin, reset_pin, busy_pin, power_pin;
     bool controller_ready, shadow_valid, powered, analog_on, pins_configured;
 };

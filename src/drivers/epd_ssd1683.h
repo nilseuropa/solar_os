@@ -6,7 +6,7 @@
 
 #include "driver/spi_master.h"
 #include "esp_err.h"
-#include "epd_pixel_budget.h"
+#include "solar_os_epd.h"
 #include "epd_scan_worker.h"
 #include "solar_os_display_maintenance.h"
 #include "freertos/FreeRTOS.h"
@@ -77,8 +77,7 @@ typedef struct {
     bool shadow_valid;
     bool partial_refresh_active;
     bool powered;
-    epd_pulse_tuning_t pulse_tuning;
-    epd_pixel_budget_t pixel_budget;
+    solar_os_epd_t epd;
     uint8_t *pulse_planes;
     bool pulse_window_valid;
     uint8_t pulse_x_start, pulse_x_end;
@@ -93,14 +92,12 @@ typedef struct {
     uint16_t scan_period_ms;
     uint32_t spi_clock_hz, pulse_spi_clock_hz, spi_applied_hz;
     int64_t pulse_last_drive_start, pulse_drive_interval;
-    int64_t pulse_last_frame_start;
     epd_scan_worker_t scan_worker;
-    uint32_t pulse_updates;
     bool pulse_lut_loaded;
     bool pulse_needs_cleanup;
     SemaphoreHandle_t lock;
     StaticSemaphore_t lock_storage;
-    char mode_description[640];
+    char mode_description[1024];
 } epd_ssd1683_t;
 
 esp_err_t epd_ssd1683_init(epd_ssd1683_t *display,

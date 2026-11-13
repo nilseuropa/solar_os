@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "u8g2.h"
+#include "solar_os_epd.h"
 #include "epd_relax.h"
 
 /* Monochrome 2.13-inch V4-style glass with full/partial waveforms in OTP. */
@@ -35,6 +36,7 @@ typedef enum {
 
 typedef struct {
     spi_device_handle_t spi;
+    solar_os_epd_maintenance_t maintenance;
     StaticSemaphore_t lock_storage;
     SemaphoreHandle_t lock;
     u8g2_t u8g2;
@@ -45,7 +47,7 @@ typedef struct {
     epd_relax_t relax;
     int dc_pin, reset_pin, busy_pin, power_pin;
     bool controller_ready, shadow_valid, powered, pins_configured, suspended;
-    char mode_description[96];
+    char mode_description[256];
 } epd_ssd1680_t;
 
 esp_err_t epd_ssd1680_init(epd_ssd1680_t *display, const epd_ssd1680_config_t *config);
