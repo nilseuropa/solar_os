@@ -31,6 +31,7 @@ static void git_output(void *user, const char *data, size_t size)
 {
     solar_os_shell_git_request_t *r = user;
     solar_os_shell_io_write_len(r->io, data, size);
+    solar_os_shell_io_flush(r->io);
 }
 
 static bool git_cancelled(void *user)

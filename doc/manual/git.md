@@ -124,6 +124,7 @@ paths that fit the mounted filesystem; FAT volumes cannot represent filenames
 that differ only in letter case or Unix executable permissions.
 
 Press `Ctrl+]` to cancel. Network operations have a 30-second inactivity timeout.
+Remote progress appears as it arrives during clone, fetch and push.
 Cancelled transfers do not advance branch references. A failed clone may leave
 its destination directory for inspection. Filesystem errors can leave
 `.solaros-backup` files beside Git metadata; preserve them until the interrupted
