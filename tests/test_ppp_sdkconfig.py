@@ -1,30 +1,51 @@
+import configparser
 from pathlib import Path
+import shlex
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REQUIRED = (
-    "CONFIG_LWIP_PPP_SUPPORT=y",
-    "CONFIG_LWIP_PPP_ENABLE_IPV4=y",
-    "CONFIG_LWIP_PPP_NOTIFY_PHASE_SUPPORT=y",
-    "CONFIG_LWIP_PPP_PAP_SUPPORT=y",
-    "CONFIG_LWIP_PPP_CHAP_SUPPORT=y",
-    "CONFIG_LWIP_PPP_SERVER_SUPPORT=y",
-    "# CONFIG_LWIP_PPP_VJ_HEADER_COMPRESSION is not set",
-    "CONFIG_LWIP_ENABLE_LCP_ECHO=y",
-    "CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF=y",
-)
+REQUIRED = {
+    "CONFIG_LWIP_PPP_SUPPORT": "y",
+    "CONFIG_LWIP_PPP_ENABLE_IPV4": "y",
+    "CONFIG_LWIP_PPP_NOTIFY_PHASE_SUPPORT": "y",
+    "CONFIG_LWIP_PPP_PAP_SUPPORT": "y",
+    "CONFIG_LWIP_PPP_CHAP_SUPPORT": "y",
+    "CONFIG_LWIP_PPP_SERVER_SUPPORT": "y",
+    "CONFIG_LWIP_PPP_VJ_HEADER_COMPRESSION": "n",
+    "CONFIG_LWIP_ENABLE_LCP_ECHO": "y",
+    "CONFIG_ESP_NETIF_SET_DNS_PER_DEFAULT_NETIF": "y",
+}
 
 
 class PppSdkconfigTest(unittest.TestCase):
-    def test_every_board_default_can_host_runtime_modem_ppp(self):
-        defaults = sorted(ROOT.glob("sdkconfig.defaults*"))
-        self.assertTrue(defaults)
-        for path in defaults:
-            contents = path.read_text(encoding="utf-8")
-            with self.subTest(defaults=path.name):
-                for setting in REQUIRED:
-                    self.assertIn(setting, contents)
+    def test_every_environment_can_host_runtime_modem_ppp(self):
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(ROOT / "platformio.ini")
+        environments = [name for name in config if name.startswith("env:")]
+        self.assertTrue(environments)
+        common_args = config.get("env", "board_build.cmake_extra_args", fallback="")
+        for environment in environments:
+            defaults = ["sdkconfig.defaults"]
+            args = config.get(environment, "board_build.cmake_extra_args",
+                              fallback=common_args)
+            for arg in shlex.split(args):
+                if arg.startswith("-DSDKCONFIG_DEFAULTS="):
+                    defaults = arg.split("=", 1)[1].split(";")
+            with self.subTest(environment=environment, defaults=defaults):
+                settings = {}
+                # Later defaults override earlier values, including explicit disables.
+                for name in defaults:
+                    contents = (ROOT / name).read_text(encoding="utf-8")
+                    for line in contents.splitlines():
+                        line = line.strip()
+                        if line.startswith("CONFIG_") and "=" in line:
+                            key, value = line.split("=", 1)
+                            settings[key] = value
+                        elif line.startswith("# CONFIG_") and line.endswith(" is not set"):
+                            settings[line[2:-len(" is not set")]] = "n"
+                for key, value in REQUIRED.items():
+                    self.assertEqual(settings.get(key), value, key)
 
     def test_sim7670_requires_generic_ppp_service(self):
         catalog = (ROOT / "packages" / "solar_os_packages.toml").read_text(

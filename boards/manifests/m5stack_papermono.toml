@@ -1,0 +1,331 @@
+schema = 1
+
+[board]
+id = "m5stack_papermono"
+name = "M5Stack Paper Mono"
+vendor = "M5Stack"
+module = "ESP32-S3R8 (16 MB flash / 8 MB OPI PSRAM)"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "m5stack_papermono"
+
+[build]
+drivers = [
+  "cdc_usb_serial_jtag",
+  "uart_esp_idf",
+  "display_ssd1677",
+  "pointer_ft6336",
+  "battery_expansion",
+  "audio_expansion",
+  "storage_expansion",
+  "i2c_esp_idf",
+  "spi_esp_idf",
+  "gpio_esp_idf",
+  "pwm_esp_idf",
+  "rtc_rx8130",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "display_brightness",
+  "cdc", "usb_host", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
+  "wifi", "ble", "gpio", "pwm", "key", "buttons", "pointer",
+  "expansion_gpio", "expansion_i2c", "expansion_spi", "expansion_uart",
+  "expansion_pwm", "expansion_i2s",
+]
+required_packages = []
+psram_bytes = 8388608
+
+[header]
+includes = ["solar_os_buttons.h", "solar_os_keys.h"]
+
+[defines]
+SOLAR_OS_BOARD_POWEROFF_PROVIDER = '"pmic0"'
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SSD1677"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "480"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "800"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "800"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "480"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R3"
+SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "270"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "20000000"
+SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_15"
+SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_LCD_CS = "GPIO_NUM_16"
+SOLAR_OS_BOARD_PIN_LCD_DC = "GPIO_NUM_17"
+SOLAR_OS_BOARD_PIN_LCD_BUSY = "GPIO_NUM_18"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_47"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_48"
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"EPD-SPI"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_15"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_14"
+SOLAR_OS_BOARD_PIN_SDMMC_CLK = "GPIO_NUM_13"
+SOLAR_OS_BOARD_PIN_SDMMC_CMD = "GPIO_NUM_12"
+SOLAR_OS_BOARD_PIN_SDMMC_D0 = "GPIO_NUM_11"
+SOLAR_OS_BOARD_PIN_SDMMC_D1 = "GPIO_NUM_10"
+SOLAR_OS_BOARD_PIN_SDMMC_D2 = "GPIO_NUM_9"
+SOLAR_OS_BOARD_PIN_SDMMC_D3 = "GPIO_NUM_8"
+SOLAR_OS_BOARD_PIN_TOUCH_INT = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_BUZZER = "GPIO_NUM_42"
+SOLAR_OS_BOARD_PIN_MIC_CLK = "GPIO_NUM_45"
+SOLAR_OS_BOARD_PIN_MIC_DATA = "GPIO_NUM_46"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_PIN_BLE_PAIR = "GPIO_NUM_2"
+SOLAR_OS_BOARD_BUTTONS = '{{.pin = GPIO_NUM_2, .name = "A", .key = SOLAR_OS_KEY_ENTER, .active_low = true, .emit_on_release = true, .pull = SOLAR_OS_BUTTON_PULL_UP, .long_press_ms = 2000}}'
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_3"
+SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_PULL_DOWN = "0"
+SOLAR_OS_BOARD_KEY_SHORT_INPUT_KEY = "SOLAR_OS_KEY_ESCAPE"
+SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_SHUTDOWN"
+SOLAR_OS_BOARD_PIN_SLEEP_WAKE = "GPIO_NUM_2"
+SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP = "1"
+SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN = "0"
+SOLAR_OS_BOARD_SLEEP_WAKE_LABEL = '"button A"'
+
+[runtime]
+uart_ports = ["UART_NUM_1"]
+i2s_ports = ["I2S_NUM_0"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 47
+scl = 48
+speed_hz = "100000"
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 15
+mosi = 14
+cs = [16]
+max_transfer_size = 4096
+
+[[buses]]
+name = "spi1"
+protocol = "spi"
+sharing = "shared"
+host = "SPI3_HOST"
+sclk = 39
+mosi = 38
+miso = 40
+cs = [41]
+max_transfer_size = 4096
+
+# M5PM1 first so LoRa_EN (PM1 GPIO2) and the frontlight PWM are ready
+# before later devices that depend on those lines.
+[[devices]]
+driver = "m5pm1"
+name = "pmic0"
+bindings = { i2c = "i2c0", addr = 0x6E, irq = 1, output = 0x04, direction = 0x04, capacity = 1150 }
+
+# M5IOE1 preload (line 0 = PYG1): TF_DET input, ANT_SW RX, EPD/TP on,
+# NFC/PDM off, charger gate closed, resets released.
+# output=0x3234 direction=0x3FBE
+[[devices]]
+driver = "m5ioe1"
+name = "gpiox0"
+bindings = { i2c = "i2c0", addr = 0x4F, output = 0x3234, direction = 0x3FBE }
+
+[[devices]]
+driver = "ssd1677"
+name = "display0"
+bindings = { spi = "spi0", cs = 16, dc = 17, reset = "gpiox0:4", busy = 18, power = "gpiox0:2", clock = 20000, rotation = 3, panel = 2 }
+
+[[devices]]
+driver = "ft6336"
+name = "touch0"
+bindings = { i2c = "i2c0", addr = 0x38, irq = 4, reset = "gpiox0:5", power = "gpiox0:12", rotation = 0 }
+
+[[devices]]
+driver = "rx8130"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x32 }
+
+[[devices]]
+driver = "bmi270"
+name = "imu0"
+bindings = { i2c = "i2c0", addr = 0x68 }
+
+[[devices]]
+driver = "sdmmc"
+name = "storage0"
+bindings = { clk = 13, cmd = 12, d0 = 11, d1 = 10, d2 = 9, d3 = 8, power = "gpiox0:13", active = 1 }
+
+[[devices]]
+driver = "audio-pwm"
+name = "audio0"
+bindings = { pwm = 42 }
+
+[[devices]]
+driver = "audio-pdm"
+name = "mic0"
+bindings = { i2s = 0, clk = 45, din = 46, power = "gpiox0:11", slot = 0 }
+
+[[devices]]
+driver = "sx1262"
+name = "radio0"
+bindings = { spi = "spi1", cs = 41, busy = 21, irq = 5, reset = "gpiox0:9", power = "pmic0:2", ant = "gpiox0:1", frequency = 868000000, regulator = 1 }
+
+[[devices]]
+driver = "st25r3916"
+name = "nfc0"
+bindings = { i2c = "i2c0", addr = 0x50, irq = 6, power = "gpiox0:3" }
+
+[[devices]]
+driver = "ip2315"
+name = "charger0"
+bindings = { i2c = "i2c0", addr = 0x75, gate = "gpiox0:10" }
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "M5PM1 BOOT_OUT / strapping"
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "M5PM1 IRQ"
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "button A"
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "button B / system key"
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "touch INT"
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "SX1262 DIO1"
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "ST25R3916 IRQ"
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "M5IOE1 IRQ (unused)"
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "SDMMC D3"
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "SDMMC D2"
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "SDMMC D1"
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "SDMMC D0"
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "SDMMC CMD"
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "SDMMC CLK"
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "EPD MOSI"
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "EPD SCK"
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "EPD CS"
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "EPD DC"
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "EPD BUSY"
+[[pins]]
+gpio = 19
+policy = "fixed"
+role = "USB D-/CDC or host"
+[[pins]]
+gpio = 20
+policy = "fixed"
+role = "USB D+/CDC or host"
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "SX1262 BUSY"
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "SX1262 MOSI"
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "SX1262 SCLK"
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "SX1262 MISO"
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "SX1262 NSS"
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "buzzer PWM"
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "UART0 TX"
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "UART0 RX"
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "PDM CLK"
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "PDM DAT"
+[[pins]]
+gpio = 47
+policy = "fixed"
+role = "SYS I2C SDA"
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "SYS I2C SCL"

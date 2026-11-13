@@ -19,6 +19,22 @@ esp_err_t sd_card_init(void) { mounted++; return mount_error; }
 esp_err_t solar_os_storage_mount(void) { mounted++; return mount_error; }
 esp_err_t sd_card_unmount(void) { return ESP_OK; }
 bool sd_card_has_mounts(void) { return has_mounts; }
+static int line_configured, line_level = -1;
+esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
+                                       solar_os_gpio_line_mode_t mode,
+                                       solar_os_gpio_line_pull_t pull)
+{
+    assert(strcmp(line->controller, "gpiox0") == 0 && line->line == 4);
+    assert(mode == SOLAR_OS_GPIO_LINE_MODE_OUTPUT && pull == SOLAR_OS_GPIO_LINE_PULL_NONE);
+    line_configured++;
+    return ESP_OK;
+}
+esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level)
+{
+    assert(strcmp(line->controller, "gpiox0") == 0 && line->line == 4);
+    line_level = level;
+    return ESP_OK;
+}
 
 int main(void)
 {
@@ -47,5 +63,17 @@ int main(void)
     assert(solar_os_sdmmc_detach("storage0")==ESP_OK);
     b[3]=b[4];
     assert(solar_os_sdmmc_attach("storage0",b,4)==ESP_ERR_INVALID_ARG);
+    solar_os_expansion_binding_t lb[] = {
+        {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="clk", .value=41},
+        {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="cmd", .value=42},
+        {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="d0", .value=40},
+        {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role="power", .target="gpiox0", .value=4},
+        {.kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="active", .value=1},
+    };
+    const int direct_power = power_configured;
+    built_in = true;
+    assert(solar_os_sdmmc_attach("storage0",lb,5)==ESP_OK);
+    assert(line_configured==1 && line_level==1 && power_configured==direct_power);
+    assert(solar_os_sdmmc_detach("storage0")==ESP_OK && line_level==0);
     puts("SDMMC power-binding and rollback tests passed");
 }

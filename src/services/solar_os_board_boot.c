@@ -3,6 +3,11 @@
 #include "solar_os_config.h"
 #include "solar_os_jobs.h"
 
+#ifdef SOLAR_OS_BOARD_DEFAULT_PORT_SHELL
+#include "esp_log.h"
+#include "solar_os_port_shell.h"
+#endif
+
 #if defined(SOLAR_OS_BOARD_BOOT_OUTPUTS) || defined(SOLAR_OS_BOARD_POWER_LATCH_PINS)
 #include "driver/gpio.h"
 #endif
@@ -60,6 +65,14 @@ esp_err_t solar_os_board_boot_init(void)
 esp_err_t solar_os_board_boot_start_jobs(solar_os_context_t *ctx)
 {
     (void)ctx;
+#ifdef SOLAR_OS_BOARD_DEFAULT_PORT_SHELL
+    uint8_t session_id = 0;
+    const esp_err_t shell_err = solar_os_port_shell_start(
+        ctx, SOLAR_OS_BOARD_DEFAULT_PORT_SHELL, false, &session_id);
+    if (shell_err != ESP_OK) return shell_err;
+    ESP_LOGI("board_boot", "Console shell session %u started on %s",
+             (unsigned)session_id, SOLAR_OS_BOARD_DEFAULT_PORT_SHELL);
+#endif
 #if SOLAR_OS_PACKAGE_JOB_POINTER_ARROWS && defined(SOLAR_OS_BOARD_POINTER_ARROWS_SOURCE)
     char job[] = "pointer-arrows";
     char source[] = "source=" SOLAR_OS_BOARD_POINTER_ARROWS_SOURCE;

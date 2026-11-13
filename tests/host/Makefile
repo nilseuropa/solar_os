@@ -5,7 +5,7 @@ ROOT := ../..
 override CFLAGS += -idirafter $(ROOT)/include
 WRITER_DIR := $(ROOT)/src/apps
 GAMEBOY_DIR := $(ROOT)/modules/gameboy/main
-TARGETS := writer_buffer_test writer_files_test file_shortcuts_test sketch_canvas_test launcher_layout_test display_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test shell_startup_policy_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test native_elf_test keys_test input_test unistroke_test graffiti_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test inputronic_keyboard_test matrix_keyboard_test input_keymap_service_test cl32_keyboard_test battery_service_test battery_trend_test charger_service_test sensors_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test gpio_controller_test expansion_registry_test expansion_command_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test meshcore_ble_protocol_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test ubx_test gnss_service_test modem_service_test haptic_service_test imu_service_test bhi260ap_codec_test qmi8658_test drv2605_test bq25896_test axp2101_test max17048_test mgc3130_test sim7670_test xl9555_test st25r3916_test nfc_service_test
+TARGETS := writer_buffer_test writer_files_test file_shortcuts_test sketch_canvas_test launcher_layout_test display_layout_test gfx_icons_test text_search_test doc_layout_test shell_parse_test shell_launch_test shell_line_test shell_completion_test shell_diag_test shell_startup_policy_test scheduler_test schedule_test script_lifecycle_test app_file_types_test gameboy_support_test storage_mounts_test json_scan_test native_elf_test keys_test input_test unistroke_test graffiti_test board_caps_test hid_keyboard_report_test ble_keyboard_scan_policy_test ps2_keyboard_test ps2_mouse_test cardkb_codec_test inputronic_keyboard_test matrix_keyboard_test input_keymap_service_test cl32_keyboard_test battery_service_test battery_trend_test charger_service_test sensors_service_test midi_codec_test midi_service_test parameters_test controls_test osc_test dsp_test stream_test resources_test gpio_controller_test expansion_registry_test expansion_command_test audio_codec_test webradio_catalog_test gif_decode_stack_test nvs_backup_test agent_reference_test manual_external_metadata_test terminal_geometry_test app_exit_result_test terminal_preferences_test tui_widgets_test wireguard_crypto_test meshcore_channel_key_test meshcore_stream_codec_test meshcore_ble_protocol_test link_repeater_test time_timezone_test rtc_service_test rtc_pcf85063_test ubx_test gnss_service_test modem_service_test haptic_service_test imu_service_test bhi260ap_codec_test qmi8658_test drv2605_test bq25896_test axp2101_test max17048_test mgc3130_test sim7670_test xl9555_test m5ioe1_test m5pm1_test rtc_rx8130_test st25r3916_test nfc_service_test
 
 MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
@@ -108,6 +108,16 @@ TARGETS += epd_ssd1677_test epd_uc8179_test uc8179_expansion_test epd_uc8279_tes
 TARGETS += ssd1677_expansion_test
 TARGETS += epd_ssd2677_test ssd2677_expansion_test terminal_preferences_sticky_test
 TARGETS += epd_sticky_identify_test sticky_display_test
+TARGETS += epd_it8951_test
+TARGETS += sy6974_test
+TARGETS += sy6974_service_test
+
+sy6974_service_test: sy6974_service_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/src/services/solar_os_sy6974.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ie1003_stubs -Iepd_stubs -Iexpansion_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services $^ -o $@
+
+sy6974_test: sy6974_test.c $(ROOT)/src/drivers/sy6974.c $(ROOT)/src/drivers/sy6974.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers sy6974_test.c $(ROOT)/src/drivers/sy6974.c -o $@
 TARGETS += cl32_display_identify_test cl32_display_test
 TARGETS += frontlight_pwm_test epd_xteink_identify_test x4pro_expansion_test
 TARGETS += pwm_servo_test pwm_provider_test
@@ -157,7 +167,7 @@ TARGETS += encoder_service_test pcnt_encoder_test
 TARGETS += ssd1306_named_bus_test
 TARGETS += expansion_tui_test
 TARGETS += gt911_test
-TARGETS += sdmmc_expansion_test
+TARGETS += sdmmc_expansion_test sdspi_expansion_test
 TARGETS += axp2101_service_test
 TARGETS += camera_service_test camera_expansion_test camera_expansion_default_drive_test camera_expansion_non_s3_test media_test mjpeg_test
 TARGETS += http_server_test
@@ -358,6 +368,10 @@ sdmmc_expansion_test: sdmmc_expansion_test.c $(ROOT)/src/services/solar_os_sdmmc
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
 		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers sdmmc_expansion_test.c -o $@
 
+sdspi_expansion_test: sdspi_expansion_test.c $(ROOT)/src/services/solar_os_sdspi.c $(ROOT)/src/services/solar_os_sdspi_driver.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h \
+		-Iexpansion_stubs -I. -I$(ROOT)/include -I$(ROOT)/src/services -I$(ROOT)/src/drivers sdspi_expansion_test.c -o $@
+
 gt911_test: gt911_test.c $(ROOT)/src/drivers/gt911.c $(ROOT)/src/drivers/gt911.h
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Iepd_stubs -I. gt911_test.c -o $@
 
@@ -404,6 +418,11 @@ OLED_U8G2_TEST_SOURCES := $(EPD_U8G2_TEST_SOURCES) $(addprefix $(ROOT)/component
         u8x8_d_ssd1306_48x64.c \
         u8x8_d_sh1106_64x32.c \
         u8x8_d_sh1106_72x40.c)
+epd_it8951_test: epd_it8951_test.c $(ROOT)/src/drivers/epd_it8951.c $(ROOT)/src/drivers/epd_it8951.h $(EPD_U8G2_TEST_SOURCES)
+	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
+		-Iepd_stubs -I. -I$(ROOT)/src -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
+		epd_it8951_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+
 ssd1306_named_bus_test: ssd1306_named_bus_test.c $(ROOT)/src/drivers/ssd1306.c $(ROOT)/src/drivers/ssd1306.h \
         $(ROOT)/src/services/solar_os_ssd1306.c $(ROOT)/src/services/solar_os_ssd1306.h $(OLED_U8G2_TEST_SOURCES)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -Wno-unused-parameter -ffunction-sections -fdata-sections \
@@ -516,6 +535,7 @@ epd_uc8179_test: epd_uc8179_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
 		epd_uc8179_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
 
 epd_ssd1677_test: epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677.c $(ROOT)/src/drivers/epd_ssd1677.h \
+	$(ROOT)/src/drivers/epd_ssd1677_papermono_lut.h \
 	$(ROOT)/src/drivers/epd_ssd1677_waveform.c $(ROOT)/src/drivers/epd_ssd1677_waveform.h \
 	$(ROOT)/src/drivers/epd_pixel_budget.c $(ROOT)/src/drivers/epd_pixel_budget.h $(ROOT)/src/drivers/epd_scan_worker.h \
 	$(EPD_U8G2_TEST_SOURCES) \
@@ -1146,6 +1166,21 @@ xl9555_test: xl9555_test.c $(ROOT)/src/drivers/xl9555.c \
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
 		xl9555_test.c $(ROOT)/src/drivers/xl9555.c -o $@
 
+m5ioe1_test: m5ioe1_test.c $(ROOT)/src/drivers/m5ioe1.c \
+		$(ROOT)/src/drivers/m5ioe1.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		m5ioe1_test.c $(ROOT)/src/drivers/m5ioe1.c -o $@
+
+m5pm1_test: m5pm1_test.c $(ROOT)/src/drivers/m5pm1.c \
+		$(ROOT)/src/drivers/m5pm1.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		m5pm1_test.c $(ROOT)/src/drivers/m5pm1.c -o $@
+
+rtc_rx8130_test: rtc_rx8130_test.c $(ROOT)/src/drivers/rtc_rx8130.c \
+		$(ROOT)/src/drivers/rtc_rx8130.h esp_err.h
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
+		rtc_rx8130_test.c $(ROOT)/src/drivers/rtc_rx8130.c -o $@
+
 lr11xx_test: lr11xx_test.c $(ROOT)/src/drivers/lr11xx.c \
 		$(ROOT)/src/drivers/lr11xx.h \
 		lr11xx_stubs/solar_os_buses.h lr11xx_stubs/esp_rom_sys.h \
@@ -1593,6 +1628,7 @@ test: $(TARGETS)
 	./x4pro_expansion_test
 	./gt911_test
 	./sdmmc_expansion_test
+	./sdspi_expansion_test
 	./epd_ssd1685_test
 	./ssd1685_expansion_test
 	./epd_ssd1680_test
@@ -1604,6 +1640,9 @@ test: $(TARGETS)
 	./max17048_test
 	./mgc3130_test
 	./sim7670_test
+	./m5ioe1_test
+	./m5pm1_test
+	./rtc_rx8130_test
 	./st25r3916_test
 	./nfc_service_test
 	./lr11xx_test

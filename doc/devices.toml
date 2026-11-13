@@ -76,6 +76,16 @@ power = "AXP2101 battery and charger monitoring."
 sensors = "PCF85063 RTC; SHTC3 temperature/humidity sensor; QMI8658 six-axis IMU."
 expansion = "I2C and UART expansion."
 
+[devices.m5stack_papermono]
+display = "3.97-inch 480×800 SSD1677 monochrome e-paper with M5PM1 frontlight PWM."
+keyboard = "FT6336 capacitive touch and two front buttons; no built-in keyboard."
+sound = "PWM buzzer output and PDM microphone capture."
+storage = "microSD over four-bit SDMMC."
+connectivity = "Wi-Fi, BLE, SX1262 LoRa, ST25R3916 NFC-A, native USB CDC/host, and UART."
+power = "M5PM1 battery voltage, power-off, and wake; IP2315 USB charger."
+sensors = "RX8130CE RTC; BMI270 six-axis IMU."
+expansion = "I2C, SPI, UART, GPIO, PWM, and I2S expansion."
+
 [devices.seeed_reterminal_sticky]
 display = "3.97-inch 800×480 SSD1677 monochrome e-paper with Fastwave pulse refresh."
 keyboard = "GT911 capacitive touch and three physical buttons; no built-in keyboard."

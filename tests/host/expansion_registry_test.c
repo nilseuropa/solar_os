@@ -476,7 +476,7 @@ int main(void)
         {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_BUS, .target = "spi0"},
         {.kind = SOLAR_OS_EXPANSION_BINDING_SPI_CS, .target = "spi0", .value = 10},
         {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "dc", .value = 9},
-        {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "reset", .value = 46},
+        {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "reset", .value = 46},
         {.kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "busy", .value = 3},
         {.kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS, .role = "power", .target = "i2c0"},
         {.kind = SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role = "power_addr", .value = 0x34},

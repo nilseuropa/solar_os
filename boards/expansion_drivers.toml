@@ -454,6 +454,191 @@ hint = "0..65535"
 min = 0
 max = 65535
 
+[drivers.m5ioe1]
+summary = "M5IOE1 14-line I2C GPIO controller"
+package = "m5ioe1"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+early = true
+default_name = "gpiox0"
+
+[[drivers.m5ioe1.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.m5ioe1.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x4f"
+required = true
+allowed = [0x4F]
+
+[[drivers.m5ioe1.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..16383"
+min = 0
+max = 16383
+
+[[drivers.m5ioe1.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..16383"
+min = 0
+max = 16383
+
+[drivers.m5pm1]
+summary = "M5PM1 power manager"
+package = "m5pm1"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+board_capabilities = ["battery"]
+board_driver = "battery_expansion"
+early = true
+default_name = "pmic0"
+
+[[drivers.m5pm1.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.m5pm1.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6e"
+required = true
+allowed = [0x6E]
+
+[[drivers.m5pm1.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[[drivers.m5pm1.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..31"
+min = 0
+max = 31
+
+[[drivers.m5pm1.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..31"
+min = 0
+max = 31
+
+[[drivers.m5pm1.bindings]]
+key = "capacity"
+kind = "parameter"
+hint = "mAh"
+min = 0
+max = 20000
+
+[drivers.rx8130]
+summary = "RX8130CE real-time clock"
+package = "rx8130"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+board_capabilities = ["rtc"]
+board_driver = "rtc_rx8130"
+default_name = "rtc0"
+
+[[drivers.rx8130.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.rx8130.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x32"
+required = true
+allowed = [0x32]
+
+[[drivers.rx8130.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[drivers.bmi270]
+summary = "BMI270 six-axis IMU"
+package = "bmi270"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "imu0"
+
+[[drivers.bmi270.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.bmi270.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x68"
+required = true
+allowed = [0x68, 0x69]
+
+[[drivers.bmi270.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+role = "irq"
+
+[[drivers.bmi270.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[drivers.ip2315]
+summary = "IP2315 USB charger with gated I2C"
+package = "ip2315"
+targets = ["esp32s3"]
+capabilities = ["expansion_i2c", "expansion_gpio"]
+default_name = "charger0"
+
+[[drivers.ip2315.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.ip2315.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x75"
+required = true
+allowed = [0x75]
+
+[[drivers.ip2315.bindings]]
+key = "gate"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+role = "gate"
+required = true
+
+[[drivers.ip2315.bindings]]
+key = "watch_sda"
+kind = "gpio"
+hint = "gpio"
+role = "watch_sda"
+
+[[drivers.ip2315.bindings]]
+key = "watch_scl"
+kind = "gpio"
+hint = "gpio"
+role = "watch_scl"
+
 [drivers.ublox-mia-m10q]
 summary = "u-blox MIA-M10Q GNSS receiver"
 package = "ublox_mia_m10q"
@@ -507,20 +692,29 @@ max = 921600
 summary = "ST25R3916 NFC-A reader"
 package = "st25r3916"
 targets = ["esp32", "esp32s3"]
-capabilities = ["expansion_spi", "expansion_gpio"]
+capabilities = ["expansion_spi", "expansion_i2c", "expansion_gpio"]
 default_name = "nfc0"
 
 [[drivers.st25r3916.bindings]]
 key = "spi"
 kind = "spi_bus"
 hint = "bus"
-required = true
 
 [[drivers.st25r3916.bindings]]
 key = "cs"
 kind = "spi_cs"
 hint = "gpio"
-required = true
+
+[[drivers.st25r3916.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+
+[[drivers.st25r3916.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x50"
+allowed = [0x50]
 
 [[drivers.st25r3916.bindings]]
 key = "irq"
@@ -830,6 +1024,68 @@ role = "max_mv"
 min = 482
 max = 5060
 
+[drivers.sy6974]
+summary = "Silergy SY6974B battery charger"
+package = "sy6974"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+default_name = "charger0"
+[[drivers.sy6974.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+[[drivers.sy6974.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x6b"
+required = true
+allowed = [0x6b]
+[[drivers.sy6974.bindings]]
+key = "input_voltage"
+kind = "parameter"
+hint = "3900..5400mV/100"
+role = "input_voltage"
+min = 3900
+max = 5400
+[[drivers.sy6974.bindings]]
+key = "input_current"
+kind = "parameter"
+hint = "100..3200mA/100"
+role = "input_current"
+min = 100
+max = 3200
+[[drivers.sy6974.bindings]]
+key = "charge_current"
+kind = "parameter"
+hint = "0..3000mA/60"
+role = "charge_current"
+min = 0
+max = 3000
+[[drivers.sy6974.bindings]]
+key = "charge_voltage"
+kind = "parameter"
+hint = "3856..4624mV/32"
+role = "charge_voltage"
+min = 3856
+max = 4624
+[[drivers.sy6974.bindings]]
+key = "adc"
+kind = "adc"
+hint = "gpio"
+[[drivers.sy6974.bindings]]
+key = "divider"
+kind = "parameter"
+hint = "1000..10000"
+role = "divider"
+min = 1000
+max = 10000
+[[drivers.sy6974.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+
 [drivers.bq25896]
 summary = "TI BQ25896 battery charger"
 package = "bq25896"
@@ -1036,6 +1292,81 @@ role = "startup-pulse"
 min = 0
 max = 1
 
+[drivers.it8951]
+summary = "IT8951 ED103TC2 1872x1404 16-gray e-paper"
+package = "expansion_it8951"
+targets = ["esp32s3"]
+capabilities = ["gfx", "psram", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_it8951"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"IT8951/ED103TC2"' }
+early = true
+default_name = "display0"
+
+[[drivers.it8951.display_profiles]]
+name = "ed103tc2"
+label = "ED103TC2 1872x1404"
+width = 1872
+height = 1404
+rotation = 0
+default = true
+
+[[drivers.it8951.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+role = "reset"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "busy"
+kind = "gpio"
+hint = "gpio"
+role = "busy"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+role = "power"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "ite_power"
+kind = "gpio"
+hint = "gpio"
+role = "ite_power"
+required = true
+
+[[drivers.it8951.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..10000"
+role = "clock"
+min = 100
+max = 10000
+
+[[drivers.it8951.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+role = "rotation"
+min = 0
+max = 3
+
 [drivers.ssd1677]
 summary = "SSD1677 800x480 e-paper"
 package = "expansion_ssd1677"
@@ -1076,8 +1407,8 @@ required = true
 
 [[drivers.ssd1677.bindings]]
 key = "reset"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 role = "reset"
 required = true
 
@@ -1090,8 +1421,8 @@ required = true
 
 [[drivers.ssd1677.bindings]]
 key = "power"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 role = "power"
 
 [[drivers.ssd1677.bindings]]
@@ -1126,10 +1457,10 @@ max = 3
 [[drivers.ssd1677.bindings]]
 key = "panel"
 kind = "parameter"
-hint = "0=generic,1=Sticky"
+hint = "0=generic,1=Sticky,2=Paper Mono"
 role = "panel"
 min = 0
-max = 1
+max = 2
 
 [drivers.ssd2677]
 summary = "SSD2677 800x480 e-paper"
@@ -1315,6 +1646,7 @@ targets = ["esp32", "esp32s3"]
 capabilities = ["expansion_spi"]
 board_capabilities = ["sd"]
 board_driver = "storage_expansion"
+early = true
 default_name = "storage0"
 
 [[drivers.sdspi.bindings]]
@@ -1374,8 +1706,8 @@ hint = "gpio"
 
 [[drivers.sdmmc.bindings]]
 key = "power"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 [[drivers.sdmmc.bindings]]
 key = "active"
 kind = "parameter"
@@ -2069,9 +2401,13 @@ required = true
 allowed = [0x38]
 [[drivers.ft6336.bindings]]
 key = "reset"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 required = true
+[[drivers.ft6336.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 [[drivers.ft6336.bindings]]
 key = "irq"
 kind = "gpio"
@@ -2403,8 +2739,8 @@ hint = "gpio"
 required = true
 [[drivers.audio-pdm.bindings]]
 key = "power"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 [[drivers.audio-pdm.bindings]]
 key = "slot"
 kind = "parameter"
@@ -2986,13 +3322,37 @@ required = true
 
 [[drivers.sx1262.bindings]]
 key = "reset"
-kind = "gpio"
-hint = "gpio"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 
 [[drivers.sx1262.bindings]]
 key = "irq"
 kind = "gpio"
 hint = "gpio"
+
+[[drivers.sx1262.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.sx1262.bindings]]
+key = "ant"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.sx1262.bindings]]
+key = "frequency"
+kind = "parameter"
+hint = "150000000..960000000"
+min = 150000000
+max = 960000000
+
+[[drivers.sx1262.bindings]]
+key = "regulator"
+kind = "parameter"
+hint = "0=dcdc,1=ldo"
+min = 0
+max = 1
 
 [drivers.lr11xx]
 summary = "LR11xx LoRa radio (LR1110/LR1120/LR1121)"

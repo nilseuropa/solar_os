@@ -23,9 +23,17 @@ typedef enum {
 } epd_ssd1677_refresh_mode_t;
 
 typedef esp_err_t (*epd_ssd1677_power_fn_t)(void *context, bool on);
+typedef esp_err_t (*epd_ssd1677_reset_fn_t)(void *context, bool level);
 
 #define EPD_SSD1677_PANEL_GENERIC 0U
 #define EPD_SSD1677_PANEL_STICKY 1U
+/* M5Stack Paper Mono 3.97-inch panel: panel OTP waveform for normal
+ * updates, M5GFX's Quality MCU waveform only for full cleans (first frame,
+ * power-state frames, refresh=full, large solid-area clears, every 50
+ * updates), and high voltage off after every update because the PMIC
+ * button can cut power at any time. */
+#define EPD_SSD1677_PANEL_PAPERMONO 2U
+#define EPD_SSD1677_PANEL_MAX EPD_SSD1677_PANEL_PAPERMONO
 
 typedef struct {
     const char *spi_bus;
@@ -44,6 +52,8 @@ typedef struct {
     const u8g2_cb_t *rotation;
     epd_ssd1677_power_fn_t set_power;
     void *power_context;
+    epd_ssd1677_reset_fn_t set_reset;
+    void *reset_context;
 } epd_ssd1677_config_t;
 
 typedef struct {
@@ -87,6 +97,8 @@ typedef struct {
     int power_active_level;
     epd_ssd1677_power_fn_t set_power;
     void *power_context;
+    epd_ssd1677_reset_fn_t set_reset;
+    void *reset_context;
     spi_host_device_t spi_host;
     bool bus_initialized;
     bool controller_ready;

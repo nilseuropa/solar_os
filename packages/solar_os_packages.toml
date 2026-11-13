@@ -597,6 +597,11 @@ label = "SSD1683 e-paper display"
 category = "Expansion hardware"
 members = ["expansion_ssd1683"]
 
+[groups.it8951]
+label = "IT8951 ED103TC2 e-paper display"
+category = "Expansion hardware"
+members = ["expansion_it8951"]
+
 [groups.ssd1677]
 label = "SSD1677 e-paper display"
 category = "Expansion hardware"
@@ -697,6 +702,11 @@ label = "DRV8830 DC motor driver"
 category = "Expansion hardware"
 members = ["drv8830"]
 
+[groups.sy6974]
+label = "SY6974B battery charger"
+category = "Expansion hardware"
+members = ["sy6974"]
+
 [groups.bq25896]
 label = "BQ25896 battery charger"
 category = "Expansion hardware"
@@ -711,6 +721,31 @@ members = ["axp2101"]
 label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
+
+[groups.m5ioe1]
+label = "M5IOE1 GPIO controller"
+category = "Expansion hardware"
+members = ["m5ioe1"]
+
+[groups.m5pm1]
+label = "M5PM1 power manager"
+category = "Expansion hardware"
+members = ["m5pm1"]
+
+[groups.rx8130]
+label = "RX8130CE real-time clock"
+category = "Expansion hardware"
+members = ["rx8130"]
+
+[groups.bmi270]
+label = "BMI270 IMU"
+category = "Expansion hardware"
+members = ["bmi270"]
+
+[groups.ip2315]
+label = "IP2315 USB charger"
+category = "Expansion hardware"
+members = ["ip2315"]
 
 [groups.can_twai]
 label = "TWAI classic CAN"
@@ -1950,6 +1985,19 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.expansion_it8951]
+label = "expansion.it8951"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_it8951_expansion_driver"]
+depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/epd_it8951.c",
+  "services/solar_os_it8951.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
+capabilities = ["gfx", "psram"]
+
 [packages.expansion_ssd1677]
 label = "expansion.ssd1677"
 targets = ["esp32s3"]
@@ -2122,14 +2170,14 @@ capabilities = ["expansion_uart"]
 label = "expansion.st25r3916"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_st25r3916_expansion_driver"]
-depends = ["service_expansion", "service_nfc", "service_spi"]
+depends = ["service_expansion", "service_nfc", "service_spi", "service_i2c"]
 sources = [
   "drivers/st25r3916.c",
   "services/solar_os_st25r3916.c",
   "services/solar_os_st25r3916_driver.c",
 ]
 requires = ["esp_driver_gpio", "esp_timer"]
-capabilities = ["expansion_gpio", "expansion_spi"]
+capabilities = ["expansion_gpio", "expansion_spi", "expansion_i2c"]
 
 [packages.bhi260ap]
 label = "expansion.bhi260ap"
@@ -2220,6 +2268,15 @@ sources = [
 requires = ["esp_driver_i2c", "esp_driver_gpio"]
 capabilities = ["expansion_i2c"]
 
+[packages.sy6974]
+label = "expansion.sy6974"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_sy6974_expansion_driver"]
+depends = ["service_charger", "service_expansion", "service_i2c", "service_adc", "service_battery"]
+sources = ["drivers/sy6974.c", "services/solar_os_sy6974.c", "services/solar_os_sy6974_driver.c"]
+requires = ["esp_driver_i2c", "esp_driver_gpio"]
+capabilities = ["expansion_i2c"]
+
 [packages.bq25896]
 label = "expansion.bq25896"
 targets = ["esp32", "esp32s3"]
@@ -2257,6 +2314,67 @@ sources = [
 ]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
+
+[packages.m5ioe1]
+label = "expansion.m5ioe1"
+depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_m5ioe1_expansion_driver"]
+sources = [
+  "drivers/m5ioe1.c",
+  "services/solar_os_m5ioe1.c",
+  "services/solar_os_m5ioe1_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.m5pm1]
+label = "expansion.m5pm1"
+depends = ["service_expansion", "service_i2c", "service_battery"]
+expansion_drivers = ["solar_os_m5pm1_expansion_driver"]
+sources = [
+  "drivers/m5pm1.c",
+  "services/solar_os_m5pm1.c",
+  "services/solar_os_m5pm1_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.rx8130]
+label = "expansion.rx8130"
+depends = ["service_expansion", "service_i2c", "service_rtc"]
+expansion_drivers = ["solar_os_rx8130_expansion_driver"]
+sources = [
+  "drivers/rtc_rx8130.c",
+  "services/solar_os_rx8130.c",
+  "services/solar_os_rx8130_driver.c",
+]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.bmi270]
+label = "expansion.bmi270"
+depends = ["service_expansion", "service_i2c", "service_imu"]
+expansion_drivers = ["solar_os_bmi270_expansion_driver"]
+sources = [
+  "drivers/bmi270.c",
+  "drivers/bmi270_config.c",
+  "services/solar_os_bmi270.c",
+  "services/solar_os_bmi270_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_timer"]
+capabilities = ["i2c"]
+
+[packages.ip2315]
+label = "expansion.ip2315"
+depends = ["service_expansion", "service_i2c", "service_charger"]
+expansion_drivers = ["solar_os_ip2315_expansion_driver"]
+sources = [
+  "drivers/ip2315.c",
+  "services/solar_os_ip2315.c",
+  "services/solar_os_ip2315_driver.c",
+]
+requires = ["esp_driver_i2c", "esp_driver_gpio", "esp_timer"]
+capabilities = ["i2c", "expansion_gpio"]
 
 [packages.can_twai]
 label = "expansion.twai-can"

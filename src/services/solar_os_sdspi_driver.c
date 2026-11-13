@@ -10,6 +10,7 @@ const solar_os_expansion_driver_t solar_os_sdspi_expansion_driver = {
     .name = "sdspi",
     .category = SOLAR_OS_EXPANSION_CATEGORY_STORAGE,
     .summary = "SPI microSD",
+    .early = true,
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_SPI,
     .probe_supported = true,
     .binding_specs = binding_specs,

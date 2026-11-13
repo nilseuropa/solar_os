@@ -1,0 +1,2114 @@
+/*
+ * Copyright (c) 2023 Chad Attermann
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at:
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ */
+
+#include "Link.h"
+
+#include "LinkData.h"
+#include "Resource.h"
+#include "Reticulum.h"
+#include "Transport.h"
+#include "Packet.h"
+#include "Log.h"
+#include "Cryptography/Ed25519.h"
+#include "Cryptography/X25519.h"
+#include "Cryptography/HKDF.h"
+#include "Cryptography/Token.h"
+#include "Cryptography/Random.h"
+#include "Utilities/OS.h"
+
+#define MSGPACK_DEBUGLOG_ENABLE 0
+#include <MsgPack.h>
+
+#include <math.h>
+#include <cmath>
+
+#include <algorithm>
+
+using namespace RNS;
+using namespace RNS::Type::Link;
+using namespace RNS::Cryptography;
+using namespace RNS::Utilities;
+
+namespace {
+
+// Outer-envelope splice helpers. Python Reticulum recursively encodes the
+// user payload into the outer msgpack array (umsgpack.packb([...])). In
+// C++14 with typed callbacks we make the callback return its payload as
+// already-msgpack-encoded bytes, and splice them directly into the outer
+// array. Because msgpack is a streaming, self-describing format, the
+// concatenation produces a stream byte-identical to what Python emits.
+//
+// Using Packer::to_array(request_id, response) instead would wrap the
+// callback's bytes as a msgpack `bin` value, breaking Python interop.
+
+// [bin(request_id), <raw_payload>]
+inline Bytes pack_response_envelope(const Bytes& request_id, const Bytes& raw_payload) {
+    MsgPack::Packer p;
+    p.packArraySize(2);
+    p.packBinary(request_id.data(), request_id.size());
+    Bytes out(p.data(), p.size());
+    out.append(raw_payload);
+    return out;
+}
+
+// [float64(timestamp), bin(path_hash), <raw_payload>]
+inline Bytes pack_request_envelope(double timestamp, const Bytes& path_hash, const Bytes& raw_payload) {
+    MsgPack::Packer p;
+    p.packArraySize(3);
+    p.packFloat64(timestamp);
+    p.packBinary(path_hash.data(), path_hash.size());
+    Bytes out(p.data(), p.size());
+    out.append(raw_payload);
+    return out;
+}
+
+// The MsgPack library does not expose the byte position of the unpacker
+// (Unpacker::index() returns an OBJECT index -- number of values consumed --
+// and the internal byte-offset table is private). To find where the trailing
+// raw payload begins, we re-pack the parsed prefix values with a fresh Packer
+// and use Packer::size() as the prefix byte length. msgpack mandates
+// "shortest form" encoding (fixarray for <=15 elements, bin8 for <=255 bytes,
+// etc.) and both Python umsgpack and this C++ Packer follow it, so the re-
+// packed prefix is byte-identical to what was on the wire.
+
+// Parse [bin(request_id), <raw_payload>] -> request_id, remainder.
+inline bool unpack_response_envelope(const Bytes& packed, Bytes& out_request_id, Bytes& out_raw_payload) {
+    if (!packed || packed.size() < 2) return false;
+    MsgPack::Unpacker u;
+    u.feed(packed.data(), packed.size());
+
+    if (!u.isArray()) return false;
+    const size_t n = u.unpackArraySize();
+    if (n < 2) return false;
+
+    if (!u.isBin()) return false;
+    MsgPack::bin_t<uint8_t> rid;
+    u.deserialize(rid);
+    out_request_id = Bytes(rid.data(), rid.size());
+
+    MsgPack::Packer prefix;
+    prefix.packArraySize(n);
+    prefix.packBinary(rid.data(), rid.size());
+    const size_t cursor = prefix.size();
+    if (cursor > packed.size()) return false;
+
+    out_raw_payload = Bytes(packed.data() + cursor, packed.size() - cursor);
+    return true;
+}
+
+// Parse [float64(ts), bin(path_hash), <raw_payload>] -> ts, path_hash, remainder.
+inline bool unpack_request_envelope(const Bytes& packed, ResourceRequest& request) {
+    if (!packed || packed.size() < 2) return false;
+    MsgPack::Unpacker u;
+    u.feed(packed.data(), packed.size());
+
+    if (!u.isArray()) return false;
+    const size_t n = u.unpackArraySize();
+    if (n < 3) return false;
+
+    const bool ts_is_float32 = u.isFloat32();
+    if (!ts_is_float32 && !u.isFloat64()) return false;
+    u.deserialize(request._requested_at);
+
+    if (!u.isBin()) return false;
+    MsgPack::bin_t<uint8_t> ph;
+    u.deserialize(ph);
+    request._path_hash = Bytes(ph.data(), ph.size());
+
+    MsgPack::Packer prefix;
+    prefix.packArraySize(n);
+    if (ts_is_float32) prefix.packFloat32(static_cast<float>(request._requested_at));
+    else               prefix.packFloat64(request._requested_at);
+    prefix.packBinary(ph.data(), ph.size());
+    const size_t cursor = prefix.size();
+    if (cursor > packed.size()) return false;
+
+    request._request_data = Bytes(packed.data() + cursor, packed.size() - cursor);
+    return true;
+}
+
+} // anonymous namespace
+
+/*static*/ uint8_t Link::resource_strategies = ACCEPT_NONE | ACCEPT_APP | ACCEPT_ALL;
+
+/*static*/ std::set<link_mode> Link::ENABLED_MODES = {MODE_AES256_CBC};
+/*static*/ link_mode Link::MODE_DEFAULT = MODE_AES256_CBC;
+
+Link::Link(const Destination& destination /*= {Type::NONE}*/, Callbacks::established established_callback /*= nullptr*/, Callbacks::closed closed_callback /*= nullptr*/, const Destination& owner /*= {Type::NONE}*/, const Bytes& peer_pub_bytes /*= {Bytes::NONE}*/, const Bytes& peer_sig_pub_bytes /*= {Bytes::NONE}*/, link_mode mode /*= MODE_DEFAULT*/) :
+	_object(new LinkData(destination))
+{
+	assert(_object);
+
+	_object->_owner = owner;
+	_object->_mode = mode;
+
+	if (destination && destination.type() != Type::Destination::SINGLE) {
+		throw std::logic_error("Links can only be established to the \"single\" destination type");
+	}
+
+	if (!destination) {
+		_object->_initiator = false;
+		_object->_prv     = Cryptography::X25519PrivateKey::generate();
+		// CBA BUG: not checking for owner
+		if (_object->_owner) _object->_sig_prv = _object->_owner.identity().sig_prv();
+		else _object->_sig_prv = Cryptography::Ed25519PrivateKey::generate();
+	}
+	else {
+		_object->_initiator = true;
+		_object->_expected_hops = Transport::hops_to(_object->_destination.hash());
+		_object->_establishment_timeout = Reticulum::get_instance().get_first_hop_timeout(destination.hash());
+		_object->_establishment_timeout += ESTABLISHMENT_TIMEOUT_PER_HOP * std::max((uint8_t)1, Transport::hops_to(destination.hash()));
+		_object->_prv     = Cryptography::X25519PrivateKey::generate();
+		_object->_sig_prv = Cryptography::Ed25519PrivateKey::generate();
+	}
+	assert(_object->_prv);
+	assert(_object->_sig_prv);
+
+	_object->_pub           = _object->_prv->public_key();
+	assert(_object->_pub);
+	_object->_pub_bytes     = _object->_pub->public_bytes();
+	TRACEF("Link::load_private_key: pub bytes:     %s", _object->_pub_bytes.toHex().c_str());
+
+	_object->_sig_pub       = _object->_sig_prv->public_key();
+	assert(_object->_sig_pub);
+	_object->_sig_pub_bytes = _object->_sig_pub->public_bytes();
+	TRACEF("Link::load_private_key: sig pub bytes: %s", _object->_sig_pub_bytes.toHex().c_str());
+
+	if (!peer_pub_bytes) {
+		_object->_peer_pub = nullptr;
+		_object->_peer_pub_bytes = nullptr;
+	}
+	else {
+		load_peer(peer_pub_bytes, peer_sig_pub_bytes);
+	}
+
+	if (established_callback) {
+		set_link_established_callback(established_callback);
+	}
+
+	if (closed_callback) {
+		set_link_closed_callback(closed_callback);
+	}
+
+	if (_object->_initiator) {
+		Bytes signalling_bytes;
+		uint16_t nh_hw_mtu = Transport::next_hop_interface_hw_mtu(destination.hash());
+		if (RNS::Reticulum::link_mtu_discovery() && nh_hw_mtu) {
+			signalling_bytes = Link::signalling_bytes(nh_hw_mtu, _object->_mode);
+			DEBUGF("Signalling link MTU of %d for link", nh_hw_mtu);
+		}
+		else {
+			signalling_bytes = Link::signalling_bytes(RNS::Type::Reticulum::MTU, _object->_mode);
+		}
+		TRACEF("Establishing link with mode %d", _object->_mode);
+        //p self.request_data = self.pub_bytes+self.sig_pub_bytes+signalling_bytes
+		_object->_request_data = _object->_pub_bytes + _object->_sig_pub_bytes + signalling_bytes;
+		_object->_packet = Packet(destination, _object->_request_data).packet_type(RNS::Type::Packet::LINKREQUEST);
+		_object->_packet.pack();
+		_object->_establishment_cost += _object->_packet.raw().size();
+		set_link_id(_object->_packet);
+		Transport::register_link(*this);
+		_object->_request_time = OS::time();
+		start_watchdog();
+		_object->_packet.send();
+		had_outbound();
+		DEBUGF("Link request %s sent to %s", _object->_link_id.toHex().c_str(), _object->_destination.toString().c_str());
+		TRACEF("Establishment timeout is %f for link request %s", _object->_establishment_timeout, _object->_link_id.toHex().c_str());
+	}
+
+	// CBA LINK
+	//_object->_link_destination = Destination({Type::NONE}, Type::Destination::OUT, Type::Destination::LINK, hash());
+	//_object->_link_destination.link_id(_object->_link_id);
+
+	MEM("Link object created");
+}
+
+
+/*static*/ Bytes Link::signalling_bytes(uint16_t mtu, link_mode mode) {
+	//p if not mode in Link.ENABLED_MODES: raise TypeError(f"Requested link mode {Link.MODE_DESCRIPTIONS[mode]} not enabled")
+	//if (!(mode & ENABLED_MODES)) throw std::runtime_error("Requested link mode "+std::to_string(mode)+" not enabled");
+	if (Link::ENABLED_MODES.find(mode) == Link::ENABLED_MODES.end()) throw std::runtime_error("Requested link mode "+std::to_string(mode)+" not enabled");
+	//p signalling_value = (mtu & Link.MTU_BYTEMASK)+(((mode<<5) & Link.MODE_BYTEMASK)<<16)
+	//p return struct.pack(">I", signalling_value)[1:]
+	uint32_t signalling_value = OS::portable_htonl((mtu & MTU_BYTEMASK)+(((mode<<5) & MODE_BYTEMASK)<<16));
+	Bytes data(((uint8_t*)&signalling_value)+1, 3);
+	return data;
+}
+
+/*static*/ uint16_t Link::mtu_from_lr_packet(const Packet& packet) {
+	if (packet.data().size() == ECPUBSIZE+LINK_MTU_SIZE) {
+		return (packet.data()[ECPUBSIZE] << 16) + (packet.data()[ECPUBSIZE+1] << 8) + (packet.data()[ECPUBSIZE+2]) & MTU_BYTEMASK;
+	}
+	return 0;
+}
+
+/*static*/ uint16_t Link::mtu_from_lp_packet(const Packet& packet) {
+	//p if len(packet.data) == RNS.Identity.SIGLENGTH//8+Link.ECPUBSIZE//2+Link.LINK_MTU_SIZE:
+	if (packet.data().size() == RNS::Type::Identity::SIGLENGTH/8+ECPUBSIZE/2+LINK_MTU_SIZE) {
+		Bytes mtu_bytes = packet.data().mid(RNS::Type::Identity::SIGLENGTH/8+ECPUBSIZE/2, LINK_MTU_SIZE);
+		return (mtu_bytes[0] << 16) + (mtu_bytes[1] << 8) + (mtu_bytes[2]) & MTU_BYTEMASK;
+	}
+	return 0;
+}
+
+/*static*/ uint8_t Link::mode_byte(link_mode mode) {
+	//p if mode in Link.ENABLED_MODES: return (mode << 5) & Link.MODE_BYTEMASK
+	if (Link::ENABLED_MODES.find(mode) != Link::ENABLED_MODES.end()) return (mode << 5) & MODE_BYTEMASK;
+	throw std::runtime_error("Requested link mode {mode} not enabled");
+}
+
+/*static*/ link_mode Link::mode_from_lr_packet(const Packet& packet) {
+	if (packet.data().size() > ECPUBSIZE) {
+		link_mode mode = static_cast<link_mode>((packet.data()[ECPUBSIZE] & MODE_BYTEMASK) >> 5);
+		return mode;
+	}
+	return Link::MODE_DEFAULT;
+}
+
+/*static*/ link_mode Link::mode_from_lp_packet(const Packet& packet) {
+	if (packet.data().size() > RNS::Type::Identity::SIGLENGTH/8+ECPUBSIZE/2) {
+		link_mode mode = static_cast<link_mode>(packet.data()[RNS::Type::Identity::SIGLENGTH/8+ECPUBSIZE/2] >> 5);
+		return mode;
+	}
+	return Link::MODE_DEFAULT;
+}
+
+/*static*/ Bytes Link::link_id_from_lr_packet(const Packet& packet) {
+	Bytes hashable_part = packet.get_hashable_part();
+	if (packet.data().size() > ECPUBSIZE) {
+		size_t diff = packet.data().size() - ECPUBSIZE;
+		//p hashable_part = hashable_part[:-diff]
+		hashable_part = hashable_part.left(hashable_part.size() - diff);
+	}
+	return RNS::Identity::truncated_hash(hashable_part);
+}
+
+/*static*/ Link Link::validate_request( const Destination& owner, const Bytes& data, const Packet& packet) {
+	if (data.size() == ECPUBSIZE || data.size() == ECPUBSIZE + LINK_MTU_SIZE) {
+		try {
+			Link link({Type::NONE}, nullptr, nullptr, owner, data.left(ECPUBSIZE/2), data.mid(ECPUBSIZE/2, ECPUBSIZE/2));
+			link.set_link_id(packet);
+
+			if (data.size() == ECPUBSIZE + LINK_MTU_SIZE) {
+				DEBUG("Link request includes MTU signalling"); // TODO: Remove debug
+				try {
+					uint16_t mtu = mtu_from_lr_packet(packet);
+					link.mtu((mtu != 0) ? mtu : Type::Reticulum::MTU);
+				}
+				catch (const std::exception& e) {
+					ERRORF("An error ocurred while validating link request %s", link.link_id().toHex().c_str());
+					link.mtu(Type::Reticulum::MTU);
+				}
+			}
+
+			link.mode(mode_from_lr_packet(packet));
+
+			// TODO: Remove debug
+			DEBUGF("Incoming link request with mode %d", link.get_mode());
+
+			link.update_mdu();
+			link.destination(packet.destination());
+			link.establishment_timeout(ESTABLISHMENT_TIMEOUT_PER_HOP * std::max((uint8_t)1, packet.hops()) + KEEPALIVE);
+			link.establishment_cost(link.establishment_cost() + packet.raw().size());
+			VERBOSEF("Validating link request %s", link.link_id().toHex().c_str());
+            TRACEF("Link MTU configured to %d", link.mtu());
+			TRACEF("Establishment timeout is %f for incoming link request %s", link.establishment_timeout(), link.link_id().toHex().c_str());
+			link.handshake();
+			link.attached_interface(packet.receiving_interface());
+			link.prove();
+			link.request_time(OS::time());
+			Transport::register_link(link);
+			link.last_inbound(OS::time());
+			link.start_watchdog();
+			
+			DEBUGF("Incoming link request %s accepted", link.toString().c_str());
+			return link;
+		}
+		catch (const std::exception& e) {
+			VERBOSEF("Validating link request failed, exception: %s", e.what());
+			return {Type::NONE};
+		}
+	}
+	else {
+		DEBUGF("Invalid link request payload size (%lu), dropping request", data.size());
+		return {Type::NONE};
+	}
+}
+
+void Link::load_peer(const Bytes& peer_pub_bytes, const Bytes& peer_sig_pub_bytes) {
+	assert(_object);
+	_object->_peer_pub_bytes = peer_pub_bytes;
+	_object->_peer_pub = Cryptography::X25519PublicKey::from_public_bytes(_object->_peer_pub_bytes);
+
+	_object->_peer_sig_pub_bytes = peer_sig_pub_bytes;
+	_object->_peer_sig_pub = Cryptography::Ed25519PublicKey::from_public_bytes(_object->_peer_sig_pub_bytes);
+
+	// CBA TODO Determine the purpose of the following.
+	// X25519PublicKey does not have a member "curve" and this is not accessed anywhere
+/*
+	if not hasattr(self.peer_pub, "curve") {
+		self.peer_pub.curve = CURVE;
+	}
+*/
+}
+
+void Link::set_link_id(const Packet& packet) {
+	assert(_object);
+	_object->_link_id = Link::link_id_from_lr_packet(packet);
+	_object->_hash = _object->_link_id;
+}
+
+void Link::handshake() {
+	assert(_object);
+	if (_object->_status == Type::Link::PENDING && _object->_prv) {
+		_object->_status = Type::Link::HANDSHAKE;
+		_object->_shared_key = _object->_prv->exchange(_object->_peer_pub_bytes);
+
+		uint16_t derived_key_length;
+		if (_object->_mode == RNS::Type::Link::MODE_AES128_CBC) derived_key_length = 32;
+		else if (_object->_mode == RNS::Type::Link::MODE_AES256_CBC) derived_key_length = 64;
+		else throw std::invalid_argument("Invalid link mode "+std::to_string(_object->_mode)+" on "+toString());
+
+		_object->_derived_key = Cryptography::hkdf(
+			derived_key_length,
+			_object->_shared_key,
+			get_salt(),
+			get_context()
+		);
+	}
+	else {
+		ERRORF("Handshake attempt on %s with invalid state %d", toString().c_str(), _object->_status);
+	}
+}
+
+void Link::prove() {
+	assert(_object);
+	DEBUGF("Link %s requesting proof", link_id().toHex().c_str());
+	Bytes signalling_bytes = Link::signalling_bytes(_object->_mtu, _object->_mode);
+	Bytes signed_data = _object->_link_id + _object->_pub_bytes + _object->_sig_pub_bytes + signalling_bytes;
+	const Bytes signature(_object->_owner.identity().sign(signed_data));
+
+	Bytes proof_data = signature + _object->_pub_bytes + signalling_bytes;
+	// CBA LINK
+	// CBA TODO: Determine which approach is better, passing liunk to packet or passing _link_destination
+	Packet proof = Packet(*this, proof_data).packet_type(Type::Packet::PROOF).context(Type::Packet::LRPROOF);
+	proof.send();
+	_object->_establishment_cost += proof.raw().size();
+	had_outbound();
+}
+
+void Link::prove_packet(const Packet& packet) {
+	assert(_object);
+	DEBUGF("Link %s proving packet", link_id().toHex().c_str());
+	const Bytes signature(sign(packet.packet_hash()));
+	// TODO: Hardcoded as explicit proof for now
+	// if RNS.Reticulum.should_use_implicit_proof():
+	//   proof_data = signature
+	// else:
+	//   proof_data = packet.packet_hash + signature
+	Bytes proof_data = packet.packet_hash() + signature;
+
+	Packet(*this, proof_data).packet_type(Type::Packet::PROOF).send();
+	had_outbound();
+}
+
+void Link::validate_proof(const Packet& packet) {
+	assert(_object);
+	DEBUGF("Link %s validating proof", link_id().toHex().c_str());
+	try {
+		if (_object->_status == Type::Link::PENDING) {
+			Bytes packet_data(packet.data());
+			TRACEF("Link %s: initiator: %d", toString().c_str(), _object->_initiator);
+			TRACEF("Link %s: size: %d", toString().c_str(), packet_data.size());
+			Bytes signalling_bytes;
+			uint16_t confirmed_mtu = 0;
+			link_mode mode = mode_from_lp_packet(packet);
+			DEBUGF("Validating link request proof with mode %d", mode);
+			if (mode != _object->_mode) throw std::runtime_error("Invalid link mode "+std::to_string(mode)+" in link request proof");
+            //p if len(packet.data) == RNS.Identity.SIGLENGTH//8+Link.ECPUBSIZE//2+Link.LINK_MTU_SIZE:
+			if (packet_data.size() == Type::Identity::SIGLENGTH/8+ECPUBSIZE/2+RNS::Type::Link::LINK_MTU_SIZE) {
+				confirmed_mtu = Link::mtu_from_lp_packet(packet);
+				signalling_bytes = Link::signalling_bytes(confirmed_mtu, mode);
+				// CBA TODO Determine best way to deal with packet.data() being read-only
+				//p packet.data = packet.data[:RNS.Identity.SIGLENGTH//8+Link.ECPUBSIZE//2]
+				packet_data = packet_data.left(RNS::Type::Identity::SIGLENGTH/8+ECPUBSIZE/2);
+				DEBUGF("Destination confirmed link MTU of %d", confirmed_mtu);
+			}
+			//p if _object->_initiator and len(packet.data) == RNS.Identity.SIGLENGTH//8+ECPUBSIZE//2:
+			if (_object->_initiator && packet_data.size() == Type::Identity::SIGLENGTH/8+ECPUBSIZE/2) {
+				//p peer_pub_bytes = packet.data[RNS.Identity.SIGLENGTH//8:RNS.Identity.SIGLENGTH//8+ECPUBSIZE//2]
+				const Bytes peer_pub_bytes(packet_data.mid(Type::Identity::SIGLENGTH/8, ECPUBSIZE/2));
+				//p peer_sig_pub_bytes = _object->_destination.identity.get_public_key()[ECPUBSIZE//2:ECPUBSIZE]
+				const Bytes peer_sig_pub_bytes(_object->_destination.identity().get_public_key().mid(ECPUBSIZE/2, ECPUBSIZE/2));
+				TRACEF("Link %s performing handshake", link_id().toHex().c_str());
+				load_peer(peer_pub_bytes, peer_sig_pub_bytes);
+				handshake();
+
+				_object->_establishment_cost += packet.raw().size();
+				Bytes signed_data = _object->_link_id + _object->_peer_pub_bytes + _object->_peer_sig_pub_bytes + signalling_bytes;
+				const Bytes signature(packet_data.left(Type::Identity::SIGLENGTH/8));
+				
+				TRACEF("Link %s validating identity", link_id().toHex().c_str());
+				if (_object->_destination.identity().validate(signature, signed_data)) {
+					if (_object->_status != Type::Link::HANDSHAKE) {
+						throw std::runtime_error("Invalid link state for proof validation: " + _object->_status);
+					}
+					_object->_rtt = OS::time() - _object->_request_time;
+					_object->_attached_interface = packet.receiving_interface();
+					_object->__remote_identity = _object->_destination.identity();
+					if (confirmed_mtu) _object->_mtu = confirmed_mtu;
+					else _object->_mtu = RNS::Type::Reticulum::MTU;
+					update_mdu();
+					_object->_status = Type::Link::ACTIVE;
+					_object->_activated_at = OS::time();
+					_object->_last_proof = _object->_activated_at;
+					update_keepalive();
+					Transport::activate_link(*this);
+					VERBOSEF("Link %s established with %s, RTT is %.3f s", toString().c_str(), _object->_destination.toString().c_str(), OS::round(_object->_rtt, 3));
+					
+					//p if _object->_rtt != None and _object->_establishment_cost != None and _object->_rtt > 0 and _object->_establishment_cost > 0:
+					if (_object->_rtt != 0.0 && _object->_establishment_cost != 0 && _object->_rtt > 0 and _object->_establishment_cost > 0) {
+						_object->_establishment_rate = _object->_establishment_cost / _object->_rtt;
+					}
+
+                    //p rtt_data = umsgpack.packb(self.rtt)
+					MsgPack::Packer packer;
+					packer.serialize(_object->_rtt);
+					Bytes rtt_data(packer.data(), packer.size());
+TRACEF("***** RTT data size: %d", rtt_data.size());
+                    //p rtt_packet = RNS.Packet(self, rtt_data, context=RNS.Packet.LRRTT)
+					Packet rtt_packet = Packet(*this, rtt_data).context(Type::Packet::LRRTT);
+TRACEF("***** RTT packet data: %s", rtt_packet.data().toHex().c_str());
+rtt_packet.pack();
+Packet test_packet(RNS::Destination(RNS::Type::NONE), rtt_packet.raw());
+test_packet.unpack();
+TRACEF("***** RTT test packet destination hash: %s", test_packet.destination_hash().toHex().c_str());
+TRACEF("***** RTT test packet data size: %d", test_packet.data().size());
+TRACEF("***** RTT test packet data: %s", test_packet.data().toHex().c_str());
+Bytes plaintext = decrypt(test_packet.data());
+TRACEF("***** RTT test packet plaintext: %s", plaintext.toHex().c_str());
+					rtt_packet.send();
+					had_outbound();
+
+					if (_object->_callbacks._established != nullptr) {
+						VERBOSEF("Link %s is established", link_id().toHex().c_str());
+						//p thread = threading.Thread(target=_object->_callbacks.link_established, args=(self,))
+						//p thread.daemon = True
+						//p thread.start()
+						_object->_callbacks._established(*this);
+					}
+				}
+				else {
+					DEBUGF("Invalid link proof signature received by %s. Ignoring.", toString().c_str());
+				}
+			}
+			else {
+				DEBUGF("Failed initiator/size check for link proof signature received by %s. Ignoring.", toString().c_str());
+			}
+		}
+	}
+	catch (const std::exception& e) {
+		_object->_status = Type::Link::CLOSED;
+		ERRORF("An error ocurred while validating link request proof on %s.", toString().c_str());
+		ERRORF("The contained exception was: %s", e.what());
+	}
+}
+
+
+/*
+Identifies the initiator of the link to the remote peer. This can only happen
+once the link has been established, and is carried out over the encrypted link.
+The identity is only revealed to the remote peer, and initiator anonymity is
+thus preserved. This method can be used for authentication.
+
+:param identity: An RNS.Identity instance to identify as.
+*/
+void Link::identify(const Identity& identity) {
+	assert(_object);
+	DEBUGF("Link %s requesting identity", link_id().toHex().c_str());
+	if (_object->_initiator && _object->_status == Type::Link::ACTIVE) {
+		const Bytes signed_data(_object->_link_id + identity.get_public_key());
+		const Bytes signature(identity.sign(signed_data));
+		const Bytes proof_data(identity.get_public_key() + signature);
+
+		Packet(*this, proof_data).context(Type::Packet::LINKIDENTIFY).send();
+		had_outbound();
+	}
+}
+
+/*
+Sends a request to the remote peer.
+
+:param path: The request path.
+:param response_callback: An optional function or method with the signature *response_callback(request_receipt)* to be called when a response is received. See the :ref:`Request Example<example-request>` for more info.
+:param failed_callback: An optional function or method with the signature *failed_callback(request_receipt)* to be called when a request fails. See the :ref:`Request Example<example-request>` for more info.
+:param progress_callback: An optional function or method with the signature *progress_callback(request_receipt)* to be called when progress is made receiving the response. Progress can be accessed as a float between 0.0 and 1.0 by the *request_receipt.progress* property.
+:param timeout: An optional timeout in seconds for the request. If *None* is supplied it will be calculated based on link RTT.
+:returns: A :ref:`RNS.RequestReceipt<api-requestreceipt>` instance if the request was sent, or *False* if it was not.
+*/
+const RNS::RequestReceipt Link::request(const Bytes& path, const Bytes& data /*= {Bytes::NONE}*/, RequestReceipt::Callbacks::response response_callback /*= nullptr*/, RequestReceipt::Callbacks::failed failed_callback /*= nullptr*/, RequestReceipt::Callbacks::progress progress_callback /*= nullptr*/, double timeout /*= 0.0*/) {
+	assert(_object);
+	DEBUGF("Link %s sending request", link_id().toHex().c_str());
+	const Bytes request_path_hash(Identity::truncated_hash(path));
+
+	//p unpacked_request = [OS::time(), request_path_hash, data]
+	//p packed_request = umsgpack.packb(unpacked_request)
+	// `data` is the caller's already-msgpack-encoded payload (or empty).
+	// We splice it verbatim so the wire format matches Python recursively
+	// encoding the third array element.
+	Bytes packed_request = pack_request_envelope(OS::time(), request_path_hash, data);
+
+	if (timeout == 0.0) {
+		timeout = _object->_rtt * _object->_traffic_timeout_factor + Type::Resource::RESPONSE_MAX_GRACE_TIME * 1.125;
+	}
+
+	if (packed_request.size() <= MDU) {
+		Packet request_packet = Packet(*this, packed_request).context(Type::Packet::REQUEST);
+		PacketReceipt packet_receipt = request_packet.send();
+
+		if (!packet_receipt) {
+			return {Type::NONE};
+		}
+		else {
+			packet_receipt.set_timeout(timeout);
+			return RequestReceipt(
+				*this,
+				packet_receipt,
+				{Type::NONE},
+				response_callback,
+				failed_callback,
+				progress_callback,
+				timeout,
+				packed_request.size()
+			);
+		}
+	}
+	else {
+		const Bytes request_id(Identity::truncated_hash(packed_request));
+		DEBUGF("Sending request %s as resource.", request_id.toHex().c_str());
+		Resource request_resource = Resource(packed_request, *this)
+			.request_id(request_id)
+			.timeout(timeout)
+			.start();
+
+		return RequestReceipt(
+			*this,
+			{Type::NONE},
+			request_resource,
+			response_callback,
+			failed_callback,
+			progress_callback,
+			timeout,
+			packed_request.size()
+		);
+	}
+}
+
+
+void Link::update_mdu() {
+	assert(_object);
+	_object->_mdu = _object->_mtu - RNS::Type::Reticulum::HEADER_MAXSIZE - RNS::Type::Reticulum::IFAC_MIN_SIZE;
+    //p self.mdu = math.floor((self.mtu-RNS.Reticulum.IFAC_MIN_SIZE-RNS.Reticulum.HEADER_MINSIZE-RNS.Identity.TOKEN_OVERHEAD)/RNS.Identity.AES128_BLOCKSIZE)*RNS.Identity.AES128_BLOCKSIZE - 1
+	_object->_mdu = floor((_object->_mtu-RNS::Type::Reticulum::IFAC_MIN_SIZE-RNS::Type::Reticulum::HEADER_MINSIZE-RNS::Type::Identity::TOKEN_OVERHEAD)/RNS::Type::Identity::AES128_BLOCKSIZE)*RNS::Type::Identity::AES128_BLOCKSIZE - 1;
+}
+
+void Link::rtt_packet(const Packet& packet) {
+	assert(_object);
+	try {
+		double measured_rtt = OS::time() - _object->_request_time;
+		const Bytes plaintext(decrypt(packet.data()));
+		if (plaintext) {
+			//p rtt = umsgpack.unpackb(plaintext)
+			MsgPack::Unpacker unpacker;
+			unpacker.feed(plaintext.data(), plaintext.size());
+			double rtt = 0.0;
+			unpacker.deserialize(rtt);
+			_object->_rtt = std::max(measured_rtt, rtt);
+			_object->_status = Type::Link::ACTIVE;
+			_object->_activated_at = OS::time();
+			update_keepalive();
+
+			//p if _object->_rtt != None and _object->_establishment_cost != None and _object->_rtt > 0 and _object->_establishment_cost > 0:
+			if (_object->_rtt != 0.0 && _object->_establishment_cost != 0.0 && _object->_rtt > 0 and _object->_establishment_cost > 0) {
+				_object->_establishment_rate = _object->_establishment_cost / _object->_rtt;
+			}
+
+			try {
+				if (_object->_owner.callbacks()._link_established != nullptr) {
+					_object->_owner.callbacks()._link_established(*this);
+				}
+			}
+			catch (const std::exception& e) {
+				ERRORF("Error occurred in external link establishment callback. The contained exception was: %s", e.what());
+			}
+		}
+	}
+	catch (const std::exception& e) {
+		ERRORF("Error occurred while processing RTT packet, tearing down link. The contained exception was: %s", e.what());
+		teardown();
+	}
+}
+
+/*
+:returns: The data transfer rate at which the link establishment procedure ocurred, in bits per second.
+*/
+float Link::get_establishment_rate() {
+	assert(_object);
+	//p if _object->_establishment_rate != None:
+	//p 	return _object->_establishment_rate*8
+	//p else:
+	//p 	return None
+	return _object->_establishment_rate*8;
+}
+
+/*
+:returns: The MTU of an established link.
+*/
+uint16_t Link::get_mtu() {
+	assert(_object);
+	if (_object->_status == ACTIVE) {
+		return _object->_mtu;
+	}
+	return 0;
+}
+
+/*
+:returns: The packet MDU of an established link.
+*/
+uint16_t Link::get_mdu() {
+	assert(_object);
+	if (_object->_status == ACTIVE) {
+		return _object->_mdu;
+	}
+	return 0;
+}
+
+/*
+:returns: The packet expected in-flight data rate of an established link.
+*/
+float Link::get_expected_rate() {
+	assert(_object);
+	if (_object->_status == ACTIVE) {
+		return _object->_expected_rate;
+	}
+	return 0.0;
+}
+
+/*
+:returns: The mode of an established link.
+*/
+link_mode Link::get_mode() {
+	assert(_object);
+	return _object->_mode;
+}
+
+const Bytes& Link::get_salt() {
+	assert(_object);
+	return _object->_link_id;
+}
+
+const Bytes Link::get_context() {
+	return {Bytes::NONE};
+}
+
+/*
+:returns: The time in seconds since this link was established.
+*/
+double Link::get_age() {
+	assert(_object);
+	if (_object->_activated_at) {
+		return OS::time() - _object->_activated_at;
+	}
+	return 0.0;
+}
+
+/*
+:returns: The time in seconds since last inbound packet on the link. This includes keepalive packets.
+*/
+double Link::no_inbound_for() {
+	assert(_object);
+	//p activated_at = _object->_activated_at if _object->_activated_at != None else 0
+	double activated_at = _object->_activated_at;
+	double last_inbound = std::max(_object->_last_inbound, activated_at);
+	return (OS::time() - last_inbound);
+}
+
+/*
+:returns: The time in seconds since last outbound packet on the link. This includes keepalive packets.
+*/
+double Link::no_outbound_for() {
+	assert(_object);
+	return OS::time() - _object->_last_outbound;
+}
+
+/*
+:returns: The time in seconds since payload data traversed the link. This excludes keepalive packets.
+*/
+double Link::no_data_for() {
+	assert(_object);
+	return OS::time() - _object->_last_data;
+}
+
+/*
+:returns: The time in seconds since activity on the link. This includes keepalive packets.
+*/
+double Link::inactive_for() {
+	assert(_object);
+	return std::min(no_inbound_for(), no_outbound_for());
+}
+
+/*
+:returns: The identity of the remote peer, if it is known. Calling this method will not query the remote initiator to reveal its identity. Returns ``None`` if the link initiator has not already independently called the ``identify(identity)`` method.
+*/
+const Identity& Link::get_remote_identity() {
+	assert(_object);
+	return _object->__remote_identity;
+}
+
+void Link::had_outbound(bool is_keepalive /*= false*/) {
+	assert(_object);
+	_object->_last_outbound = OS::time();
+	if (!is_keepalive) {
+		_object->_last_data = _object->_last_outbound;
+	}
+	else {
+		_object->_last_keepalive = _object->_last_outbound;
+	}
+}
+
+/*
+Closes the link and purges encryption keys. New keys will
+be used if a new link to the same destination is established.
+*/
+void Link::teardown() {
+	assert(_object);
+	if (_object->_status == Type::Link::CLOSED) {
+		return;
+	}
+	if (_object->_status != Type::Link::PENDING && _object->_status != Type::Link::CLOSED) {
+		Packet(*this, _object->_link_id).context(Type::Packet::LINKCLOSE).send();
+		had_outbound();
+	}
+	_object->_status = Type::Link::CLOSED;
+	if (_object->_initiator) {
+		_object->_teardown_reason = Type::Link::INITIATOR_CLOSED;
+	}
+	else {
+		_object->_teardown_reason = Type::Link::DESTINATION_CLOSED;
+	}
+	link_closed();
+}
+
+void Link::teardown_packet(const Packet& packet) {
+	assert(_object);
+	try {
+		Bytes plaintext = decrypt(packet.data());
+		if (plaintext == _object->_link_id) {
+			_object->_status = Type::Link::CLOSED;
+			if (_object->_initiator) {
+				_object->_teardown_reason = Type::Link::DESTINATION_CLOSED;
+			}
+			else {
+				_object->_teardown_reason = Type::Link::INITIATOR_CLOSED;
+			}
+			link_closed();
+		}
+	}
+	catch (const std::exception& e) {
+		ERRORF("Error while decrypting teardown packet from %s. The contained exception was: %s", toString().c_str(), e.what());
+	}
+}
+
+void Link::link_closed() {
+	assert(_object);
+	// Snapshot the resource sets first — Resource::cancel() calls back into
+	// Link::cancel_outgoing_resource / cancel_incoming_resource which erase
+	// from the same set, invalidating the iterator on the live container.
+	std::vector<Resource> incoming(_object->_incoming_resources.begin(), _object->_incoming_resources.end());
+	std::vector<Resource> outgoing(_object->_outgoing_resources.begin(), _object->_outgoing_resources.end());
+	for (auto& resource : incoming) {
+		resource.cancel();
+	}
+	for (auto& resource : outgoing) {
+		resource.cancel();
+	}
+	if (_object->_channel) {
+		_object->_channel._shutdown();
+	}
+
+	_object->_prv.reset();
+	_object->_pub.reset();
+	_object->_pub_bytes.clear();
+	_object->_shared_key.clear();
+	_object->_derived_key.clear();
+
+	if (_object->_destination) {
+		if (_object->_destination.direction() == Type::Destination::IN) {
+			if (_object->_destination.has_link(*this)) {
+				_object->_destination.remove_link(*this);
+			}
+		}
+	}
+
+	if (_object->_callbacks._closed) {
+		try {
+			_object->_callbacks._closed(*this);
+		}
+		catch (const std::exception& e) {
+			ERRORF("Error while executing link closed callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+		}
+	}
+}
+
+void Link::tick_resources() {
+	assert(_object);
+	if (_object->_status == Type::Link::CLOSED) return;
+
+	// Snapshot before pumping: Resource::__watchdog_job() can trigger
+	// cancel() / request_next() which erase from these sets (and would
+	// dangle both the iterator and *this inside the called method —
+	// same pattern as the RESOURCE/RESOURCE_HMU/RESOURCE_ICL fixes in
+	// receive()).
+	std::vector<Resource> incoming(_object->_incoming_resources.begin(),
+	                               _object->_incoming_resources.end());
+	std::vector<Resource> outgoing(_object->_outgoing_resources.begin(),
+	                               _object->_outgoing_resources.end());
+	for (auto& r : incoming) r.__watchdog_job();
+	for (auto& r : outgoing) r.__watchdog_job();
+}
+
+// No thread: Transport::jobs() calls __watchdog_job() for each link.
+void Link::start_watchdog() {
+}
+
+void Link::__watchdog_job() {
+	assert(_object);
+	if (_object->_watchdog_lock) {
+		return;
+	}
+	const double now = OS::time();
+	switch (_object->_status) {
+		case Type::Link::PENDING:
+		case Type::Link::HANDSHAKE:
+		{
+			if (now >= _object->_request_time + _object->_establishment_timeout) {
+				if (_object->_status == Type::Link::PENDING) {
+					VERBOSE("Link establishment timed out");
+				}
+				else if (_object->_initiator) {
+					DEBUG("Timeout waiting for link request proof");
+				}
+				else {
+					DEBUG("Timeout waiting for RTT packet from link initiator");
+				}
+				_object->_status = Type::Link::CLOSED;
+				_object->_teardown_reason = Type::Link::TIMEOUT;
+				link_closed();
+			}
+			break;
+		}
+		case Type::Link::ACTIVE:
+		{
+			const double last_inbound = std::max(std::max(_object->_last_inbound, _object->_last_proof), _object->_activated_at);
+			if (now >= last_inbound + _object->_keepalive || now >= _object->_last_outbound + _object->_keepalive) {
+				if (_object->_initiator && now >= _object->_last_keepalive + _object->_keepalive) {
+					send_keepalive();
+				}
+				if (now >= last_inbound + _object->_stale_time) {
+					_object->_status = Type::Link::STALE;
+				}
+			}
+			break;
+		}
+		case Type::Link::STALE:
+		{
+			const double last_inbound = std::max(std::max(_object->_last_inbound, _object->_last_proof), _object->_activated_at);
+			const double grace = _object->_rtt * _object->_keepalive_timeout_factor + Type::Link::STALE_GRACE;
+			if (now >= last_inbound + _object->_stale_time + grace) {
+				Packet(*this, _object->_link_id).context(Type::Packet::LINKCLOSE).send();
+				had_outbound();
+				_object->_status = Type::Link::CLOSED;
+				_object->_teardown_reason = Type::Link::TIMEOUT;
+				link_closed();
+			}
+			break;
+		}
+		default:
+			break;
+	}
+}
+
+void Link::update_keepalive() {
+	assert(_object);
+	//p self.keepalive = max(min(self.rtt*(Link.KEEPALIVE_MAX/Link.KEEPALIVE_MAX_RTT), Link.KEEPALIVE_MAX), Link.KEEPALIVE_MIN)
+	const double keepalive = _object->_rtt * (Type::Link::KEEPALIVE_MAX / Type::Link::KEEPALIVE_MAX_RTT);
+	_object->_keepalive = (uint16_t)std::max(std::min(keepalive, (double)Type::Link::KEEPALIVE_MAX), (double)Type::Link::KEEPALIVE_MIN);
+	_object->_stale_time = _object->_keepalive * Type::Link::STALE_FACTOR;
+}
+
+void Link::send_keepalive() {
+	assert(_object);
+    //p keepalive_packet = RNS.Packet(self, bytes([0xFF]), context=RNS.Packet.KEEPALIVE)
+	RNS::Packet(*this, Bytes("\xFF")).context(Type::Packet::KEEPALIVE).send();
+	had_outbound(true);
+}
+
+void Link::handle_request(const Bytes& request_id, const ResourceRequest& resource_request) {
+	assert(_object);
+	DEBUGF("Link %s handling request", link_id().toHex().c_str());
+	if (_object->_status == Type::Link::ACTIVE) {
+		//p requested_at = unpacked_request[0]
+		//p path_hash    = unpacked_request[1]
+		//p request_data = unpacked_request[2]
+
+		auto handler_iter = _object->_destination.request_handlers().find(resource_request._path_hash);
+		if (handler_iter != _object->_destination.request_handlers().end()) {
+			TRACE("Link::handle_request: Found handler");
+			RequestHandler request_handler = (*handler_iter).second;
+
+			bool allowed = false;
+			if (request_handler._allow != Type::Destination::ALLOW_NONE) {
+				if (request_handler._allow == Type::Destination::ALLOW_LIST) {
+					if (_object->__remote_identity && request_handler._allowed_list.count(_object->__remote_identity.hash()) > 0) {
+						allowed = true;
+					}
+				}
+				else if (request_handler._allow == Type::Destination::ALLOW_ALL) {
+					allowed = true;
+				}
+			}
+
+			if (allowed) {
+				DEBUGF("Handling request %s for: %s", request_id.toHex().c_str(), request_handler._path.toString().c_str());
+				//DEBUGF("Handling request %s from %s for: %s", request_id.toHex().c_str(), get_remote_identity().hash().toHex().c_str(), request_handler._path.toString().c_str());
+				//p if len(inspect.signature(response_generator).parameters) == 5:
+				//p 	response = response_generator(path, request_data, request_id, _object->__remote_identity, requested_at)
+				//p elif len(inspect.signature(response_generator).parameters) == 6:
+				//p 	response = response_generator(path, request_data, request_id, _object->_link_id, _object->__remote_identity, requested_at)
+				//p else:
+				//p 	raise TypeError("Invalid signature for response generator callback")
+				Bytes response(request_handler._response_generator(request_handler._path, resource_request._request_data, request_id, _object->_link_id, _object->__remote_identity, resource_request._requested_at));
+				DEBUGF("Received %u byte response from response generator", response.size());
+
+				if (response) {
+					//p packed_response = umsgpack.packb([request_id, response])
+					// `response` is the callback's already-msgpack-encoded payload.
+					// Splice it verbatim so the wire format matches Python's
+					// umsgpack.packb([request_id, response]).
+					Bytes packed_response = pack_response_envelope(request_id, response);
+
+					if (packed_response.size() <= MDU) {
+						TRACE("handle_request: Sending response as single packet");
+						//p RNS.Packet(self, packed_response, Type::Packet::DATA, context = Type::Packet::RESPONSE).send()
+						RNS::Packet(*this, packed_response).context(Type::Packet::RESPONSE).send();
+					}
+					else {
+						TRACE("handle_request: Sending response as resource");
+						// CBA TODO Determine why unused Resource is created here
+						Resource response_resource = Resource(packed_response, *this)
+							.request_id(request_id)
+							.is_response(true)
+							.start();
+					}
+				}
+			}
+			else {
+				std::string identity_string;
+				if (get_remote_identity()) {
+					identity_string = get_remote_identity().toString();
+				}
+				else {
+					identity_string = "<Unknown>";
+				}
+				DEBUGF("Request %s from %s not allowed for: %s", request_id.toHex().c_str(), identity_string.c_str(), request_handler._path.toString().c_str());
+			}
+		}
+	}
+}
+
+void Link::handle_response(const Bytes& request_id, const Bytes& response_data, size_t response_size, size_t response_transfer_size) {
+	assert(_object);
+	if (_object->_status == Type::Link::ACTIVE) {
+		RNS::RequestReceipt remove = {Type::NONE};
+		for (RNS::RequestReceipt pending_request : _object->_pending_requests) {
+			if (pending_request.request_id() == request_id) {
+				remove = pending_request;
+				try {
+					pending_request.response_size(response_size);
+					//if (pending_request.response_transfer_size == 0) {
+					//	pending_request.response_transfer_size = 0;
+					//}
+					pending_request.response_transfer_size(pending_request.response_transfer_size() + response_transfer_size);
+					pending_request.response_received(response_data);
+				}
+				catch (const std::exception& e) {
+					ERRORF("Error occurred while handling response. The contained exception was: %s", e.what());
+				}
+				break;
+			}
+		}
+		if (remove) {
+			if (_object->_pending_requests.count(remove) > 0) {
+				_object->_pending_requests.erase(remove);
+			}
+		}
+	}
+}
+
+void Link::request_resource_concluded(const Resource& resource) {
+	assert(_object);
+	if (resource.status() == Type::Resource::COMPLETE) {
+		//p packed_request = resource.data().read()
+		Bytes packed_request = resource.data();
+		//p unpacked_request = umsgpack.unpackb(packed_request)
+		// Splice: parse the fixed [timestamp, path_hash] prefix and slice the
+		// trailing raw msgpack bytes out as the user payload (so callbacks
+		// receive the same Bytes whether the request was a Packet or a Resource).
+		ResourceRequest resource_request;
+		if (!unpack_request_envelope(packed_request, resource_request)) {
+			DEBUG("Failed to parse incoming request resource envelope");
+			return;
+		}
+        //p request_id        = RNS.Identity.truncated_hash(packed_request)
+		Bytes request_id(Identity::truncated_hash(resource.data()));
+
+		//p handle_request(request_id, request_data)
+		handle_request(request_id, resource_request);
+	}
+	else {
+		DEBUGF("Incoming request resource failed with status: %d", resource.status());
+	}
+}
+
+void Link::response_resource_concluded(const Resource& resource) {
+	assert(_object);
+	if (resource.status() == Type::Resource::COMPLETE) {
+		//p packed_response = resource.data.read()
+		Bytes packed_response = resource.data();
+		//p unpacked_response = umsgpack.unpackb(packed_response)
+		//p request_id        = unpacked_response[0]
+		//p response_data     = unpacked_response[1]
+		// Splice: parse the leading [request_id] and slice the trailing raw
+		// msgpack bytes as response_data, so client-side callbacks receive
+		// the same payload whether the response was a Packet or a Resource.
+		Bytes request_id;
+		Bytes response_data;
+		if (!unpack_response_envelope(packed_response, request_id, response_data)) {
+			DEBUG("Failed to parse incoming response resource envelope");
+			return;
+		}
+
+		handle_response(request_id, response_data, resource.total_size(), resource.size());
+	}
+	else {
+		DEBUGF("Incoming response resource failed with status: %d", resource.status());
+		// Snapshot before invoking: request_timed_out() calls
+		// _link.pending_requests().erase(*this), mutating the very set
+		// we're iterating. The by-value loop variable is safe, but the
+		// underlying iterator's post-erase increment is undefined.
+		std::vector<RequestReceipt> pending(_object->_pending_requests.begin(),
+		                                    _object->_pending_requests.end());
+		for (RequestReceipt& pending_request : pending) {
+			if (pending_request.request_id() == resource.request_id()) {
+				pending_request.request_timed_out({Type::NONE});
+			}
+		}
+	}
+}
+
+
+/*z
+"""
+Get the ``Channel`` for this link.
+
+:return: ``Channel`` object
+"""
+void Link::get_channel() {
+	assert(_object);
+	if _object->_channel is None:
+		_object->_channel = Channel(LinkChannelOutlet(self))
+	return _object->_channel
+*/
+
+void Link::receive(const Packet& packet) {
+	assert(_object);
+	_object->_watchdog_lock = true;
+	if (_object->_status != Type::Link::CLOSED && !(_object->_initiator && packet.context() == Type::Packet::KEEPALIVE && packet.data() == "\xFF")) {
+		if (packet.receiving_interface() != _object->_attached_interface) {
+			ERROR("Link-associated packet received on unexpected interface! Someone might be trying to manipulate your communication!");
+		}
+		else {
+			_object->_last_inbound = OS::time();
+			if (packet.context() != Type::Packet::KEEPALIVE) {
+				_object->_last_data = _object->_last_inbound;
+			}
+			_object->_rx += 1;
+			_object->_rxbytes += packet.data().size();
+
+			// Snapshot per-packet signal-quality stats onto the link's
+			// "last received" fields so consumers can read link.rssi/snr/q
+			// without holding the original Packet. NaN means the source
+			// packet (or its receiving interface) didn't carry that metric.
+			if (!Type::isNan(packet.rssi())) _object->_rssi = packet.rssi();
+			if (!Type::isNan(packet.snr()))  _object->_snr  = packet.snr();
+			if (!Type::isNan(packet.q()))    _object->_q    = packet.q();
+			if (_object->_status == STALE) {
+				_object->_status = Type::Link::ACTIVE;
+			}
+
+			if (packet.packet_type() == Type::Packet::DATA) {
+				bool should_query = false;
+				switch (packet.context()) {
+				case Type::Packet::CONTEXT_NONE:
+				{
+					TRACEF("Link %s received DATA packet with context CONTEXT_NONE", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						if (_object->_callbacks._packet) {
+							//z thread = threading.Thread(target=_object->_callbacks.packet, args=(plaintext, packet))
+							//z thread.daemon = True
+							//z thread.start()
+							try {
+								_object->_callbacks._packet(plaintext, packet);
+							}
+							catch (const std::exception& e) {
+								ERRORF("Error while executing packet callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+							}
+						}
+						
+						if (_object->_destination.proof_strategy() == Type::Destination::PROVE_ALL) {
+							const_cast<Packet&>(packet).prove();
+							should_query = true;
+						}
+						else if (_object->_destination.proof_strategy() == Type::Destination::PROVE_APP) {
+							if (_object->_destination.callbacks()._proof_requested) {
+								try {
+									if (_object->_destination.callbacks()._proof_requested(packet)) {
+										const_cast<Packet&>(packet).prove();
+										should_query = true;
+									}
+								}
+								catch (const std::exception& e) {
+									ERRORF("Error while executing proof request callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+								}
+							}
+						}
+					}
+					break;
+				}
+				case Type::Packet::LINKIDENTIFY:
+				{
+					TRACEF("Link %s received DATA packet with context LINKIDENTIFY", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						if (!(_object->_initiator) && plaintext.size() == Type::Identity::KEYSIZE/8 + Type::Identity::SIGLENGTH/8) {
+							const Bytes public_key   = plaintext.left(Type::Identity::KEYSIZE/8);
+							const Bytes signed_data  = _object->_link_id + public_key;
+							const Bytes signature    = plaintext.mid(Type::Identity::KEYSIZE/8, Type::Identity::SIGLENGTH/8);
+							Identity identity(false);
+							identity.load_public_key(public_key);
+
+							if (identity.validate(signature, signed_data)) {
+								_object->__remote_identity = identity;
+								if (_object->_callbacks._remote_identified) {
+									try {
+										_object->_callbacks._remote_identified(*this, _object->__remote_identity);
+									}
+									catch (const std::exception& e) {
+										ERRORF("Error while executing remote identified callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+									}
+								}
+							}
+						}
+					}
+					break;
+				}
+				case Type::Packet::REQUEST:
+				{
+					TRACEF("Link %s received DATA packet with context REQUEST", hash().toHex().c_str());
+					try {
+						const Bytes request_id = packet.getTruncatedHash();
+						const Bytes packed_request = decrypt(packet.data());
+						if (packed_request) {
+							ResourceRequest resource_request;
+							if (!unpack_request_envelope(packed_request, resource_request)) {
+								DEBUG("Failed to parse incoming request packet envelope");
+								break;
+							}
+							handle_request(request_id, resource_request);
+						}
+					}
+					catch (const std::exception& e) {
+						ERRORF("Error occurred while handling request. The contained exception was: %s", e.what());
+					}
+					break;
+				}
+				case Type::Packet::RESPONSE:
+				{
+					TRACEF("Link %s received DATA packet with context RESPONSE", hash().toHex().c_str());
+					try {
+						const Bytes packed_response = decrypt(packet.data());
+						if (packed_response) {
+							//p unpacked_response = umsgpack.unpackb(packed_response)
+							//p request_id = unpacked_response[0]
+							//p response_data = unpacked_response[1]
+                            //p transfer_size = len(umsgpack.packb(response_data))-2
+							Bytes request_id;
+							Bytes response_data;
+							if (unpack_response_envelope(packed_response, request_id, response_data)) {
+								size_t transfer_size = response_data.size() > 2 ? response_data.size() - 2 : 0;
+								handle_response(request_id, response_data, transfer_size, transfer_size);
+							}
+						}
+					}
+					catch (const std::exception& e) {
+						ERRORF("Error occurred while handling response. The contained exception was: %s", e.what());
+					}
+					break;
+				}
+				case Type::Packet::LRRTT:
+				{
+					TRACEF("Link %s received DATA packet with context LRRTT", hash().toHex().c_str());
+					if (!_object->_initiator) {
+						rtt_packet(packet);
+					}
+					break;
+				}
+				case Type::Packet::LINKCLOSE:
+				{
+					TRACEF("Link %s received DATA packet with context LINKCLOSE", hash().toHex().c_str());
+					teardown_packet(packet);
+					break;
+				}
+				case Type::Packet::RESOURCE_ADV:
+				{
+					TRACEF("Link %s received DATA packet with context RESOURCE_ADV", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						const_cast<Packet&>(packet).plaintext(plaintext);
+						if (ResourceAdvertisement::is_request(packet)) {
+							// Dispatch to Link::request_resource_concluded() happens
+							// via Link::resource_concluded() on completion;
+							// no trampoline callback required at accept-time.
+							Resource::accept(packet, /*callback=*/nullptr, /*progress_callback=*/nullptr, ResourceAdvertisement::read_request_id(packet));
+						}
+						else if (ResourceAdvertisement::is_response(packet)) {
+							Bytes request_id = ResourceAdvertisement::read_request_id(packet);
+							// std::set yields const refs; RequestReceipt uses pimpl
+							// so a value copy still mutates the underlying data.
+							for (RequestReceipt pending_request : _object->_pending_requests) {
+								if (pending_request.request_id() == request_id) {
+									Resource response_resource = Resource::accept(packet, /*callback=*/nullptr, /*progress_callback=*/nullptr, request_id);
+									if (response_resource) {
+										if (pending_request.response_transfer_size() == 0) {
+											pending_request.response_size(ResourceAdvertisement::read_size(packet));
+										}
+										const size_t prev = pending_request.response_transfer_size();
+										pending_request.response_transfer_size(prev + ResourceAdvertisement::read_transfer_size(packet));
+									}
+								}
+							}
+						}
+						else if (_object->_resource_strategy == Type::Link::ACCEPT_NONE) {
+							// drop
+						}
+						else if (_object->_resource_strategy == Type::Link::ACCEPT_APP) {
+							if (_object->_callbacks._resource) {
+								try {
+									ResourceAdvertisement resource_advertisement =
+										ResourceAdvertisement::unpack(packet.plaintext());
+									resource_advertisement._link = *this;
+									_object->_callbacks._resource(resource_advertisement);
+									// Currently the resource() callback returns void on the
+									// C++ port; accept unconditionally if a callback is set.
+									Resource::accept(packet, _object->_callbacks._resource_concluded);
+								}
+								catch (const std::exception& e) {
+									ERRORF("Error while executing resource accept callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+								}
+							}
+						}
+						else if (_object->_resource_strategy == Type::Link::ACCEPT_ALL) {
+							Resource::accept(packet, _object->_callbacks._resource_concluded);
+						}
+					}
+					break;
+				}
+				case Type::Packet::RESOURCE_REQ:
+				{
+					TRACEF("Link %s received DATA packet with context RESOURCE_REQ", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						// Layout: [hmu_flag (1 byte) || maybe last_map_hash (4 bytes)
+						//         || resource_hash (HASHLENGTH/8 bytes) || requested_hashes...]
+						const size_t hash_bytes = Type::Identity::HASHLENGTH / 8;
+						const size_t maphash_len = Type::Resource::MAPHASH_LEN;
+						Bytes resource_hash;
+						if (plaintext.size() >= 1
+						    && plaintext.data()[0] == Type::Resource::HASHMAP_IS_EXHAUSTED) {
+							if (plaintext.size() >= 1 + maphash_len + hash_bytes) {
+								resource_hash = plaintext.mid(1 + maphash_len, hash_bytes);
+							}
+						}
+						else if (plaintext.size() >= 1 + hash_bytes) {
+							resource_hash = plaintext.mid(1, hash_bytes);
+						}
+
+						if (resource_hash) {
+							// Snapshot before invoking: Resource::request() can
+							// fail to send a part and call cancel(), which
+							// erases this resource from _outgoing_resources
+							// and dangles both the iterator and *this.
+							std::vector<Resource> outgoing;
+							for (const Resource& resource : _object->_outgoing_resources) {
+								if (resource.hash() == resource_hash) {
+									outgoing.push_back(resource);
+									break;
+								}
+							}
+							for (Resource& resource : outgoing) {
+								// Dedupe retransmitted requests (mirror Python
+								// Resource.req_hashlist).
+								if (!resource.has_request_hash(packet.packet_hash())) {
+									resource.note_request_hash(packet.packet_hash());
+									resource.request(plaintext);
+								}
+							}
+						}
+					}
+					break;
+				}
+				case Type::Packet::RESOURCE_HMU:
+				{
+					TRACEF("Link %s received DATA packet with context RESOURCE_HMU", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						const size_t hash_bytes = Type::Identity::HASHLENGTH / 8;
+						if (plaintext.size() >= hash_bytes) {
+							Bytes resource_hash = plaintext.left(hash_bytes);
+							// Snapshot before invoking the resource: an HMU
+							// can transitively trigger cancel(), which
+							// erase()s from _incoming_resources and would
+							// dangle the iterator + *this here. Holding a
+							// local copy keeps the shared_ptr alive.
+							std::vector<Resource> matches;
+							for (const Resource& resource : _object->_incoming_resources) {
+								if (resource.hash() == resource_hash) {
+									matches.push_back(resource);
+								}
+							}
+							for (Resource& r : matches) {
+								r.hashmap_update_packet(plaintext);
+							}
+						}
+					}
+					break;
+				}
+				case Type::Packet::RESOURCE_ICL:
+				{
+					TRACEF("Link %s received DATA packet with context RESOURCE_ICL", hash().toHex().c_str());
+					const Bytes plaintext = decrypt(packet.data());
+					if (plaintext) {
+						const size_t hash_bytes = Type::Identity::HASHLENGTH / 8;
+						if (plaintext.size() >= hash_bytes) {
+							Bytes resource_hash = plaintext.left(hash_bytes);
+							// Snapshot matching resources before invoking cancel().
+							// resource.cancel() calls Link::cancel_incoming_resource()
+							// which erase()s from _incoming_resources — that
+							// destroys the std::set value, leaving the `this`
+							// pointer dangling inside the still-running cancel()
+							// body (it goes on to dereference _object for the
+							// concluded-callback check → SEGV). Holding the
+							// Resource in a local vector keeps the shared_ptr
+							// alive past the erase.
+							std::vector<Resource> to_cancel;
+							for (const Resource& resource : _object->_incoming_resources) {
+								if (resource.hash() == resource_hash) {
+									to_cancel.push_back(resource);
+								}
+							}
+							for (Resource& r : to_cancel) {
+								r.cancel();
+							}
+						}
+					}
+					break;
+				}
+				case Type::Packet::KEEPALIVE:
+				{
+					TRACEF("Link %s received DATA packet with context KEEPALIVE", hash().toHex().c_str());
+					if (!_object->_initiator && packet.data() == "\xFF") {
+                        //p keepalive_packet = RNS.Packet(self, bytes([0xFE]), context=RNS.Packet.KEEPALIVE)
+						Packet(*this, Bytes("\xFE")).context(Type::Packet::KEEPALIVE).send();
+						had_outbound(true);
+					}
+					break;
+				}
+				// TODO: find the most efficient way to allow multiple
+				// transfers at the same time, sending resource hash on
+				// each packet is a huge overhead. Probably some kind
+				// of hash -> sequence map
+				case Type::Packet::RESOURCE:
+				{
+					TRACEF("Link %s received DATA packet with context RESOURCE", hash().toHex().c_str());
+					// Snapshot before invoking receive_part: assemble() can
+					// trigger cancel() (e.g. when the assembled resource is
+					// flagged compressed and we reject it), which erase()s
+					// from _incoming_resources mid-iteration and would
+					// dangle both the iterator and *this inside the called
+					// method. Holding a local copy keeps the shared_ptr
+					// alive past the erase.
+					std::vector<Resource> resources;
+					resources.reserve(_object->_incoming_resources.size());
+					for (const Resource& resource : _object->_incoming_resources) {
+						resources.push_back(resource);
+					}
+					for (Resource& r : resources) {
+						r.receive_part(packet);
+					}
+					break;
+				}
+/*z
+				case Type::Packet::CHANNEL:
+				{
+					TRACEF("Link %s received DATA packet with context CHANNEL", hash().toHex().c_str());
+					//z if (!_object->_channel) {
+					if (true) {
+						DEBUG(f"Channel data received without open channel")
+					}
+					else {
+						//z packet.prove();
+						//z plaintext = decrypt(packet.data());
+						//z if (plaintext) {
+						//z 	_object->_channel._receive(plaintext);
+						//z }
+					}
+					break;
+				}
+*/
+				default:
+					WARNINGF("Link %s received DATA packet with UNKNOWN context!", hash().toHex().c_str());
+					break;
+				}
+			}
+			else if (packet.packet_type() == Type::Packet::PROOF) {
+				if (packet.context() == Type::Packet::RESOURCE_PRF) {
+					TRACEF("Link %s received PROOF packet with context RESOURCE_PRF", hash().toHex().c_str());
+					Bytes resource_hash = packet.data().left(Type::Identity::HASHLENGTH/8);
+					// Snapshot — validate_proof() may call resource_concluded()
+					// which erases from _outgoing_resources, invalidating any
+					// in-flight iterator on the live set.
+					std::vector<Resource> outgoing(_object->_outgoing_resources.begin(),
+					                               _object->_outgoing_resources.end());
+					for (auto& resource : outgoing) {
+						if (resource_hash == resource.hash()) {
+							resource.validate_proof(packet.data());
+						}
+					}
+				}
+				else {
+					WARNINGF("Link %s received PROOF packet with UNKNOWN context", hash().toHex().c_str());
+				}
+			}
+			else {
+				WARNINGF("Link %s received UNKNOWN packet", hash().toHex().c_str());
+			}
+		}
+	}
+
+	_object->_watchdog_lock = false;
+}
+
+const Bytes Link::encrypt(const Bytes& plaintext) {
+	assert(_object);
+	TRACE("Link::encrypt: encrypting data...");
+	try {
+		if (!_object->_token) {
+			try {
+				_object->_token.reset(new Token(_object->_derived_key));
+			}
+			catch (const std::exception& e) {
+				ERRORF("Could not instantiate Token while performing encryption on link %s. The contained exception was: %s", toString().c_str(), e.what());
+				throw e;
+			}
+		}
+		return _object->_token->encrypt(plaintext);
+	}
+	catch (const std::exception& e) {
+		ERRORF("Encryption on link %s failed. The contained exception was: %s", toString().c_str(), e.what());
+		throw e;
+	}
+}
+
+const Bytes Link::decrypt(const Bytes& ciphertext) {
+	assert(_object);
+	TRACE("Link::decrypt: decrypting data...");
+	try {
+		if (!_object->_token) {
+			_object->_token.reset(new Token(_object->_derived_key));
+		}
+		return _object->_token->decrypt(ciphertext);
+	}
+	catch (const std::exception& e) {
+		ERRORF("Decryption failed on link %s. The contained exception was: %s", toString().c_str(), e.what());
+		return {Bytes::NONE};
+	}
+}
+
+const Bytes Link::sign(const Bytes& message) {
+	assert(_object);
+	assert(_object->_sig_prv);
+	return _object->_sig_prv->sign(message);
+}
+
+bool Link::validate(const Bytes& signature, const Bytes& message) {
+	assert(_object);
+	try {
+		assert(_object->_peer_sig_pub);
+		return _object->_peer_sig_pub->verify(signature, message);
+	}
+	catch (const std::exception& e) {
+		return false;
+	}
+}
+
+void Link::set_link_established_callback(Callbacks::established callback) {
+	assert(_object);
+	_object->_callbacks._established = callback;
+}
+
+void Link::set_link_closed_callback(Callbacks::closed callback) {
+	assert(_object);
+	_object->_callbacks._closed = callback;
+}
+
+void Link::set_packet_callback(Callbacks::packet callback) {
+	assert(_object);
+	_object->_callbacks._packet = callback;
+}
+
+void Link::set_remote_identified_callback(Callbacks::remote_identified callback) {
+	assert(_object);
+	_object->_callbacks._remote_identified = callback;
+}
+
+void Link::set_resource_callback(Callbacks::resource callback) {
+	assert(_object);
+	_object->_callbacks._resource = callback;
+}
+
+void Link::set_resource_started_callback(Callbacks::resource_started callback) {
+	assert(_object);
+	_object->_callbacks._resource_started = callback;
+}
+
+void Link::set_resource_concluded_callback(Callbacks::resource_concluded callback) {
+	assert(_object);
+	_object->_callbacks._resource_concluded = callback;
+}
+
+
+void Link::resource_concluded(const Resource& resource) {
+	assert(_object);
+	const bool was_incoming = _object->_incoming_resources.count(resource) > 0;
+	if (was_incoming) {
+		_object->_incoming_resources.erase(resource);
+	}
+	if (_object->_outgoing_resources.count(resource) > 0) {
+		_object->_outgoing_resources.erase(resource);
+	}
+
+	// Dispatch by role. The RESOURCE_ADV handler in Link::receive() reads the
+	// request/response flag bits from the advertisement and stores them on
+	// the Resource via accept(); here we route a completed request-resource
+	// or response-resource to the corresponding handler.
+	if (was_incoming && resource.status() == Type::Resource::COMPLETE
+	    && resource.request_id() && resource.request_id().size() > 0) {
+		if (resource.is_response()) {
+			response_resource_concluded(resource);
+		}
+		else {
+			request_resource_concluded(resource);
+		}
+	}
+}
+
+/*
+Sets the resource strategy for the link.
+
+:param resource_strategy: One of ``RNS.ACCEPT_NONE``, ``RNS.ACCEPT_ALL`` or ``RNS.ACCEPT_APP``. If ``RNS.ACCEPT_APP`` is set, the `resource_callback` will be called to determine whether the resource should be accepted or not.
+:raises: *TypeError* if the resource strategy is unsupported.
+*/
+void Link::set_resource_strategy(resource_strategy strategy) {
+	assert(_object);
+	if (!(strategy & resource_strategies)) {
+		throw std::runtime_error("Unsupported resource strategy");
+	}
+	else {
+		_object->_resource_strategy = strategy;
+	}
+}
+
+void Link::register_outgoing_resource(const Resource& resource) {
+	assert(_object);
+	_object->_outgoing_resources.insert(resource);
+}
+
+void Link::register_incoming_resource(const Resource& resource) {
+	assert(_object);
+	_object->_incoming_resources.insert(resource);
+}
+
+bool Link::has_incoming_resource(const Resource& resource) {
+	assert(_object);
+	for (const auto& incoming_resource : _object->_incoming_resources) {
+		if (incoming_resource.hash() == resource.hash()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void Link::cancel_outgoing_resource(const Resource& resource) {
+	assert(_object);
+	if (_object->_outgoing_resources.count(resource) > 0) {
+		_object->_outgoing_resources.erase(resource);
+	}
+	else {
+		ERROR("Attempt to cancel a non-existing outgoing resource");
+	}
+}
+
+void Link::cancel_incoming_resource(const Resource& resource) {
+	assert(_object);
+	if (_object->_incoming_resources.count(resource)) {
+		_object->_incoming_resources.erase(resource);
+	}
+	else {
+		ERROR("Attempt to cancel a non-existing incoming resource");
+	}
+}
+
+bool Link::ready_for_new_resource() {
+	assert(_object);
+	// Mirror Python RNS.Link.ready_for_new_resource (Link.py:1311):
+	// new resources are accepted only when no resource is currently in
+	// the outgoing queue.
+	return _object->_outgoing_resources.empty();
+}
+
+std::string Link::toString() const {
+	if (!_object) {
+		return "";
+	}
+	return "{Link:" + _object->_link_id.toHex() + "}";
+}
+
+// getters
+
+const Link::Callbacks& Link::callbacks() const {
+	assert(_object);
+	return _object->_callbacks;
+}
+
+double Link::rtt() const {
+	assert(_object);
+	return _object->_rtt;
+}
+
+const Destination& Link::destination() const {
+	assert(_object);
+	return _object->_destination;
+}
+
+const Interface& Link::attached_interface() const {
+	assert(_object);
+	return _object->_attached_interface;
+}
+
+// CBA LINK
+/*
+const Destination& Link::link_destination() const {
+	assert(_object);
+	return _object->_link_destination;
+}
+*/
+
+const Bytes& Link::link_id() const {
+	assert(_object);
+	return _object->_link_id;
+}
+
+const Bytes& Link::hash() const {
+	assert(_object);
+	return _object->_hash;
+}
+
+uint16_t Link::mtu() const {
+	assert(_object);
+	return _object->_mtu;
+}
+
+Type::Link::status Link::status() const {
+	assert(_object);
+	return _object->_status;
+}
+
+double Link::establishment_timeout() const {
+	assert(_object);
+	return _object->_establishment_timeout;
+}
+
+uint16_t Link::establishment_cost() const {
+	assert(_object);
+	return _object->_establishment_cost;
+}
+
+uint8_t Link::traffic_timeout_factor() const {
+	assert(_object);
+	return _object->_traffic_timeout_factor;
+}
+
+double Link::request_time() const {
+	assert(_object);
+	return _object->_request_time;
+}
+
+double Link::last_inbound() const {
+	assert(_object);
+	return _object->_last_inbound;
+}
+
+std::set<RNS::RequestReceipt>& Link::pending_requests() const {
+	assert(_object);
+	return _object->_pending_requests;
+}
+
+Type::Link::teardown_reason Link::teardown_reason() const {
+	assert(_object);
+	return _object->_teardown_reason;
+}
+
+bool Link::initiator() const {
+	assert(_object);
+	return _object->_initiator;
+}
+
+// setters
+
+void Link::destination(const Destination& destination) {
+	assert(_object);
+	_object->_destination = destination;
+}
+
+void Link::attached_interface(const Interface& interface) {
+	assert(_object);
+	_object->_attached_interface = interface;
+}
+
+void Link::establishment_timeout(double timeout) {
+	assert(_object);
+	_object->_establishment_timeout = timeout;
+}
+
+void Link::establishment_cost(uint16_t cost) {
+	assert(_object);
+	_object->_establishment_cost = cost;
+}
+
+void Link::request_time(double time) {
+	assert(_object);
+	_object->_request_time = time;
+}
+
+void Link::last_inbound(double time) {
+	assert(_object);
+	_object->_last_inbound = time;
+}
+
+void Link::last_proof(double time) {
+	assert(_object);
+	_object->_last_proof = time;
+}
+
+void Link::last_outbound(double time) {
+	assert(_object);
+	_object->_last_outbound = time;
+}
+
+void Link::increment_tx() {
+	assert(_object);
+	_object->_tx++;
+}
+
+void Link::increment_txbytes(uint16_t bytes) {
+	assert(_object);
+	_object->_txbytes += bytes;
+}
+
+void Link::status(Type::Link::status status) {
+	assert(_object);
+	_object->_status = status;
+}
+
+void Link::mtu(uint16_t mtu) {
+	assert(_object);
+	_object->_mtu = mtu;
+}
+
+void Link::mode(RNS::Type::Link::link_mode mode) {
+	assert(_object);
+	_object->_mode = mode;
+}
+
+
+//RequestReceipt::RequestReceipt(const Link& link, const PacketReceipt& packet_receipt /*= {Type::NONE}*/, const Resource& resource /*= {Type::NONE}*/, RequestReceipt::Callbacks::response response_callback /*= nullptr*/, RequestReceipt::Callbacks::failed failed_callback /*= nullptr*/, RequestReceipt::Callbacks::progress progress_callback /*= nullptr*/, double timeout /*= 0.0*/, int request_size /*= 0*/) :
+RequestReceipt::RequestReceipt(const Link& link, const PacketReceipt& packet_receipt, const Resource& resource, RequestReceipt::Callbacks::response response_callback /*= nullptr*/, RequestReceipt::Callbacks::failed failed_callback /*= nullptr*/, RequestReceipt::Callbacks::progress progress_callback /*= nullptr*/, double timeout /*= 0.0*/, int request_size /*= 0*/) :
+	_object(new RequestReceiptData())
+{
+	assert(_object);
+	_object->_packet_receipt = packet_receipt;
+	_object->_resource = resource;
+	if (_object->_packet_receipt) {
+		_object->_hash = packet_receipt.truncated_hash();
+		//z _object->_packet_receipt.set_timeout_callback(request_timed_out);
+		_object->_started_at = OS::time();
+	}
+	else if (_object->_resource) {
+		_object->_hash = resource.request_id();
+		// CBA TODO Need to find cross-platform way of passing class method as callback
+		//z const_cast<Resource&>(resource).set_concluded_callback(request_resource_concluded);
+		//z const_cast<Resource&>(resource).set_concluded_callback(std::bind(&RequestReceipt::request_resource_concluded, this, std::placeholders::_1));
+	}
+	_object->_link = link;
+	_object->_request_id = _object->_hash;
+	_object->_request_size = request_size;
+	_object->_sent_at = OS::time();
+	if (timeout != 0.0) {
+		_object->_timeout = timeout;
+	}
+	else {
+		throw std::invalid_argument("No timeout specified for request receipt");
+	}
+
+	_object->_callbacks._response = response_callback;
+	_object->_callbacks._failed = failed_callback;
+	_object->_callbacks._progress = progress_callback;
+
+	_object->_link.pending_requests().insert(*this);
+}
+
+void RequestReceipt::request_resource_concluded(const Resource& resource) {
+	assert(_object);
+	if (resource.status() == Type::Resource::COMPLETE) {
+		DEBUGF("Request %s successfully sent as resource.", _object->_request_id.toHex().c_str());
+		if (_object->_started_at == 0.0) {
+			_object->_started_at = OS::time();
+		}
+		_object->_status = Type::RequestReceipt::DELIVERED;
+		_object->_resource_response_timeout = OS::time() + _object->_timeout;
+		//p response_timeout_thread = threading.Thread(target=_object->___response_timeout_job)
+		//p response_timeout_thread.daemon = True
+		//p response_timeout_thread.start()
+	}
+	else {
+		DEBUGF("Sending request %s as resource failed with status: %d", _object->_request_id.toHex().c_str(), resource.status());
+		_object->_status = Type::RequestReceipt::FAILED;
+		_object->_concluded_at = OS::time();
+		_object->_link.pending_requests().erase(*this);
+		if (_object->_callbacks._failed != nullptr) {
+			try {
+				_object->_callbacks._failed(*this);
+			}
+			catch (const std::exception& e) {
+				ERRORF("Error while executing request failed callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+			}
+		}
+	}
+}
+
+
+void RequestReceipt::__response_timeout_job() {
+	assert(_object);
+	while (_object->_status == Type::RequestReceipt::DELIVERED) {
+		double now = OS::time();
+		if (now > _object->___resource_response_timeout) {
+			request_timed_out({Type::NONE});
+		}
+
+		OS::sleep(0.1);
+	}
+}
+
+
+void RequestReceipt::request_timed_out(const PacketReceipt& packet_receipt) {
+	assert(_object);
+	_object->_status = Type::RequestReceipt::FAILED;
+	_object->_concluded_at = OS::time();
+	_object->_link.pending_requests().erase(*this);
+
+	if (_object->_callbacks._failed != nullptr) {
+		try {
+			_object->_callbacks._failed(*this);
+		}
+		catch (const std::exception& e) {
+			ERRORF("Error while executing request timed out callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+		}
+	}
+}
+
+
+void RequestReceipt::response_resource_progress(const Resource& resource) {
+	assert(_object);
+	if (resource) {
+		if (_object->_status != Type::RequestReceipt::FAILED) {
+			_object->_status = Type::RequestReceipt::RECEIVING;
+			if (_object->_packet_receipt) {
+				if (_object->_packet_receipt.status() != Type::PacketReceipt::DELIVERED) {
+					_object->_packet_receipt.status(Type::PacketReceipt::DELIVERED);
+					_object->_packet_receipt.proved(true);
+					_object->_packet_receipt.concluded_at(OS::time());
+					if (_object->_packet_receipt.callbacks()._delivery != nullptr) {
+						_object->_packet_receipt.callbacks()._delivery(_object->_packet_receipt);
+					}
+				}
+			}
+
+			_object->_progress = resource.get_progress();
+
+			if (_object->_callbacks._progress != nullptr) {
+				try {
+					_object->_callbacks._progress(*this);
+				}
+				catch (const std::exception& e) {
+					ERRORF("Error while executing response progress callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+				}
+			}
+		}
+		else {
+			const_cast<Resource&>(resource).cancel();
+		}
+	}
+}
+
+void RequestReceipt::response_received(const Bytes& response) {
+	assert(_object);
+	if (_object->_status != Type::RequestReceipt::FAILED) {
+		_object->_progress = 1.0;
+		_object->_response = response;
+		_object->_status = Type::RequestReceipt::READY;
+		_object->_response_concluded_at = OS::time();
+
+		if (_object->_packet_receipt) {
+			_object->_packet_receipt.status(Type::PacketReceipt::DELIVERED);
+			_object->_packet_receipt.proved(true);
+			_object->_packet_receipt.concluded_at(OS::time());
+			if (_object->_packet_receipt.callbacks()._delivery != nullptr) {
+				_object->_packet_receipt.callbacks()._delivery(_object->_packet_receipt);
+			}
+		}
+		if (_object->_callbacks._progress != nullptr) {
+			try {
+				_object->_callbacks._progress(*this);
+			}
+			catch (const std::exception& e) {
+				ERRORF("Error while executing response progress callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+			}
+		}
+		if (_object->_callbacks._response != nullptr) {
+			try {
+				_object->_callbacks._response(*this);
+			}
+			catch (const std::exception& e) {
+				ERRORF("Error while executing response received callback from %s. The contained exception was: %s", toString().c_str(), e.what());
+			}
+		}
+	}
+}
+
+// :returns: The request ID as *bytes*.
+const Bytes& RequestReceipt::get_request_id() const {
+	assert(_object);
+	return _object->_request_id;
+}
+
+// :returns: The current status of the request, one of ``RNS.RequestReceipt.FAILED``, ``RNS.RequestReceipt.SENT``, ``RNS.RequestReceipt.DELIVERED``, ``RNS.RequestReceipt.READY``.
+Type::RequestReceipt::status RequestReceipt::get_status() const {
+	assert(_object);
+	return _object->_status;
+}
+
+// :returns: The progress of a response being received as a *float* between 0.0 and 1.0.
+float RequestReceipt::get_progress() const {
+	assert(_object);
+	return _object->_progress;
+}
+
+// :returns: The response as *bytes* if it is ready, otherwise *None*.
+const Bytes RequestReceipt::get_response() const {
+	assert(_object);
+	if (_object->_status == Type::RequestReceipt::READY) {
+		return _object->_response;
+	}
+	else {
+		return Bytes::NONE;
+	}
+}
+
+// :returns: The response time of the request in seconds.
+double RequestReceipt::get_response_time() const {
+	assert(_object);
+	if (_object->_status == Type::RequestReceipt::READY) {
+		return _object->_response_concluded_at - _object->_started_at;
+	}
+	else {
+		return 0.0;
+	}
+}
+
+std::string RequestReceipt::toString() const {
+	if (!_object) {
+		return "";
+	}
+	return "{RequestReceipt:" + _object->_hash.toHex() + "}";
+}
+
+// getters
+
+const Bytes& RequestReceipt::hash() const {
+	assert(_object);
+	return _object->_hash;
+}
+
+const Bytes& RequestReceipt::request_id() const {
+	assert(_object);
+	return _object->_request_id;
+}
+
+size_t RequestReceipt::response_transfer_size() const {
+	assert(_object);
+	return _object->_response_transfer_size;
+}
+
+// setters
+
+void RequestReceipt::response_size(size_t size) {
+	assert(_object);
+	_object->_response_size = size;
+}
+
+void RequestReceipt::response_transfer_size(size_t size) {
+	assert(_object);
+	_object->_response_transfer_size = size;
+}

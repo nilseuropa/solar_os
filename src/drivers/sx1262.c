@@ -50,6 +50,7 @@
 
 #define SX1262_STANDBY_RC 0x00U
 #define SX1262_STANDBY_XOSC 0x01U
+#define SX1262_REGULATOR_LDO 0x00U
 #define SX1262_REGULATOR_DC_DC 0x01U
 #define SX1262_TCXO_VOLTAGE_3V0 0x06U
 #define SX1262_TCXO_DELAY_15625NS_UNITS 320U /* ~5 ms startup delay */
@@ -378,6 +379,24 @@ static uint8_t sx1262_lora_bandwidth_code(uint32_t bw_hz)
     return 0x06U; /* 500 kHz */
 }
 
+/* The bandwidth a LoRa bandwidth code selects, in Hz, as
+ * sx1262_lora_bandwidth_code() names it. */
+static uint32_t sx1262_lora_bandwidth_hz(uint8_t code)
+{
+    switch (code) {
+    case 0x00U: return 7800U;
+    case 0x08U: return 10400U;
+    case 0x01U: return 15600U;
+    case 0x09U: return 20800U;
+    case 0x02U: return 31250U;
+    case 0x0AU: return 41700U;
+    case 0x03U: return 62500U;
+    case 0x04U: return 125000U;
+    case 0x05U: return 250000U;
+    default: return 500000U;
+    }
+}
+
 static bool sx1262_gfsk_bandwidth(uint32_t requested, uint32_t *actual, uint8_t *code)
 {
     /* Semtech sx126x_gfsk_bw_t encodings; choose the narrowest filter that
@@ -476,7 +495,8 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
         err = sx1262_write_register(dev, SX1262_REG_RX_GAIN, &gain, 1);
     }
     if (err == ESP_OK) {
-        const uint8_t regulator = SX1262_REGULATOR_DC_DC;
+        const uint8_t regulator = dev->regulator_ldo ? SX1262_REGULATOR_LDO :
+                                                       SX1262_REGULATOR_DC_DC;
         err = sx1262_transact(dev, SX1262_OP_SET_REGULATOR_MODE, &regulator, 1, NULL, 0);
     }
     if (err == ESP_OK) {
@@ -524,9 +544,13 @@ esp_err_t sx1262_configure(sx1262_t *dev, const solar_os_radio_config_t *config)
                 config->rx_bandwidth_hz != 0 ? config->rx_bandwidth_hz : 125000U);
             const uint8_t cr = (config->coding_rate_denominator >= 5 && config->coding_rate_denominator <= 8)
                 ? (uint8_t)(config->coding_rate_denominator - 4U) : 1U;
-            const uint8_t low_dr_opt = (bw == 0x00U || bw == 0x08U ||
-                                        (bw == 0x01U && sf >= 11U) ||
-                                        (bw == 0x02U && sf == 12U)) ? 1U : 0U;
+            /* AUTO enables low-data-rate optimize wherever a symbol lasts longer
+             * than 16 ms, the rule the other LoRa drivers use: SF11 and
+             * SF12 at 125 kHz, SF12 at 250 kHz, and more as it narrows. */
+            const uint64_t symbol_us = ((uint64_t)1U << sf) * 1000000ULL /
+                sx1262_lora_bandwidth_hz(bw);
+            const uint8_t low_dr_opt = solar_os_radio_low_data_rate(
+                config, symbol_us > 16000ULL) ? 1U : 0U;
             const uint8_t params[4] = {sf, bw, cr, low_dr_opt};
             err = sx1262_transact(dev, SX1262_OP_SET_MODULATION_PARAMS, params, sizeof(params), NULL, 0);
         } else {
@@ -649,12 +673,22 @@ esp_err_t sx1262_set_state(sx1262_t *dev, solar_os_radio_state_t state)
         err = sx1262_set_standby(dev);
         break;
     case SOLAR_OS_RADIO_STATE_RX: {
-        err = sx1262_start_rx(dev);
+        if (dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, false);
+        }
+        if (err == ESP_OK) {
+            err = sx1262_start_rx(dev);
+        }
         break;
     }
     case SOLAR_OS_RADIO_STATE_TX: {
         const uint8_t params[3] = {0x00U, 0x00U, 0x00U}; /* no HW timeout */
-        err = sx1262_transact(dev, SX1262_OP_SET_TX, params, sizeof(params), NULL, 0);
+        if (dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, true);
+        }
+        if (err == ESP_OK) {
+            err = sx1262_transact(dev, SX1262_OP_SET_TX, params, sizeof(params), NULL, 0);
+        }
         break;
     }
     case SOLAR_OS_RADIO_STATE_UNKNOWN:
@@ -728,6 +762,9 @@ esp_err_t sx1262_tune_rx(sx1262_t *dev, uint32_t frequency_hz, uint32_t *settle_
         err = sx1262_transact(dev, SX1262_OP_SET_RF_FREQUENCY, params, 4, NULL, 0);
     }
     if (err == ESP_OK) err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+    if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+        err = dev->set_antenna_tx(dev->antenna_ctx, false);
+    }
     if (err == ESP_OK) {
         const uint8_t params[3] = {0xff, 0xff, 0xff};
         err = sx1262_transact(dev, SX1262_OP_SET_RX, params, 3, NULL, 0);
@@ -801,6 +838,9 @@ esp_err_t sx1262_send(sx1262_t *dev, const solar_os_radio_packet_t *packet, uint
     }
     if (err == ESP_OK) {
         err = sx1262_write_buffer(dev, 0x00U, packet->data, packet->len);
+    }
+    if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+        err = dev->set_antenna_tx(dev->antenna_ctx, true);
     }
     if (err == ESP_OK) {
         const uint8_t params[3] = {0x00U, 0x00U, 0x00U};
@@ -876,6 +916,9 @@ esp_err_t sx1262_receive(sx1262_t *dev, solar_os_radio_packet_t *packet, uint32_
      * there, never fall back to standby" contract. */
     if (dev->state != SOLAR_OS_RADIO_STATE_RX) {
         err = sx1262_clear_irq_status(dev, SX1262_IRQ_ALL);
+        if (err == ESP_OK && dev->set_antenna_tx != NULL) {
+            err = dev->set_antenna_tx(dev->antenna_ctx, false);
+        }
         if (err == ESP_OK) {
             err = sx1262_start_rx(dev);
         }

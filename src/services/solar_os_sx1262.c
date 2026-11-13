@@ -5,6 +5,9 @@
 #include "esp_check.h"
 #include "esp_log.h"
 #include "sx1262.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_radio.h"
 
 #define SOLAR_OS_SX1262_MAX 1
@@ -19,12 +22,49 @@ typedef struct {
     int busy_pin;
     int reset_pin;
     int irq_pin;
+    bool has_reset_line;
+    bool has_power_line;
+    bool has_ant_line;
+    solar_os_gpio_line_ref_t reset_line;
+    solar_os_gpio_line_ref_t power_line;
+    solar_os_gpio_line_ref_t ant_line;
+    uint32_t frequency_hz;
+    bool regulator_ldo;
     sx1262_t radio;
 } solar_os_sx1262_device_t;
 
 static const char *TAG = "sx1262";
 static solar_os_sx1262_device_t devices[SOLAR_OS_SX1262_MAX];
 static const solar_os_radio_ops_t radio_ops;
+
+typedef struct {
+    char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
+    int cs_pin;
+    int busy_pin;
+    int reset_pin;
+    int irq_pin;
+    bool has_reset_line;
+    bool has_power_line;
+    bool has_ant_line;
+    solar_os_gpio_line_ref_t reset_line;
+    solar_os_gpio_line_ref_t power_line;
+    solar_os_gpio_line_ref_t ant_line;
+    uint32_t frequency_hz;
+    bool regulator_ldo;
+} sx1262_binding_config_t;
+
+static void copy_line(solar_os_gpio_line_ref_t *line, const solar_os_expansion_binding_t *binding)
+{
+    strlcpy(line->controller, binding->target, sizeof(line->controller));
+    line->line = (uint8_t)binding->value;
+}
+
+static esp_err_t set_antenna_tx(void *ctx, bool tx)
+{
+    solar_os_sx1262_device_t *device = ctx;
+    return solar_os_gpio_line_write(&device->ant_line, tx);
+}
+
 
 static bool binding_role_is(const solar_os_expansion_binding_t *binding, const char *role)
 {
@@ -75,25 +115,20 @@ static solar_os_radio_config_t default_config(void)
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
-                                char *spi_bus,
-                                size_t spi_bus_len,
-                                int *cs_pin,
-                                int *busy_pin,
-                                int *reset_pin,
-                                int *irq_pin)
+                                sx1262_binding_config_t *config)
 {
     bool have_spi = false;
     bool have_cs = false;
 
-    if (bindings == NULL || spi_bus == NULL || cs_pin == NULL || busy_pin == NULL ||
-        reset_pin == NULL || irq_pin == NULL) {
+    if (bindings == NULL || config == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    spi_bus[0] = '\0';
-    *cs_pin = -1;
-    *busy_pin = -1;
-    *reset_pin = -1;
-    *irq_pin = -1;
+    memset(config, 0, sizeof(*config));
+    config->cs_pin = -1;
+    config->busy_pin = -1;
+    config->reset_pin = -1;
+    config->irq_pin = -1;
+    config->frequency_hz = SX1262_DEFAULT_FREQUENCY_HZ;
 
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
@@ -102,39 +137,65 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             if (have_spi) {
                 return ESP_ERR_INVALID_ARG;
             }
-            strlcpy(spi_bus, binding->target, spi_bus_len);
+            strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
             have_spi = true;
             break;
         case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
             if (have_cs) {
                 return ESP_ERR_INVALID_ARG;
             }
-            *cs_pin = binding->value;
+            config->cs_pin = binding->value;
             have_cs = true;
             if (binding->target[0] != '\0') {
-                if (have_spi && strcmp(spi_bus, binding->target) != 0) {
+                if (have_spi && strcmp(config->spi_bus, binding->target) != 0) {
                     return ESP_ERR_INVALID_ARG;
                 }
-                strlcpy(spi_bus, binding->target, spi_bus_len);
+                strlcpy(config->spi_bus, binding->target, sizeof(config->spi_bus));
                 have_spi = true;
             }
             break;
         case SOLAR_OS_EXPANSION_BINDING_GPIO:
             if (binding_role_is(binding, "busy")) {
-                if (*busy_pin >= 0) {
+                if (config->busy_pin >= 0) {
                     return ESP_ERR_INVALID_ARG;
                 }
-                *busy_pin = binding->value;
-            } else if (binding_role_is(binding, "reset")) {
-                if (*reset_pin >= 0) {
+                config->busy_pin = binding->value;
+            } else if (binding_role_is(binding, "reset") && !config->has_reset_line) {
+                if (config->reset_pin >= 0) {
                     return ESP_ERR_INVALID_ARG;
                 }
-                *reset_pin = binding->value;
+                config->reset_pin = binding->value;
             } else if (binding_role_is(binding, "irq")) {
-                if (*irq_pin >= 0) {
+                if (config->irq_pin >= 0) {
                     return ESP_ERR_INVALID_ARG;
                 }
-                *irq_pin = binding->value;
+                config->irq_pin = binding->value;
+            } else {
+                return ESP_ERR_INVALID_ARG;
+            }
+            break;
+        case SOLAR_OS_EXPANSION_BINDING_GPIO_LINE:
+            if (binding_role_is(binding, "reset") && !config->has_reset_line &&
+                config->reset_pin < 0) {
+                copy_line(&config->reset_line, binding);
+                config->has_reset_line = true;
+            } else if (binding_role_is(binding, "power") && !config->has_power_line) {
+                copy_line(&config->power_line, binding);
+                config->has_power_line = true;
+            } else if (binding_role_is(binding, "ant") && !config->has_ant_line) {
+                copy_line(&config->ant_line, binding);
+                config->has_ant_line = true;
+            } else {
+                return ESP_ERR_INVALID_ARG;
+            }
+            break;
+        case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
+            if (binding_role_is(binding, "frequency") &&
+                binding->value >= 150000000 && binding->value <= 960000000) {
+                config->frequency_hz = (uint32_t)binding->value;
+            } else if (binding_role_is(binding, "regulator") &&
+                       (binding->value == 0 || binding->value == 1)) {
+                config->regulator_ldo = binding->value == 1;
             } else {
                 return ESP_ERR_INVALID_ARG;
             }
@@ -144,9 +205,9 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
         }
     }
 
-    if (!have_spi || !have_cs || *busy_pin < 0 ||
-        !solar_os_expansion_find_spi_bus(spi_bus, NULL, NULL) ||
-        !solar_os_expansion_spi_cs_allowed(spi_bus, *cs_pin)) {
+    if (!have_spi || !have_cs || config->busy_pin < 0 ||
+        !solar_os_expansion_find_spi_bus(config->spi_bus, NULL, NULL) ||
+        !solar_os_expansion_spi_cs_allowed(config->spi_bus, config->cs_pin)) {
         return ESP_ERR_INVALID_ARG;
     }
     return ESP_OK;
@@ -222,17 +283,12 @@ esp_err_t solar_os_sx1262_attach(const char *name,
                                  const solar_os_expansion_binding_t *bindings,
                                  size_t binding_count)
 {
-    char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX] = {0};
-    int cs_pin = -1;
-    int busy_pin = -1;
-    int reset_pin = -1;
-    int irq_pin = -1;
+    sx1262_binding_config_t binding = {0};
 
     if (name == NULL || name[0] == '\0' || find_device(name) != NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, spi_bus, sizeof(spi_bus),
-                                       &cs_pin, &busy_pin, &reset_pin, &irq_pin),
+    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, &binding),
                         TAG, "invalid bindings");
 
     solar_os_sx1262_device_t *device = alloc_device();
@@ -241,20 +297,80 @@ esp_err_t solar_os_sx1262_attach(const char *name,
     }
     clear_device(device);
     device->active = true;
-    device->cs_pin = cs_pin;
-    device->busy_pin = busy_pin;
-    device->reset_pin = reset_pin;
-    device->irq_pin = irq_pin;
+    device->cs_pin = binding.cs_pin;
+    device->busy_pin = binding.busy_pin;
+    device->reset_pin = binding.has_reset_line ? -1 : binding.reset_pin;
+    device->irq_pin = binding.irq_pin;
+    device->has_reset_line = binding.has_reset_line;
+    device->has_power_line = binding.has_power_line;
+    device->has_ant_line = binding.has_ant_line;
+    device->reset_line = binding.reset_line;
+    device->power_line = binding.power_line;
+    device->ant_line = binding.ant_line;
+    device->frequency_hz = binding.frequency_hz;
+    device->regulator_ldo = binding.regulator_ldo;
     strlcpy(device->name, name, sizeof(device->name));
-    strlcpy(device->spi_bus, spi_bus, sizeof(device->spi_bus));
+    strlcpy(device->spi_bus, binding.spi_bus, sizeof(device->spi_bus));
 
-    esp_err_t ret = sx1262_init(&device->radio, spi_bus, cs_pin, busy_pin, reset_pin, irq_pin,
+    if (device->has_power_line) {
+        esp_err_t line_ret = solar_os_gpio_line_configure(&device->power_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (line_ret == ESP_OK) {
+            line_ret = solar_os_gpio_line_write(&device->power_line, true);
+        }
+        if (line_ret != ESP_OK) {
+            clear_device(device);
+            return line_ret;
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+    if (device->has_reset_line) {
+        esp_err_t line_ret = solar_os_gpio_line_configure(&device->reset_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (line_ret == ESP_OK) {
+            line_ret = solar_os_gpio_line_write(&device->reset_line, false);
+        }
+        if (line_ret == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(2));
+            line_ret = solar_os_gpio_line_write(&device->reset_line, true);
+            vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        if (line_ret != ESP_OK) {
+            clear_device(device);
+            return line_ret;
+        }
+    }
+    if (device->has_ant_line) {
+        esp_err_t line_ret = solar_os_gpio_line_configure(&device->ant_line,
+            SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+        if (line_ret == ESP_OK) {
+            line_ret = solar_os_gpio_line_write(&device->ant_line, false);
+        }
+        if (line_ret != ESP_OK) {
+            clear_device(device);
+            return line_ret;
+        }
+        device->radio.set_antenna_tx = set_antenna_tx;
+        device->radio.antenna_ctx = device;
+    }
+
+    esp_err_t ret = sx1262_init(&device->radio, binding.spi_bus, binding.cs_pin,
+                                binding.busy_pin, device->reset_pin, binding.irq_pin,
                                 SX1262_DEFAULT_SPEED_HZ);
-    uint8_t chip_mode = 0;
+    if (ret == ESP_OK && device->has_ant_line) {
+        /* sx1262_init may memset the radio; restore the antenna hook. */
+        device->radio.set_antenna_tx = set_antenna_tx;
+        device->radio.antenna_ctx = device;
+    }
+    if (ret == ESP_OK) {
+        device->radio.regulator_ldo = device->regulator_ldo;
+    }
+        uint8_t chip_mode = 0;
     if (ret == ESP_OK) {
         ret = sx1262_probe(&device->radio, &chip_mode);
     }
-    const solar_os_radio_config_t config = default_config();
+    solar_os_radio_config_t config = default_config();
+    config.frequency_hz = device->frequency_hz;
     if (ret == ESP_OK) {
         ret = sx1262_configure(&device->radio, &config);
     }
@@ -297,11 +413,11 @@ esp_err_t solar_os_sx1262_attach(const char *name,
     ESP_LOGI(TAG,
              "%s attached on %s CS GPIO%d BUSY GPIO%d%s%s",
              name,
-             spi_bus,
-             cs_pin,
-             busy_pin,
-             irq_pin >= 0 ? " irq" : "",
-             reset_pin >= 0 ? " reset" : "");
+             device->spi_bus,
+             device->cs_pin,
+             device->busy_pin,
+             device->irq_pin >= 0 ? " irq" : "",
+             (device->reset_pin >= 0 || device->has_reset_line) ? " reset" : "");
     return ESP_OK;
 }
 

@@ -89,6 +89,17 @@ typedef enum {
     SOLAR_OS_RADIO_STATE_TX,
 } solar_os_radio_state_t;
 
+/*
+ * LoRa low-data-rate optimize. Both ends of a link must agree on it, and
+ * implementations draw the line in different places, so a user that has to
+ * match a particular peer says which. Otherwise the driver decides.
+ */
+typedef enum {
+    SOLAR_OS_RADIO_LOW_DATA_RATE_AUTO = 0,
+    SOLAR_OS_RADIO_LOW_DATA_RATE_OFF,
+    SOLAR_OS_RADIO_LOW_DATA_RATE_ON,
+} solar_os_radio_low_data_rate_t;
+
 typedef struct {
     uint32_t frequency_hz;
     solar_os_radio_modulation_t modulation;
@@ -110,7 +121,23 @@ typedef struct {
     uint8_t network_id;
     /* Appended in former tail padding; zero preserves the driver's default. */
     uint8_t rx_gain;
+    /* The last byte of former tail padding. */
+    uint8_t low_data_rate; /* solar_os_radio_low_data_rate_t */
 } solar_os_radio_config_t;
+
+/* What a driver sets: the config's choice, or its own when there is none. */
+static inline bool solar_os_radio_low_data_rate(
+    const solar_os_radio_config_t *config, bool automatic)
+{
+    switch (config->low_data_rate) {
+    case SOLAR_OS_RADIO_LOW_DATA_RATE_OFF:
+        return false;
+    case SOLAR_OS_RADIO_LOW_DATA_RATE_ON:
+        return true;
+    default:
+        return automatic;
+    }
+}
 
 typedef struct {
     solar_os_radio_state_t state;

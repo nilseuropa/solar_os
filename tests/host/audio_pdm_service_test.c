@@ -4,10 +4,13 @@
 #include "solar_os_audio.h"
 #include "solar_os_stream.h"
 #include "audio_pdm.h"
+#include "solar_os_gpio_controller.h"
 
 static solar_os_stream_driver_t stream;
 static bool opened, registered;
 static esp_err_t stream_error, device_error, unregister_error;
+static esp_err_t open_error, line_on_error, line_off_error;
+static bool controller_power, line_power;
 static unsigned opens;
 
 size_t strlcpy(char *dst, const char *src, size_t size) {
@@ -17,12 +20,29 @@ size_t strlcpy(char *dst, const char *src, size_t size) {
 }
 esp_err_t audio_pdm_prepare_power(int pin) { assert(pin == 38); assert(!opened); return ESP_OK; }
 esp_err_t audio_pdm_open(int clk, int data, int power, unsigned slot) {
-    assert(clk == 19 && data == 20 && power == 38 && slot == 0 && !opened);
+    assert(clk == 19 && data == 20 && power == (controller_power ? -1 : 38) && slot == 0 && !opened);
+    assert(line_power == controller_power);
+    if (open_error != ESP_OK) return open_error;
     opened = true; opens++; return ESP_OK;
 }
 esp_err_t audio_pdm_close(void) { opened = false; return ESP_OK; }
 esp_err_t audio_pdm_read(void *data, size_t len, uint32_t timeout, size_t *read_len) {
     assert(opened && timeout == 100); memset(data, 0x21, len); *read_len = len; return ESP_OK;
+}
+esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
+    solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull)
+{
+    assert(controller_power && !strcmp(line->controller, "gpiox0") && line->line == 11);
+    assert(mode == SOLAR_OS_GPIO_LINE_MODE_OUTPUT && pull == SOLAR_OS_GPIO_LINE_PULL_NONE);
+    return ESP_OK;
+}
+esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level)
+{
+    assert(controller_power && !strcmp(line->controller, "gpiox0") && line->line == 11);
+    if (level && line_on_error != ESP_OK) return line_on_error;
+    if (!level && line_off_error != ESP_OK) return line_off_error;
+    line_power = level;
+    return ESP_OK;
 }
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *value) {
     assert(!strcmp(value->info.id, "mic0.capture"));
@@ -44,22 +64,35 @@ esp_err_t solar_os_audio_register_device(const solar_os_audio_device_info_t *inf
 esp_err_t solar_os_audio_unregister_device(const char *id) {
     assert(!strcmp(id, "mic0")); return unregister_error;
 }
-int main(void) {
+static void test_power_binding(solar_os_expansion_binding_t power) {
+    controller_power = power.target[0] != '\0';
+    opened = registered = line_power = false;
+    opens = 0;
+    stream_error = device_error = unregister_error = ESP_OK;
+    open_error = line_on_error = line_off_error = ESP_OK;
     solar_os_expansion_binding_t bindings[] = {
         {.kind=SOLAR_OS_EXPANSION_BINDING_I2S_PORT, .value=0},
         {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="clk", .value=19},
         {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="din", .value=20},
-        {.kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="power", .value=38},
+        power,
     };
     bindings[0].value = 1;
     assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_ERR_INVALID_ARG);
     bindings[0].value = 0;
+    if (!controller_power) {
+        bindings[3].value = 19;
+        assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_ERR_INVALID_ARG);
+        bindings[3] = power;
+    }
     stream_error = ESP_FAIL;
     assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_FAIL && !registered && !opened);
+    assert(!line_power);
     stream_error = ESP_OK; device_error = ESP_FAIL;
     assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_FAIL && !registered && !opened);
+    assert(!line_power);
     device_error = ESP_OK;
     assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_OK && registered && !opened);
+    assert(!line_power);
     assert(solar_os_audio_pdm_attach("mic0", bindings, 4) == ESP_ERR_INVALID_STATE);
     solar_os_stream_handle_t handle = {.direction=SOLAR_OS_STREAM_DIRECTION_SOURCE};
     solar_os_stream_open_options_t options = {.requested_audio={.sample_rate=48000}};
@@ -68,18 +101,44 @@ int main(void) {
     options.requested_audio.channels = 2;
     assert(stream.open(stream.user, "test", &options, &handle) == ESP_ERR_NOT_SUPPORTED && opens == 0);
     options.requested_audio.channels = 1;
+    open_error = ESP_FAIL;
+    assert(stream.open(stream.user, "test", &options, &handle) == ESP_FAIL);
+    assert(!opened && !line_power && handle.context == NULL);
+    open_error = ESP_OK;
+    if (controller_power) {
+        line_on_error = ESP_FAIL;
+        assert(stream.open(stream.user, "test", &options, &handle) == ESP_FAIL);
+        assert(!opened && !line_power && handle.context == NULL);
+        line_on_error = ESP_OK;
+    }
     assert(stream.open(stream.user, "test", &options, &handle) == ESP_OK && opened);
+    assert(line_power == controller_power);
     assert(handle.audio.bits_per_sample == 16 && handle.audio.channels == 1 && handle.audio.sample_rate == 16000);
     int16_t data[4]; size_t read_len;
     assert(stream.read(stream.user, &handle, data, sizeof(data), 100, &read_len) == ESP_OK);
     assert(read_len == sizeof(data) && data[0] == 0x2121);
     assert(solar_os_audio_pdm_detach("mic0") == ESP_ERR_INVALID_STATE && opened);
+    assert(line_power == controller_power);
     stream.close(stream.user, &handle);
-    assert(!opened && handle.context == NULL);
+    assert(!opened && !line_power && handle.context == NULL);
     unregister_error = ESP_FAIL;
     assert(solar_os_audio_pdm_detach("mic0") == ESP_FAIL && registered);
     unregister_error = ESP_OK;
+    if (controller_power) {
+        line_off_error = ESP_FAIL;
+        assert(solar_os_audio_pdm_detach("mic0") == ESP_FAIL && registered);
+        line_off_error = ESP_OK;
+    }
     assert(solar_os_audio_pdm_detach("mic0") == ESP_OK && !registered);
     assert(solar_os_audio_pdm_detach("mic0") == ESP_ERR_NOT_FOUND);
+}
+
+int main(void) {
+    test_power_binding((solar_os_expansion_binding_t){
+        .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="power", .value=38});
+    test_power_binding((solar_os_expansion_binding_t){
+        .kind=SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role="power", .value=38});
+    test_power_binding((solar_os_expansion_binding_t){
+        .kind=SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role="power", .target="gpiox0", .value=11});
     return 0;
 }

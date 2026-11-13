@@ -22,6 +22,19 @@ static uint8_t opcodes[1024];
 static uint8_t rx_gain = 0x94;
 static bool fail_gain;
 static uint8_t gfsk_bw;
+static uint8_t lora_ldro = 0xff;
+static int regulator = -1;
+static bool antenna_tx, fail_antenna;
+static unsigned antenna_calls;
+
+static esp_err_t set_antenna(void *ctx, bool tx)
+{
+    assert(ctx == &antenna_tx);
+    antenna_calls++;
+    if (fail_antenna) return ESP_FAIL;
+    antenna_tx = tx;
+    return ESP_OK;
+}
 
 int64_t esp_timer_get_time(void) { return now_us; }
 void esp_rom_delay_us(uint32_t us) { now_us += us; }
@@ -49,6 +62,8 @@ esp_err_t solar_os_bus_spi_transfer(const char *name, int cs, uint8_t mode,
     }
     assert(!asleep && !stuck_busy);
     if (tx[0] == SX1262_OP_SET_MODULATION_PARAMS && len == 9) gfsk_bw = tx[5];
+    if (tx[0] == SX1262_OP_SET_MODULATION_PARAMS && len == 5) lora_ldro = tx[4];
+    if (tx[0] == SX1262_OP_SET_REGULATOR_MODE) { assert(len == 2); regulator = tx[1]; }
     if (tx[0] == SX1262_OP_GET_RSSI_INST) {
         assert(len == 3 && tx[1] == 0 && tx[2] == 0);
         rx[1] = 0x24; /* Status is not RSSI. */
@@ -61,6 +76,7 @@ esp_err_t solar_os_bus_spi_transfer(const char *name, int cs, uint8_t mode,
     }
     if (tx[0] == SX1262_OP_SET_RX) {
         assert(rx_gain == 0x94 || rx_gain == 0x96);
+        assert(!antenna_tx);
     }
     if (tx[0] == SX1262_OP_SET_SLEEP) {
         assert(len == 2);
@@ -134,6 +150,11 @@ int main(void)
     assert(sx1262_configure(&dev, &config) == ESP_OK);
     assert(!asleep && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
     assert(dev.config.frequency_hz == 915000000);
+    assert(regulator == SX1262_REGULATOR_DC_DC); /* Default: DC-DC. */
+    dev.regulator_ldo = true;
+    sleep_radio(&dev);
+    assert(sx1262_configure(&dev, &config) == ESP_OK && regulator == SX1262_REGULATOR_LDO);
+    dev.regulator_ldo = false;
     sleep_radio(&dev);
     assert(sx1262_receive(&dev, &packet, 8) == ESP_ERR_TIMEOUT);
     assert(!asleep && dev.state == SOLAR_OS_RADIO_STATE_RX && retained);
@@ -188,6 +209,22 @@ int main(void)
     fail_gain = false;
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_RX) == ESP_OK);
     assert(rx_gain == 0x96);
+    /* Low-data-rate optimize is on wherever a LoRa symbol lasts longer than
+     * 16 ms, as the other LoRa drivers and LoRa peers decide it. */
+    static const struct { uint8_t sf; uint32_t bw_hz; uint8_t ldro; } ldro_cases[] = {
+        {7, 125000, 0}, {10, 125000, 0}, {11, 125000, 1}, {12, 125000, 1},
+        {11, 250000, 0}, {12, 250000, 1}, {12, 500000, 0},
+        {9, 62500, 0}, {10, 62500, 1}, {7, 15600, 0}, {8, 15600, 1},
+        {6, 7800, 0}, {7, 7800, 1},
+    };
+    for (size_t i = 0; i < sizeof(ldro_cases) / sizeof(ldro_cases[0]); i++) {
+        config.spreading_factor = ldro_cases[i].sf;
+        config.rx_bandwidth_hz = ldro_cases[i].bw_hz;
+        lora_ldro = 0xff;
+        assert(sx1262_configure(&dev, &config) == ESP_OK);
+        assert(lora_ldro == ldro_cases[i].ldro);
+    }
+    config.spreading_factor = 7;
     config.modulation = SOLAR_OS_RADIO_MODULATION_GFSK;
     config.rx_bandwidth_hz = 62500;
     assert(sx1262_configure(&dev, &config) == ESP_OK && gfsk_bw == 0x1b);
@@ -201,11 +238,33 @@ int main(void)
     config.frequency_hz = 1000000000;
     assert(sx1262_configure(&dev, &config) == ESP_ERR_INVALID_ARG && transfers == before);
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_RX) == ESP_OK);
+    /* A fast band scan can start directly after transmitting in standby. */
+    dev.set_antenna_tx = set_antenna;
+    dev.antenna_ctx = &antenna_tx;
+    const solar_os_radio_packet_t tx_packet = {.len = 1, .data = {0x42}};
+    assert(sx1262_send(&dev, &tx_packet, 100) == ESP_OK);
+    assert(antenna_tx && antenna_calls == 1 && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
+    const uint32_t scan_frequency = dev.config.frequency_hz + 125000U;
+    assert(sx1262_tune_rx(&dev, scan_frequency, &settle_ms) == ESP_OK);
+    assert(!antenna_tx && antenna_calls == 2 && dev.state == SOLAR_OS_RADIO_STATE_RX);
+    assert(dev.config.frequency_hz == scan_frequency);
+
+    assert(sx1262_send(&dev, &tx_packet, 100) == ESP_OK && antenna_tx);
+    fail_antenna = true;
+    before = transfers;
+    settle_ms = 1234;
+    assert(sx1262_tune_rx(&dev, scan_frequency + 125000U, &settle_ms) == ESP_FAIL);
+    assert(antenna_tx && dev.state == SOLAR_OS_RADIO_STATE_STANDBY);
+    assert(dev.config.frequency_hz == scan_frequency && settle_ms == 1234);
+    for (unsigned i = before; i < transfers; i++) assert(opcodes[i] != SX1262_OP_SET_RX);
+    fail_antenna = false;
+    assert(sx1262_tune_rx(&dev, scan_frequency + 125000U, &settle_ms) == ESP_OK);
+    assert(!antenna_tx && dev.state == SOLAR_OS_RADIO_STATE_RX);
     /* Ordinary BUSY waits still apply when the radio is already awake. */
     stuck_busy = true;
     before = transfers;
     assert(sx1262_set_state(&dev, SOLAR_OS_RADIO_STATE_STANDBY) == ESP_ERR_TIMEOUT);
     assert(transfers == before && dev.state == SOLAR_OS_RADIO_STATE_RX);
-    puts("SX1262 sleep/wake, retained configuration, failure retry and packet I/O: ok");
+    puts("SX1262 sleep/wake, retained configuration, failure retry, packet I/O and LoRa low-data-rate optimize: ok");
     return 0;
 }

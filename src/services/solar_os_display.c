@@ -2052,6 +2052,25 @@ esp_err_t solar_os_display_present_surface(
     solar_os_display_surface_t physical_surface;
     display_target_slot_t *scaled_slot = &display_targets[slot_index];
     esp_err_t ret;
+    /* A scaled indexed canvas need not become another native-size INDEX8
+     * image when the raster presenter already performs destination scaling.
+     * Keep the existing surface path for edge clamping and RGB frame export. */
+    if (!scaled_slot->layer && !scaled_slot->export_enabled &&
+        scaled_slot->scale.factor > 1U &&
+        scaled_slot->scale.physical_info->pixel_width % scaled_slot->scale.factor == 0U &&
+        scaled_slot->scale.physical_info->pixel_height % scaled_slot->scale.factor == 0U &&
+        scaled_slot->target.present_frame &&
+        (scaled_slot->target.frame_formats & SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT)) {
+        solar_os_display_raster_t physical;
+        ret = solar_os_display_scale_surface_raster(&scaled_slot->scale,surface,&physical);
+        display_native_begin(scaled_slot);
+        if (ret == ESP_OK) ret = scaled_slot->target.present_frame(scaled_slot->target.frame_context,&physical);
+        display_native_end(scaled_slot);
+        if (ret == ESP_OK) display_activate_pending_overlay_locked(scaled_slot);
+        xSemaphoreGive(present_mutex);
+        display_release_slot_ref(slot_index,generation);
+        return ret;
+    }
     if (scaled_slot->layer) {
         solar_os_display_raster_t composed, physical;
         if (!scaled_slot->target.present_frame || !surface->palette_rgb565 ||

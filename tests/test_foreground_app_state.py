@@ -62,6 +62,19 @@ class ForegroundAppStatePolicyTest(unittest.TestCase):
                 check_foreground_app_state.lifecycle_bypasses(repository), []
             )
 
+    def test_vendored_sources_are_not_lifecycle_bypasses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            source = repository / "src" / "vendor" / "library"
+            source.mkdir(parents=True)
+            (source / "resource.cpp").write_text(
+                "void Resource::advertise() { this->start(); }\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                check_foreground_app_state.lifecycle_bypasses(repository), []
+            )
+
     def test_cpp_app_callbacks_cannot_bypass_the_shared_lifecycle(self):
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory)

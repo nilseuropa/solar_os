@@ -1,5 +1,11 @@
 # SolarOS Changelog
 
+## Unreleased
+
+- Added the M5Stack Paper Mono target with its e-paper display, touch,
+  frontlight, LoRa, NFC, RTC, IMU, microSD, microphone, buzzer, battery
+  and charger. Button B shuts the device down cleanly on a long press.
+
 ## 4.x
 
 - **4.17.11** — 2026-11-13 — Added Git version control for small projects,

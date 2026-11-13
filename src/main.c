@@ -1306,7 +1306,8 @@ static void handle_key_input(uint8_t key)
 }
 
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
-    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT) || \
+     defined(SOLAR_OS_BOARD_PIN_ESCAPE))
 static bool board_button_long_press(gpio_num_t pin, void *user)
 {
     (void)user;
@@ -1319,6 +1320,12 @@ static bool board_button_long_press(gpio_num_t pin, void *user)
 #ifdef SOLAR_OS_BOARD_PIN_APP_EXIT
     if (pin == SOLAR_OS_BOARD_PIN_APP_EXIT) {
         handle_key_input(SOLAR_OS_KEY_APP_EXIT);
+        return true;
+    }
+#endif
+#ifdef SOLAR_OS_BOARD_PIN_ESCAPE
+    if (pin == SOLAR_OS_BOARD_PIN_ESCAPE) {
+        handle_key_input(SOLAR_OS_KEY_ESCAPE);
         return true;
     }
 #endif
@@ -2123,7 +2130,7 @@ static void maybe_enter_idle_sleep(void)
 
 static void start_headless_shell_if_needed(void)
 {
-    if (terminal != NULL) {
+    if (terminal != NULL || solar_os_port_shell_session_count() != 0U) {
         return;
     }
 
@@ -2204,12 +2211,17 @@ void app_main(void)
     print_boot_summary();
     key_button_init();
 #if SOLAR_OS_PACKAGE_SERVICE_BUTTONS && \
-    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT))
+    (defined(SOLAR_OS_BOARD_PIN_BLE_PAIR) || defined(SOLAR_OS_BOARD_PIN_APP_EXIT) || \
+     defined(SOLAR_OS_BOARD_PIN_ESCAPE))
     solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
 #endif
 
     const bool reserve_port_shell =
+#ifdef SOLAR_OS_BOARD_DEFAULT_PORT_SHELL
+        true;
+#else
         !board_has(SOLAR_OS_BOARD_CAP_DISPLAY);
+#endif
     const esp_err_t port_shell_err =
         solar_os_port_shell_init(reserve_port_shell);
     if (port_shell_err != ESP_OK) {

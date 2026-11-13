@@ -38,3 +38,7 @@ esp_err_t solar_os_display_scale_bitmap(solar_os_display_scale_t *state,
     const solar_os_display_raster_t *source, solar_os_display_raster_t *output);
 esp_err_t solar_os_display_scale_surface(solar_os_display_scale_t *state,
     const solar_os_display_surface_t *source, solar_os_display_surface_t *output);
+/* Preserve the logical indexed pixels for a raster presenter that scales its
+ * destination. Requires exact integer geometry and the canvas rotation. */
+esp_err_t solar_os_display_scale_surface_raster(solar_os_display_scale_t *state,
+    const solar_os_display_surface_t *source, solar_os_display_raster_t *output);

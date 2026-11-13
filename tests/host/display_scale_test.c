@@ -116,10 +116,37 @@ static void exercise(unsigned width, unsigned height)
         surface.width=rotation&1U ? nh:nw;
         surface.height=rotation&1U ? nw:nh;
         surface.stride=surface.width;
+        u8g2_SetDisplayRotation(&canvas,rotations[rotation]);
+        solar_os_display_raster_t direct;
+        fail_allocation = true;
+        if (width%2U || height%2U) {
+            assert(solar_os_display_scale_surface_raster(&state,&surface,&direct)==ESP_ERR_NOT_SUPPORTED);
+        } else {
+            assert(solar_os_display_scale_surface_raster(&state,&surface,&direct)==ESP_OK);
+            assert(direct.data==pixels && direct.source_width==surface.width && direct.source_height==surface.height);
+            assert(direct.width==surface.width*2 && direct.height==surface.height*2);
+            surface.data_size=0;
+            assert(solar_os_display_scale_surface_raster(&state,&surface,&direct)==ESP_ERR_INVALID_SIZE);
+            surface.data_size=(size_t)nw*nh;
+        }
+        fail_allocation = false;
         for (unsigned y=0;y<surface.height;y++) for(unsigned x=0;x<surface.width;x++)
             pixels[(size_t)y*surface.stride+x]=(uint8_t)((x+7*y)%251);
         assert(solar_os_display_scale_surface(&state,&surface,&expanded)==ESP_OK);
         assert(expanded.rotation==SOLAR_OS_DISPLAY_ROTATION_0);
+        if (!(width%2U || height%2U)) {
+            /* Direct raster scaling preserves the expanded surface's native
+             * pixel order in every rotation. */
+            for (unsigned y=0;y<height;y++) for (unsigned x=0;x<width;x++) {
+                unsigned lx=x,ly=y;
+                if (rotation==1) { lx=y; ly=width-1U-x; }
+                else if (rotation==2) { lx=width-1U-x; ly=height-1U-y; }
+                else if (rotation==3) { lx=height-1U-y; ly=x; }
+                const unsigned sx=lx*direct.source_width/direct.width;
+                const unsigned sy=ly*direct.source_height/direct.height;
+                assert(expanded.data[(size_t)y*width+x]==direct.data[(size_t)sy*direct.source_stride+sx]);
+            }
+        }
         for (unsigned y=0;y<height;y++) for(unsigned x=0;x<width;x++) {
             unsigned sx=x/2, sy=y/2;
             if(sx>=nw)sx=nw-1;
@@ -210,7 +237,7 @@ static void exercise(unsigned width, unsigned height)
 
 int main(void)
 {
-    exercise(800,480); exercise(319,241); exercise(128,64);
+    exercise(800,480); exercise(319,241); exercise(128,64); exercise(1872,1404);
     assert(tiles>0); puts("display scale: geometry, pixels, rotations, surfaces and cleanup passed");
     return 0;
 }
