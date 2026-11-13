@@ -3813,6 +3813,8 @@ static void sshkey_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  sshkey gen [-f] [2048|3072|4096]");
     solar_os_shell_io_writeln(term, "  sshkey pub");
     solar_os_shell_io_writeln(term, "  sshkey rm");
+    solar_os_shell_io_printf(term, "Default RSA key size: %u bits\n",
+                             (unsigned)SOLAR_OS_SSH_KEY_DEFAULT_BITS);
 }
 
 static void sshkey_print_status(solar_os_shell_io_t *term)

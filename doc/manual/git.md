@@ -37,9 +37,12 @@ git remote set-url origin git@github.com:OWNER/PROJECT.git
 
 ## Set up SSH authentication
 
-Generate a device key with `sshkey gen 2048`, then use `sshkey pub` to display its
+Generate a device key with `sshkey gen 3072`, then use `sshkey pub` to display its
 public key. Add that public key to the GitHub or Bitbucket account that can access
-the repository. Keep the private key on the device. Git uses the existing
+the repository. GitHub requires at least 3072 bits for newly added RSA keys.
+To replace an existing key pair, preserve a backup first, then run
+`sshkey gen -f 3072` and register the new public key with the remote hosts you use.
+Keep the private key on the device. Git uses the existing
 `/.ssh/id_rsa`, `/.ssh/id_rsa.pub`, `/.ssh/hosts` aliases and `/.ssh/known_hosts`
 policy. The first connection records a host key; a changed key is rejected.
 
@@ -102,6 +105,11 @@ git push origin main
 at the current commit. `checkout NAME` or `switch NAME` changes to a local branch,
 or creates a tracking branch from `origin/NAME`. Branch deletion rejects the
 current branch and commits that are not merged into the current branch.
+
+Before the first commit, `checkout -b NAME` or `switch -c NAME` selects the initial
+branch name and preserves existing files and staging. Status reports
+`No commits yet`. Add files and create the first commit before pushing; the push
+creates the remote branch. An empty clone also needs a first commit before push.
 
 Fetch updates remote tracking branches without checking out files. Pull applies
 fast-forward updates to the current branch and preserves conflicting local

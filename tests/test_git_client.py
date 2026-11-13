@@ -210,6 +210,33 @@ class GitClientTest(unittest.TestCase):
         self.assertEqual(self.desktop(self.project, "rev-parse", "HEAD"), before)
         self.run_git(self.project, "branch", "-d", "main", ok=False)
 
+    def test_branch_before_first_commit_preserves_worktree_and_index(self):
+        self.desktop(self.project, "symbolic-ref", "HEAD", "refs/heads/master")
+        staged = self.project / "staged.txt"
+        staged.write_text("staged version\n")
+        self.run_git(self.project, "add", "staged.txt")
+        staged.write_text("working version\n")
+        untracked = self.project / "untracked.py"
+        untracked.write_text("print('keep me')\n")
+        index = self.desktop(self.project, "diff", "--cached")
+        for command, flag, name in (("checkout", "-b", "draft"), ("switch", "-c", "tdeck")):
+            self.run_git(self.project, command, flag, name)
+            self.assertEqual(self.desktop(self.project, "symbolic-ref", "HEAD").strip(), "refs/heads/" + name)
+            self.assertEqual(self.desktop(self.project, "diff", "--cached"), index)
+            self.assertEqual(staged.read_text(), "working version\n")
+            self.assertEqual(untracked.read_text(), "print('keep me')\n")
+            status = self.run_git(self.project, "status")
+            self.assertIn("On " + name, status)
+            self.assertIn("No commits yet", status)
+        for name in ("HEAD", "invalid..name", "invalid.lock"):
+            self.run_git(self.project, "checkout", "-b", name, ok=False)
+            self.assertEqual(self.desktop(self.project, "symbolic-ref", "HEAD").strip(), "refs/heads/tdeck")
+        self.assertIn("commit first", self.run_git(self.project, "push", "-u", "origin", "tdeck", ok=False))
+        self.run_git(self.project, "commit", "-m", "Initial backup")
+        self.assertEqual(self.desktop(self.project, "show", "tdeck:staged.txt"), "staged version\n")
+        self.assertEqual(staged.read_text(), "working version\n")
+        self.desktop(self.project, "fsck", "--strict")
+
     def test_traversal_cancellation_and_missing_identity(self):
         self.assertIn("nothing staged", self.run_git(self.project, "commit", "-m", "empty", ok=False))
 
@@ -272,6 +299,21 @@ class GitClientTest(unittest.TestCase):
                     with socket.create_connection(("127.0.0.1", port), timeout=.1): break
                 except OSError: time.sleep(.02)
             url = f"git://127.0.0.1:{port}/origin.git"
+            empty = self.root / "empty.git"
+            self.desktop(self.root, "init", "--bare", "--initial-branch=master", str(empty))
+            empty_clone = self.root / "empty-clone"
+            self.run_git(self.root, "clone", f"git://127.0.0.1:{port}/empty.git", "empty-clone")
+            self.assertIn("No commits yet", self.run_git(empty_clone, "status"))
+            self.run_git(empty_clone, "checkout", "-b", "tdeck")
+            self.assertIn("commit first", self.run_git(empty_clone, "push", "-u", "origin", "tdeck", ok=False))
+            self.run_git(empty_clone, "config", "user.name", "Test")
+            self.run_git(empty_clone, "config", "user.email", "test@example.invalid")
+            (empty_clone / "backup.txt").write_text("first backup\n")
+            self.run_git(empty_clone, "add", "backup.txt")
+            self.run_git(empty_clone, "commit", "-m", "Initial backup")
+            self.run_git(empty_clone, "push", "-u", "origin", "tdeck")
+            self.assertEqual(self.desktop(empty, "show", "tdeck:backup.txt"), "first backup\n")
+            self.assertEqual(self.desktop(empty_clone, "config", "--get", "branch.tdeck.merge").strip(), "refs/heads/tdeck")
             clone = self.root / "clone"
             self.run_git(self.root, "clone", url, "clone")
             self.run_git(clone, "config", "user.name", "Test")

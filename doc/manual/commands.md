@@ -1268,7 +1268,7 @@ netscan wintermute 22
 | `ota` | `ota flavor [flavor]` | Show or set target OTA flavor. |
 | `ota` | `ota boot 0\|1` | Select an OTA slot and reboot. |
 | `sshkey` | `sshkey [status]` | Show default SSH key status. |
-| `sshkey` | `sshkey gen [-f] [2048\|3072\|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`. |
+| `sshkey` | `sshkey gen [-f] [2048\|3072\|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub` (default: RSA-3072). |
 | `sshkey` | `sshkey pub` | Print the default public key. |
 | `sshkey` | `sshkey rm` | Remove the default key pair. |
 | `git` | `git help` | Version projects locally, over SSH or anonymous HTTPS. See [Git](git.md). |
@@ -1823,7 +1823,7 @@ hello SolarOS
 board
 wifi on
 ping wintermute
-sshkey gen 2048
+sshkey gen 3072
 ota check
 ota upgrade
 watch -n 1 battery

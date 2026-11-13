@@ -255,8 +255,17 @@ static int status_repository(git_repository *repo, const solar_os_git_options_t 
     int rc = git_status_list_new(&list, repo, &opts);
     if (rc) return rc;
     git_reference *head = NULL;
-    if (!git_repository_head(&head, repo)) print(o, "On %s\n", git_reference_shorthand(head));
+    int head_rc = git_repository_head(&head, repo);
+    if (head_rc == GIT_EUNBORNBRANCH) {
+        head_rc = git_reference_lookup(&head, repo, "HEAD");
+        if (!head_rc) {
+            const char *name = git_reference_symbolic_target(head);
+            if (name) print(o, "On %s\n", !strncmp(name, "refs/heads/", 11) ? name + 11 : name);
+            print(o, "No commits yet\n");
+        }
+    } else if (!head_rc) print(o, "On %s\n", git_reference_shorthand(head));
     git_reference_free(head);
+    if (head_rc) { git_status_list_free(list); return head_rc; }
     size_t count = git_status_list_entrycount(list);
     for (size_t i = 0; i < count && !cancelled(o); i++) {
         const git_status_entry *entry = git_status_byindex(list, i);
@@ -422,12 +431,39 @@ static int branches(git_repository *repo, int argc, char **argv,
     return rc;
 }
 
+static int switch_unborn_branch(git_repository *repo, const char *name,
+                                 const solar_os_git_options_t *o)
+{
+    int valid = 0;
+    int rc = git_branch_name_is_valid(&valid, name);
+    if (rc) return rc;
+    if (!valid) return fail("invalid branch name");
+    git_reference *existing = NULL;
+    rc = git_branch_lookup(&existing, repo, name, GIT_BRANCH_LOCAL);
+    git_reference_free(existing);
+    if (!rc) return fail("branch already exists");
+    if (rc != GIT_ENOTFOUND) return rc;
+    char refname[512];
+    int len = snprintf(refname, sizeof(refname), "refs/heads/%s", name);
+    if (len < 0 || (size_t)len >= sizeof(refname)) return fail("branch name too long");
+    /* No tree exists yet. Select the initial branch without touching the
+     * worktree or index; the first commit creates the branch reference. */
+    rc = git_repository_set_head(repo, refname);
+    if (!rc) print(o, "switched to %s (no commits yet)\n", name);
+    return rc;
+}
+
 static int switch_branch(git_repository *repo, int argc, char **argv,
                           const solar_os_git_options_t *o)
 {
     bool create = argc == 3 && (!strcmp(argv[1], "-b") || !strcmp(argv[1], "-c"));
     if ((!create && argc != 2) || argv[argc - 1][0] == '-')
         return fail("usage: git checkout [-b] <branch> | git switch [-c] <branch>");
+    if (create) {
+        int unborn = git_repository_head_unborn(repo);
+        if (unborn < 0) return unborn;
+        if (unborn) return switch_unborn_branch(repo, argv[2], o);
+    }
     git_reference *ref = NULL, *local = NULL;
     git_commit *commit = NULL;
     int rc;
@@ -551,6 +587,7 @@ static int push_repository(git_repository *repo, const char *name,
     git_reference *head = NULL;
     git_remote *remote = NULL;
     int rc = git_repository_head(&head, repo);
+    if (rc == GIT_EUNBORNBRANCH) rc = fail("no commits to push; add files and commit first");
     if (!rc && !git_reference_is_branch(head)) rc = fail("push requires a local branch");
     if (!rc) rc = git_remote_lookup(&remote, repo, name);
     char spec[1024];
