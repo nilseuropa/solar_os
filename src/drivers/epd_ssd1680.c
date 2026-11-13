@@ -148,6 +148,7 @@ static esp_err_t native_frame(epd_ssd1680_t *d, const uint8_t *image, bool parti
     memcpy(d->shadow, image, EPD_SSD1680_BUFFER_BYTES);
     d->shadow_valid = true;
     d->partial_count = partial ? d->partial_count + 1U : 0;
+    if (!partial) solar_os_epd_note_cleanup(&d->maintenance, SOLAR_OS_EPD_REASON_NATIVE);
     return ESP_OK;
 }
 
@@ -178,9 +179,12 @@ static esp_err_t refresh_locked(epd_ssd1680_t *d, bool force_full)
     if (d->suspended || !d->spi || !d->buffer || !d->shadow || !d->line_buffer)
         return ESP_ERR_INVALID_STATE;
     if (d->relax.storage || (!force_full && !image_changed(d))) return ESP_OK;
-    const bool partial = !force_full && d->shadow_valid &&
-        d->refresh_mode != EPD_SSD1680_REFRESH_FULL && d->partial_count < PARTIAL_CLEANUP_EVERY;
-    return record_error(d, native_frame(d, d->buffer, partial));
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(&d->maintenance,
+        true, d->shadow_valid, force_full || d->refresh_mode == EPD_SSD1680_REFRESH_FULL,
+        false, d->partial_count >= PARTIAL_CLEANUP_EVERY);
+    const esp_err_t err = record_error(d, native_frame(d, d->buffer, plan.action == SOLAR_OS_EPD_PARTIAL));
+    if (err == ESP_OK && plan.action == SOLAR_OS_EPD_FULL) d->maintenance.last_reason = plan.reason;
+    return err;
 }
 
 esp_err_t epd_ssd1680_refresh(epd_ssd1680_t *d)
@@ -412,6 +416,7 @@ const char *epd_ssd1680_controller_mode(const epd_ssd1680_t *d)
     char *description = ((epd_ssd1680_t *)d)->mode_description;
     snprintf(description, sizeof(d->mode_description),
              "refresh=%s waveform=otp panel=0 size=122x250 cleanup-every=%u", mode, PARTIAL_CLEANUP_EVERY);
+    solar_os_epd_append_maintenance(&d->maintenance, description, sizeof(d->mode_description));
     if (d->lock) xSemaphoreGive(d->lock);
     return description;
 }
@@ -419,12 +424,19 @@ const char *epd_ssd1680_controller_mode(const epd_ssd1680_t *d)
 const char *epd_ssd1680_controller_mode_values(const epd_ssd1680_t *d)
 {
     (void)d;
-    return "refresh=<auto,fast,partial,full> waveform=otp";
+    return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=<auto,fast,partial,full> waveform=otp";
 }
 
 esp_err_t epd_ssd1680_set_controller_mode(epd_ssd1680_t *d, const char *mode)
 {
     if (!d || !mode) return ESP_ERR_INVALID_ARG;
+    if (!strncmp(mode, "cleanup-interval=", 17)) {
+        if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+        const esp_err_t err = d->relax.storage ? ESP_ERR_INVALID_STATE :
+            solar_os_epd_set_maintenance(&d->maintenance, mode);
+        if (d->lock) xSemaphoreGive(d->lock);
+        return err;
+    }
     epd_ssd1680_refresh_mode_t next;
     if (!strcmp(mode, "refresh=auto") || !strcmp(mode, "waveform=otp")) next = EPD_SSD1680_REFRESH_AUTO;
     else if (!strcmp(mode, "refresh=full")) next = EPD_SSD1680_REFRESH_FULL;

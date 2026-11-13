@@ -14,6 +14,19 @@ until re-entering pulse mode reseeds it. A queued changed image keeps retained
 supplies available between worker steps; no queued work invokes the idle hook.
 Paper Mono rejects retained pulse supplies because its PMIC can cut power.
 
+All EPD backends share `solar_os_epd_native_plan()` and the lightweight
+`solar_os_epd_maintenance_t` lifecycle. IT8951, SSD1680 and UltraChip allocate
+no pixel budgets. The plan distinguishes unchanged content, a required baseline,
+explicit full refresh, an encoding change, and a routine cleanup deadline or
+profile count limit. Successful native full updates alone advance the cleanup
+clock. An opt-in `cleanup-interval` replaces routine count/exposure limits;
+zero retains the existing profile. A deadline is serviced on a changed image,
+never by a timer, idle callback, duplicate image or unused tile padding.
+Native explicit-partial bypasses remain profile-specific. Recovery and encoding
+changes retain mandatory cleanup. The one-hour setting and any subtle white
+maintenance waveform require physical calibration; no universal white touch-up
+or darker baseline waveform is enabled.
+
 `src/drivers/epd_pixel_budget.h` provides a controller-independent monochrome
 target and remaining-cycle model. It owns no SPI bus, GPIO, display task,
 allocation, or waveform. A panel driver supplies storage, maps physical pixel

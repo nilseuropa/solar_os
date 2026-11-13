@@ -1431,6 +1431,12 @@ The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the
 controller geometry before configuring the panel's -1.4 V VCOM. Indexed and
 RGB565 graphics retain 16 gray levels internally and use four-level output by default.
+`display mode display0 cleanup-interval=3600` selects timed routine cleanup on
+the next changed image after an hour. The default interval 0 retains the normal
+19-partial-update limit. Initialization, encoding changes, recovery and explicit
+full refresh still require native cleanup. Longer intervals need panel-specific
+optical validation; a fully unchanged image does not trigger a timed refresh.
+
 `display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
 GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
 Automatic updates upload separate changed regions, aligned to the controller's

@@ -784,7 +784,9 @@ static void test_cleanup_failure_and_capability(void) {
     d.panel_variant = EPD_SSD1683_PANEL_LEGACY;
     assert(epd_ssd1683_set_controller_mode(&d, "refresh=pulse") == ESP_ERR_INVALID_ARG);
     assert(epd_ssd1683_set_controller_mode(&d, "drive-cycles=3") == ESP_ERR_INVALID_ARG);
-    assert(strcmp(epd_ssd1683_controller_mode_values(&d), "refresh=<auto,fast,full>") == 0);
+    assert(strstr(epd_ssd1683_controller_mode_values(&d), "refresh=<auto,fast,full>"));
+    assert(strstr(epd_ssd1683_controller_mode_values(&d), "cleanup-interval="));
+    assert(!strstr(epd_ssd1683_controller_mode_values(&d), "pulse"));
 }
 
 static epd_ssd1683_t single_display(void) {
@@ -802,6 +804,21 @@ static void single_pixel(unsigned x, unsigned y, bool white) {
     const size_t p = (y / 8U) * SSD1683_WIDTH + x;
     const uint8_t bit = 1U << (y % 8U);
     frame[p] = white ? frame[p] | bit : frame[p] & (uint8_t)~bit;
+}
+
+static void test_native_padding_does_not_trigger_timed_cleanup(void)
+{
+    epd_ssd1683_t d=single_display();
+    solar_os_epd_note_cleanup(&d.epd.maintenance,SOLAR_OS_EPD_REASON_BASELINE);
+    assert(epd_ssd1683_set_controller_mode(&d,"cleanup-interval=1")==ESP_OK);
+    time_us+=2000000;
+    const size_t padded=(SSD1683_HEIGHT/8U)*SSD1683_WIDTH;
+    d.buffer[padded]^=0xf0;
+    capture_count=0;
+    assert(ssd1683_refresh(&d)==ESP_OK && capture_count==0);
+    single_pixel(0,0,false);
+    assert(ssd1683_refresh(&d)==ESP_OK && display_update_count()>0);
+    assert(d.epd.maintenance.last_reason==SOLAR_OS_EPD_REASON_TIME);
 }
 static bool single_ram_pixel(unsigned plane, unsigned x, unsigned y) {
     return (ram[0][plane][(x / 8U) * SSD1683_HEIGHT + y] & (0x80U >> (x % 8U))) != 0;
@@ -1259,6 +1276,7 @@ static void test_mono_frames(void) {
 }
 
 int main(void) {
+    test_native_padding_does_not_trigger_timed_cleanup();
     test_framebuffer_memory();
     test_mono_frames();
     test_control_pin_sleep_retention();

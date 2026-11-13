@@ -441,13 +441,15 @@ static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     /* Conversion tracks changes against the retained packed image, so no
      * second full grayscale image is needed. Bounds use native coordinates. */
     unsigned x0 = dirty->x0, x1 = dirty->x1, y0 = dirty->y0, y1 = dirty->y1;
-    if (x1 == 0 && d->shadow_valid && !d->full_refresh) return ESP_OK;
+    if (solar_os_epd_native_plan(&d->maintenance, x1 != 0, d->shadow_valid,
+        d->full_refresh, false, false).action == SOLAR_OS_EPD_KEEP) return ESP_OK;
     const unsigned bpp = image_bpp(d,known_binary,dirty);
     const bool binary = bpp == 1;
     /* Changing the framebuffer encoding requires a complete upload. GC16 also
      * clears the old grayscale pixels before subsequent binary DU updates. */
-    const bool clean = d->full_refresh || !d->shadow_valid ||
-        bpp != d->shadow_bpp || d->updates >= 19U;
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(&d->maintenance,
+        x1 != 0, d->shadow_valid, d->full_refresh, bpp != d->shadow_bpp, d->updates >= 19U);
+    const bool clean = plan.action == SOLAR_OS_EPD_FULL;
     if (clean) { x0 = 0; x1 = WIDTH; y0 = 0; y1 = HEIGHT; }
     const unsigned mirrored_end = WIDTH - x0;
     x0 = (WIDTH - x1) & ~31U;
@@ -479,6 +481,7 @@ static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     d->shadow_valid = true;
     d->shadow_bpp = bpp;
     d->updates = full ? 0 : d->updates + 1U;
+    if (clean) solar_os_epd_note_cleanup(&d->maintenance, plan.reason);
     d->last_x = x0; d->last_y = y0;
     d->last_width = width; d->last_height = height; d->last_bpp = bpp;
     d->last_upload_ms = (unsigned)((uploaded - started) / 1000);
@@ -783,6 +786,7 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
         (unsigned long)stats.frames,(long long)stats.last_scan_us,
         d->firmware_version,d->waveform_version,
         d->last_upload_bytes,d->last_chunks,d->last_regions);
+    solar_os_epd_append_maintenance(&d->maintenance, state->mode_description, sizeof(state->mode_description));
     xSemaphoreGive(state->mutex);
     return state->mode_description;
 }
@@ -790,6 +794,12 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
 esp_err_t solar_os_it8951_set_mode(solar_os_it8951_t *d, const char *mode)
 {
     if (!d || !d->spi || !mode) return ESP_ERR_INVALID_ARG;
+    if (!strncmp(mode, "cleanup-interval=", 17)) {
+        xSemaphoreTake(d->mutex, portMAX_DELAY);
+        const esp_err_t err = solar_os_epd_set_maintenance(&d->maintenance, mode);
+        xSemaphoreGive(d->mutex);
+        return err;
+    }
     const bool full = !strcmp(mode, "refresh=full");
     const unsigned levels = !strcmp(mode,"grayscale=4") ? 4U :
         !strcmp(mode,"grayscale=16") ? 16U : 0U;

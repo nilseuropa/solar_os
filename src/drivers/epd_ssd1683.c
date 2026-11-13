@@ -1540,7 +1540,8 @@ static esp_err_t ssd1683_restore_native(epd_ssd1683_t *display)
 static esp_err_t ssd1683_dual_refresh(epd_ssd1683_t *display)
 {
     if (display->shadow_valid && display->shadow != NULL &&
-        memcmp(display->buffer, display->shadow, display->buffer_size) == 0) {
+        !solar_os_epd_mono_changed(display->buffer, display->shadow,
+            SSD1683_DUAL_WIDTH, SSD1683_DUAL_HEIGHT)) {
         return ESP_OK;
     }
 
@@ -1550,8 +1551,10 @@ static esp_err_t ssd1683_dual_refresh(epd_ssd1683_t *display)
      * periodic full-refresh cadence here: a terminal/status update would then
      * flash the complete 5.79-inch panel every few seconds.
      */
-    const bool full = display->refresh_mode == EPD_SSD1683_REFRESH_FULL ||
-        !display->shadow_valid;
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(
+        display->refresh_mode == EPD_SSD1683_REFRESH_AUTO ? &display->epd.maintenance : NULL,
+        true, display->shadow_valid, display->refresh_mode == EPD_SSD1683_REFRESH_FULL, false, false);
+    const bool full = plan.action == SOLAR_OS_EPD_FULL;
     const bool partial = display->refresh_mode == EPD_SSD1683_REFRESH_AUTO &&
         !full;
     const bool log_refresh = display->refresh_log_count < 4U;
@@ -1591,6 +1594,7 @@ static esp_err_t ssd1683_dual_refresh(epd_ssd1683_t *display)
     display->shadow_valid = true;
     display->partial_refresh_active = partial;
     display->fast_refresh_count = 0;
+    if (full) solar_os_epd_note_cleanup(&display->epd.maintenance, plan.reason);
     return ESP_OK;
 }
 
@@ -1755,14 +1759,18 @@ static esp_err_t ssd1683_refresh(epd_ssd1683_t *display)
     }
     if (display->shadow_valid &&
         display->shadow != NULL &&
-        memcmp(display->buffer, display->shadow, display->buffer_size) == 0) {
+        !solar_os_epd_mono_changed(display->buffer, display->shadow,
+            SSD1683_WIDTH, SSD1683_HEIGHT)) {
         return ESP_OK;
     }
     const bool first_refresh = !display->shadow_valid;
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(
+        display->refresh_mode == EPD_SSD1683_REFRESH_AUTO ? &display->epd.maintenance : NULL,
+        true, display->shadow_valid, display->refresh_mode == EPD_SSD1683_REFRESH_FULL,
+        false, display->refresh_mode == EPD_SSD1683_REFRESH_AUTO &&
+        display->fast_refresh_count >= SSD1683_AUTO_FULL_INTERVAL - 1U);
     const bool full = display->refresh_mode == EPD_SSD1683_REFRESH_FULL ||
-        (display->refresh_mode == EPD_SSD1683_REFRESH_AUTO &&
-         (!display->shadow_valid ||
-          display->fast_refresh_count >= SSD1683_AUTO_FULL_INTERVAL - 1U));
+        (display->refresh_mode == EPD_SSD1683_REFRESH_AUTO && plan.action == SOLAR_OS_EPD_FULL);
     const bool partial =
         display->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 &&
         display->refresh_mode == EPD_SSD1683_REFRESH_AUTO &&
@@ -1918,7 +1926,9 @@ static esp_err_t ssd1683_refresh(epd_ssd1683_t *display)
     }
     display->shadow_valid = true;
     display->partial_refresh_active = partial;
-    display->fast_refresh_count = full ? 0 : (uint8_t)(display->fast_refresh_count + 1U);
+    display->fast_refresh_count = full ? 0 : display->fast_refresh_count == UINT8_MAX ?
+        UINT8_MAX : (uint8_t)(display->fast_refresh_count + 1U);
+    if (full) solar_os_epd_note_cleanup(&display->epd.maintenance, plan.reason);
     if (display->panel_variant == EPD_SSD1683_PANEL_WAVESHARE_V2 ||
         display->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER) {
         const int64_t finished = esp_timer_get_time();
@@ -2490,38 +2500,40 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
             xSemaphoreGive(d->lock);
         return d->mode_description;
     }
-    switch (display->refresh_mode) {
-    case EPD_SSD1683_REFRESH_FAST:
-        return "refresh=fast";
-    case EPD_SSD1683_REFRESH_FULL:
-        return "refresh=full";
-    case EPD_SSD1683_REFRESH_AUTO:
-    default:
-        return "refresh=auto";
-    }
+    epd_ssd1683_t *d = (epd_ssd1683_t *)display;
+    if (d->lock) xSemaphoreTake(d->lock, portMAX_DELAY);
+    snprintf(d->mode_description, sizeof(d->mode_description), "refresh=%s",
+        d->refresh_mode == EPD_SSD1683_REFRESH_FAST ? "fast" :
+        d->refresh_mode == EPD_SSD1683_REFRESH_FULL ? "full" : "auto");
+    solar_os_epd_append_maintenance(&d->epd.maintenance, d->mode_description, sizeof(d->mode_description));
+    if (d->lock) xSemaphoreGive(d->lock);
+    return d->mode_description;
 }
 
 const char *epd_ssd1683_controller_mode_values(const epd_ssd1683_t *display)
 {
     if (ssd1683_is_dual(display))
-        return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
+        return SOLAR_OS_EPD_MAINTENANCE_OPTIONS SOLAR_OS_EPD_REDRIVE_OPTIONS
+               "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..5,9..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
                "pulse-scan=<sync,async> pulse-period=<auto,67..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     if (display != NULL && display->panel_variant == EPD_SSD1683_PANEL_GREEN_STICKER)
-        return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
+        return SOLAR_OS_EPD_MAINTENANCE_OPTIONS SOLAR_OS_EPD_REDRIVE_OPTIONS
+               "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
                "pulse-scan=<sync,async> pulse-period=<auto,67..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
     if (ssd1683_pulse_profile(display) != NULL)
-        return "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
+        return SOLAR_OS_EPD_MAINTENANCE_OPTIONS SOLAR_OS_EPD_REDRIVE_OPTIONS
+               "refresh=<auto,fast,full,pulse> drive-cycles=<1..32> "
                "pulse-frames=<1..32> waveform-fr=<1..12> cleanup-every=<1..128> "
                "cleanup-policy=<adaptive,fixed> "
                "pulse-scan=<sync,async> pulse-period=<auto,10..1000> "
                "pulse-power=<cycle,hold> pulse-ramp=<normal,fast> pulse-spi-khz=<100..20000>";
-    return "refresh=<auto,fast,full>";
+    return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=<auto,fast,full>";
 }
 
 esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mode)
@@ -2537,7 +2549,9 @@ esp_err_t epd_ssd1683_set_controller_mode(epd_ssd1683_t *display, const char *mo
     }
     esp_err_t err = ESP_OK;
     const epd_ssd1683_refresh_mode_t before = display->refresh_mode;
-    if (strcmp(mode, "refresh=auto") == 0) {
+    if (strncmp(mode, "cleanup-interval=", 17) == 0) {
+        err = solar_os_epd_set_maintenance(&display->epd.maintenance, mode);
+    } else if (strcmp(mode, "refresh=auto") == 0) {
         display->refresh_mode = EPD_SSD1683_REFRESH_AUTO;
     } else if (strcmp(mode, "refresh=fast") == 0) {
         display->refresh_mode = EPD_SSD1683_REFRESH_FAST;

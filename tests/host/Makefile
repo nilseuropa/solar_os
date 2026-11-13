@@ -425,7 +425,7 @@ OLED_U8G2_TEST_SOURCES := $(EPD_U8G2_TEST_SOURCES) $(addprefix $(ROOT)/component
 epd_it8951_test: epd_it8951_test.c $(ROOT)/src/drivers/epd_it8951.c $(ROOT)/src/drivers/epd_it8951.h $(EPD_U8G2_TEST_SOURCES)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/src -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_it8951_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_it8951_test.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/drivers/epd_pixel_budget.c -Wl,--gc-sections -o $@
 
 ssd1306_named_bus_test: ssd1306_named_bus_test.c $(ROOT)/src/drivers/ssd1306.c $(ROOT)/src/drivers/ssd1306.h \
         $(ROOT)/src/services/solar_os_ssd1306.c $(ROOT)/src/services/solar_os_ssd1306.h $(OLED_U8G2_TEST_SOURCES)
@@ -441,7 +441,7 @@ epd_uc8279_test: epd_uc8279_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_uc8279_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_uc8279_test.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/drivers/epd_pixel_budget.c -Wl,--gc-sections -o $@
 
 ssd1677_expansion_test: ssd1677_expansion_test.c $(ROOT)/src/services/solar_os_ssd1677.c \
         $(ROOT)/src/services/solar_os_ssd1677_driver.c $(ROOT)/src/drivers/epd_ssd1677.h
@@ -502,7 +502,7 @@ epd_ssd1680_test: epd_ssd1680_test.c $(ROOT)/src/drivers/epd_ssd1680.c $(ROOT)/s
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src -I$(ROOT)/src/services \
-		epd_ssd1680_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_ssd1680_test.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/drivers/epd_pixel_budget.c -Wl,--gc-sections -o $@
 
 ssd1685_expansion_test: ssd1685_expansion_test.c $(ROOT)/src/services/solar_os_ssd1685.c \
         $(ROOT)/src/services/solar_os_ssd1685_driver.c $(ROOT)/src/drivers/epd_ssd1685.h
@@ -536,7 +536,7 @@ epd_uc8179_test: epd_uc8179_test.c $(ROOT)/src/drivers/epd_ultrachip.c $(ROOT)/s
         $(wildcard epd_stubs/*.h epd_stubs/driver/*.h epd_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -ffunction-sections -fdata-sections \
 		-Iepd_stubs -I. -I$(ROOT)/components/u8g2/src/clib -I$(ROOT)/src/services \
-		epd_uc8179_test.c $(EPD_U8G2_TEST_SOURCES) -Wl,--gc-sections -o $@
+		epd_uc8179_test.c $(EPD_U8G2_TEST_SOURCES) $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/drivers/epd_pixel_budget.c -Wl,--gc-sections -o $@
 
 epd_ssd1677_test: epd_ssd1677_test.c $(ROOT)/src/drivers/epd_ssd1677.c $(ROOT)/src/drivers/epd_ssd1677.h \
 	$(ROOT)/src/drivers/epd_ssd1677_papermono_lut.h \
@@ -1891,3 +1891,6 @@ robot_joint_test: $(MOTION_ENDPOINT_HEADERS)
 # Shared EPD policy is linked once into each panel transport fixture.
 epd_ssd1683_test epd_ssd1677_test epd_ssd2677_test epd_ssd1685_test: override CFLAGS += -I$(ROOT)/src
 epd_ssd1683_test epd_ssd1677_test epd_ssd2677_test epd_ssd1685_test: $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/services/solar_os_epd.h
+
+epd_it8951_test epd_ssd1680_test epd_uc8179_test epd_uc8279_test: override CFLAGS += -I$(ROOT)/src
+epd_it8951_test epd_ssd1680_test epd_uc8179_test epd_uc8279_test: $(ROOT)/src/services/solar_os_epd.c $(ROOT)/src/services/solar_os_epd.h $(ROOT)/src/drivers/epd_pixel_budget.c

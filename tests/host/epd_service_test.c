@@ -6,6 +6,33 @@
 #include "freertos/FreeRTOS.h"
 
 static int64_t now_us = 1;
+static void test_native_policy(void)
+{
+    solar_os_epd_maintenance_t m = {0};
+    assert(solar_os_epd_native_plan(&m,false,false,false,false,false).action==SOLAR_OS_EPD_FULL);
+    assert(solar_os_epd_native_plan(&m,false,true,false,false,true).action==SOLAR_OS_EPD_KEEP);
+    assert(solar_os_epd_native_plan(&m,true,true,false,false,true).reason==SOLAR_OS_EPD_REASON_COUNT);
+    solar_os_epd_note_cleanup(&m,SOLAR_OS_EPD_REASON_BASELINE);
+    assert(solar_os_epd_set_maintenance(&m,"cleanup-interval=3600")==ESP_OK);
+    const solar_os_epd_maintenance_t saved=m;
+    const char *bad[]={"cleanup-interval=", "cleanup-interval=-1", "cleanup-interval=86401",
+        "cleanup-interval=3600x", "cleanup-interval=99999999999999999999"};
+    for (unsigned i=0; i<sizeof(bad)/sizeof(*bad); ++i) {
+        assert(solar_os_epd_set_maintenance(&m,bad[i])==ESP_ERR_INVALID_ARG);
+        assert(memcmp(&m,&saved,sizeof(m))==0);
+    }
+    now_us+=3599000000LL;
+    assert(solar_os_epd_native_plan(&m,true,true,false,false,true).action==SOLAR_OS_EPD_PARTIAL);
+    now_us+=1000000;
+    assert(solar_os_epd_native_plan(&m,false,true,false,false,true).action==SOLAR_OS_EPD_KEEP);
+    assert(solar_os_epd_native_plan(&m,true,true,false,false,false).reason==SOLAR_OS_EPD_REASON_TIME);
+    assert(solar_os_epd_native_plan(&m,true,true,false,true,false).reason==SOLAR_OS_EPD_REASON_ENCODING);
+    assert(solar_os_epd_native_plan(&m,false,true,true,false,false).reason==SOLAR_OS_EPD_REASON_EXPLICIT);
+    solar_os_epd_note_cleanup(&m,SOLAR_OS_EPD_REASON_TIME);
+    assert(m.cleanups==2 && !solar_os_epd_time_due(&m));
+    now_us=0; assert(!solar_os_epd_time_due(&m)); /* Clock rollback cannot manufacture elapsed time. */
+    now_us=1;
+}
 static unsigned allocations, releases, fail_at;
 static void *allocate(size_t bytes, const char *tag)
 {
@@ -72,6 +99,7 @@ static esp_err_t idle(void *context)
 int main(void)
 {
     test_storage_rollback();
+    test_native_policy();
     panel_t p = {0};
     p.epd.tuning = (epd_pulse_tuning_t){.drive_cycles=3, .cleanup_every=64};
     assert(epd_pixel_budget_init(&p.epd.budget,p.pixels,18) == ESP_OK);
@@ -135,5 +163,14 @@ int main(void)
     const unsigned drives_before=p.drives;
     assert(solar_os_epd_recover(&queued)==ESP_OK);
     assert(memcmp(p.shadow,newer,4)==0 && p.drives==drives_before && p.valid);
+    assert(solar_os_epd_set_maintenance(&p.epd.maintenance,"cleanup-interval=1")==ESP_OK);
+    now_us+=2000000;
+    const unsigned cleanups_before=p.baselines;
+    assert(solar_os_epd_flush(&a,newer)==ESP_OK && p.baselines==cleanups_before);
+    newer[2]^=0xfe;
+    assert(solar_os_epd_flush(&a,newer)==ESP_OK && p.baselines==cleanups_before); /* Padding is not new content. */
+    newer[1]^=1;
+    assert(solar_os_epd_flush(&a,newer)==ESP_OK && p.baselines==cleanups_before+1);
+    assert(p.epd.maintenance.last_reason==SOLAR_OS_EPD_REASON_TIME);
     puts("Shared EPD: baselines, padding, duplicate targets, reversal and failed drives passed");
 }

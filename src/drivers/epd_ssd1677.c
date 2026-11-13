@@ -541,10 +541,13 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
         memcmp(source, display->shadow, display->buffer_size) == 0) {
         return ESP_OK;
     }
-    bool full = force_full || !display->shadow_valid || display->shadow == NULL ||
-        display->refresh_mode == EPD_SSD1677_REFRESH_FULL ||
-        (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO &&
-         display->partial_refresh_count >= ssd1677_auto_full_interval(display) - 1U);
+    const solar_os_epd_plan_t plan = solar_os_epd_native_plan(
+        display->refresh_mode == EPD_SSD1677_REFRESH_PARTIAL ? NULL : &display->epd.maintenance,
+        true, display->shadow_valid && display->shadow,
+        force_full || display->refresh_mode == EPD_SSD1677_REFRESH_FULL, false,
+        display->refresh_mode == EPD_SSD1677_REFRESH_AUTO &&
+        display->partial_refresh_count >= ssd1677_auto_full_interval(display) - 1U);
+    bool full = plan.action == SOLAR_OS_EPD_FULL;
     ssd1677_window_t window = {0};
     bool partial = !full && display->shadow != NULL &&
         (display->refresh_mode == EPD_SSD1677_REFRESH_AUTO ||
@@ -618,8 +621,10 @@ static esp_err_t ssd1677_refresh_image(epd_ssd1677_t *display, const uint8_t *so
     }
     display->shadow_valid = true;
     display->partial_refresh_active = partial;
-    display->partial_refresh_count = full ? 0 :
-        (uint8_t)(display->partial_refresh_count + 1U);
+    display->partial_refresh_count = full ? 0 : display->partial_refresh_count == UINT8_MAX ?
+        UINT8_MAX : (uint8_t)(display->partial_refresh_count + 1U);
+    if (full) solar_os_epd_note_cleanup(&display->epd.maintenance,
+        plan.reason == SOLAR_OS_EPD_REASON_NONE ? SOLAR_OS_EPD_REASON_NATIVE : plan.reason);
     return ESP_OK;
 }
 
@@ -1292,7 +1297,7 @@ const char *epd_ssd1677_controller_mode_values(const epd_ssd1677_t *d)
 {
     (void)d;
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
-           SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..8> "
+           SOLAR_OS_EPD_MAINTENANCE_OPTIONS SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..8> "
            "cleanup-every=<1..128> cleanup-policy=<adaptive,fixed> "
            "pulse-scan=<sync,async> pulse-period=<auto,67..1000> pulse-power=<cycle,hold> "
            "pulse-spi-khz=<100..20000> invert=<false,true>";
@@ -1352,6 +1357,8 @@ static esp_err_t set_controller_mode(epd_ssd1677_t *d, const char *mode)
     if (d->relax.storage) return ESP_ERR_INVALID_STATE;
     const epd_ssd1677_refresh_mode_t before = d->refresh_mode;
     bool restart = false;
+    if (strncmp(mode, "cleanup-interval=", 17) == 0)
+        return solar_os_epd_set_maintenance(&d->epd.maintenance, mode);
     if (strcmp(mode, "refresh=auto") == 0 || strcmp(mode, "waveform=otp") == 0)
         d->refresh_mode = EPD_SSD1677_REFRESH_AUTO;
     else if (strcmp(mode, "refresh=partial") == 0 || strcmp(mode, "refresh=fast") == 0)

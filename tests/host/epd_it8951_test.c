@@ -633,6 +633,18 @@ int main(void)
     }
     assert(last_waveform == 2); /* clean after twenty binary updates */
     assert(d.last_width == WIDTH && d.last_height == HEIGHT);
+    assert(solar_os_it8951_set_mode(&d,"cleanup-interval=3600")==ESP_OK);
+    for (unsigned i=0; i<25; ++i) {
+        d.mono[16]^=1;
+        assert(solar_os_it8951_present_sync(&d)==ESP_OK && last_waveform==1);
+    }
+    now+=3600000000LL;
+    const unsigned idle_updates=updates;
+    assert(solar_os_it8951_present_sync(&d)==ESP_OK && updates==idle_updates);
+    d.mono[16]^=1;
+    assert(solar_os_it8951_present_sync(&d)==ESP_OK && last_waveform==2);
+    assert(d.last_width==WIDTH && d.last_height==HEIGHT && d.maintenance.last_reason==SOLAR_OS_EPD_REASON_TIME);
+    assert(solar_os_it8951_set_mode(&d,"cleanup-interval=0")==ESP_OK);
     assert(solar_os_it8951_set_mode(&d,"refresh=full") == ESP_OK);
     assert(solar_os_it8951_present_sync(&d) == ESP_OK && last_waveform == 2);
     assert(solar_os_it8951_set_mode(&d,"refresh=auto") == ESP_OK);

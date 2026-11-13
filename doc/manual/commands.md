@@ -1643,6 +1643,17 @@ five frame-rate bytes. It supports `pulse-period=<auto,67..1000>`,
 `invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
 restores native auto. Pulse memory is allocated in PSRAM on demand.
 
+All built-in EPD profiles accept `cleanup-interval=<0..86400>` in seconds.
+Zero preserves the profile's normal cleanup policy. A nonzero value selects
+timed routine cleanup; `cleanup-interval=3600` requests an hourly interval.
+Cleanup runs on the next changed image after the deadline, so an idle image,
+duplicate presentation or padded framebuffer bits cannot cause a timed flash.
+Initialization, encoding changes, errors and explicit full refreshes still
+establish a native baseline immediately. Native partial modes keep their
+profile-specific bypass behavior. Longer intervals need optical validation on
+the actual panel. Mode output reports the interval, completed cleanup count,
+and last cleanup reason. This setting is runtime-only.
+
 Pulse-capable profiles share the following controls through
 `display mode <target> <option>`; use one option per command:
 

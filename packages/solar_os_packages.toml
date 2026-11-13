@@ -1967,7 +1967,7 @@ requires = ["esp_timer"]
 label = "expansion.ssd1680"
 targets = ["esp32", "esp32s3"]
 expansion_drivers = ["solar_os_ssd1680_expansion_driver"]
-depends = ["service_expansion", "service_spi"]
+depends = ["service_expansion", "service_spi", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_ssd1680.c",
@@ -1996,7 +1996,7 @@ capabilities = ["gfx", "expansion_gpio"]
 label = "expansion.it8951"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_it8951_expansion_driver"]
-depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker"]
+depends = ["service_expansion", "service_spi", "service_sensors", "driver_epd_scan_worker", "service_epd"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "drivers/epd_it8951.c",
@@ -3683,7 +3683,7 @@ label = "driver.epd_ultrachip"
 targets = ["esp32", "esp32s3"]
 sources = ["drivers/epd_ultrachip.c"]
 requires = ["esp_driver_gpio", "esp_driver_spi", "esp_timer", "u8g2"]
-depends = ["service_spi"]
+depends = ["service_spi", "service_epd"]
 capabilities = ["gfx"]
 
 [packages.expansion_uc8179]
