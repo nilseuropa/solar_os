@@ -9,10 +9,8 @@ packages_any = []
 +++
 # SolarOS Shell Commands
 
-This document covers built-in shell commands. Foreground applications are
-documented separately in [apps.md](apps.md). Command availability depends on the
-compiled firmware flavor and board capabilities; `commands` shows the commands in
-the running image.
+Built-in commands depend on the firmware flavor and board; `commands` lists those
+installed. See [apps.md](apps.md) for foreground applications.
 
 ## Shell Conventions
 
@@ -1273,6 +1271,7 @@ netscan wintermute 22
 | `sshkey` | `sshkey gen [-f] [2048\|3072\|4096]` | Generate `/.ssh/id_rsa` and `/.ssh/id_rsa.pub`. |
 | `sshkey` | `sshkey pub` | Print the default public key. |
 | `sshkey` | `sshkey rm` | Remove the default key pair. |
+| `git` | `git help` | Version projects locally, over SSH or anonymous HTTPS. See [Git](git.md). |
 
 OTA resolves the artifact for the compiled board and target flavor from the
 configured release index, verifies the signed index, verifies firmware SHA-256,

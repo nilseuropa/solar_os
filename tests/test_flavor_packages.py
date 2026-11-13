@@ -27,6 +27,18 @@ class FlavorPackagesTest(unittest.TestCase):
             self.catalog,
         )
 
+    def test_git_requires_wifi_and_psram(self):
+        _, _, groups, packages = self.resolve("full")
+        self.assertTrue(packages["service_git"])
+        for capabilities in ({"wifi", "psram"}, {"wifi"}, {"psram"}, set()):
+            with self.subTest(capabilities=capabilities):
+                selected_groups, selected = generate_flavor_config.apply_board_capability_pruning(
+                    self.catalog, groups, packages, capabilities)
+                supported = {"wifi", "psram"}.issubset(capabilities)
+                self.assertEqual(selected["service_git"], supported)
+                requires = generate_flavor_config.collect_requires(self.catalog, selected_groups, selected)
+                self.assertEqual("solaros_git" in requires, supported)
+
     def test_public_flavor_name_can_override_package_configuration_name(self):
         self.assertEqual(
             generate_flavor_config.public_flavor_name("full", "beta"),

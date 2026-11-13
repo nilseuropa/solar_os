@@ -3,6 +3,10 @@
 #include "solar_os.h"
 #include "solar_os_config.h"
 
+#if SOLAR_OS_PACKAGE_SERVICE_GIT
+void solar_os_shell_cmd_git(solar_os_context_t *ctx, int argc, char **argv);
+#endif
+
 void solar_os_shell_cmd_apps(solar_os_context_t *ctx, int argc, char **argv);
 #if SOLAR_OS_PACKAGE_APP_AGENT
 void solar_os_shell_cmd_agent(solar_os_context_t *ctx, int argc, char **argv);

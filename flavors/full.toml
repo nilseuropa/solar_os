@@ -64,6 +64,7 @@ handwriting_input = true
 ps2_keyboard = true
 midi = true
 ssh = true
+git = true
 http_client = true
 web_browser = true
 ftp = true

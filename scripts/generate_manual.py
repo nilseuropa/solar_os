@@ -52,6 +52,7 @@ EMBEDDED_MANUAL_NOTICE = (
     "For the full manual on another device, visit https://solar-os.eu/.\n"
 )
 COMMAND_GITHUB_HREFS = {
+    "git": "git.md",
     "agent": "agent.md",
     "encoder": "encoder.md",
     "expansion": "expansion.md",
@@ -67,6 +68,7 @@ COMMAND_GITHUB_HREFS = {
 # Any new or changed collision is a review failure rather than a silent alias
 # deletion.
 DERIVED_ALIAS_OWNERS = {
+    ("command.git", "git"): "git",
     ("job.screen-keyboard", "screen-keyboard"): "command.screen-keyboard",
     ("command.adc", "adc"): "gpio.analog",
     ("command.agent", "agent"): "agent",
