@@ -45,6 +45,7 @@ typedef struct {
     esp_err_t last_error;
     bool ready, powered, shadow_valid, full_refresh;
     unsigned updates;
+    uint32_t refreshes;
     unsigned last_x, last_y, last_width, last_height, last_bpp;
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
     unsigned last_upload_bytes, last_chunks, last_regions;

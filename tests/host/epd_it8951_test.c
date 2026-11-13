@@ -85,8 +85,11 @@ static void pump(epd_scan_worker_t *w)
     assert(w->task && w->enabled && w->has_target);
     memcpy(w->snapshot,w->latest,w->frame_size); w->has_target = false;
     bool pending,scanned;
+    const unsigned before=updates;
     assert(w->process(w->context,w->snapshot,true,&pending,&scanned) == ESP_OK);
-    assert(!pending && scanned);
+    assert(!pending && scanned == (updates != before));
+    ++w->stats.frames;
+    if (scanned) ++w->stats.scans;
 }
 
 static esp_err_t present_frame_and_wait(solar_os_it8951_t *d,
@@ -565,6 +568,36 @@ static void test_graphics_queue(solar_os_it8951_t *d)
     assert(d->last_bpp==1);
 }
 
+static void test_retained_baseline(solar_os_it8951_t *d)
+{
+    assert(solar_os_it8951_set_mode(d,"grayscale=4")==ESP_OK);
+    assert(solar_os_it8951_set_mode(d,"refresh=full")==ESP_OK);
+    memset(d->mono,0xff,MONO_BYTES);
+    assert(solar_os_it8951_present_sync(d)==ESP_OK);
+    assert(solar_os_it8951_set_mode(d,"refresh=auto")==ESP_OK);
+    const unsigned before=updates, cleanups=d->maintenance.cleanups;
+    assert(solar_os_it8951_present(d)==ESP_OK); pump(&d->scan_worker);
+    assert(updates==before && d->scan_worker.stats.scans==0);
+    /* A white raster patch over the same white retained image changes neither
+     * encoding nor pixels, despite switching the presentation path. */
+    const uint8_t white=0;
+    const solar_os_display_raster_t patch={.data=&white, .data_size=1,
+        .source_width=1, .source_height=1, .source_stride=1, .width=1, .height=1,
+        .format=SOLAR_OS_DISPLAY_FORMAT_MONO1};
+    assert(present_frame_and_wait(d,&patch)==ESP_OK && d->graphics_scan);
+    assert(updates==before && d->maintenance.cleanups==cleanups);
+    assert(solar_os_it8951_present(d)==ESP_OK && d->scan_worker.has_target);
+    /* Idempotent configuration and resume must preserve an accepted target. */
+    assert(solar_os_it8951_set_mode(d,"refresh=auto")==ESP_OK && d->scan_worker.has_target);
+    assert(solar_os_it8951_set_mode(d,"grayscale=4")==ESP_OK && d->scan_worker.has_target);
+    assert(solar_os_it8951_set_power_save(d,false)==ESP_OK && d->scan_worker.has_target);
+    pump(&d->scan_worker);
+    assert(updates==before && d->maintenance.cleanups==cleanups && d->scan_worker.stats.scans==0);
+    d->mono[17]^=1;
+    assert(solar_os_it8951_present(d)==ESP_OK); pump(&d->scan_worker);
+    assert(updates==before+1 && last_waveform==1 && d->scan_worker.stats.scans==1);
+}
+
 int main(void)
 {
     solar_os_it8951_t d;
@@ -791,6 +824,7 @@ int main(void)
     test_four_level_uploads(&d);
     test_upload_packing(&d);
     test_read_recovery(&d);
+    test_retained_baseline(&d);
     solar_os_it8951_deinit(&d);
     assert(!held && !selected && !d.spi && removed == 4);
     cfg = config(); cfg.clock_hz = 5000000;

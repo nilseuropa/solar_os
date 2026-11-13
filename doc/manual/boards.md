@@ -1439,6 +1439,11 @@ optical validation; a fully unchanged image does not trigger a timed refresh.
 
 `display mode display0 refresh=auto` skips unchanged frames and selects DU for binary updates and
 GC16 for grayscale and cleanup. `refresh=full` uses GC16 for every presentation.
+Switching between terminal and raster presentation preserves the retained image;
+an unchanged handoff does not require a cleanup. Repeating the current mode or
+resuming an already-awake panel preserves queued frames. Mode output includes
+`refreshes`, the number of successfully completed physical refreshes; graphics
+worker `frames` also counts accepted composition notifications.
 Automatic updates upload separate changed regions, aligned to the controller's
 source-driver boundaries, then refresh their bounding rectangle once. Dense or
 highly fragmented changes use one upload rectangle. Binary images use packed

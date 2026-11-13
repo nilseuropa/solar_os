@@ -481,6 +481,7 @@ static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     d->shadow_valid = true;
     d->shadow_bpp = bpp;
     d->updates = full ? 0 : d->updates + 1U;
+    ++d->refreshes;
     if (clean) solar_os_epd_note_cleanup(&d->maintenance, plan.reason);
     d->last_x = x0; d->last_y = y0;
     d->last_width = width; d->last_height = height; d->last_bpp = bpp;
@@ -562,6 +563,7 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
     esp_err_t err = ESP_OK;
     if ((fresh || d->full_refresh) && !d->suspended &&
         __atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE)) {
+        const uint32_t before = d->refreshes;
         dirty_area_t dirty;
         if (d->graphics_scan) dirty = take_graphics_target(d);
         else {
@@ -569,11 +571,11 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
             if (dirty.x1) dirty = mono_to_gray_area(d,source,&dirty);
         }
         err = finish_refresh(d,!d->graphics_scan,&dirty);
-        *scanned = err == ESP_OK;
+        *scanned = err == ESP_OK && d->refreshes != before;
         if (err != ESP_OK) {
             /* Retry once after controller reset, even if the app stops painting. */
             err = finish_refresh(d,!d->graphics_scan,&dirty);
-            *scanned = err == ESP_OK;
+            *scanned = err == ESP_OK && d->refreshes != before;
             if (err != ESP_OK) __atomic_store_n(&d->scan_submit_ready,false,__ATOMIC_RELEASE);
         }
         if (err == ESP_OK && !d->graphics_scan) {
@@ -587,8 +589,9 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
 
 static esp_err_t scan_start(solar_os_it8951_t *d, bool graphics)
 {
-    /* A fresh worker needs a complete baseline even after synchronous frames. */
-    d->shadow_valid = false;
+    /* Worker snapshots are new, but the retained packed image still describes
+     * the panel. Conversion compares against it; actual resets, transfer errors
+     * and encoding changes establish a new native baseline when required. */
     d->graphics_scan = graphics;
     if (graphics) {
         d->gray_pending = solar_os_memory_alloc(GRAY_BYTES,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.gray-pending");
@@ -651,6 +654,10 @@ esp_err_t solar_os_it8951_present(solar_os_it8951_t *d)
 esp_err_t solar_os_it8951_set_power_save(solar_os_it8951_t *d, bool sleep)
 {
     if (!d || !d->spi) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(d->mutex, portMAX_DELAY);
+    const bool awake = !sleep && !d->suspended && d->ready;
+    xSemaphoreGive(d->mutex);
+    if (awake) return ESP_OK;
     scan_stop(d);
     xSemaphoreTake(d->mutex, portMAX_DELAY);
     d->suspended = sleep;
@@ -778,14 +785,14 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
     snprintf(state->mode_description, sizeof(state->mode_description),
         "refresh=%s grayscale=%u spi=%ukHz last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
         "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus "
-        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u",
+        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u refreshes=%lu",
         d->full_refresh ? "full" : "auto", d->gray_levels, d->spi_clock_khz, d->last_refresh_ms, d->last_upload_ms,
         d->last_lut_ms, d->last_x, d->last_y, d->last_width, d->last_height, d->last_bpp,
         (int)d->temperature_c,d->scan_worker.task ? "async" : "sync",
         (unsigned long)stats.submitted,(unsigned long)stats.coalesced,
         (unsigned long)stats.frames,(long long)stats.last_scan_us,
         d->firmware_version,d->waveform_version,
-        d->last_upload_bytes,d->last_chunks,d->last_regions);
+        d->last_upload_bytes,d->last_chunks,d->last_regions,(unsigned long)d->refreshes);
     solar_os_epd_append_maintenance(&d->maintenance, state->mode_description, sizeof(state->mode_description));
     xSemaphoreGive(state->mutex);
     return state->mode_description;
@@ -804,6 +811,10 @@ esp_err_t solar_os_it8951_set_mode(solar_os_it8951_t *d, const char *mode)
     const unsigned levels = !strcmp(mode,"grayscale=4") ? 4U :
         !strcmp(mode,"grayscale=16") ? 16U : 0U;
     if (!levels && !full && strcmp(mode, "refresh=auto")) return ESP_ERR_INVALID_ARG;
+    xSemaphoreTake(d->mutex, portMAX_DELAY);
+    const bool unchanged = levels ? d->gray_levels == levels : d->full_refresh == full;
+    xSemaphoreGive(d->mutex);
+    if (unchanged) return ESP_OK;
     scan_stop(d);
     xSemaphoreTake(d->mutex, portMAX_DELAY);
     if (levels) {
