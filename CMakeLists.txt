@@ -4,6 +4,15 @@ include(FetchContent)
 if(POLICY CMP0169)
     cmake_policy(SET CMP0169 OLD)
 endif()
+FetchContent_Declare(solar_os_libgit2_source
+    URL https://codeload.github.com/libgit2/libgit2/tar.gz/49e408b3208bc3093757a1c2db938d3590f3f412
+    URL_HASH SHA256=173c45822177d73bb1a97555d864ad04a3e0486eb0bc3455443a4669a35d8aa2
+    SOURCE_DIR "${CMAKE_BINARY_DIR}/_deps/libgit2")
+FetchContent_GetProperties(solar_os_libgit2_source)
+if(NOT solar_os_libgit2_source_POPULATED)
+    FetchContent_Populate(solar_os_libgit2_source)
+endif()
+set(ENV{SOLAR_OS_LIBGIT2_SOURCE_DIR} "${solar_os_libgit2_source_SOURCE_DIR}")
 FetchContent_Declare(
     solar_os_picotts_source
     GIT_REPOSITORY https://github.com/DiUS/esp-picotts.git

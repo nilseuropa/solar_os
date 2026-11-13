@@ -29,8 +29,6 @@ SolarOS argues that useful, general-purpose computing can be built on modest har
 
 ## User manual
 
-**The user manual is automatically generated from human validated code by an expert system.**
-
 The [SolarOS User Manual](doc/manual/README.md) is the canonical source for:
 
 - the documentation browsed on GitHub;
@@ -47,6 +45,15 @@ guide. On devices with Wi-Fi, PSRAM, and SD storage, run `help update` to instal
 the signed full manual for the running version. Its guides and scripting API
 references remain available offline while the SD card is mounted. See
 [Browsing and refreshing documentation](doc/manual/help.md) for setup.
+
+## Project version control
+
+Use `git` to version text files and scripts, review diffs, create branches,
+and synchronize small projects with GitHub, Bitbucket or another Git server.
+Public repositories can be cloned over HTTPS without signing in; authenticated
+fetch and push use the device's SSH key. Git is included in the full flavor on
+boards with Wi-Fi and PSRAM. See [Git version control](doc/manual/git.md) for
+setup and workflows.
 
 ## Scripted vision and model inference
 
@@ -227,6 +234,7 @@ components remain applicable and must be preserved in redistributions.
 | --- | --- | --- |
 | [Lua 5.4.8](https://www.lua.org/ftp/lua-5.4.8.tar.gz) | Embedded Lua VM and selected standard libraries | MIT; copyright Lua.org, PUC-Rio. The upstream notice is retained in [`lua.h`](components/lua/lua/src/lua.h). |
 | [MicroPython `d901e98349`](https://github.com/micropython/micropython/commit/d901e98349) | Embedded Python runtime | MIT; Damien P. George and MicroPython contributors. Notices are retained in the vendored source files. |
+| [libgit2 1.9.7](components/solaros_git/README.md) | Native Git version control | GPL-2.0 with linking exception; libgit2 contributors. The downloaded source retains `COPYING`, `AUTHORS` and the bundled dependencies' notices. |
 | [ESP-DSP 1.8.x](https://github.com/espressif/esp-dsp) | ESP32-S3 PIE-accelerated DSP kernels | Apache-2.0; Espressif Systems and contributors. The managed component includes the upstream `LICENSE` and notice metadata. |
 | [ESP-DL 3.3.13](https://github.com/espressif/esp-dl/tree/v3.3.13) | Generic resident model inference and ESP32-S3 SIMD kernels | MIT; Espressif Systems and contributors. The managed component retains upstream notices; the local schema copy retains [LICENSE](components/espdl_schema/LICENSE.esp-dl). Reviewed ownership/allocation fixes are applied by [the pinned overlay](scripts/patch_espdl.py). |
 | [FlatBuffers 2.0.8](https://github.com/google/flatbuffers/tree/v2.0.8) | Structural verification of ESP-DL model files | Apache-2.0; Google and contributors. See [provenance](components/espdl_schema/README.solaros.md) and [LICENSE](components/espdl_schema/LICENSE.flatbuffers). |
