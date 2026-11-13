@@ -1,16 +1,33 @@
 #include "solar_os_epd.h"
 
 #include <string.h>
+#include <stdio.h>
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+unsigned solar_os_epd_drive_limit(const solar_os_epd_t *s)
+{
+    const epd_pulse_tuning_t *t = &s->tuning;
+    const unsigned extra = t->black_redrives > t->white_redrives ?
+        t->black_redrives : t->white_redrives;
+    return t->cleanup_every * (t->drive_cycles + extra);
+}
+
+void solar_os_epd_append_mode(const solar_os_epd_t *s, char *text, size_t size)
+{
+    const size_t used = strlen(text);
+    if (used < size)
+        snprintf(text + used, size - used,
+            " black-redrives=%u white-redrives=%u changed-drive-frames=%u",
+            s->tuning.black_redrives, s->tuning.white_redrives, s->tuning.pulse_frames);
+}
 
 bool solar_os_epd_cleanup_due(const solar_os_epd_t *s)
 {
     const epd_pulse_tuning_t *t = &s->tuning;
     return s->updates >= t->cleanup_every * (t->cleanup_adaptive ? 4U : 1U) ||
-        (t->cleanup_adaptive && s->budget.peak_drive_cycles >=
-         t->cleanup_every * t->drive_cycles);
+        (t->cleanup_adaptive && s->budget.peak_drive_cycles >= solar_os_epd_drive_limit(s));
 }
 
 void solar_os_epd_seed(solar_os_epd_t *s, const uint8_t *target,
@@ -41,8 +58,9 @@ bool solar_os_epd_retarget(const solar_os_epd_adapter_t *a, const uint8_t *targe
                 if (!(bits & (1U << bit))) continue;
                 const size_t p = a->tile_budget ? byte * 8U + bit :
                     (size_t)(tile * 8U + bit) * a->width + x;
-                epd_pixel_budget_target(&a->state->budget, p,
-                    (target[byte] & (1U << bit)) != 0, a->state->tuning.drive_cycles);
+                const bool white = (target[byte] & (1U << bit)) != 0;
+                epd_pixel_budget_target(&a->state->budget, p, white,
+                    epd_pulse_target_cycles(&a->state->tuning, white));
             }
         }
     }

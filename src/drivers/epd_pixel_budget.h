@@ -22,6 +22,7 @@ typedef struct {
     uint8_t waveform_fr;    /* 1..12 raw controller frame-rate code */
     uint8_t cleanup_every;  /* 1..128; adapter interprets by cleanup policy */
     bool cleanup_adaptive;
+    uint8_t black_redrives, white_redrives; /* 0..31 extra drives per transition */
 } epd_pulse_tuning_t;
 
 typedef struct {
@@ -35,6 +36,8 @@ typedef struct {
 } epd_pixel_budget_t;
 
 epd_pulse_tuning_t epd_pulse_default_tuning(void);
+/* Includes the existing settling budget and bounded same-target top-ups. */
+uint8_t epd_pulse_target_cycles(const epd_pulse_tuning_t *tuning, bool white);
 /* Shared display-mode keys. Unknown keys return NOT_FOUND; bad values return
  * INVALID_ARG without changing tuning. waveform_fr is a code, not Hz.
  */

@@ -1643,6 +1643,17 @@ five frame-rate bytes. It supports `pulse-period=<67..1000>`,
 `invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
 restores native auto. Pulse memory is allocated in PSRAM on demand.
 
+Pulse profiles share `black-redrives=<0..31>` and `white-redrives=<0..31>`.
+These add a finite number of successful same-direction activations to a newly
+changed pixel's existing `drive-cycles` settling budget. Both additional counts
+default to zero. Identical images never refill them; a reversed target replaces
+the remaining budget. Settled pixels return to HOLD. This is bounded reinforcement
+after a transition, not continuous driving of unchanged black or white areas.
+`changed-drive-frames=<1..32>` is an alias for `pulse-frames`: it sets each
+activation's waveform scan duration, independently of the activation count.
+Native-only profiles do not expose these controls. Additional redrives require
+panel-specific optical calibration; white reinforcement is disabled by default.
+
 The Elecrow 5.79-inch dual-SSD1683, Elecrow 4.2-inch green-sticker,
 Waveshare 4.2-inch V2/revision-2.2, SSD1677, and SSD1685 GDEY029T71H profiles provide the
 `refresh=pulse` monochrome mode. `display mode <target> drive-cycles=<1..32>`

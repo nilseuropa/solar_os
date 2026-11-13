@@ -25,11 +25,14 @@ esp_err_t epd_pulse_tuning_set(epd_pulse_tuning_t *t, const char *mode)
             return ESP_ERR_INVALID_ARG;
         return ESP_OK;
     }
-    struct option { const char *key; uint8_t *value; unsigned max; } options[] = {
-        {"drive-cycles=", &t->drive_cycles, 32},
-        {"pulse-frames=", &t->pulse_frames, 32},
-        {"waveform-fr=", &t->waveform_fr, 12},
-        {"cleanup-every=", &t->cleanup_every, 128},
+    struct option { const char *key; uint8_t *value; unsigned min, max; } options[] = {
+        {"drive-cycles=", &t->drive_cycles, 1, 32},
+        {"pulse-frames=", &t->pulse_frames, 1, 32},
+        {"changed-drive-frames=", &t->pulse_frames, 1, 32},
+        {"black-redrives=", &t->black_redrives, 0, 31},
+        {"white-redrives=", &t->white_redrives, 0, 31},
+        {"waveform-fr=", &t->waveform_fr, 1, 12},
+        {"cleanup-every=", &t->cleanup_every, 1, 128},
     };
     for (size_t i = 0; i < sizeof(options) / sizeof(options[0]); ++i) {
         const size_t n = strlen(options[i].key);
@@ -44,12 +47,17 @@ esp_err_t epd_pulse_tuning_set(epd_pulse_tuning_t *t, const char *mode)
                 return ESP_ERR_INVALID_ARG;
             value = value * 10U + (unsigned)(*p - '0');
         }
-        if (value == 0 || value > options[i].max)
+        if (value < options[i].min || value > options[i].max)
             return ESP_ERR_INVALID_ARG;
         *options[i].value = (uint8_t)value;
         return ESP_OK;
     }
     return ESP_ERR_NOT_FOUND;
+}
+
+uint8_t epd_pulse_target_cycles(const epd_pulse_tuning_t *t, bool white)
+{
+    return (uint8_t)(t->drive_cycles + (white ? t->white_redrives : t->black_redrives));
 }
 
 esp_err_t epd_pixel_budget_init(epd_pixel_budget_t *b, uint8_t *storage,
@@ -108,7 +116,7 @@ void epd_pixel_budget_seed(epd_pixel_budget_t *b, size_t p, bool white)
 void epd_pixel_budget_target(epd_pixel_budget_t *b, size_t p, bool white,
                               uint8_t cycles)
 {
-    if (b == NULL || p >= b->count || cycles == 0 || cycles > 32)
+    if (b == NULL || p >= b->count || cycles == 0 || cycles > CYCLES_MASK)
         return;
     const uint8_t color = white ? WHITE_BIT : 0;
     if ((b->pixels[p] & WHITE_BIT) == color)

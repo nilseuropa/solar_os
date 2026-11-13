@@ -79,6 +79,14 @@ int main(void)
 {
     test_sparse_matches_dense();
     test_drive_history();
+    epd_pulse_tuning_t redrive = epd_pulse_default_tuning();
+    assert(redrive.black_redrives == 0 && redrive.white_redrives == 0);
+    assert(epd_pulse_tuning_set(&redrive, "black-redrives=31") == ESP_OK);
+    assert(epd_pulse_tuning_set(&redrive, "white-redrives=0") == ESP_OK);
+    assert(epd_pulse_tuning_set(&redrive, "changed-drive-frames=4") == ESP_OK && redrive.pulse_frames == 4);
+    redrive.drive_cycles = 32;
+    assert(epd_pulse_target_cycles(&redrive, false) == 63);
+    assert(epd_pulse_target_cycles(&redrive, true) == 32);
     uint8_t pixels[4];
     epd_pixel_budget_t b;
     assert(epd_pixel_budget_init(&b, pixels, 4) == ESP_OK);
@@ -106,6 +114,12 @@ int main(void)
     for (unsigned i = 0; i < 32; ++i)
         epd_pixel_budget_advance(&b);
     assert(b.pending == 0 && epd_pixel_budget_drive(&b, 0) == EPD_PIXEL_HOLD);
+    epd_pixel_budget_target(&b, 0, true, 63);
+    for (unsigned i = 0; i < 63; ++i) {
+        assert(epd_pixel_budget_drive(&b, 0) == EPD_PIXEL_DRIVE_WHITE);
+        epd_pixel_budget_advance(&b);
+    }
+    assert(b.pending == 0);
     epd_pixel_budget_target(&b, 0, true, 0);
     epd_pixel_budget_target(&b, 4, true, 1);
     assert(b.pending == 0);
@@ -124,7 +138,8 @@ int main(void)
     const char *bad[] = {"drive-cycles=0", "drive-cycles=33", "drive-cycles=-1",
         "drive-cycles=+1", "drive-cycles=1x", "drive-cycles=99999999999999",
         "drive-cycles=", "pulse-frames=0", "pulse-frames=33", "waveform-fr=13", "cleanup-every=129",
-        "cleanup-policy=", "cleanup-policy=auto", "cleanup-policy=adaptive1"};
+        "cleanup-policy=", "cleanup-policy=auto", "cleanup-policy=adaptive1",
+        "black-redrives=32", "white-redrives=-1", "black-redrives=", "changed-drive-frames=0"};
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); ++i) {
         assert(epd_pulse_tuning_set(&t, bad[i]) == ESP_ERR_INVALID_ARG);
         assert(memcmp(&t, &before, sizeof(t)) == 0);

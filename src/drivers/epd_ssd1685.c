@@ -666,13 +666,14 @@ const char *epd_ssd1685_controller_mode(const epd_ssd1685_t *d)
              d->epd.tuning.drive_cycles, d->epd.tuning.pulse_frames, d->epd.tuning.waveform_fr,
              d->epd.tuning.cleanup_every, d->epd.tuning.cleanup_adaptive ? "adaptive" : "fixed",
              (unsigned)d->epd.budget.peak_drive_cycles,
-             d->epd.tuning.cleanup_every * d->epd.tuning.drive_cycles, (unsigned)d->epd.updates,
+             solar_os_epd_drive_limit(&d->epd), (unsigned)d->epd.updates,
              d->scan_async ? "async" : "sync", d->scan_period_ms,
              d->pulse_power_hold ? "hold" : "cycle", d->pulse_ramp_fast ? "fast" : "normal",
              (unsigned)(d->pulse_spi_clock_hz / 1000), d->invert ? "true" : "false",
              (long long)stats.last_scan_us, (long long)stats.last_interval_us, (unsigned)stats.scans,
              (unsigned)stats.frames, (long long)stats.last_frame_interval_us,
              (unsigned)stats.submitted, (unsigned)stats.coalesced, (unsigned)d->epd.budget.pending);
+    solar_os_epd_append_mode(&d->epd, description, sizeof(d->mode_description));
     if (d->lock) xSemaphoreGive(d->lock);
     return description;
 }
@@ -681,7 +682,7 @@ const char *epd_ssd1685_controller_mode_values(const epd_ssd1685_t *d)
 {
     (void)d;
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
-           "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..12> "
+           SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..12> "
            "cleanup-every=<1..128> cleanup-policy=<adaptive,fixed> "
            "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<cycle,hold> "
            "pulse-ramp=<normal,fast> pulse-spi-khz=<100..10000> invert=<false,true>";

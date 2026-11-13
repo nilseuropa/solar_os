@@ -79,5 +79,18 @@ int main(void)
     p.cleanup=true;
     assert(solar_os_epd_flush(&a,image) == ESP_OK && p.baselines==before+1);
     assert(p.history[16]==0 && p.epd.updates==0 && !p.cleanup);
+    p.epd.tuning.black_redrives=2;
+    image[2] ^= 1; /* Black to white retains the base settling budget only. */
+    assert(solar_os_epd_flush(&a,image) == ESP_OK && p.history[16]==3);
+    image[2] ^= 1; /* White to black adds exactly two bounded top-ups. */
+    assert(solar_os_epd_flush(&a,image) == ESP_OK && p.history[16]==8);
+    const unsigned settled=p.drives;
+    for (unsigned i=0; i<100; ++i) assert(solar_os_epd_flush(&a,image) == ESP_OK);
+    assert(p.drives==settled && !p.epd.budget.pending);
+    p.epd.tuning.white_redrives=1;
+    image[2] ^= 1;
+    assert(solar_os_epd_step(&a,image,true,&pending,&scanned)==ESP_OK && pending);
+    image[2] ^= 1; /* Cancel white top-ups on reversal. */
+    assert(solar_os_epd_flush(&a,image)==ESP_OK && p.history[16]==14);
     puts("Shared EPD: baselines, padding, duplicate targets, reversal and failed drives passed");
 }

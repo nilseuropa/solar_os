@@ -38,6 +38,16 @@ Pixels with zero remaining cycles return HOLD. A failed waveform leaves
 optical state unknown: reset/reseed from a native cleanup before continuing.
 
 The common tuning parser handles `drive-cycles`, `pulse-frames`,
+`changed-drive-frames` (the same waveform-duration setting), `black-redrives`,
+and `white-redrives`. The last two accept 0..31 extra activations after a target
+change and default to zero. The shared service grants `drive-cycles` plus the
+target polarity's extra count once per transition. The packed budget supports
+up to 63 successful activations; unchanged targets do not refill it. Adaptive
+exposure limits include the larger extra count. Panel masks encode these drives
+using the existing synthetic transitions; enabling an unused BB LUT block alone
+would not reach settled pixels held neutral by those masks.
+
+The parser also handles
 `waveform-fr`, `cleanup-every`, and `cleanup-policy=<adaptive,fixed>`.
 Unknown keys return `ESP_ERR_NOT_FOUND`;
 invalid values leave configuration unchanged. `waveform-fr` is a profile's raw

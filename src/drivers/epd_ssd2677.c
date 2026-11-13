@@ -864,6 +864,7 @@ const char *epd_ssd2677_controller_mode(const epd_ssd2677_t *display)
         d->temperature, d->partial_refresh_count, (unsigned)(d->spi_clock_hz / 1000),
         (unsigned)d->last_frame_us, (unsigned)d->last_transfer_us,
         (unsigned)d->last_transfer_bytes, (unsigned)d->last_drive_us);
+    solar_os_epd_append_mode(&d->epd, ((epd_ssd2677_t *)d)->mode_description, sizeof(d->mode_description));
     xSemaphoreGive(d->lock);
     return d->mode_description;
 }
@@ -872,7 +873,7 @@ const char *epd_ssd2677_controller_mode_values(const epd_ssd2677_t *d)
 {
     (void)d;
     return "refresh=<auto,fast,partial,full,pulse> waveform=<otp,fastwave> "
-        "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..5> "
+        SOLAR_OS_EPD_REDRIVE_OPTIONS "drive-cycles=<1..32> pulse-frames=<1..32> waveform-fr=<1..5> "
         "cleanup-every=<1..128> cleanup-policy=<fixed,adaptive> "
         "pulse-scan=<sync,async> pulse-period=<67..1000> pulse-power=<hold,cycle> "
         "pulse-spi-khz=<100..20000> invert=<true,false>";

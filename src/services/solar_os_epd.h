@@ -2,6 +2,9 @@
 
 #include "drivers/epd_pixel_budget.h"
 
+#define SOLAR_OS_EPD_REDRIVE_OPTIONS \
+    "black-redrives=<0..31> white-redrives=<0..31> changed-drive-frames=<1..32> "
+
 /* Policy and target accounting shared by EPD panel adapters. The adapter owns
  * storage, serialization, SPI, native baselines, waveform execution and power.
  * No allocation is required by native-only panels. */
@@ -32,6 +35,8 @@ typedef struct {
 } solar_os_epd_adapter_t;
 
 bool solar_os_epd_cleanup_due(const solar_os_epd_t *state);
+unsigned solar_os_epd_drive_limit(const solar_os_epd_t *state);
+void solar_os_epd_append_mode(const solar_os_epd_t *state, char *text, size_t size);
 void solar_os_epd_seed(solar_os_epd_t *state, const uint8_t *target,
                        unsigned width, unsigned height, bool tile_budget);
 bool solar_os_epd_retarget(const solar_os_epd_adapter_t *adapter,

@@ -1299,7 +1299,7 @@ static esp_err_t ssd1683_pulse_baseline(void *context, const uint8_t *source)
     const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
     const char *reason = !display->shadow_valid || display->pulse_needs_cleanup ? "baseline" :
         (display->epd.tuning.cleanup_adaptive && display->epd.budget.peak_drive_cycles >=
-         display->epd.tuning.cleanup_every * display->epd.tuning.drive_cycles ? "pixel-drive" : "age");
+         solar_os_epd_drive_limit(&display->epd) ? "pixel-drive" : "age");
     const int64_t started = esp_timer_get_time();
     if (display->pulse_lut_loaded)
         ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "pulse cleanup reset failed");
@@ -2499,7 +2499,7 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
             d->epd.tuning.waveform_fr, d->epd.tuning.cleanup_every,
             d->epd.tuning.cleanup_adaptive ? "adaptive" : "fixed",
             (unsigned)d->epd.budget.peak_drive_cycles,
-            d->epd.tuning.cleanup_every * d->epd.tuning.drive_cycles,
+            solar_os_epd_drive_limit(&d->epd),
             (unsigned)d->epd.updates,
             d->scan_async ? "async" : "sync", d->scan_period_ms,
             d->pulse_power_hold ? "hold" : "cycle", d->pulse_ramp_fast ? "fast" : "normal",
@@ -2508,6 +2508,7 @@ const char *epd_ssd1683_controller_mode(const epd_ssd1683_t *display)
             (unsigned)stats.scans, (unsigned)stats.frames, (long long)stats.last_frame_interval_us,
             (unsigned)stats.submitted, (unsigned)stats.coalesced,
             (unsigned)d->epd.budget.pending);
+        solar_os_epd_append_mode(&d->epd, ((epd_ssd1683_t *)d)->mode_description, sizeof(d->mode_description));
         if (d->lock != NULL)
             xSemaphoreGive(d->lock);
         return d->mode_description;
