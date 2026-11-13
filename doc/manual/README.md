@@ -53,6 +53,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [fg command](commands.md) — Resume a display session or a port-owned app on its owning terminal. Without an ID, restore the calling port shell's most recently suspended app.
 - [gateway command](commands.md) — Show gateway configuration, connection state, and traffic counters.
 - [gesture command](commands.md) — List gesture-capable sensors and touchscreens, readiness, and the gesture kinds each source advertises.
+- [git command](git.md) — Version projects locally, over SSH or anonymous HTTPS. See Git.
 - [gnss command](commands.md) — List registered GNSS receivers and their concrete drivers.
 - [gpio command](commands.md) — List board GPIOs with free, releasable, or fixed pin policy.
 - [haptic command](commands.md) — List registered haptic devices, their concrete drivers, and supported effect range.
@@ -128,7 +129,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [uart command](commands.md) — Show the default uart0 or a selected named UART bus.
 - [unzip command](commands.md) — List or extract a ZIP archive.
 - [uptime command](commands.md) — Print elapsed time since boot.
-- [usb command](commands.md) — Switch USB mode or inspect devices. See USB host.
+- [usb command](commands.md) — USB host and serial controls.
 - [version command](commands.md) — Print the SolarOS version and firmware flavor.
 - [wait command](commands.md) — Pause the calling shell or shell script for 0 through 86400 seconds.
 - [watch command](commands.md) — Repeat another shell command until Esc, q, or the app-exit key is pressed.
@@ -149,7 +150,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [calc application](apps.md#calc) — Scientific calculator and function plotter. On a graphical display, calc opens an expression list beside a Cartesian plot. From UART, USB CDC, Telnet, or any other text-only shell, the same command opens a scientific REPL without the plot pane. calc --tui forces that REPL even when graphics are available.
 - [chat application](apps.md#chat) — Tabbed provider-neutral conversation client. The Channels tab groups conversations by named instance, including IRC, Gateway, MeshCore, and Link. Enter selects a conversation and opens its bounded shared history on the Chat tab, which also contains the message/command input. The app opens and remains useful offline; network or radio transport jobs connect independently.
 - [clock application](apps.md#clock) — Full-screen graphical seven-segment clock, alarm countdown, and stopwatch. The countdown is serviced in the background, so it continues when the Clock session is suspended. It works without RTC hardware while SolarOS remains powered. With a wired RTC interrupt, the RTC alarm or countdown is also armed and explicit light sleep can wake for it.
-- [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART or a virtual port such as a peer-bound SolarOS Link stream.
+- [com application](apps.md#com) — Serial terminal for a bidirectional byte-stream port. Display-keyboard or port-shell input is forwarded to the selected port, and received bytes are drawn in the active terminal. The port may be a UART, a hosted USB serial adapter such as usb-serial0, or a virtual port such as a peer-bound SolarOS Link stream. Configure USB serial settings with usb serial PORT OPTIONS before opening com; see USB host.
 - [contacts application](apps.md#contacts) — Provider-neutral address book for gateway and MeshCore identities. Contacts can carry multiple provider endpoints while retaining trust independently for each endpoint. A signed MeshCore advert creates a discovered endpoint: the signature proves possession of the advertised key, not the human identity behind it.
 - [curl application](apps.md#curl) — HTTP client for quick text downloads and diagnostics. It can print response data to the terminal or save it to a file.
 - [dlp application](apps.md#dlp) — Use a named SolarOS display as a Display Link Protocol receiver. The dlp package requires graphics support. One receiver may run at a time.
@@ -157,7 +158,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [edit application](apps.md#edit) — Text editor for files on mounted storage. It supports cursor navigation, selection, clipboard operations, text-size changes, and syntax highlighting for known source files. The editor supports files up to 256 KiB on boards with PSRAM and 32 KiB on boards without PSRAM. Use hexedit for binary files.
 - [email application](apps.md#email) — Receive-only IMAPS client for the configured mailbox. The app shows the provider-specific message list while every newly synchronized message is also published to the universal inbox and its shared status-bar unread counter.
 - [files application](apps.md#files) — File manager inspired by Midnight Commander. Its normal mode provides two panes for copy, move, delete, and launch workflows on mounted storage. Launcher mode provides a minimal single-pane application menu suitable for a startup script.
-- [Flash another ESP board](flash.md) — Download verified SolarOS factory images and program another ESP board over UART
+- [Flash another ESP board](flash.md) — Download verified SolarOS factory images and program another ESP board over UART or hosted USB serial
 - [flash application](apps.md#flash) — Download verified SolarOS factory artifacts to SD and program another supported ESP board over UART. The browser refreshes the signed catalog on request and shows which board, flavor, and version artifacts are already cached. Its tree starts folded and retains its selection and fold state after operations. Delete removes a selected cached artifact after confirmation. The shell form accepts a named UART plus optional boot and reset GPIO pins.
 - [ftp application](apps.md#ftp) — Two-pane FTP file manager. The left pane is local mounted storage. The right pane is a remote FTP server. The app uses unencrypted IPv4 FTP and passive data connections.
 - [funcgen application](apps.md#funcgen) — Audio-only function generator built on the shared real-time Synth service. It emits signed 16-bit stereo PCM and can use the default playback device or an explicitly selected runtime playback stream, including an attached LEDC PWM audio expansion.
@@ -242,6 +243,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Networking and security
 
+- [Git version control](git.md) — Version small projects locally and synchronize Git repositories over SSH or anonymous HTTPS
 - [Network interfaces, routing, Wi-Fi, WireGuard, and APIs](network.md) — Connect, inspect, and communicate over installed network services
 - [Open Sound Control](osc.md) — Receive scalar stream commands, control live parameters and publish named OSC bindings over UDP
 - [SSH identity keys](ssh_keys.md) — Inspect, share, generate, and remove the default SSH key pair
@@ -262,7 +264,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, environment, and IMU measurements
-- [USB host](usb.host.md) — Use USB input devices and one FAT flash or UFI/CBI floppy drive through the ESP32-S3 internal PHY
+- [USB host](usb.host.md) — Use USB input, serial adapters, and one FAT storage drive through the ESP32-S3 internal PHY
 
 ## Scripting APIs
 

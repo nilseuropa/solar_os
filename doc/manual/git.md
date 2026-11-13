@@ -10,10 +10,9 @@ packages_any = ["service_git"]
 # Git version control
 
 Use `git` to version text files, Python scripts, Lua applications and other small
-projects on device storage. The Git package is included in the full flavor on
-boards with Wi-Fi and PSRAM. Local commands also work offline. Repositories use
-the standard `.git` format and can also be opened by desktop Git. Commands work
-in display and port shells.
+projects on device storage. Git is included in the full flavor on boards with
+Wi-Fi and PSRAM. Local commands work offline, and repositories use the standard
+`.git` format supported by desktop Git. Commands work in display and port shells.
 
 ## Clone a public project
 
@@ -23,28 +22,37 @@ Connect Wi-Fi and set the clock, then clone over HTTPS without signing in:
 git clone https://github.com/OWNER/PROJECT.git
 cd PROJECT
 git status
-git log
 ```
 
-Use the repository's final HTTPS URL, including `.git`. HTTPS verifies the server
-certificate with the SolarOS certificate bundle. HTTPS authentication and HTTP
-redirects are not supported. An HTTPS clone can later use SSH for authenticated
-fetch and push:
+Use the final repository URL, including `.git`. The server certificate is
+verified against the system certificate bundle. HTTPS authentication and HTTP
+redirects are unsupported. To push to an HTTPS-cloned project, change its remote
+to SSH:
 
 ```text
 git remote set-url origin git@github.com:OWNER/PROJECT.git
 ```
 
+An empty clone has no first commit. Add project files and commit them before
+pushing, as described below.
+
 ## Set up SSH authentication
 
-Generate a device key with `sshkey gen 3072`, then use `sshkey pub` to display its
-public key. Add that public key to the GitHub or Bitbucket account that can access
-the repository. GitHub requires at least 3072 bits for newly added RSA keys.
-To replace an existing key pair, preserve a backup first, then run
-`sshkey gen -f 3072` and register the new public key with the remote hosts you use.
-Keep the private key on the device. Git uses the existing
-`/.ssh/id_rsa`, `/.ssh/id_rsa.pub`, `/.ssh/hosts` aliases and `/.ssh/known_hosts`
-policy. The first connection records a host key; a changed key is rejected.
+If no key is configured, create a device key and display its public key:
+
+```text
+sshkey gen 3072
+sshkey pub
+```
+
+Add the public key to the GitHub or Bitbucket account that can access the
+repository. Push requires write access. GitHub requires at least 3072 bits for
+new RSA keys. If a key already exists, follow [SSH identity keys](ssh_keys.md)
+to preserve or replace it. Keep the private key on the device.
+
+Git uses the default `/.ssh/id_rsa` pair, SSH host aliases and known-host policy.
+The first connection records the server's host key; a changed key is rejected.
+SSH URLs default to username `git`; host aliases do not supply usernames.
 
 ```text
 git clone git@github.com:OWNER/PROJECT.git
@@ -53,94 +61,120 @@ git clone ssh://git@github.com:22/OWNER/PROJECT.git project
 git clone -b feature git@github.com:OWNER/PROJECT.git project
 ```
 
-SSH uses public-key authentication with the default device identity. HTTPS does
-not request credentials. SSH aliases resolve hosts but do not supply usernames;
-the default Git username is `git`. SSH URL paths must not contain single quotes,
-percent escapes, backslashes or control characters.
+SSH URL paths cannot contain single quotes, percent escapes, backslashes or
+control characters.
 
-## Save and review changes
+## Create a local project
 
-Set the author identity separately in each repository:
+```text
+git init project
+cd project
+```
+
+New local repositories start on `main`. Cloned repositories may use another
+branch name. Create or copy your project files into the directory, then make
+the first commit using the commands below.
+
+## Review and commit changes
+
+Set the author name and email separately in each repository. Replace `script.py`
+with the file or files you want to version:
 
 ```text
 git config user.name "Your Name"
 git config user.email "you@example.com"
 git status
 git diff
-git add script.py README.txt
+git add script.py
 git diff --cached
-git commit -m "Add temperature logger"
-git push
+git commit -m "Save project"
 ```
 
-`git add .` stages additions, modifications and deletions below the current
-directory. Git honors `.gitignore`. `git diff` compares the working files to the
-index; `git diff --cached` compares the index to the latest commit. Delete files
-with `rm` and stage the deletion with `git add .`.
+`git status` shows staged, modified and untracked files. `git diff` compares
+working files to staging; `git diff --cached` compares staging to the latest
+commit, or shows staged additions before the first commit.
 
-Start a new local project with `git init project`, enter it with `cd project`,
-set the author identity, add files and make a commit. New repositories start on
-`main`. To publish to an existing empty repository:
+`git add .` stages additions, modifications and deletions below the current
+directory and honors `.gitignore`. Delete files with `rm`, then stage the
+deletion with `git add .`. A first commit requires at least one staged file.
+
+## Publish a branch
+
+Create the repository on GitHub or Bitbucket first. For a new local project,
+configure its SSH remote:
 
 ```text
 git remote add origin git@github.com:OWNER/PROJECT.git
-git push -u origin main
 ```
 
-## Branches and synchronization
+A clone already has an `origin` remote; use `git remote -v` to inspect it or
+`git remote set-url origin URL` to change it.
+
+After making a commit, create a branch and publish it:
+
+```text
+git checkout -b experiment
+git push -u origin experiment
+```
+
+Push creates the remote branch if it does not exist. `-u` also sets the current
+branch's upstream for future pulls. To publish the current branch, use
+`git push -u origin`.
+
+You can select an initial branch name before the first commit with
+`git checkout -b NAME` or `git switch -c NAME`. This preserves files and staging;
+status reports `No commits yet`. Make the first commit before pushing.
+
+## Switch branches and synchronize
 
 ```text
 git branch
-git checkout -b experiment
-git checkout main
-git switch -c another-experiment
-git branch -d experiment
+git switch experiment
 git fetch
 git pull
-git pull origin main
-git push origin main
+git push
 ```
 
 `branch` lists local and fetched remote branches. `branch NAME` creates a branch
-at the current commit. `checkout NAME` or `switch NAME` changes to a local branch,
-or creates a tracking branch from `origin/NAME`. Branch deletion rejects the
-current branch and commits that are not merged into the current branch.
+at the current commit. `checkout NAME` or `switch NAME` selects a local branch,
+or creates a tracking branch from `origin/NAME`. `checkout -b NAME` and
+`switch -c NAME` create and select a branch. `branch -d NAME` deletes a local
+branch, rejecting the current branch and branches with unmerged commits.
 
-Before the first commit, `checkout -b NAME` or `switch -c NAME` selects the initial
-branch name and preserves existing files and staging. Status reports
-`No commits yet`. Add files and create the first commit before pushing; the push
-creates the remote branch. An empty clone also needs a first commit before push.
+Fetch updates remote tracking branches without changing working files. Pull
+uses the current branch's upstream unless given `git pull REMOTE BRANCH`.
+It applies fast-forward updates and preserves conflicting local changes.
+Diverged branches require a merge or rebase on a desktop.
 
-Fetch updates remote tracking branches without checking out files. Pull applies
-fast-forward updates to the current branch and preserves conflicting local
-changes. Diverged branches require a merge or rebase on a desktop. Pull without
-an explicit branch uses the current branch's upstream. Push sends the current
-branch to the same branch name on `origin` by default, or to the explicitly
-named remote branch. `push -u` also sets the current branch's upstream for future
-pulls. A push rejects non-fast-forward updates and reports remote
-permission and branch protection failures. Force push is not supported.
+Push sends the current branch to the same name on `origin` by default. Use
+`git push REMOTE BRANCH` to send it to another remote branch name. Non-fast-forward
+updates, missing permissions and branch protection are reported as errors.
+Force push is unsupported.
 
-## Limits
+## Limits and interrupted operations
 
-This client is intended for small projects. Incoming transfers are limited to
-16 MiB and Git object caches are bounded. Available storage and PSRAM may impose
-smaller limits. Repositories with long histories can exceed those limits even
-when their working files are small. Diff treats files larger than 1 MiB as binary.
-Symbolic links and submodules cannot be checked out. External attribute filters,
-Git LFS, hooks, merge, rebase and stash are unavailable. Use ordinary files with
-paths that fit the mounted filesystem; FAT volumes cannot represent filenames
+Incoming transfers are limited to 16 MiB. Available storage and PSRAM may impose
+smaller limits; a long history can exceed them even if the working files are
+small. Diff treats files larger than 1 MiB as binary. Symbolic links and
+submodules cannot be checked out. External attribute filters, Git LFS, hooks,
+merge, rebase and stash are unavailable. FAT volumes cannot represent filenames
 that differ only in letter case or Unix executable permissions.
 
-Press `Ctrl+]` to cancel. Network operations have a 30-second inactivity timeout.
-Remote progress appears as it arrives during clone, fetch and push.
-Cancelled transfers do not advance branch references. A failed clone may leave
-its destination directory for inspection. Filesystem errors can leave
-`.solaros-backup` files beside Git metadata; preserve them until the interrupted
-write has been inspected. Metadata replacement recovers from ordinary rename
-errors but is not atomic across sudden power loss.
+Progress appears as it arrives during transfers. Press `Ctrl+]` to cancel;
+network operations have a 30-second inactivity timeout. Cancelled transfers do
+not advance branch references. A failed clone may leave its destination for
+inspection; review it before retrying. Keep storage mounted and avoid powering
+off during writes. If an error leaves `.solaros-backup` files beside Git metadata,
+preserve them until the interrupted operation has been inspected.
 
 ## Quick reference
 
-`git help` lists the supported command syntax. `git log -n 20` lists recent
-commits. `git remote -v` lists configured remotes. Run commands inside a project;
-Git discovers a parent repository when working in a subdirectory.
+Run commands inside a project or a subdirectory; Git discovers the parent
+repository. Use relative paths or full mounted paths such as `/sdcard/project`.
+`git help` lists syntax, `git status` shows pending changes, and `git log -n 20`
+lists recent commits. Set `user.name` and `user.email`, stage files with `git add`,
+and make a commit before the first push. `checkout -b NAME` and `switch -c NAME`
+create and select a branch; before the first commit they select its initial name.
+`git push -u origin NAME` publishes the current branch and sets its upstream.
+Pull is fast-forward only. HTTPS is anonymous; authenticated fetch and push use
+SSH with the device's key. Press `Ctrl+]` to cancel.
