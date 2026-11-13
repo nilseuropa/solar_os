@@ -30,6 +30,7 @@ int solar_os_cc_generate(const solar_os_cc_request_v1_t *request,
     tcc_set_output_type(s1, TCC_OUTPUT_OBJ);
     status = tcc_compile_string(s1, request->source);
     if (status) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }
+    if (solar_os_cc_add_support(s1)) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }
     static const char *const imports[] = {
         "solar_os_native_host_v1", "solar_os_native_job_host_v1", "solar_os_native_driver_host_v1",
         "solar_os_native_library_host_v1", "memcpy", "memset", "memmove", "memcmp", "strlen", "setjmp", "longjmp",

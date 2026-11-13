@@ -154,6 +154,8 @@ static const solar_os_native_libc_api_v1_t native_libc_api = {
     .format = vsnprintf, .parse_float = strtof, .floor_value = floor,
     .exp_float = expf, .floor_float = floorf, .mod_float = fmodf,
     .log_float = logf, .pow_float = powf, .sqrt_float = sqrtf,
+    .parse_double = strtod,
+    .scale_double = ldexp,
 };
 
 static int native_thread_mutex_create(void **out, uint32_t recursive)

@@ -41,6 +41,8 @@ def main():
     sys.path.insert(0, str(ROOT / "modules/espdl"))
     from verify import verify
     output = CACHE / "file-hil"; output.mkdir(exist_ok=True)
+    report_path = output / "report.json"
+    if report_path.exists(): report_path.unlink()
     folder = "/dev/cc-examples"
     console = Console(args.telnet)
     log = (output / "console.log").open("w")
@@ -106,11 +108,17 @@ def main():
                 path = staged / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_text(data)
             server = ThreadingHTTPServer((address, 0), partial(SimpleHTTPRequestHandler, directory=temporary))
             threading.Thread(target=server.serve_forever, daemon=True).start()
+            for path in ("/dev", "/modules", "/modules/apps", "/modules/libraries"):
+                if "No such file" in command("ls " + path): command("mkdir " + path)
             for path in (folder, folder + "/include", folder + "/include/detail"):
-                command("mkdir " + path)
+                out=command("mkdir " + path)
+                if "cannot create" in out: raise RuntimeError(out)
 
             def fetch(name, remote):
-                command(f"curl -o {remote} http://{address}:{server.server_port}/{name}", "curl: wrote")
+                out=command(f"curl -o {remote} http://{address}:{server.server_port}/{name}", "curl: wrote")
+                count=re.search(r"curl: wrote (\d+) bytes",out)
+                if "curl: HTTP 200," not in out or not count or int(count[1])!=(staged/name).stat().st_size:
+                    raise RuntimeError("failed or incomplete transfer: "+out)
 
             for name in artifacts:
                 fetch(name, "/modules/" + ("apps/" if name == "cc.elf" else "libraries/") + name)
@@ -189,7 +197,7 @@ def main():
                       "repeated_compile_and_run": 10, "before": before, "after": after,
                       "compiler_and_examples_left_installed": True, "examples": folder,
                       "hello_sha256": hello_hash}
-            (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+            report_path.write_text(json.dumps(report, indent=2) + "\n")
     finally:
         if server: server.shutdown(); server.server_close()
         console.socket.close(); log.close()

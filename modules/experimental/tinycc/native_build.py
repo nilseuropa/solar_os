@@ -70,7 +70,7 @@ def main():
     headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
     headers.update({p.name: p for p in (HERE / "sdk").glob("*.h")})
     for name in ("stddef.h", "stdbool.h", "stdarg.h"):
-        headers[name] = source / "include" / name
+        if name not in headers: headers[name] = source / "include" / name
     headers["hello_library_api.h"] = ROOT / "modules/examples/hello-library/main/hello_library_api.h"
     sdk = []
     for name, path in sorted(headers.items()):
@@ -108,13 +108,15 @@ def main():
         "-I", ROOT / "include", "-I", ROOT / "src/services",
         HERE / "elf_check.c", ROOT / "src/services/solar_os_native_elf.c", "-o", CACHE / "elf-check")
     report = {"upstream": json.loads((HERE / "upstream.json").read_text())["revision"],
+              "support":json.loads((CACHE/"support/build.json").read_text()),
               "gcc": subprocess.check_output([str(cc), "-dumpfullversion"], text=True).strip(),
               "sdk": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in headers.items()},
               "sources": {os.path.relpath(path, HERE): hashlib.sha256(path.read_bytes()).hexdigest()
                           for path in [ROOT / "src/services/solar_os_native_elf.c",
                                        ROOT / "src/services/solar_os_native_elf.h"] + [HERE / name for name in ("runtime.c", "embedded.c", "client.c", "module.c",
                                                                "native_build.py", "xtensa-gen.c", "xtensa-link.c",
-                                                               "include/solar_os_cc_abi.h")]}, "artifacts": {}}
+                                                               "include/solar_os_cc_abi.h","support.c","support_build.py",
+                                                               "support-bridge.c","build.py","driver.c")]}, "artifacts": {}}
     for name in ("tinycc.library.elf", "cc.app.elf"):
         path = output / name
         imports = verify(path, {"solar_os_native_library_host_v1", "solar_os_native_host_v1",

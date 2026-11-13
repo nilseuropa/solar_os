@@ -2,6 +2,8 @@
 #include <errno.h>
 #include <setjmp.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
 #include <string.h>
 #include "esp_elf.h"
 #include "esp_heap_caps.h"
@@ -46,7 +48,8 @@ static int start_worker(void **out, void (*entry)(void *), void *arg, uint32_t b
 static int join_worker(void *value)
 { struct worker *w = value; while (eTaskGetState(w->task) != eSuspended) vTaskDelay(1); vTaskDelete(w->task); heap_caps_free(w); return 0; }
 static const solar_os_native_memory_api_v1_t memory = {.abi_version=1, .struct_size=sizeof(memory), .alloc=solar_os_memory_elf_alloc, .free=heap_caps_free};
-static const solar_os_native_libc_api_v1_t libc_api = {.abi_version=1, .struct_size=sizeof(libc_api), .format=vsnprintf};
+static solar_os_native_libc_api_v1_t libc_api = {.abi_version=1, .struct_size=sizeof(libc_api), .format=vsnprintf,
+    .parse_float=strtof,.parse_double=strtod,.scale_double=ldexp,.floor_value=floor,.sqrt_float=sqrtf};
 static const solar_os_native_time_api_v1_t clock_api = {1, sizeof(clock_api), esp_timer_get_time, sleep_ms};
 static const solar_os_native_thread_api_v1_t threads = {.abi_version=1, .struct_size=sizeof(threads), .worker_start=start_worker, .worker_join=join_worker};
 static const solar_os_native_library_service_api_v1_t libraries = {.abi_version=1, .struct_size=sizeof(libraries), .acquire=acquire, .release=release};
@@ -116,7 +119,8 @@ void app_main(void)
     printf("NATIVE_SCALAR code=%d bytes=%u %s\n", code, metrics.output_bytes, error);
     assert(!code && metrics.output_bytes);
     assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf, output));
-    assert(!((int (*)(int,char **))program_elf.entry)(0,NULL));
+    int scalar_result=((int (*)(int,char **))program_elf.entry)(0,NULL);
+    printf("NATIVE_SCALAR_RESULT=%d\n",scalar_result); assert(!scalar_result);
     esp_elf_deinit(&program_elf);
     /* The old request prefix remains compatible with the extended library. */
     request = (solar_os_cc_request_v1_t){.struct_size=SOLAR_OS_CC_REQUEST_BASE_SIZE,
@@ -143,6 +147,42 @@ void app_main(void)
     metrics = (solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
     assert(api->compile(&request, output, 8192, &metrics, error, sizeof(error)) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
     assert(!metrics.output_bytes && strstr(error, "unsupported native import"));
+    /* Old firmware still compiles integers, and reports a missing optional
+     * parser before dereferencing the appended libc methods. */
+    request=(solar_os_cc_request_v1_t){.struct_size=sizeof(request),
+        .source="int main(void){return 6*7-42;}"};
+    request.source_bytes=strlen(request.source);
+    libc_api.struct_size=offsetof(solar_os_native_libc_api_v1_t,parse_double);
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(!api->compile(&request,output,8192,&metrics,error,sizeof(error)));
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf,output));
+    assert(!((int (*)(int,char **))program_elf.entry)(0,NULL));esp_elf_deinit(&program_elf);
+    request.source="int main(void){union {double value;unsigned words[2];} x={1.25};return x.words[0] || x.words[1]!=0x3ff40000U;}";
+    request.source_bytes=strlen(request.source);
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request,output,8192,&metrics,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!metrics.output_bytes && strstr(error,"parse_double"));
+    libc_api.struct_size=sizeof(libc_api);libc_api.parse_double=NULL;
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request,output,8192,&metrics,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!metrics.output_bytes && strstr(error,"parse_double"));libc_api.parse_double=strtod;
+    request.source="int main(void){return 0x1.4p0!=1.25;}";request.source_bytes=strlen(request.source);
+    libc_api.struct_size=offsetof(solar_os_native_libc_api_v1_t,scale_double);
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request,output,8192,&metrics,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!metrics.output_bytes && strstr(error,"scale_double"));
+    libc_api.struct_size=sizeof(libc_api);libc_api.scale_double=NULL;
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request,output,8192,&metrics,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!metrics.output_bytes && strstr(error,"scale_double"));libc_api.scale_double=ldexp;
+    libc_api.struct_size=sizeof(libc_api);
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    request.source="int main(void){union {double value;unsigned words[2];} x={0x1.4p0};return x.words[0] || x.words[1]!=0x3ff40000U;}";
+    request.source_bytes=strlen(request.source);
+    assert(!api->compile(&request,output,8192,&metrics,error,sizeof(error)));
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf,output));
+    assert(!((int (*)(int,char **))program_elf.entry)(0,NULL));esp_elf_deinit(&program_elf);
+    printf("SOLAR_CC_LIBC_EXTENSION_PASS: missing-parser rejection and recovery\n");
     heap_caps_free(output);
 #ifdef SOLAR_CC_DIFFERENTIAL
     extern int solar_cc_differential(const solar_os_cc_api_v1_t *);

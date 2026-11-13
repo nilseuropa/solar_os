@@ -32,11 +32,8 @@ def main():
         report["artifacts"][name] = {"bytes": elf.stat().st_size, "imports": imports,
                                      "sha256": hashlib.sha256(elf.read_bytes()).hexdigest()}
     rejected = {
-        "float": "float f(float x) { return x+1; }",
-        "integer64": "int f(int x) { long long v=x; v=v*1234567890123LL; return v; }",
         "vla": "int f(int n) { int a[n]; a[n-1]=1; return a[n-1]; }",
-        "variadic": "int f(int n, ...) { return n; }",
-        "aggregate": "struct A { int n; }; struct A f(void) { struct A a={1}; return a; }",
+        "computed_goto": "int f(void) { void *p=&&done; goto *p; done:return 0; }",
         "asm": 'int f(void) { asm("nop"); return 0; }',
         "syntax": "int f(void) { return missing + ; }",
     }

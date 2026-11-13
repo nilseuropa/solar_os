@@ -27,18 +27,31 @@ contains upstream licensing and copyright notices.
    provider and release the lease. Library headers still have to be provided
    to the compiler; dynamic tables do not supply C declarations.
 
-The backend handles scalar integers up to 32 bits, pointers, byte/halfword
-access, local arrays, global data, control flow, recursion, function pointers,
-static tables, and register/stack arguments. It checks jump and frame ranges.
-Floating-point operations, 64-bit runtime arithmetic, aggregate arguments and
-returns, variadic definitions, variable-length arrays, computed goto and
-inline assembly are unsupported. This is an initial ABI-oriented subset,
-not a claim of general C conformance or support for every ESP32 variant.
+The backend handles signed and unsigned integers through 64 bits, `float`,
+`double`, pointers, byte/halfword access, local arrays, global data, control
+flow, recursion, function pointers, static tables, and register/stack arguments.
+It implements aligned two-word arguments and returns, by-value structures
+(including register and hidden-pointer returns), and variadic definitions with
+`va_start`, `va_arg`, `va_copy` and `va_end`. These calling conventions support
+published SolarOS services and GCC-built module libraries. `long double` has
+the target's 64-bit `double` representation. Jump and frame ranges are checked.
+
+The compiler build packages target-GCC arithmetic and conversion helpers into
+a closed private bundle. Generated programs that reference these helpers
+receive the bundle with internal relocations; integer-only programs that do
+not need helpers omit it. This adds roughly 10 KiB to helper-using programs;
+the prototype does not yet select individual functions. No additional runtime
+library installation or GNU tools are needed on the device. The bundled GCC
+runtime retains its upstream licensing and runtime exception.
+
+Variable-length arrays, computed goto and inline assembly remain unsupported.
 There is no optimizing pass, general object/archive linker or complete libc.
+Support is experimental and targets ESP32-S3's windowed ABI; this is not a C
+conformance certification or support for other ESP32 variants.
 
 ## GCC comparison tests
 
-Run the scalar32 comparison suite with the installed ESP32-S3 toolchain and
+Run the code-generation and ABI comparison suite with the installed ESP32-S3 toolchain and
 Espressif QEMU:
 
 ```sh
@@ -54,14 +67,21 @@ words and the surrounding guard words. Every ELF passes
 the production validator; compile/load failures, mismatches, missing cases,
 crashes and emulator deadlines fail the command.
 
-The default corpus has 22 curated cases and 16 seeded expression cases, each
-executed for 128 input pairs through both TinyCC hosts: 9,728 comparisons.
+The default corpus has 40 curated cases and 16 seeded expression cases, each
+executed for 128 input pairs through both TinyCC hosts: 14,336 comparisons.
 It covers unsigned wrapping, bounded signed arithmetic, casts and narrow
 loads/returns, booleans, comparisons, short-circuit side effects, loops and
 switches, arrays/pointers, large stack offsets, structure members, bitfields,
 object bytes, global relocations, recursion, register pressure, stack
 arguments, GCC/TinyCC callbacks in both directions, alignment and imported
-memory helpers. Target-specific signed casts/shifts and layouts are compared
+memory helpers. Additional cases exercise 64-bit arithmetic and conversions,
+decimal/hex floating literals, subnormals and special values, floating-point
+services, structure arguments/returns at ABI boundaries, and variadic
+definitions across register/stack boundaries. Callbacks exercise both
+GCC-to-TinyCC and TinyCC-to-GCC calls, including forwarding `va_list` to
+`libc.format`. Floating operations disable contraction in GCC references and
+runtime helpers; float-to-integer inputs stay within defined conversion ranges.
+Target-specific signed casts/shifts and layouts are compared
 against GCC for the same ESP32-S3 target. Generated expressions use unsigned
 arithmetic, nonzero divisors and masked shift counts; cases avoid signed
 overflow, invalid pointer arithmetic and unsequenced side effects.
@@ -99,6 +119,24 @@ It checks preservation of requested section alignment, including merged
 sections, and rejection of unsupported alignments. The execution corpus's
 `alignment` case additionally verifies alignment after native loading.
 
+For a physical ESP32-S3 device with matching firmware and the compiler installed
+by `file_hil.py`, run:
+
+```sh
+python3 modules/experimental/tinycc/differential_hil.py --telnet DEVICE_IP
+```
+
+This builds a temporary GCC library containing both reference versions and the
+ABI callbacks. It transfers and hashes each C source, compiles it through `cc`
+on the device, loads the generated ELF and compares all input vectors with both
+GCC references on the same hardware. The default is 56 cases and 128 input pairs:
+7,168 comparisons. It checks output guard words, library leases, unloading and
+managed free memory. Compiler, provider, source and generated ELF hashes are
+recorded under `.pio/tinycc/differential-hil`. The test requires unused
+`/dev/cc-differential` and `tinycc-diff-check` paths and removes its temporary
+provider and device files afterward; the installed compiler and file examples
+remain available. Run hardware suites sequentially on the network shell.
+
 ## Build and check
 
 Run from the firmware repository. Python 3.12+, a host C compiler, and the
@@ -118,7 +156,7 @@ constant storage on a 32-bit host. `--gcc-provider` builds the unchanged
 `check.py` compiles the two probes and the unchanged `hello-library` and
 `library-user` examples. It runs the production SolarOS ELF validator and
 the existing relocation/import verifier on every result, and checks that
-seven unsupported or malformed source cases produce errors. Results are
+four unsupported or malformed source cases produce errors. Results are
 in `.pio/tinycc/checks.json`.
 
 For another source file, use the include directory under the pinned source:
@@ -226,8 +264,14 @@ The library serializes compilation and
 rejects concurrent requests. Errors, resource-limit failures and cancellation
 free request allocations and restore private compiler globals before returning.
 Output buffers belong to the caller and remain valid after releasing its lease.
-The embedded runtime rejects floating literals and fixes `__DATE__`/`__TIME__`
-to the Unix epoch; it defines `__SOLAROS__` and `__ESP32S3__`.
+Floating literal parsing uses the `libc` service. Decimal double literals need
+the appended `parse_double` method; hexadecimal floating literals need
+`scale_double`. Older firmware continues to support integer compilation and
+reports a missing method before using either extension. Update firmware to
+compile the full floating-point corpus. The emulator checks old table sizes,
+missing method pointers, integer compilation and recovery after parser errors.
+The runtime fixes `__DATE__`/`__TIME__` to the Unix epoch and defines
+`__SOLAROS__` and `__ESP32S3__`.
 
 The client also retains diagnostic modes:
 

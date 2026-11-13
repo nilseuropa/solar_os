@@ -88,8 +88,8 @@ static int self_test(void *output, unsigned capacity)
     nested[length++] = ';'; nested[length++] = '}'; nested[length] = 0;
     request.source = nested; request.source_bytes = length;
     if (compile(&request, output, capacity) != SOLAR_OS_NATIVE_ERROR_INVALID_SIZE || metrics.output_bytes) return 12;
-    request.source = "double x=1.5; int main(void) { return 0; }"; request.source_bytes = strlen(request.source);
-    if (compile(&request, output, capacity) != SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED) return 8;
+    request.source = "int main(int n) { int a[n]; return a[0]; }"; request.source_bytes = strlen(request.source);
+    if (compile(&request, output, capacity) != SOLAR_OS_NATIVE_ERROR_FAILED) return 8;
     const char extra[] = "#define EXTRA 42\n";
     solar_os_cc_header_v1_t header = {"extra.h", extra, sizeof(extra)-1};
     request.source = "#include <solar_os_native_abi.h>\n#include <extra.h>\n"
@@ -194,7 +194,7 @@ int app_main(int argc, char **argv)
 {
     host = solar_os_native_host_v1();
     if (!host || host->struct_size < sizeof(*host) || !host->get_service) return 1;
-    libc_api = host->get_service("libc", 1, sizeof(*libc_api));
+    libc_api = host->get_service("libc", 1, offsetof(solar_os_native_libc_api_v1_t,parse_float));
     const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
     const solar_os_native_library_service_api_v1_t *libraries = host->get_service("library", 1, sizeof(*libraries));
     if (!libc_api || !memory || !libraries) return 2;

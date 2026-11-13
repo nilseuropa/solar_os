@@ -39,7 +39,39 @@ static int16_t signed_half(uint32_t value) { return (int16_t)value; }
 static uint16_t unsigned_half(uint32_t value) { return (uint16_t)value; }
 static uint32_t callback12(diff_callback12_t fn,uint32_t a,uint32_t b)
 { return fn(a,b,a+b,a-b,a^b,0xffffffffU,0,0x80000000U,17,23,a*3U,b*5U); }
-static const diff_api_t api = {mix8,narrow,callback,variadic,signed_byte,unsigned_byte,signed_half,unsigned_half,callback12};
+static uint64_t wide(uint32_t a,uint64_t b,uint32_t c,uint64_t d,uint32_t e)
+{ return (b*0x100000001ULL)^(d+a+c+e); }
+static uint64_t wide_callback(diff_wide_callback_t fn,uint32_t x,uint32_t y)
+{ return fn(x,((uint64_t)y<<32)|x,y,((uint64_t)x<<32)|y,x^y); }
+static uint64_t wide_variadic(unsigned count,...)
+{
+    va_list args; va_start(args,count); uint64_t value=0;
+    while(count--) value=value*33U+va_arg(args,uint64_t);
+    va_end(args); return value;
+}
+static diff_triple_t triple(diff_triple_t value,uint32_t n)
+{value.a+=n;value.b^=n;value.c*=n|1U;return value;}
+static uint32_t triple_callback(diff_triple_callback_t fn,uint32_t x,uint32_t y)
+{diff_triple_t value={x,y,x^y};value=fn(value,17);return value.a^value.b^value.c;}
+static diff_large_t large(diff_large_t value,uint32_t n)
+{for(unsigned i=0;i<5;i++) value.words[i]=value.words[i]*33U+n+i;return value;}
+static uint32_t large_callback(diff_large_callback_t fn,uint32_t x,uint32_t y)
+{diff_large_t value={{x,y,x+y,x-y,x^y}};value=fn(value,19);return value.words[0]^value.words[4];}
+static double floating(double a,float b,uint64_t c,uint32_t d,double e)
+{return (a+(double)b)+(double)(c&65535U)+(double)d+e;}
+static double floating_callback(diff_float_callback_t fn,double a,float b,uint64_t c,uint32_t d,double e)
+{return fn(a,b,c,d,e);}
+static uint64_t variadic_callback(diff_variadic_callback_t fn,uint32_t x,uint32_t y)
+{return fn(5,x,((uint64_t)y<<32)|x,1.25,(unsigned)17,0x8765432100000001ULL);}
+static diff_quad_t quad(uint32_t x,diff_quad_t value,uint32_t y)
+{for(unsigned i=0;i<4;i++)value.words[i]=(value.words[i]+x)^(y+i);return value;}
+static uint32_t quad_callback(diff_quad_callback_t fn,uint32_t x,uint32_t y)
+{diff_quad_t value={{x,y,x+y,x-y}};value=fn(17,value,23);return value.words[0]^value.words[1]^value.words[2]^value.words[3];}
+static diff_small_t small(uint32_t x,diff_small_t value,uint32_t y)
+{value.bytes[0]+=x;value.bytes[1]^=y;value.bytes[2]++;return value;}
+static const diff_api_t api = {mix8,narrow,callback,variadic,signed_byte,unsigned_byte,signed_half,unsigned_half,callback12,
+                              wide,wide_callback,wide_variadic,triple,triple_callback,large,large_callback,floating,variadic_callback,
+                              quad,quad_callback,small,floating_callback};
 
 struct observed { uint32_t before, words[DIFF_WORDS], after, result; };
 _Static_assert(sizeof(struct observed)==(DIFF_WORDS+3)*sizeof(uint32_t),"observation must not contain padding");

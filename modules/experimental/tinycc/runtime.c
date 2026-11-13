@@ -237,13 +237,21 @@ long strtol(const char *text, char **end, int base)
 }
 int atoi(const char *text) { return strtol(text, NULL, 10); }
 float strtof(const char *text, char **end)
-{ (void)text; (void)end; fail(-6, "floating literals are unsupported by the embedded compiler"); }
+{ return libc_api->parse_float(text,end); }
 double strtod(const char *text, char **end)
-{ (void)text; (void)end; fail(-6, "floating literals are unsupported by the embedded compiler"); }
+{
+    if(libc_api->struct_size<offsetof(solar_os_native_libc_api_v1_t,scale_double) || !libc_api->parse_double)
+        fail(-6,"double literals require the appended libc parse_double method");
+    return libc_api->parse_double(text,end);
+}
 long double strtold(const char *text, char **end)
-{ (void)text; (void)end; fail(-6, "floating literals are unsupported by the embedded compiler"); }
+{ return strtod(text,end); }
 long double ldexpl(long double value, int exponent)
-{ (void)value; (void)exponent; fail(-6, "floating literals are unsupported by the embedded compiler"); }
+{
+    if(libc_api->struct_size<offsetof(solar_os_native_libc_api_v1_t,scale_double)+sizeof(libc_api->scale_double) || !libc_api->scale_double)
+        fail(-6,"hex floating literals require the appended libc scale_double method");
+    return libc_api->scale_double(value,exponent);
+}
 char *getcwd(char *buffer, size_t bytes)
 { if (bytes < 5) { private_errno = ERANGE; return NULL; } return strcpy(buffer, "/sdk"); }
 char *realpath(const char *name, char *buffer)
@@ -396,7 +404,7 @@ int app_main(int argc, char **argv)
     if (!host || host->abi_version != 1 || host->struct_size < sizeof(*host) ||
         !host->get_service || !host->register_library) return -6;
     memory_api = host->get_service("memory", 1, sizeof(*memory_api));
-    libc_api = host->get_service("libc", 1, sizeof(*libc_api));
+    libc_api = host->get_service("libc", 1, offsetof(solar_os_native_libc_api_v1_t,parse_double));
     threads = host->get_service("thread", 1, sizeof(*threads));
     clock_api = host->get_service("time", 1, sizeof(*clock_api));
     if (!memory_api || !libc_api || !threads || !clock_api || !memory_api->alloc || !memory_api->free ||

@@ -109,7 +109,13 @@ Pass the size of the public table and check for NULL before use:
 | `time` | `solar_os_native_time_abi.h` | Monotonic microseconds and cooperative sleep on the calling task |
 | `thread` | `solar_os_native_thread_abi.h` | Normal/recursive mutexes, conditions, task-local keys and joinable workers |
 | `controllers` | `solar_os_native_controllers_abi.h` | Owned PID instances in the OS registry; caller supplies timestamped samples and handles its actuator |
-| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float parsing and math helpers |
+| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float/double parsing and math helpers |
+
+The `libc` table appends `parse_double` (`strtod`) and `scale_double` (`ldexp`).
+Consumers that need these methods must check `struct_size` through the relevant
+field and check its pointer before calling it. Consumers that only need older
+methods can request the table prefix ending before `parse_double` to retain
+compatibility with earlier firmware. The service ABI remains version one.
 
 Thread operations return POSIX error numbers. Destroy synchronization objects
 and clear task-local values before deleting their keys. Key deletion does not

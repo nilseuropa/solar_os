@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare scalar32 TinyCC programs against ESP32-S3 GCC at -O0 and -O2."""
+"""Compare TinyCC code and ABI behavior against ESP32-S3 GCC at -O0 and -O2."""
 import argparse
 from datetime import datetime, timezone
 import hashlib
@@ -41,7 +41,7 @@ def main():
     source=CACHE / "source" / ("tinycc-"+json.loads((HERE / "upstream.json").read_text())["revision"])
     includes=[HERE / "sdk",source / "include",ROOT / "include",output]
     cc=Path.home() / ".platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3-elf-gcc"
-    gcc_flags=["-std=c11","-fno-lto","-fPIC","-fvisibility=hidden","-mlongcalls"]
+    gcc_flags=["-std=c11","-fno-lto","-fPIC","-fvisibility=hidden","-mlongcalls","-ffp-contract=off"]
     header=(HERE / "differential/abi.h").read_text()
     (output / "diff_abi.h").write_text(header)
     generated=["static const char abi_header[]="+json.dumps(header)+";\n"]
@@ -66,7 +66,8 @@ def main():
             run(cc,*gcc_flags,f"-O{level}",
                 "-I",ROOT / "include","-I",output,"-c",path,"-o",str(reference)+".o")
             run(cc,"-nostdlib","-nostartfiles","-shared","-Wl,-Bsymbolic","-Wl,-e,diff_probe",
-                "-Wl,-T,"+str(ROOT / "modules/espdl/layout.ld"),str(reference)+".o","-o",str(reference)+".elf")
+                "-Wl,--exclude-libs,ALL","-Wl,-T,"+str(ROOT / "modules/espdl/layout.ld"),str(reference)+".o",
+                CACHE/"support/libgcc.a","-o",str(reference)+".elf")
             reference_data=Path(str(reference)+".elf").read_bytes()
             run(CACHE / "elf-check",str(reference)+".elf")
             verify(Path(str(reference)+".elf"),{"solar_os_native_host_v1","memcpy","memset","memmove","memcmp","strlen"})

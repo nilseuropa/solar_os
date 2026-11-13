@@ -52,7 +52,10 @@ def main():
             if process.poll() is None: process.terminate()
             process.wait(timeout=5)
     text = console.read_text(errors="replace")
-    if marker not in text or (args.native and "SOLAR_CC_NATIVE_PASS:" not in text) or (not args.native and "SCALAR result=0" not in text):
+    if (marker not in text or
+        (args.native and any(required not in text for required in
+                             ("SOLAR_CC_NATIVE_PASS:", "SOLAR_CC_LIBC_EXTENSION_PASS:"))) or
+        (not args.native and "SCALAR result=0" not in text)):
         raise RuntimeError("emulator checks failed: " + str(output / "console.log"))
     paths = ["native/tinycc.library.elf", "native/cc.app.elf"] if args.native else [
         "scalar_probe.elf", "library_probe.elf", "hello-library.elf", "library-user.elf"]
@@ -61,7 +64,7 @@ def main():
               "artifacts": {name: hashlib.sha256((CACHE / name).read_bytes()).hexdigest() for name in paths}}
     if not args.native: report.update(abi_cycles=100, generated_provider_and_job_callbacks=True)
     else: report.update(legacy_request_abi=True, standalone_main=True, nested_file_headers=True,
-                        unsupported_import_rejected=True)
+                        unsupported_import_rejected=True, optional_libc_extension=True)
     if args.differential:
         rows=re.findall(r"DIFF_CASE name=(\w+) mode=(\w+) vectors=(\d+) mismatches=(\d+) bytes=(\d+) peak=(\d+) ms=(\d+)",text)
         report["comparisons"]=[dict(zip(("name","mode","vectors","mismatches","bytes","peak","ms"),

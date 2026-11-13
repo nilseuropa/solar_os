@@ -52,6 +52,24 @@ def prepare(archive=None):
     replace(source / "tccgen.c", "    ind = cur_text_section->data_offset;\n    if (sym->a.aligned)",
             "    ind = cur_text_section->data_offset;\n#ifdef TCC_TARGET_XTENSA\n"
             "    while (ind & 3) gen_fill_nops(1);\n#endif\n    if (sym->a.aligned)")
+    replace(source/"tccgen.c", "    if (t == VT_LLONG)\n        return REG_IRE2;",
+            "    if (t == VT_LLONG\n#ifdef TCC_TARGET_XTENSA\n        || t == VT_DOUBLE || t == VT_LDOUBLE\n#endif\n       ) return REG_IRE2;")
+    replace(source/"tccgen.c", "#ifdef TCC_TARGET_RISCV64\n    case TOK_builtin_va_start:",
+            "#ifdef TCC_TARGET_XTENSA\n    case TOK_builtin_va_start:\n"
+            '        parse_builtin_params(0, "ee");\n        gen_va_start();\n        break;\n#endif\n'
+            "#ifdef TCC_TARGET_RISCV64\n    case TOK_builtin_va_start:")
+    replace(source/"tcctok.h", "#elif defined TCC_TARGET_RISCV64\n     DEF(TOK_builtin_va_start,",
+            "#elif defined TCC_TARGET_RISCV64 || defined TCC_TARGET_XTENSA\n     DEF(TOK_builtin_va_start,")
+    replace(source/"tcc.h", "/* ------------ c67-gen.c ------------ */",
+            "#ifdef TCC_TARGET_XTENSA\nST_FUNC void gen_va_start(void);\nST_FUNC void gen_opl_runtime(int op);\n#endif\n\n/* ------------ c67-gen.c ------------ */")
+    replace(source/"tccgen.c", "    switch(op) {\n    case '/':\n    case TOK_PDIV:\n        func = TOK___divdi3;",
+            "#ifdef TCC_TARGET_XTENSA\n    if(op=='*' || (op>=TOK_ULT && op<=TOK_GT)) { gen_opl_runtime(op); return; }\n#endif\n"
+            "    switch(op) {\n    case '/':\n    case TOK_PDIV:\n        func = TOK___divdi3;")
+    replace(source/"include/tccdefs.h", "#elif defined __riscv\n    typedef char *__builtin_va_list;",
+            "#elif defined __XTENSA__\n    typedef struct { char *__va_stk, *__va_reg; int __va_ndx; } __builtin_va_list;\n"
+            "#elif defined __riscv\n    typedef char *__builtin_va_list;")
+    replace(source/"conftest.c", '    "__riscv",              "TCC_TARGET_RISCV64",',
+            '    "__riscv",              "TCC_TARGET_RISCV64",\n    "__XTENSA__",           "TCC_TARGET_XTENSA",')
     (source / "config.h").write_text('''#define TCC_VERSION "0.9.28rc-solaros-xtensa"
 #define CC_NAME CC_gcc
 #define CONFIG_TCCDIR "."
@@ -59,6 +77,11 @@ def prepare(archive=None):
 ''')
     run("cc", "-DC2STR", "conftest.c", "-o", "c2str", cwd=source)
     run(source / "c2str", "include/tccdefs.h", "tccdefs_.h", cwd=source)
+    from support_build import prepare_support
+    prepare_support(HERE,CACHE,source)
+    shutil.copyfile(HERE/"support-bridge.c",source/"support-bridge.c")
+    with (source/"libtcc.c").open("a") as stream:
+        stream.write('\n#include "support-bridge.c"\n')
     return source
 
 

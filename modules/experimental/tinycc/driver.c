@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: LGPL-2.0-or-later */
 #include <stdio.h>
 #include "libtcc.h"
+extern int solar_os_cc_add_support(TCCState *);
 
 int main(int argc, char **argv)
 {
@@ -16,6 +17,7 @@ int main(int argc, char **argv)
     for (i = 3; i < argc; i++) tcc_add_include_path(state, argv[i]);
     result = tcc_set_output_type(state, TCC_OUTPUT_OBJ);
     if (!result) result = tcc_add_file(state, argv[1]);
+    if (!result) result = solar_os_cc_add_support(state);
     if (!result) result = tcc_output_file(state, argv[2]);
     tcc_delete(state);
     return result != 0;
