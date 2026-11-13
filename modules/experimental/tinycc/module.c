@@ -72,6 +72,10 @@ int solar_tcc_module(const void *input, size_t bytes, const char *entry,
         else if (!strcmp(name, ".bss")) group = BSS;
         REQUIRE(group && s->sh_type == (group == BSS ? SHT_NOBITS : SHT_PROGBITS), "unsupported allocated section");
         groups[i] = group;
+        /* Section offsets alone do not align the loader's allocation. Retain
+         * the strongest input requirement when coalescing allocated sections. */
+        if (s->sh_addralign > out[group].sh_addralign)
+            out[group].sh_addralign = s->sh_addralign;
         offsets[i] = align16(out[group].sh_size);
         REQUIRE(offsets[i] <= LIMIT - s->sh_size, "module section exceeds size limit");
         out[group].sh_size = offsets[i] + s->sh_size;
@@ -108,7 +112,8 @@ int solar_tcc_module(const void *input, size_t bytes, const char *entry,
         out[i].sh_offset = file_cursor;
         if (i != BSS) file_cursor = align16(file_cursor + out[i].sh_size);
         REQUIRE(file_cursor <= LIMIT - sizeof(out), "module file size limit");
-        out[i].sh_name = name_offsets[i]; out[i].sh_addralign = 4;
+        out[i].sh_name = name_offsets[i];
+        if (out[i].sh_addralign < 4) out[i].sh_addralign = 4;
         out[i].sh_type = SHT_PROGBITS;
     }
     out[TEXT].sh_flags = SHF_ALLOC | SHF_EXECINSTR;

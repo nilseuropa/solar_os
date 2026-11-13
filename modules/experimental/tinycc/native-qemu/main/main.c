@@ -144,7 +144,14 @@ void app_main(void)
     assert(api->compile(&request, output, 8192, &metrics, error, sizeof(error)) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
     assert(!metrics.output_bytes && strstr(error, "unsupported native import"));
     heap_caps_free(output);
+#ifdef SOLAR_CC_DIFFERENTIAL
+    extern int solar_cc_differential(const solar_os_cc_api_v1_t *);
+    assert(!solar_cc_differential(api));
+#endif
     assert(!compiler->shutdown()); esp_elf_deinit(&library_elf);
     printf("SOLAR_CC_NATIVE_PASS: compiled C on ESP32-S3, then loaded and executed its ELF\n");
     printf("SOLAR_CC_FILE_ADAPTER_PASS: legacy requests, standalone main, nested disk headers and imports\n");
+#ifdef SOLAR_CC_DIFFERENTIAL
+    printf("SOLAR_CC_DIFFERENTIAL_PASS: GCC O0/O2, host TinyCC and on-device TinyCC agree\n");
+#endif
 }

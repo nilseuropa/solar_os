@@ -36,6 +36,69 @@ inline assembly are unsupported. This is an initial ABI-oriented subset,
 not a claim of general C conformance or support for every ESP32 variant.
 There is no optimizing pass, general object/archive linker or complete libc.
 
+## GCC comparison tests
+
+Run the scalar32 comparison suite with the installed ESP32-S3 toolchain and
+Espressif QEMU:
+
+```sh
+python3 modules/experimental/tinycc/differential.py --qemu /path/to/qemu-system-xtensa
+```
+
+The driver rebuilds both TinyCC hosts. Each source case is independently
+compiled into native ELF by ESP32-S3 GCC at `-O0` and `-O2`, host-built TinyCC,
+and the compiler library running inside the ESP32-S3 emulator. All four
+versions execute through the same native loader. Both GCC references must
+agree with each other and with each TinyCC program's return value, 32 output
+words and the surrounding guard words. Every ELF passes
+the production validator; compile/load failures, mismatches, missing cases,
+crashes and emulator deadlines fail the command.
+
+The default corpus has 22 curated cases and 16 seeded expression cases, each
+executed for 128 input pairs through both TinyCC hosts: 9,728 comparisons.
+It covers unsigned wrapping, bounded signed arithmetic, casts and narrow
+loads/returns, booleans, comparisons, short-circuit side effects, loops and
+switches, arrays/pointers, large stack offsets, structure members, bitfields,
+object bytes, global relocations, recursion, register pressure, stack
+arguments, GCC/TinyCC callbacks in both directions, alignment and imported
+memory helpers. Target-specific signed casts/shifts and layouts are compared
+against GCC for the same ESP32-S3 target. Generated expressions use unsigned
+arithmetic, nonzero divisors and masked shift counts; cases avoid signed
+overflow, invalid pointer arithmetic and unsequenced side effects.
+
+For another deterministic corpus or a single regression case:
+
+```sh
+python3 modules/experimental/tinycc/differential.py --seed 0x12345678 \
+  --random-cases 32 --vectors 256 --qemu /path/to/qemu-system-xtensa
+python3 modules/experimental/tinycc/differential.py --case alignment \
+  --qemu /path/to/qemu-system-xtensa
+```
+
+`--case unsigned_arithmetic --inject-mismatch` is a negative control: it
+changes one output word in the host TinyCC program while leaving its return
+value and the references unchanged. The command must exit unsuccessfully.
+This checks that comparison failures cannot produce a passing report.
+
+Sources, host/reference ELFs, compiler and test-source hashes, GCC flags and
+successful results are under `.pio/tinycc/differential`. Each emulator run
+archives its manifest, inputs, ELFs and console under `differential/runs`.
+Failures identify the case, compiler host, input pair and differing words;
+there is no passing report for a failed run. Current emulator output is under
+`differential-qemu`. This is a growing regression corpus, not a C conformance
+certification or proof for arbitrary programs.
+
+The portable writer also has a host sanitizer regression, independent of the
+downloaded compiler/toolchain:
+
+```sh
+python3 -m unittest discover -s tests -p test_tinycc_module_writer.py
+```
+
+It checks preservation of requested section alignment, including merged
+sections, and rejection of unsupported alignments. The execution corpus's
+`alignment` case additionally verifies alignment after native loading.
+
 ## Build and check
 
 Run from the firmware repository. Python 3.12+, a host C compiler, and the
