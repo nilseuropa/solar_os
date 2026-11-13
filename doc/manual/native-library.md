@@ -99,6 +99,40 @@ Firmware consumers use `solar_os_native_library_acquire`, `retain`, `release`,
 and `unload` through `solar_os_native.h`; they use the same stable result codes.
 These APIs do not expose arbitrary firmware symbols to external libraries.
 
+## C headers in library packages
+
+Libraries can embed their public C headers in the same ELF as their executable
+code. Declare the exported paths in `module.toml`:
+
+```toml
+[sdk.headers]
+"hello_library_api.h" = "main/hello_library_api.h"
+```
+
+Use `cmake/solar_os_native_sdk.cmake` to produce the typed artifact from the
+original build ELF. The `hello-library` example shows the complete setup.
+`scripts/pack_native_sdk.py` validates the declared files and adds a
+non-allocated `.solaros.sdk` section. The package catalog's artifact hash covers
+both code and headers. Installing, updating or removing the ELF does the same
+for its headers; there are no separate header files to keep in sync.
+
+The experimental `cc` compiler discovers these declarations by module ID:
+
+```c
+#include <hello-library/hello_library_api.h>
+```
+
+No manual header copy or `-I` option is needed for installed library headers.
+Quoted relative includes within a packaged header stay in that library's
+namespace. Headers can include published SolarOS ABI headers from the compiler
+SDK or namespaced headers from other installed libraries. They must remain
+compatible with the provider's versioned API table.
+
+The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
+256 KiB of text in total. Exported names include the module ID and fit in
+95 bytes. Names use letters, digits, underscores, hyphens, dots and directory
+separators; absolute paths and parent traversal in declarations are rejected.
+
 ## Runtime helpers
 
 Providers can request these optional version-one tables through `get_service`.

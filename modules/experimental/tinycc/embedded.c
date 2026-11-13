@@ -3,11 +3,13 @@
 extern void solar_os_cc_checkpoint(void);
 extern void *solar_os_cc_reallocate(void *, unsigned long);
 extern void solar_os_cc_diagnostic(void *, const char *);
+extern void solar_os_cc_set_source_name(const char *);
+extern const char *solar_os_cc_standard_runtime(void);
 
 /* Serialize TinyCC's object sections to memory. The existing restricted
  * module writer then converts this object into the SolarOS ELF subset. */
 int solar_os_cc_generate(const solar_os_cc_request_v1_t *request,
-                          void **object, size_t *object_bytes)
+                          void **object, size_t *object_bytes, const char **entry)
 {
     TCCState *s1;
     Elf32_Ehdr header = {0};
@@ -27,9 +29,18 @@ int solar_os_cc_generate(const solar_os_cc_request_v1_t *request,
     tcc_add_include_path(s1, "/sdk");
     for (uint32_t i = 0; i < request->include_count; ++i)
         tcc_add_include_path(s1, request->include_paths[i]);
+    tcc_add_include_path(s1, "/module-sdk");
     tcc_set_output_type(s1, TCC_OUTPUT_OBJ);
-    status = tcc_compile_string(s1, request->source);
-    if (status) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }
+    unsigned units=request->source_count ? request->source_count : 1;
+    for(unsigned i=0;i<units;i++) {
+        solar_os_cc_set_source_name(request->source_count ? request->sources[i].name : request->source_name);
+        status=tcc_compile_string(s1,request->source_count ? request->sources[i].text : request->source);
+        if(status) {tcc_delete(s1);return SOLAR_OS_NATIVE_ERROR_FAILED;}
+    }
+    solar_os_cc_set_source_name("/sdk/solar_os_c_runtime.c");
+    if(solar_os_cc_add_standard(s1,solar_os_cc_standard_runtime(),entry)) {
+        tcc_delete(s1);return SOLAR_OS_NATIVE_ERROR_FAILED;
+    }
     if (solar_os_cc_add_support(s1)) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }
     static const char *const imports[] = {
         "solar_os_native_host_v1", "solar_os_native_job_host_v1", "solar_os_native_driver_host_v1",

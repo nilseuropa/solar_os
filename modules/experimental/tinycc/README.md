@@ -16,7 +16,7 @@ contains upstream licensing and copyright notices.
 
 ## Implemented path
 
-1. TinyCC preprocesses and parses one C translation unit, generating an
+1. TinyCC preprocesses and parses up to eight separate C translation units, generating an
    Xtensa ELF32 relocatable object with `R_XTENSA_32` word relocations.
 2. The portable C writer in `module.c` lays out `.text`, `.rodata`, `.data`
    and `.bss`, preserves symbol definitions, and emits a shared ELF with
@@ -25,7 +25,7 @@ contains upstream licensing and copyright notices.
 3. SolarOS resolves the versioned host symbol. Programs obtain services and
    installed library tables through that ABI, acquire a lease, call the
    provider and release the lease. Library headers still have to be provided
-   to the compiler; dynamic tables do not supply C declarations.
+   to the compiler; packaged SDK headers provide these declarations.
 
 The backend handles signed and unsigned integers through 64 bits, `float`,
 `double`, pointers, byte/halfword access, local arrays, global data, control
@@ -48,6 +48,67 @@ Variable-length arrays, computed goto and inline assembly remain unsupported.
 There is no optimizing pass, general object/archive linker or complete libc.
 Support is experimental and targets ESP32-S3's windowed ABI; this is not a C
 conformance certification or support for other ESP32 variants.
+
+## C SDK and projects
+
+Compile separate source files together; each keeps its own macros, include
+guards, static symbols and diagnostics. The total source limit remains 64 KiB:
+
+```text
+cc main.c helpers.c -o project.elf
+load project.elf
+```
+
+Installed libraries may carry their C headers in a non-allocated
+`.solaros.sdk` ELF section. A source can include
+`<hello-library/hello_library_api.h>` without a header copy or `-I` flag. The
+client resolves this namespace from the installed library file. Code and
+headers share the package's artifact hash, installation and removal. See
+[native libraries](../../../doc/manual/native-library.md#c-headers-in-library-packages)
+for author declarations and the CMake packaging helper. Local quoted headers
+and explicit `-I` directories remain available.
+
+The SDK supplies `stdint.h`, `stddef.h`, `stdbool.h`, `stdarg.h` and these
+documented subsets of standard C headers:
+
+| Header | Supported operations |
+| --- | --- |
+| `string.h` | Memory copy/move/set/compare/search, string length/compare/copy/concatenation/search |
+| `stdlib.h` | `malloc`, `calloc`, `realloc`, `free`, `abs`, `labs`, `atoi`, `atof` |
+| `stdio.h` | `printf`/`fprintf`/`snprintf` and their `va_list` forms, `puts`/`fputs`, character I/O on files, `fopen`/`fclose`/`fflush`, `fread`/`fwrite`, `fseek`/`ftell`/`rewind`, EOF/error indicators |
+| `math.h` | `floor`, `fabs`, `ldexp`, `expf`, `floorf`, `fmodf`, `logf`, `powf`, `sqrtf`, `fabsf`, infinity/NaN constants and classification |
+
+When a program uses supported C functions, the compiler links one private C
+runtime into its output. It calls published SolarOS services and imports no
+private firmware symbols. All translation units share its streams and globals.
+`stdout` and `stderr` write to the invoking shell. File I/O uses its scoped
+storage service; modes are `r`, `rb`, `w`, and `wb`. Up to 16 files may be open.
+Writes are buffered in memory with a 2 MiB file limit and use the storage
+replacement operation at flush/close. Formatted stream output is bounded to
+4,096 bytes per call; `snprintf` uses the caller's capacity. Returning from a
+standard `main` closes and flushes remaining streams. Other entry points and
+resident-library callbacks must close their files explicitly.
+
+Allocation uses SolarOS memory services. Free allocations with their matching
+allocator: SDK `malloc`/`calloc`/`realloc` pointers go to SDK `free`. Programs
+must release their allocations before unloading. This subset does not provide
+`stdin`, `exit`, `atexit`, `errno`, locale, POSIX descriptors or a complete math
+library. The private runtime and required arithmetic bundle are currently
+linked as whole units, with a corresponding output-size cost.
+
+The `examples/project` directory contains a two-file application using an
+installed library, standard formatting/math and file I/O. After `file_hil.py`
+has installed matching compiler/provider artifacts, validate it on a device:
+
+```sh
+python3 modules/experimental/tinycc/sdk_hil.py --telnet DEVICE_IP
+```
+
+This leaves `/dev/cc-sdk-project` with editable examples. It checks automatic
+header discovery, separate translation units, the C runtime, file operations,
+automatic close on return, failed-build output preservation, SDK removal and
+malformed metadata, recovery, and repeated builds without managed-memory loss.
+Sources, artifact hashes and the console are under `.pio/tinycc/sdk-hil`.
 
 ## GCC comparison tests
 
@@ -226,12 +287,12 @@ the device's editor and compile it again. `cc input.c` defaults to `a.elf`.
 Use `-I directory` or `-Idirectory` for additional library declarations;
 quoted includes also search beside the source/header containing them.
 The built-in SDK supplies the SolarOS native ABI headers and basic C types.
-An installed module library supplies executable code; its C header must be
-available to the compiler separately. The prototype does not discover or
-install header packages automatically.
+An installed module library can supply both executable code and namespaced
+headers in its ELF. Older libraries without SDK metadata still need declarations
+through local headers, `-I`, or the compilation API's supplied header buffers.
 
 Paths are relative to the calling shell, including when invoking `cc` by
-its installed name. One invocation compiles one translation unit, with at
+its installed name. One invocation compiles up to eight translation units, with at
 most eight include directories. Diagnostics include source filenames and
 line numbers. Unsupported kernel imports are rejected. The client validates
 the completed ELF with the production SolarOS validator before writing it.
@@ -249,12 +310,12 @@ update firmware. Its report and retrieved/validated ELFs are under
 
 | Resource | Limit |
 | --- | --- |
-| Source | 64 KiB, NUL-terminated |
+| Source | Up to 8 NUL-terminated files, 64 KiB total |
 | Additional headers | 32 files, 32 KiB each, 256 KiB total |
 | Additional include directories | 8 |
 | Private compile heap | Default/max 2 MiB, configurable down to 64 KiB |
 | Output ELF | 2 MiB maximum, also limited by caller capacity |
-| Deadline | Cooperative, default 2000 ms, maximum 5000 ms |
+| Deadline | Cooperative: API default 2000 ms, file command 5000 ms, maximum 20000 ms |
 | Stack | Function-entry guard at 12,000 bytes on the 16 KiB worker |
 
 The private heap limit includes compiler allocations, the intermediate object
@@ -272,6 +333,13 @@ compile the full floating-point corpus. The emulator checks old table sizes,
 missing method pointers, integer compilation and recovery after parser errors.
 The runtime fixes `__DATE__`/`__TIME__` to the Unix epoch and defines
 `__SOLAROS__` and `__ESP32S3__`.
+
+The compile request appends a translation-unit array; both earlier request
+prefixes retain their behavior. The API table appends `request_size` for
+capability checks. Install the matching version 0.4 compiler and client pair.
+For the Linux-hosted low-level driver, standard C use prints the selected
+`solar_os_c_main` entry; pass that name to the module writer to include stream
+cleanup when `main` returns.
 
 The client also retains diagnostic modes:
 

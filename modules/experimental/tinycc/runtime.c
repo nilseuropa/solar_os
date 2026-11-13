@@ -26,6 +26,7 @@ static void *data_snapshot;
 static unsigned busy;
 static jmp_buf recovery;
 static const solar_os_cc_request_v1_t *request;
+static const char *active_source_name;
 static solar_os_cc_result_v1_t *result;
 static void *destination;
 static uint32_t destination_size;
@@ -42,14 +43,19 @@ static struct allocation *allocations;
 static const solar_os_cc_header_v1_t sdk[] = {
 #include "sdk.inc"
 };
+static const char standard_runtime[] =
+#include "sdk_runtime.inc"
+;
+const char *solar_os_cc_standard_runtime(void) {return standard_runtime;}
 struct virtual_file { const char *data; uint32_t bytes, offset; bool open; };
 static struct virtual_file files[32];
 static solar_os_cc_header_v1_t loaded_headers[32];
 static uint32_t loaded_count, loaded_bytes;
-extern int solar_os_cc_generate(const solar_os_cc_request_v1_t *, void **, size_t *);
+extern int solar_os_cc_generate(const solar_os_cc_request_v1_t *, void **, size_t *, const char **);
 extern int solar_tcc_module(const void *, size_t, const char *, void **, size_t *, const char **);
 const char *solar_os_cc_source_name(void)
-{ return request->source_name ? request->source_name : "<string>"; }
+{ return active_source_name ? active_source_name : "<string>"; }
+void solar_os_cc_set_source_name(const char *name) {active_source_name=name;}
 
 void solar_os_cc_diagnostic(void *unused, const char *text)
 {
@@ -329,8 +335,9 @@ static void compile_worker(void *unused)
     if (!setjmp(recovery)) {
         void *object = NULL, *elf = NULL; size_t object_bytes = 0, elf_bytes = 0;
         const char *error = NULL;
-        status = solar_os_cc_generate(request, &object, &object_bytes);
-        if (!status && solar_tcc_module(object, object_bytes, request->entry ? request->entry : "main", &elf, &elf_bytes, &error)) {
+        const char *entry=request->entry ? request->entry : "main";
+        status = solar_os_cc_generate(request, &object, &object_bytes, &entry);
+        if (!status && solar_tcc_module(object, object_bytes, entry, &elf, &elf_bytes, &error)) {
             solar_os_cc_diagnostic(NULL, error); status = SOLAR_OS_NATIVE_ERROR_FAILED;
         }
         if (!status && elf_bytes > destination_size) status = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
@@ -354,19 +361,29 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
         *metrics = (solar_os_cc_result_v1_t){.struct_size = sizeof(*metrics)};
     if (!input || input->struct_size < SOLAR_OS_CC_REQUEST_BASE_SIZE) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     solar_os_cc_request_v1_t normalized = {0};
-    memcpy(&normalized, input, input->struct_size >= sizeof(normalized) ? sizeof(normalized) : SOLAR_OS_CC_REQUEST_BASE_SIZE);
+    memcpy(&normalized,input,input->struct_size>=sizeof(normalized) ? sizeof(normalized) :
+        input->struct_size>=SOLAR_OS_CC_REQUEST_FILE_SIZE ? SOLAR_OS_CC_REQUEST_FILE_SIZE : SOLAR_OS_CC_REQUEST_BASE_SIZE);
     input = &normalized;
     if (!metrics || metrics->struct_size < sizeof(*metrics) ||
-        !input->source || !input->source_bytes || input->source_bytes > SOLAR_OS_CC_SOURCE_MAX ||
-        bounded_length(input->source, input->source_bytes + 1) != input->source_bytes ||
+        (!input->source_count && (!input->source || !input->source_bytes || input->source_bytes > SOLAR_OS_CC_SOURCE_MAX ||
+        bounded_length(input->source, input->source_bytes + 1) != input->source_bytes)) ||
+        input->source_count>SOLAR_OS_CC_SOURCE_FILES_MAX || (input->source_count && !input->sources) ||
         input->header_count > 32 || (input->header_count && !input->headers) ||
         !output || !capacity || capacity > SOLAR_OS_CC_OUTPUT_MAX ||
         !messages || !message_bytes || message_bytes > 4096 ||
         (input->heap_limit && (input->heap_limit < 65536 || input->heap_limit > SOLAR_OS_CC_HEAP_MAX)) ||
-        input->timeout_ms > 5000 || (input->entry && bounded_length(input->entry, 64) >= 64))
+        input->timeout_ms > 20000 || (input->entry && bounded_length(input->entry, 64) >= 64))
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     if ((input->source_name && bounded_length(input->source_name, 160) >= 160) || input->include_count > 8 ||
         (input->include_count && !input->include_paths)) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    uint32_t source_bytes=0;
+    for(unsigned i=0;i<input->source_count;i++) {
+        const solar_os_cc_source_v1_t *s=input->sources+i;
+        if(!s->name || !*s->name || bounded_length(s->name,160)>=160 || !s->text || !s->bytes ||
+           s->bytes>SOLAR_OS_CC_SOURCE_MAX-source_bytes || bounded_length(s->text,s->bytes+1)!=s->bytes)
+            return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+        source_bytes+=s->bytes;
+    }
     for (unsigned i = 0; i < input->include_count; ++i)
         if (!input->include_paths[i] || !*input->include_paths[i] || bounded_length(input->include_paths[i], 160) >= 160)
             return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
@@ -387,7 +404,7 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
     void *worker = NULL;
     int error = threads->worker_start(&worker, compile_worker, NULL, 16384, 0);
     if (!error) error = threads->worker_join(worker);
-    request = NULL; diagnostics = NULL; diagnostics_size = 0;
+    request = NULL; active_source_name=NULL;diagnostics = NULL; diagnostics_size = 0;
     __atomic_store_n(&busy, 0, __ATOMIC_RELEASE);
     return error ? SOLAR_OS_NATIVE_ERROR_NO_MEMORY : status;
 }
@@ -396,7 +413,7 @@ static int shutdown(void)
     if (busy) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     memory_api->free(data_snapshot); data_snapshot = NULL; return 0;
 }
-static const solar_os_cc_api_v1_t api = {SOLAR_OS_CC_ABI, sizeof(api), compile};
+static const solar_os_cc_api_v1_t api = {SOLAR_OS_CC_ABI, sizeof(api), compile, sizeof(solar_os_cc_request_v1_t)};
 int app_main(int argc, char **argv)
 {
     (void)argc; (void)argv;

@@ -54,7 +54,7 @@ def main():
     text = console.read_text(errors="replace")
     if (marker not in text or
         (args.native and any(required not in text for required in
-                             ("SOLAR_CC_NATIVE_PASS:", "SOLAR_CC_LIBC_EXTENSION_PASS:"))) or
+                             ("SOLAR_CC_NATIVE_PASS:", "SOLAR_CC_LIBC_EXTENSION_PASS:", "SOLAR_CC_SDK_PASS:"))) or
         (not args.native and "SCALAR result=0" not in text)):
         raise RuntimeError("emulator checks failed: " + str(output / "console.log"))
     paths = ["native/tinycc.library.elf", "native/cc.app.elf"] if args.native else [

@@ -169,7 +169,9 @@ def main():
             console.socket.sendall(b"cc stress.c -o hello.elf\r\n")
             time.sleep(.2); console.socket.sendall(b"\x1d")
             out = console.read(30, True); log.write(out); log.flush()
-            if "compilation failed (-7)" not in out or "compilation cancelled" not in out:
+            compiler_cancelled="compilation failed (-7)" in out and "compilation cancelled" in out
+            input_cancelled="cc: stress.c: cancelled or timed out" in out
+            if not compiler_cancelled and not input_cancelled:
                 raise RuntimeError("request did not cancel: " + out)
             if inspect("hello.elf") != hello_hash: raise RuntimeError("cancellation changed output")
             command("cc hello.c -o hello.elf", "cc: hello.elf (")
@@ -194,6 +196,7 @@ def main():
                       "native_library_result": 42, "scalar_program": True, "standalone_main": True,
                       "quoted_nested_and_include_headers": True, "error_preserves_output": True,
                       "cancellation_and_recovery": True, "staging_conflict_preserves_files": True,
+                      "cancellation_phase": "compiler" if compiler_cancelled else "source_read",
                       "repeated_compile_and_run": 10, "before": before, "after": after,
                       "compiler_and_examples_left_installed": True, "examples": folder,
                       "hello_sha256": hello_hash}

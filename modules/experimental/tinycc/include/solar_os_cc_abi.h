@@ -6,6 +6,7 @@
 #define SOLAR_OS_CC_SOURCE_MAX 65536U
 #define SOLAR_OS_CC_OUTPUT_MAX (2U * 1024U * 1024U)
 #define SOLAR_OS_CC_HEAP_MAX (2U * 1024U * 1024U)
+#define SOLAR_OS_CC_SOURCE_FILES_MAX 8U
 
 typedef struct {
     const char *name;
@@ -20,6 +21,12 @@ typedef int (*solar_os_cc_read_header_fn)(void *user, const char *path,
     void *buffer, uint32_t capacity, uint32_t *bytes);
 
 typedef struct {
+    const char *name;
+    const char *text;
+    uint32_t bytes;
+} solar_os_cc_source_v1_t;
+
+typedef struct {
     uint32_t struct_size;
     const char *source;
     uint32_t source_bytes;
@@ -27,7 +34,7 @@ typedef struct {
     uint32_t header_count;
     const char *entry; /* NULL selects main. */
     uint32_t heap_limit; /* 0 selects 2 MiB; otherwise 64 KiB..2 MiB. */
-    uint32_t timeout_ms; /* 0 selects 2000 ms; otherwise 1..5000 ms. */
+    uint32_t timeout_ms; /* 0 selects 2000 ms; otherwise 1..20000 ms. */
     solar_os_native_cancel_fn cancel;
     void *cancel_user;
     /* Append-only extension. Older request prefixes remain supported. */
@@ -36,9 +43,14 @@ typedef struct {
     uint32_t include_count;
     solar_os_cc_read_header_fn read_header;
     void *header_user;
+    /* Optional translation units. When count>0 these replace source/source_name.
+     * Compile separately in one request; the total source limit remains 64 KiB. */
+    const solar_os_cc_source_v1_t *sources;
+    uint32_t source_count;
 } solar_os_cc_request_v1_t;
 
 #define SOLAR_OS_CC_REQUEST_BASE_SIZE offsetof(solar_os_cc_request_v1_t, source_name)
+#define SOLAR_OS_CC_REQUEST_FILE_SIZE offsetof(solar_os_cc_request_v1_t, sources)
 
 typedef struct {
     uint32_t struct_size;
@@ -60,4 +72,5 @@ typedef struct {
                    void *output, uint32_t capacity,
                    solar_os_cc_result_v1_t *result,
                    char *diagnostics, uint32_t diagnostics_size);
+    uint32_t request_size; /* Append-only capability: largest supported request. */
 } solar_os_cc_api_v1_t;

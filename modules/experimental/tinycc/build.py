@@ -80,8 +80,11 @@ def prepare(archive=None):
     from support_build import prepare_support
     prepare_support(HERE,CACHE,source)
     shutil.copyfile(HERE/"support-bridge.c",source/"support-bridge.c")
+    shutil.copyfile(HERE/"standard-bridge.c",source/"standard-bridge.c")
+    (source/"standard_runtime.inc").write_text(json.dumps((HERE/"sdk_runtime.c").read_text())+"\n")
     with (source/"libtcc.c").open("a") as stream:
         stream.write('\n#include "support-bridge.c"\n')
+        stream.write('\n#include "standard-bridge.c"\n')
     return source
 
 
@@ -116,7 +119,12 @@ def main():
             ROOT / "modules/examples/hello-library/main/hello_library.c", "-o", CACHE / "hello-library-gcc.o")
         run(cc, "-nostdlib", "-nostartfiles", "-shared", "-Wl,-Bsymbolic", "-Wl,-e,main",
             "-Wl,-T," + str(ROOT / "modules/espdl/layout.ld"), CACHE / "hello-library-gcc.o",
-            "-o", CACHE / "hello-library.library.elf")
+            "-o", CACHE / "hello-library.raw.elf")
+        import sys
+        sys.path.insert(0,str(ROOT/"scripts"))
+        from pack_native_sdk import pack_elf
+        (CACHE/"hello-library.library.elf").write_bytes(pack_elf(
+            (CACHE/"hello-library.raw.elf").read_bytes(),ROOT/"modules/examples/hello-library/module.toml"))
     print(CACHE / "solar-tcc")
 
 

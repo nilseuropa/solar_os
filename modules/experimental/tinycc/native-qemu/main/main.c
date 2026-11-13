@@ -49,7 +49,8 @@ static int join_worker(void *value)
 { struct worker *w = value; while (eTaskGetState(w->task) != eSuspended) vTaskDelay(1); vTaskDelete(w->task); heap_caps_free(w); return 0; }
 static const solar_os_native_memory_api_v1_t memory = {.abi_version=1, .struct_size=sizeof(memory), .alloc=solar_os_memory_elf_alloc, .free=heap_caps_free};
 static solar_os_native_libc_api_v1_t libc_api = {.abi_version=1, .struct_size=sizeof(libc_api), .format=vsnprintf,
-    .parse_float=strtof,.parse_double=strtod,.scale_double=ldexp,.floor_value=floor,.sqrt_float=sqrtf};
+    .parse_float=strtof,.parse_double=strtod,.scale_double=ldexp,.floor_value=floor,.sqrt_float=sqrtf,
+    .exp_float=expf,.floor_float=floorf,.mod_float=fmodf,.log_float=logf,.pow_float=powf};
 static const solar_os_native_time_api_v1_t clock_api = {1, sizeof(clock_api), esp_timer_get_time, sleep_ms};
 static const solar_os_native_thread_api_v1_t threads = {.abi_version=1, .struct_size=sizeof(threads), .worker_start=start_worker, .worker_join=join_worker};
 static const solar_os_native_library_service_api_v1_t libraries = {.abi_version=1, .struct_size=sizeof(libraries), .acquire=acquire, .release=release};
@@ -78,6 +79,12 @@ static const char program[] =
 ;
 static const char scalar_program[] =
 #include "scalar_probe.inc"
+;
+static const char sdk_check[] =
+#include "sdk_check.inc"
+;
+static const char sdk_aux[] =
+#include "sdk_aux.inc"
 ;
 static int header_reader(void *user, const char *path, void *buffer, uint32_t capacity, uint32_t *bytes)
 {
@@ -132,7 +139,7 @@ void app_main(void)
     assert(((int (*)(int,char **))program_elf.entry)(0,NULL) == 42);
     esp_elf_deinit(&program_elf);
     const char *paths[] = {"/project/include"};
-    request = (solar_os_cc_request_v1_t){.struct_size=sizeof(request),
+    request = (solar_os_cc_request_v1_t){.struct_size=SOLAR_OS_CC_REQUEST_FILE_SIZE,
         .source="#include <outer.h>\nint main(void) { return ANSWER; }",
         .source_name="/project/src/input.c", .include_paths=paths, .include_count=1,
         .read_header=header_reader, .header_user=&library_calls};
@@ -184,6 +191,24 @@ void app_main(void)
     assert(!((int (*)(int,char **))program_elf.entry)(0,NULL));esp_elf_deinit(&program_elf);
     printf("SOLAR_CC_LIBC_EXTENSION_PASS: missing-parser rejection and recovery\n");
     heap_caps_free(output);
+    output=solar_os_memory_elf_alloc(65536);assert(output);
+    solar_os_cc_source_v1_t units[]={
+        {"/project/aux.c",sdk_aux,sizeof(sdk_aux)-1},{"/project/main.c",sdk_check,sizeof(sdk_check)-1}};
+    request=(solar_os_cc_request_v1_t){.struct_size=sizeof(request),.sources=units,.source_count=2,.timeout_ms=20000};
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    code=api->compile(&request,output,65536,&metrics,error,sizeof(error));
+    printf("SDK_GENERATED code=%d bytes=%u peak=%u ms=%u %s\n",code,metrics.output_bytes,metrics.peak_heap_bytes,metrics.elapsed_ms,error);
+    assert(!code && metrics.output_bytes);
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf,output));
+    int sdk_result=((int (*)(int,char **))program_elf.entry)(0,NULL);
+    printf("SDK_RESULT=%d\n",sdk_result);assert(!sdk_result);esp_elf_deinit(&program_elf);
+    units[1]=(solar_os_cc_source_v1_t){"/project/second-error.c","int broken(void){return absent;}",32};
+    units[1].bytes=strlen(units[1].text);
+    metrics=(solar_os_cc_result_v1_t){.struct_size=sizeof(metrics)};
+    assert(api->compile(&request,output,65536,&metrics,error,sizeof(error))==SOLAR_OS_NATIVE_ERROR_FAILED);
+    assert(!metrics.output_bytes && strstr(error,"/project/second-error.c:"));
+    heap_caps_free(output);
+    printf("SOLAR_CC_SDK_PASS: multiple translation units, standard C runtime, legacy file requests and diagnostics\n");
 #ifdef SOLAR_CC_DIFFERENTIAL
     extern int solar_cc_differential(const solar_os_cc_api_v1_t *);
     assert(!solar_cc_differential(api));

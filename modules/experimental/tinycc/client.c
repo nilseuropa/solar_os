@@ -7,6 +7,7 @@
 #include "solar_os_native_libc_abi.h"
 #include "solar_os_native_storage_abi.h"
 #include "solar_os_native_elf.h"
+#include "sdk_reader.h"
 
 static const char library_source[] =
 #include "library_probe.inc"
@@ -117,6 +118,8 @@ static const char *error_text(int code)
 static int read_header(void *user, const char *name, void *buffer, uint32_t capacity, uint32_t *bytes)
 {
     const solar_os_native_storage_api_v1_t *storage = user;
+    if(strlen(name)>=12 && !memcmp(name,"/module-sdk/",12))
+        return solar_os_cc_sdk_read(storage,name,buffer,capacity,bytes);
     char path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
     int code = storage->resolve_path(storage->context, name, path, sizeof(path));
     if (code) return code;
@@ -131,7 +134,8 @@ static int compile_file(int argc, char **argv, const solar_os_native_memory_api_
 {
     const solar_os_native_storage_api_v1_t *storage = host->get_service("storage", 1, sizeof(*storage));
     if (!storage) { print("cc: file compilation requires the native storage service\n"); return -6; }
-    const char *input = NULL, *output_name = "a.elf";
+    const char *inputs[SOLAR_OS_CC_SOURCE_FILES_MAX],*output_name="a.elf";
+    unsigned input_count=0;
     bool output_seen = false;
     char include_paths[8][SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
     const char *includes[8]; unsigned include_count = 0;
@@ -147,34 +151,48 @@ static int compile_file(int argc, char **argv, const solar_os_native_memory_api_
             if (code) { print("cc: include path: %s\n", error_text(code)); return code; }
             includes[include_count] = include_paths[include_count]; include_count++;
         } else if (argv[i][0] == '-') { print("cc: unknown option %s\n", argv[i]); return -2; }
-        else if (input) { print("cc: expected one source file\n"); return -2; }
-        else input = argv[i];
+        else if(input_count==SOLAR_OS_CC_SOURCE_FILES_MAX) {print("cc: maximum eight source files\n");return -2;}
+        else inputs[input_count++]=argv[i];
     }
-    if (!input) { print("usage: cc input.c [-I directory] [-o output.elf]\n"); return -2; }
-    char source_path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX], output_path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
-    int code = storage->resolve_path(storage->context, input, source_path, sizeof(source_path));
-    if (!code) code = storage->resolve_path(storage->context, output_name, output_path, sizeof(output_path));
+    if(!input_count) {print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n");return -2;}
+    char source_paths[SOLAR_OS_CC_SOURCE_FILES_MAX][SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    solar_os_cc_source_v1_t sources[SOLAR_OS_CC_SOURCE_FILES_MAX]={0};
+    char output_path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    int code=storage->resolve_path(storage->context,output_name,output_path,sizeof(output_path));
     if (code) { print("cc: path: %s\n", error_text(code)); return code; }
-    if (equal(source_path, output_path)) { print("cc: output must differ from the source file\n"); return -2; }
-    uint32_t source_bytes = 0;
-    code = storage->file_size(storage->context, source_path, &source_bytes);
-    if (code) { print("cc: %s: %s\n", input, error_text(code)); return code; }
-    if (!source_bytes || source_bytes > SOLAR_OS_CC_SOURCE_MAX) { print("cc: source must contain 1..65536 bytes\n"); return -10; }
-    char *source = memory->alloc((size_t)source_bytes + 1);
-    if (!source) { print("cc: not enough memory for source\n"); return -4; }
-    size_t count = 0;
-    code = storage->read_file(storage->context, source_path, 0, source, source_bytes, &count);
-    if (!code && (count != source_bytes || memchr(source, 0, count))) code = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
-    source[source_bytes] = 0;
-    if (code) { print("cc: %s: %s\n", input, error_text(code)); memory->free(source); return code; }
+    uint32_t total=0;
+    for(unsigned i=0;i<input_count;i++) {
+        code=storage->resolve_path(storage->context,inputs[i],source_paths[i],sizeof(source_paths[i]));
+        if(code) break;
+        if(equal(source_paths[i],output_path)) {print("cc: output must differ from the source file\n");code=-2;break;}
+        uint32_t source_bytes=0;
+        code=storage->file_size(storage->context,source_paths[i],&source_bytes);
+        if(code) {print("cc: %s: %s\n",inputs[i],error_text(code));break;}
+        if(!source_bytes || source_bytes>SOLAR_OS_CC_SOURCE_MAX-total) {
+            print("cc: source must contain 1..65536 bytes in total\n");code=-10;break;
+        }
+        char *source=memory->alloc((size_t)source_bytes+1);
+        if(!source) {code=-4;break;}
+        sources[i]=(solar_os_cc_source_v1_t){source_paths[i],source,source_bytes};
+        size_t count=0;
+        code=storage->read_file(storage->context,source_paths[i],0,source,source_bytes,&count);
+        if(!code && (count!=source_bytes || memchr(source,0,count))) code=SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+        source[source_bytes]=0;total+=source_bytes;
+        if(code) {print("cc: %s: %s\n",inputs[i],error_text(code));break;}
+    }
+    if(code) {
+        for(unsigned i=0;i<input_count;i++) if(sources[i].text) memory->free((void *)sources[i].text);
+        return code;
+    }
     solar_os_cc_request_v1_t request = {
-        .struct_size = sizeof(request), .source = source, .source_bytes = source_bytes,
-        .source_name = source_path, .include_paths = includes, .include_count = include_count,
+        .struct_size = sizeof(request), .sources=sources,.source_count=input_count,
+        .timeout_ms=5000,
+        .include_paths = includes, .include_count = include_count,
         .read_header = read_header, .header_user = (void *)storage,
         .cancel = storage->stop_requested, .cancel_user = storage->context,
     };
     code = compile(&request, output, capacity);
-    memory->free(source);
+    for(unsigned i=0;i<input_count;i++) memory->free((void *)sources[i].text);
     if (code) {
         print("cc: compilation failed (%d)\n", code);
         if (*diagnostics) host->write_utf8(diagnostics, strlen(diagnostics));
@@ -198,7 +216,7 @@ int app_main(int argc, char **argv)
     const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
     const solar_os_native_library_service_api_v1_t *libraries = host->get_service("library", 1, sizeof(*libraries));
     if (!libc_api || !memory || !libraries) return 2;
-    if (argc < 2 || equal(argv[1], "--help")) { print("usage: cc input.c [-I directory] [-o output.elf]\n"); return argc < 2 ? 2 : 0; }
+    if (argc < 2 || equal(argv[1], "--help")) { print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n"); return argc < 2 ? 2 : 0; }
     const void *table = NULL; uint32_t lease = 0;
     int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, sizeof(*compiler), &lease, &table);
     if (code) { print("CC_ERROR acquire=%d\n", code); return code; }
