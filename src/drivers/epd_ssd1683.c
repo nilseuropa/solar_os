@@ -1287,7 +1287,6 @@ static const ssd1683_pulse_profile_t *ssd1683_pulse_profile(const epd_ssd1683_t 
 }
 
 
-
 static bool ssd1683_pulse_cleanup_due(const epd_ssd1683_t *display)
 {
     return solar_os_epd_cleanup_due(&display->epd);
@@ -1301,7 +1300,7 @@ static esp_err_t ssd1683_pulse_baseline(void *context, const uint8_t *source)
         (display->epd.tuning.cleanup_adaptive && display->epd.budget.peak_drive_cycles >=
          solar_os_epd_drive_limit(&display->epd) ? "pixel-drive" : "age");
     const int64_t started = esp_timer_get_time();
-    if (display->pulse_lut_loaded)
+    if (!display->controller_ready || display->pulse_lut_loaded)
         ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "pulse cleanup reset failed");
     ESP_RETURN_ON_ERROR(profile->write_target(display, source), TAG, "pulse cleanup frame failed");
     ESP_RETURN_ON_ERROR(ssd1683_trigger_update(display, true, false), TAG, "pulse cleanup failed");
@@ -1312,53 +1311,56 @@ static esp_err_t ssd1683_pulse_baseline(void *context, const uint8_t *source)
     return ESP_OK;
 }
 
-static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
-                                           const uint8_t *source, bool new_target, bool *baseline)
+static void *ssd1683_pulse_allocate(size_t bytes, const char *tag)
 {
-    *baseline = false;
+    (void)tag;
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static const solar_os_epd_storage_ops_t ssd1683_pulse_storage = {
+    ssd1683_pulse_allocate, heap_caps_free,
+};
+
+static esp_err_t ssd1683_allocate_budget(void *context)
+{
+    epd_ssd1683_t *display = context;
     const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
-    if (profile == NULL) return ESP_ERR_NOT_SUPPORTED;
+    if (!profile) return ESP_ERR_NOT_SUPPORTED;
     if (!display->controller_ready)
         ESP_RETURN_ON_ERROR(ssd1683_controller_init(display), TAG, "pulse controller init failed");
-    if (display->shadow == NULL)
-        return ESP_ERR_NO_MEM;
-    if (display->epd.budget.pixels == NULL) {
-        const size_t count = profile->width * profile->height;
-        uint8_t *storage = heap_caps_malloc(count, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (storage == NULL)
-            return ESP_ERR_NO_MEM;
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_init(&display->epd.budget,
-                                                   storage, count), TAG,
-                            "pixel budget init failed");
-        uint32_t *active = heap_caps_malloc(count * sizeof(*active), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        uint16_t *history = heap_caps_malloc(count * sizeof(*history), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        display->pulse_planes = heap_caps_malloc(profile->plane_size * 2U,
-            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-        if (active == NULL || history == NULL || display->pulse_planes == NULL) {
-            heap_caps_free(active);
-            heap_caps_free(history);
-            heap_caps_free(display->epd.budget.pixels);
-            memset(&display->epd.budget, 0, sizeof(display->epd.budget));
-            heap_caps_free(display->pulse_planes);
-            display->pulse_planes = NULL;
-            return ESP_ERR_NO_MEM;
-        }
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_active_storage(&display->epd.budget, active, count),
-                            TAG, "active storage failed");
-        ESP_RETURN_ON_ERROR(epd_pixel_budget_set_drive_history(&display->epd.budget, history, count),
-                            TAG, "drive history failed");
-        display->pulse_needs_cleanup = true;
-    }
-    const solar_os_epd_adapter_t adapter = {
+    if (!display->shadow) return ESP_ERR_NO_MEM;
+    const bool allocated = display->epd.budget.pixels != NULL;
+    const esp_err_t err = solar_os_epd_allocate_budget(&display->epd, profile->width * profile->height,
+        &display->pulse_planes, profile->plane_size * 2U, &ssd1683_pulse_storage);
+    if (err == ESP_OK && !allocated) display->pulse_needs_cleanup = true;
+    return err;
+}
+
+static esp_err_t ssd1683_drive(void *context);
+static esp_err_t ssd1683_idle(void *context);
+
+static solar_os_epd_adapter_t ssd1683_adapter(epd_ssd1683_t *display)
+{
+    const ssd1683_pulse_profile_t *profile = ssd1683_pulse_profile(display);
+    return (solar_os_epd_adapter_t){
         .state = &display->epd, .context = display, .shadow = display->shadow,
-        .frame_bytes = display->buffer_size, .width = profile->width, .height = profile->height,
+        .frame_bytes = display->buffer_size,
+        .width = profile ? profile->width : 0, .height = profile ? profile->height : 0,
         .shadow_valid = &display->shadow_valid, .needs_cleanup = &display->pulse_needs_cleanup,
         .mask_dirty = &display->pulse_mask_dirty, .window_valid = &display->pulse_window_valid,
         .require_baseline = !display->controller_ready,
         .asynchronous = display->scan_async, .count_on_accept = display->scan_async,
-        .period_ms = display->scan_period_ms, .baseline = ssd1683_pulse_baseline,
+        .period_ms = display->scan_period_ms, .worker = &display->scan_worker,
+        .allocate = ssd1683_allocate_budget, .baseline = ssd1683_pulse_baseline,
+        .drive = ssd1683_drive, .idle = ssd1683_idle,
     };
-    return solar_os_epd_prepare(&adapter, source, new_target, baseline);
+}
+
+static esp_err_t ssd1683_pulse_prepare(epd_ssd1683_t *display,
+    const uint8_t *source, bool fresh, bool *baseline)
+{
+    const solar_os_epd_adapter_t adapter = ssd1683_adapter(display);
+    return solar_os_epd_prepare(&adapter, source, fresh, baseline);
 }
 
 static esp_err_t ssd1683_pulse_power_off(epd_ssd1683_t *display)
@@ -1435,6 +1437,26 @@ static esp_err_t ssd1683_pulse_cycle(epd_ssd1683_t *display,
     return ESP_OK;
 }
 
+static esp_err_t ssd1683_drive(void *context)
+{
+    epd_ssd1683_t *display = context;
+    const int64_t started = esp_timer_get_time();
+    const size_t pixels = display->epd.budget.pending;
+    int64_t transfer_us = 0, drive_us = 0;
+    const esp_err_t err = ssd1683_pulse_cycle(display, &transfer_us, &drive_us);
+    if (err == ESP_OK)
+        SOLAR_OS_LOGI(TAG, "pulse scan pixels=%u pending=%u transfer=%lldus drive=%lldus total=%lldus interval=%lldus",
+            (unsigned)pixels, (unsigned)display->epd.budget.pending,
+            (long long)transfer_us, (long long)drive_us,
+            (long long)(esp_timer_get_time() - started), (long long)display->pulse_drive_interval);
+    return err;
+}
+
+static esp_err_t ssd1683_idle(void *context)
+{
+    return ssd1683_pulse_powerdown(context);
+}
+
 static esp_err_t ssd1683_pulse_refresh(epd_ssd1683_t *display)
 {
     bool baseline;
@@ -1491,46 +1513,12 @@ static esp_err_t ssd1683_scan_process(void *context, const uint8_t *source,
     if (__atomic_load_n(&display->scan_submit_ready, __ATOMIC_ACQUIRE) &&
         display->scan_async && display->powered &&
         display->refresh_mode == EPD_SSD1683_REFRESH_PULSE) {
-        const int64_t started = esp_timer_get_time();
-        bool baseline;
-        err = ssd1683_pulse_prepare(display, source, fresh, &baseline);
-        if (err == ESP_OK && !baseline && display->epd.budget.pending != 0) {
-            const size_t pixels = display->epd.budget.pending;
-            int64_t transfer_us = 0, drive_us = 0;
-            err = ssd1683_pulse_cycle(display, &transfer_us, &drive_us);
-            if (err == ESP_OK) {
-                *scanned = true;
-                SOLAR_OS_LOGI(TAG, "pulse scan pixels=%u pending=%u transfer=%lldus drive=%lldus total=%lldus interval=%lldus",
-                    (unsigned)pixels, (unsigned)display->epd.budget.pending,
-                    (long long)transfer_us, (long long)drive_us,
-                    (long long)(esp_timer_get_time() - started), (long long)display->pulse_drive_interval);
-            }
-        }
-        if (err == ESP_OK && display->epd.budget.pending == 0)
-            err = ssd1683_pulse_powerdown(display);
+        const solar_os_epd_adapter_t adapter = ssd1683_adapter(display);
+        err = solar_os_epd_step(&adapter, source, fresh, pending, scanned);
         if (err != ESP_OK) {
             ssd1683_pulse_failed(display, err);
-            /* Recover immediately, including the newest accepted target, so a
-             * static app does not remain frozen waiting for another paint.
-             */
-            xSemaphoreTake(display->scan_worker.lock, portMAX_DELAY);
-            memcpy(display->scan_worker.snapshot, display->scan_worker.latest, display->buffer_size);
-            xSemaphoreGive(display->scan_worker.lock);
-            esp_err_t recovery = ssd1683_controller_init(display);
-            if (recovery == ESP_OK)
-                recovery = ssd1683_pulse_profile(display)->write_target(display, source);
-            if (recovery == ESP_OK) recovery = ssd1683_trigger_update(display, true, false);
-            if (recovery == ESP_OK) {
-                memcpy(display->shadow, source, display->buffer_size);
-                display->shadow_valid = true;
-                display->pulse_needs_cleanup = false;
-            } else {
-                display->controller_ready = false;
-                display->shadow_valid = false;
-                SOLAR_OS_LOGE(TAG, "pulse native recovery failed err=0x%x", (unsigned)recovery);
-            }
-        } else {
-            *pending = display->epd.budget.pending != 0 || ssd1683_pulse_cleanup_due(display);
+            if (solar_os_epd_recover(&adapter) != ESP_OK)
+                display->controller_ready = display->shadow_valid = false;
         }
     }
     display->last_error = err;
@@ -1545,14 +1533,7 @@ static esp_err_t ssd1683_restore_native(epd_ssd1683_t *display)
                             "native waveform restore failed");
         display->pulse_needs_cleanup = false;
     }
-    if (display->epd.budget.pixels != NULL) {
-        heap_caps_free(display->epd.budget.active);
-        heap_caps_free(display->epd.budget.drive_history);
-        heap_caps_free(display->epd.budget.pixels);
-        memset(&display->epd.budget, 0, sizeof(display->epd.budget));
-    }
-    heap_caps_free(display->pulse_planes);
-    display->pulse_planes = NULL;
+    solar_os_epd_free_budget(&display->epd, &display->pulse_planes, &ssd1683_pulse_storage);
     return ESP_OK;
 }
 
@@ -2437,14 +2418,7 @@ void epd_ssd1683_deinit(epd_ssd1683_t *display)
         heap_caps_free(display->shadow);
         display->shadow = NULL;
     }
-    if (display->epd.budget.pixels != NULL) {
-        heap_caps_free(display->epd.budget.active);
-        heap_caps_free(display->epd.budget.drive_history);
-        heap_caps_free(display->epd.budget.pixels);
-        memset(&display->epd.budget, 0, sizeof(display->epd.budget));
-    }
-    heap_caps_free(display->pulse_planes);
-    display->pulse_planes = NULL;
+    solar_os_epd_free_budget(&display->epd, &display->pulse_planes, &ssd1683_pulse_storage);
     heap_caps_free(display->relax_storage);
     display->relax_storage = NULL;
     if (display->dc_pin >= 0) {

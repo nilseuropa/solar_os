@@ -1,6 +1,7 @@
 #pragma once
 
 #include "drivers/epd_pixel_budget.h"
+#include "drivers/epd_scan_worker.h"
 
 #define SOLAR_OS_EPD_REDRIVE_OPTIONS \
     "black-redrives=<0..31> white-redrives=<0..31> changed-drive-frames=<1..32> "
@@ -27,6 +28,7 @@ typedef struct {
     bool *shadow_valid, *needs_cleanup, *mask_dirty, *window_valid;
     bool require_baseline, asynchronous, count_on_accept;
     unsigned period_ms;
+    epd_scan_worker_t *worker;
     esp_err_t (*allocate)(void *context);
     esp_err_t (*baseline)(void *context, const uint8_t *target);
     /* Complete one physical waveform, including BUSY/LUT wait and budget
@@ -34,6 +36,20 @@ typedef struct {
     esp_err_t (*drive)(void *context);
     esp_err_t (*idle)(void *context);
 } solar_os_epd_adapter_t;
+
+typedef struct {
+    void *(*allocate)(size_t bytes, const char *tag);
+    void (*release)(void *memory);
+} solar_os_epd_storage_ops_t;
+
+/* Allocate all pulse storage transactionally. Native paths never call this. */
+esp_err_t solar_os_epd_allocate_budget(solar_os_epd_t *state, size_t pixels,
+    uint8_t **planes, size_t plane_bytes, const solar_os_epd_storage_ops_t *storage);
+void solar_os_epd_free_budget(solar_os_epd_t *state, uint8_t **planes,
+    const solar_os_epd_storage_ops_t *storage);
+/* Called after the adapter has disabled submissions and invalidated hardware
+ * state. Restore the newest accepted snapshot using a native waveform. */
+esp_err_t solar_os_epd_recover(const solar_os_epd_adapter_t *adapter);
 
 bool solar_os_epd_cleanup_due(const solar_os_epd_t *state);
 unsigned solar_os_epd_drive_limit(const solar_os_epd_t *state);

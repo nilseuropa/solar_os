@@ -211,37 +211,28 @@ static esp_err_t pulse_powerdown(epd_ssd1685_t *d)
     return ESP_OK;
 }
 
+static void *pulse_allocate(size_t bytes, const char *tag)
+{
+    (void)tag;
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
+
+static const solar_os_epd_storage_ops_t pulse_storage = {pulse_allocate, heap_caps_free};
+
 static void free_budget(epd_ssd1685_t *d)
 {
-    heap_caps_free(d->epd.budget.active);
-    heap_caps_free(d->epd.budget.drive_history);
-    heap_caps_free(d->epd.budget.pixels);
-    memset(&d->epd.budget, 0, sizeof(d->epd.budget));
-    heap_caps_free(d->pulse_planes);
-    d->pulse_planes = NULL;
+    solar_os_epd_free_budget(&d->epd, &d->pulse_planes, &pulse_storage);
 }
 
 static esp_err_t allocate_budget(void *context)
 {
     epd_ssd1685_t *d = context;
-    if (d->epd.budget.pixels) return ESP_OK;
     if (!d->shadow) return ESP_ERR_NO_MEM;
-    const size_t count = EPD_SSD1685_WIDTH * EPD_SSD1685_HEIGHT;
-    const unsigned caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
-    uint8_t *pixels = heap_caps_malloc(count, caps);
-    uint32_t *active = heap_caps_malloc(count * sizeof(*active), caps);
-    uint16_t *history = heap_caps_malloc(count * sizeof(*history), caps);
-    d->pulse_planes = heap_caps_malloc(EPD_SSD1685_BUFFER_BYTES * 2U, caps);
-    if (!pixels || !active || !history || !d->pulse_planes) {
-        heap_caps_free(pixels); heap_caps_free(active); heap_caps_free(history);
-        heap_caps_free(d->pulse_planes); d->pulse_planes = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-    TRY(epd_pixel_budget_init(&d->epd.budget, pixels, count));
-    TRY(epd_pixel_budget_set_active_storage(&d->epd.budget, active, count));
-    TRY(epd_pixel_budget_set_drive_history(&d->epd.budget, history, count));
-    d->pulse_needs_cleanup = true;
-    return ESP_OK;
+    const bool allocated = d->epd.budget.pixels != NULL;
+    const esp_err_t err = solar_os_epd_allocate_budget(&d->epd, EPD_SSD1685_WIDTH * EPD_SSD1685_HEIGHT,
+        &d->pulse_planes, EPD_SSD1685_BUFFER_BYTES * 2U, &pulse_storage);
+    if (err == ESP_OK && !allocated) d->pulse_needs_cleanup = true;
+    return err;
 }
 
 static bool pixel_white(const uint8_t *source, size_t p)
@@ -278,7 +269,7 @@ static solar_os_epd_adapter_t pulse_adapter(epd_ssd1685_t *d)
         .mask_dirty = &d->pulse_mask_dirty, .window_valid = NULL,
         .require_baseline = !d->controller_ready,
         .asynchronous = d->scan_async, .count_on_accept = true,
-        .period_ms = d->scan_period_ms, .allocate = allocate_budget,
+        .period_ms = d->scan_period_ms, .worker = &d->scan_worker, .allocate = allocate_budget,
         .baseline = pulse_baseline, .drive = pulse_cycle, .idle = pulse_idle,
     };
 }
@@ -354,11 +345,7 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
         err = solar_os_epd_step(&adapter, source, fresh, pending, scanned);
         if (err != ESP_OK) {
             pulse_failed(d);
-            /* Recover the newest accepted image even if the app stops painting. */
-            xSemaphoreTake(d->scan_worker.lock, portMAX_DELAY);
-            memcpy(d->scan_worker.snapshot, d->scan_worker.latest, EPD_SSD1685_BUFFER_BYTES);
-            xSemaphoreGive(d->scan_worker.lock);
-            if (native_frame(d, d->scan_worker.snapshot, false) != ESP_OK)
+            if (solar_os_epd_recover(&adapter) != ESP_OK)
                 d->controller_ready = d->shadow_valid = false;
         }
         d->last_error = err;

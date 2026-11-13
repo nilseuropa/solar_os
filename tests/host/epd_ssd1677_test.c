@@ -662,6 +662,10 @@ static void test_startup_profile(void)
             assert((d.scan_worker.task != NULL) == pulse);
             assert((d.epd.budget.pixels != NULL) == pulse);
             assert(d.epd.tuning.drive_cycles == (panel == EPD_SSD1677_PANEL_STICKY ? 5 : 3));
+            if (panel == EPD_SSD1677_PANEL_PAPERMONO) {
+                assert(!d.pulse_power_hold);
+                assert(epd_ssd1677_set_controller_mode(&d, "pulse-power=hold") == ESP_ERR_NOT_SUPPORTED);
+            }
             if (pulse) {
                 assert(d.scan_async && d.scan_worker.enabled && d.scan_submit_ready);
                 assert(d.pulse_spi_clock_hz == 20000000);

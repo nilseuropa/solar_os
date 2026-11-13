@@ -1953,7 +1953,7 @@ sources = ["drivers/epd_pixel_budget.c"]
 [packages.service_epd]
 label = "service.epd"
 targets = ["esp32", "esp32s3"]
-depends = ["driver_epd_pixel_budget"]
+depends = ["driver_epd_pixel_budget", "driver_epd_scan_worker"]
 sources = ["services/solar_os_epd.c"]
 requires = ["esp_timer"]
 

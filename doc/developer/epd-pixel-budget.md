@@ -6,7 +6,13 @@ and synchronous completion. SSD1683, SSD1677, SSD2677 and SSD1685 use this
 service through panel adapters. Adapters own allocation, native baseline
 commands, mask packing, waveform execution, BUSY completion and power. Pixel
 budgets can follow physical row order or tile-byte order without changing the
-policy. Panel serialization remains outside the service.
+policy. Panel serialization remains outside the service. Pulse storage allocation
+and rollback are shared, using the adapter's allocator so memory class and
+accounting stay explicit. Failure recovery copies the latest accepted mailbox
+image and requests a native baseline. The aborted budget remains diagnostic
+until re-entering pulse mode reseeds it. A queued changed image keeps retained
+supplies available between worker steps; no queued work invokes the idle hook.
+Paper Mono rejects retained pulse supplies because its PMIC can cut power.
 
 `src/drivers/epd_pixel_budget.h` provides a controller-independent monochrome
 target and remaining-cycle model. It owns no SPI bus, GPIO, display task,

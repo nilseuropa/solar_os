@@ -6,6 +6,73 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+esp_err_t solar_os_epd_allocate_budget(solar_os_epd_t *s, size_t pixels,
+    uint8_t **planes, size_t plane_bytes, const solar_os_epd_storage_ops_t *storage)
+{
+    if (!s || !planes || !storage || !storage->allocate || !storage->release ||
+        !pixels || pixels > UINT32_MAX || pixels > SIZE_MAX / sizeof(uint32_t) || !plane_bytes)
+        return ESP_ERR_INVALID_ARG;
+    if (s->budget.pixels)
+        return *planes && s->budget.count == pixels ? ESP_OK : ESP_ERR_INVALID_STATE;
+    uint8_t *bits = storage->allocate(pixels, "epd.budget");
+    uint32_t *active = storage->allocate(pixels * sizeof(*active), "epd.active");
+    uint16_t *history = storage->allocate(pixels * sizeof(*history), "epd.history");
+    uint8_t *masks = storage->allocate(plane_bytes, "epd.masks");
+    if (!bits || !active || !history || !masks) {
+        storage->release(bits); storage->release(active);
+        storage->release(history); storage->release(masks);
+        return ESP_ERR_NO_MEM;
+    }
+    /* Sizes and initial state have been validated before committing storage. */
+    epd_pixel_budget_init(&s->budget, bits, pixels);
+    epd_pixel_budget_set_active_storage(&s->budget, active, pixels);
+    epd_pixel_budget_set_drive_history(&s->budget, history, pixels);
+    *planes = masks;
+    return ESP_OK;
+}
+
+void solar_os_epd_free_budget(solar_os_epd_t *s, uint8_t **planes,
+    const solar_os_epd_storage_ops_t *storage)
+{
+    storage->release(s->budget.active);
+    storage->release(s->budget.drive_history);
+    storage->release(s->budget.pixels);
+    storage->release(*planes);
+    memset(&s->budget, 0, sizeof(s->budget));
+    *planes = NULL;
+}
+
+esp_err_t solar_os_epd_recover(const solar_os_epd_adapter_t *a)
+{
+    if (!a->worker || !a->worker->snapshot || !a->worker->latest)
+        return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(a->worker->lock, portMAX_DELAY);
+    memcpy(a->worker->snapshot, a->worker->latest, a->frame_bytes);
+    xSemaphoreGive(a->worker->lock);
+    const esp_err_t err = a->baseline(a->context, a->worker->snapshot);
+    *a->shadow_valid = err == ESP_OK;
+    *a->needs_cleanup = err != ESP_OK;
+    if (err == ESP_OK) {
+        memcpy(a->shadow, a->worker->snapshot, a->frame_bytes);
+        /* Keep the aborted pulse budget as diagnostics. The adapter has
+         * switched to native mode; re-entering pulse mode must reseed it.
+         * A failed physical drive must never appear to consume its budget. */
+        *a->mask_dirty = true;
+        if (a->window_valid) *a->window_valid = false;
+    }
+    return err;
+}
+
+static bool target_waiting(const solar_os_epd_adapter_t *a, const uint8_t *target)
+{
+    if (!a->asynchronous || !a->worker || !a->worker->task) return false;
+    xSemaphoreTake(a->worker->lock, portMAX_DELAY);
+    const bool changed = a->worker->has_target &&
+        memcmp(a->worker->latest, target, a->frame_bytes) != 0;
+    xSemaphoreGive(a->worker->lock);
+    return changed;
+}
+
 unsigned solar_os_epd_drive_limit(const solar_os_epd_t *s)
 {
     const epd_pulse_tuning_t *t = &s->tuning;
@@ -120,7 +187,8 @@ esp_err_t solar_os_epd_step(const solar_os_epd_adapter_t *a,
         err = a->drive(a->context);
         *scanned = err == ESP_OK;
     }
-    if (err == ESP_OK && !a->state->budget.pending) err = a->idle(a->context);
+    if (err == ESP_OK && !a->state->budget.pending && !target_waiting(a, target))
+        err = a->idle(a->context);
     if (err == ESP_OK)
         *pending = a->state->budget.pending != 0 || solar_os_epd_cleanup_due(a->state);
     return err;

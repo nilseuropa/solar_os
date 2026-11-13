@@ -32,6 +32,14 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
                               bool fresh, bool *pending, bool *scanned);
 static void scan_accepting(epd_ssd2677_t *d);
 static void scan_disable(epd_ssd2677_t *d);
+static void *pulse_allocate(size_t bytes, const char *tag)
+{
+    (void)tag;
+    return solar_os_memory_alloc(bytes, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, tag);
+}
+
+static const solar_os_epd_storage_ops_t pulse_storage = {pulse_allocate, solar_os_memory_free};
+
 static void free_budget(epd_ssd2677_t *d);
 static void pulse_failed(epd_ssd2677_t *d);
 static esp_err_t refresh_frame(epd_ssd2677_t *d);
@@ -305,34 +313,18 @@ static void scan_disable(epd_ssd2677_t *d)
 static void free_budget(epd_ssd2677_t *d)
 {
     d->pulse_window_valid = false;
-    solar_os_memory_free(d->epd.budget.active);
-    solar_os_memory_free(d->epd.budget.drive_history);
-    solar_os_memory_free(d->epd.budget.pixels);
-    solar_os_memory_free(d->pulse_planes);
-    memset(&d->epd.budget,0,sizeof(d->epd.budget));
-    d->pulse_planes = NULL;
+    solar_os_epd_free_budget(&d->epd, &d->pulse_planes, &pulse_storage);
 }
 
 static esp_err_t allocate_budget(void *context)
 {
     epd_ssd2677_t *d = context;
-    if (d->epd.budget.pixels) return ESP_OK;
     if (!d->shadow) return ESP_ERR_NO_MEM;
-    const size_t count = SSD2677_WIDTH*SSD2677_HEIGHT;
-    uint8_t *pixels = solar_os_memory_alloc(count,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"ssd2677.budget");
-    uint32_t *active = solar_os_memory_alloc(count*sizeof(*active),SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"ssd2677.active");
-    uint16_t *history = solar_os_memory_alloc(count*sizeof(*history),SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"ssd2677.history");
-    d->pulse_planes = solar_os_memory_alloc(SSD2677_BUFFER_BYTES*2U,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"ssd2677.pulse");
-    if (!pixels || !active || !history || !d->pulse_planes) {
-        solar_os_memory_free(pixels); solar_os_memory_free(active); solar_os_memory_free(history);
-        solar_os_memory_free(d->pulse_planes); d->pulse_planes = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-    TRY(epd_pixel_budget_init(&d->epd.budget,pixels,count));
-    TRY(epd_pixel_budget_set_active_storage(&d->epd.budget,active,count));
-    TRY(epd_pixel_budget_set_drive_history(&d->epd.budget,history,count));
-    d->pulse_needs_cleanup = true;
-    return ESP_OK;
+    const bool allocated = d->epd.budget.pixels != NULL;
+    const esp_err_t err = solar_os_epd_allocate_budget(&d->epd, SSD2677_WIDTH * SSD2677_HEIGHT,
+        &d->pulse_planes, SSD2677_BUFFER_BYTES * 2U, &pulse_storage);
+    if (err == ESP_OK && !allocated) d->pulse_needs_cleanup = true;
+    return err;
 }
 
 static esp_err_t load_fastwave(epd_ssd2677_t *d)
@@ -381,7 +373,7 @@ static solar_os_epd_adapter_t pulse_adapter(epd_ssd2677_t *d)
         .mask_dirty = &d->pulse_mask_dirty, .window_valid = &d->pulse_window_valid,
         .require_baseline = !d->controller_ready,
         .asynchronous = d->scan_async, .count_on_accept = true,
-        .period_ms = d->scan_period_ms, .allocate = allocate_budget,
+        .period_ms = d->scan_period_ms, .worker = &d->scan_worker, .allocate = allocate_budget,
         .baseline = pulse_baseline, .drive = pulse_cycle, .idle = pulse_idle,
     };
 }
@@ -487,11 +479,7 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
         err = solar_os_epd_step(&adapter, source, fresh, pending, scanned);
         if (err != ESP_OK) {
             pulse_failed(d);
-            /* Recover the newest accepted image even if the app stops painting. */
-            xSemaphoreTake(d->scan_worker.lock, portMAX_DELAY);
-            memcpy(d->scan_worker.snapshot, d->scan_worker.latest, SSD2677_BUFFER_BYTES);
-            xSemaphoreGive(d->scan_worker.lock);
-            if (refresh_image(d, d->scan_worker.snapshot, true) != ESP_OK)
+            if (solar_os_epd_recover(&adapter) != ESP_OK)
                 d->controller_ready = d->shadow_valid = false;
         }
         d->last_error = err;
