@@ -965,14 +965,15 @@ selects the matching command and waveform path automatically.
 The green-sticker revision starts in `refresh=pulse` with the Fastwave phase
 builder adapted to its UC8276 controller. `display mode display0` reports
 `waveform=fastwave-uc8276`. Its preset is
-8 drive cycles, 8 scan frames, raw PLL code 12, asynchronous scanning with a
+8 drive cycles, 8 scan frames, raw PLL code 12, asynchronous scanning with
 hardware completion pacing, supply cycling, fast ramp, and 20000 kHz pulse SPI.
 Fixed cleanup runs every 8 changed targets consumed by the worker.
 It shares per-pixel drive budgets and the scan worker with the other
 pulse-capable panels. The builder drives only changing pixels, with no reset
 kick and one neutral settle frame. The adapter keeps the UC8276's own voltage,
-PLL, RAM, and power commands. `pulse-period` accepts 67–1000 ms between new
-images. Settling drives run as BUSY permits, independently of this interval.
+PLL, RAM, and power commands. `pulse-period=auto` follows hardware completion;
+an explicit interval accepts 67–1000 ms between new images. Settling drives run
+as BUSY permits, independently of this interval.
 New targets can interrupt settling between drives; identical targets retain
 their remaining budgets. The requested interval does not guarantee an achieved rate.
 Runtime tuning remains available through `display mode display0`; internal scan frequency is

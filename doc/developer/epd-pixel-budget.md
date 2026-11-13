@@ -134,9 +134,11 @@ two-frame discharge sequence. This profile starts with normal ramp and supply
 cycling and leaves native auto refresh as the boot policy. Native operation is
 restored by reset before resuming the existing partial/full path.
 
-SSD1677 and UltraChip profiles need their own validated waveform adapters
-before enabling the same controls. Matching a controller family alone does
-not establish a panel's electrical or optical compatibility.
+SSD1677, SSD2677 and SSD1685 use their own pulse waveform adapters with the
+same shared policy. Native-only SSD1680, UltraChip and IT8951 paths retain
+controller-provided waveforms; their shared cleanup policy does not add custom
+LUT or per-pixel redrive support. Matching a controller family alone does not
+establish a panel's electrical or optical compatibility.
 
 Waveform register layout follows Solomon Systech's SSD1683 Rev 1.0, sections
 6.5–6.7. Dual-controller custom-LUT programming was cross-checked against
