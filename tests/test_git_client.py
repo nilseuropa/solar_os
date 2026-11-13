@@ -32,33 +32,61 @@ class GitClientTest(unittest.TestCase):
                 "-DUSE_SSH=OFF", "-DUSE_HTTPS=OFF", "-DREGEX_BACKEND=builtin"],
                 check=True, capture_output=True)
             subprocess.run(["cmake", "--build", str(cls.build), "-j8"], check=True, capture_output=True)
-        # Exercise the embedded regex workspace adaptation on the host too.
-        # Replace only that upstream object in a private archive copy.
+        # Exercise the embedded source adaptations in a private archive copy.
         generated = cls.work / "generated"
         generated.mkdir()
-        subprocess.run(["python3", str(REPO / "components/solaros_git/patch_sources.py"),
-                        str(cls.source), str(generated)], check=True)
+        patched = subprocess.run(["python3", str(REPO / "components/solaros_git/patch_sources.py"),
+                        str(cls.source), str(generated)], check=True, capture_output=True, text=True)
+        state_include = REPO / "components/solaros_git/include"
+        # These ABI adapters are needed on Xtensa, where int32_t is long. On
+        # this host int32_t is int, so the original API signatures suffice.
+        compatibility = cls.work / "compatibility.h"
+        compatibility.write_text('#include "solar_os_git_state.h"\n'
+            '#define solar_os_git_parse_int git_config_parse_int32\n'
+            '#define solar_os_git_config_int git_config_get_int32\n'
+            '#define solar_os_git_strntoint git__strntol32\n')
         pcre_object = cls.work / "pcre2_compile.c.o"
         subprocess.run(["cc", "-std=c11", "-D_GNU_SOURCE", "-DHAVE_CONFIG_H",
             "-DPCRE2_CODE_UNIT_WIDTH=8", "-DPCRE2_STATIC", "-DPCRE2_EXPORT=",
             "-DPCRE2_EXP_DECL=", "-DPCRE2_EXP_DEFN=",
             "-I" + str(cls.build / "deps/pcre2"), "-I" + str(cls.source / "deps/pcre2"),
+            "-I" + str(state_include),
             "-include", str(REPO / "components/solaros_git/solar_os_git_port.h"),
             "-c", str(generated / "pcre2_compile.c"), "-o", str(pcre_object)], check=True)
         cls.library = cls.work / "libgit2-port.a"
         shutil.copyfile(cls.build / "libgit2.a", cls.library)
         subprocess.run(["ar", "r", str(cls.library), str(pcre_object)], check=True)
-        # Exercise the embedded streaming buffers and non-threaded TLS key
-        # reuse, including repeated init/shutdown in one process.
-        for filename in ("filebuf.c", "futils.c", "blob.c", "odb.c", "filter.c", "thread.c"):
+        # Include streaming buffers, reusable TLS keys, SHA1 collision detection
+        # and the flash defaults copied into writable Git state before use.
+        for original in patched.stdout.strip().split(";"):
+            filename = Path(original).name
+            if filename == "pcre2_compile.c":
+                continue
             obj = cls.work / (filename + ".o")
             flags = ["-DLIBGIT2_NO_FEATURES_H"] if filename == "thread.c" else []
+            if filename.startswith("pcre2_"):
+                flags += ["-DHAVE_CONFIG_H", "-DPCRE2_CODE_UNIT_WIDTH=8", "-DPCRE2_STATIC",
+                    "-DPCRE2_EXPORT=", "-DPCRE2_EXP_DECL=", "-DPCRE2_EXP_DEFN=",
+                    "-I" + str(cls.build / "deps/pcre2"), "-I" + str(cls.source / "deps/pcre2")]
             subprocess.run(["cc", "-std=c11", "-D_GNU_SOURCE", *flags,
+                "-I" + str(state_include), "-include", str(compatibility),
                 "-I" + str(cls.source / "include"), "-I" + str(cls.build / "include"),
                 "-I" + str(cls.build / "gen_headers"), "-I" + str(cls.source / "src/util"),
                 "-I" + str(cls.source / "src/libgit2"),
+                "-I" + str(cls.source / "deps/xdiff"), "-I" + str(cls.source / "deps/llhttp"),
+                "-I" + str(cls.source / "deps/pcre2"),
                 "-c", str(generated / filename), "-o", str(obj)], check=True)
             subprocess.run(["ar", "r", str(cls.library), str(obj)], check=True)
+        state_object = cls.work / "solar_os_git_state.c.o"
+        subprocess.run(["cc", "-std=c11", "-I" + str(state_include),
+            "-c", str(REPO / "components/solaros_git/solar_os_git_state.c"),
+            "-o", str(state_object)], check=True)
+        subprocess.run(["ar", "r", str(cls.library), str(state_object)], check=True)
+        cls.sha1_binary = cls.work / "git-sha1"
+        subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+            "-I" + str(cls.source / "src/util/hash/sha1dc"),
+            str(REPO / "tests/host/git_sha1_test.c"), str(cls.library),
+            "-o", str(cls.sha1_binary)], check=True)
         transport = (REPO / "src/services/solar_os_git_transport.c").read_text()
         parser = transport.split("static bool copy_part", 1)[1].split("typedef struct solar_os_git_ssh", 1)[0]
         (cls.work / "parser.c").write_text(
@@ -66,6 +94,7 @@ class GitClientTest(unittest.TestCase):
             + "static bool copy_part" + parser)
         cls.binary = cls.work / "git-client"
         subprocess.run(["cc", "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
+            "-I" + str(state_include),
             "-I" + str(REPO / "src/services"), "-I" + str(REPO / "src"),
             "-I" + str(cls.source / "include"), "-I" + str(cls.build / "include"),
             str(REPO / "src/services/solar_os_git.c"), str(REPO / "tests/host/git_client_test.c"),
@@ -86,6 +115,7 @@ class GitClientTest(unittest.TestCase):
             '{unsigned char *b=p;while(n--)*b++=42;}\n')
         cls.port_binary = cls.work / "git-port"
         subprocess.run(["cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
+            "-I" + str(state_include),
             "-I" + str(cls.work), "-I" + str(cls.source / "include"),
             "-I" + str(cls.build / "include"), "-I" + str(cls.build / "gen_headers"),
             "-I" + str(cls.source / "src/util"),
@@ -111,6 +141,13 @@ class GitClientTest(unittest.TestCase):
 
     def test_repeated_commands_reuse_tls_slots(self):
         self.run_git(self.project, "__test_lifecycle")
+
+    def test_state_defaults_and_init_shutdown_preserve_options(self):
+        self.run_git(self.project, "__test_state")
+
+    def test_sha1_hash_and_collision_detection(self):
+        subprocess.run([str(self.sha1_binary),
+            str(self.source / "tests/resources/sha1/shattered-1.pdf")], check=True)
 
     def run_git(self, cwd, *args, ok=True, env=None):
         result = subprocess.run([str(self.binary), str(cwd), *args], text=True, capture_output=True, env=env)

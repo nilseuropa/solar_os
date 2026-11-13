@@ -1,5 +1,6 @@
 #include "solar_os_git.h"
 #include "solar_os_git_transport.h"
+#include "solar_os_git_state.h"
 
 #include <stdarg.h>
 #include <stdatomic.h>
@@ -24,7 +25,7 @@ static atomic_flag git_busy = ATOMIC_FLAG_INIT;
 static void cooperate(void)
 {
 #ifdef ESP_PLATFORM
-    static int64_t last_yield;
+    static SOLAR_OS_GIT_STATE_BSS int64_t last_yield;
     int64_t now = esp_timer_get_time();
     if (now - last_yield >= 20000) {
         last_yield = now;

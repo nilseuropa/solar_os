@@ -14,6 +14,15 @@ serialized by the Git service; pack workers and subprocess execution are disable
 Git allocations use SolarOS memory policy. `patch_sources.py` generates small
 ABI corrections for Xtensa's `int32_t` typedef; downloaded sources remain
 unchanged. The source-list excludes the PCRE2 fuzzing harness.
+The SHA1 collision-detection vectors are declared read-only so their 11,352-byte
+lookup table stays in flash instead of consuming internal SRAM at boot.
+Mutable library globals use PSRAM. Zero-initialized state uses external BSS;
+initialized globals have typed defaults in flash, copied once before the first
+library initialization or options call. This preserves pointers, defaults and
+function-local static state across subsequent init/shutdown cycles. A linker
+fragment keeps the initialization records in flash and maps library BSS to
+PSRAM. The service's serialization guard and flash-writing worker stack remain
+internal; no Git state is accessed by an ISR or with caches disabled.
 The regex compiler's 12 KiB scratch workspace uses the Git allocator, keeping
 its stack frame within the foreground worker's budget. Cleanup covers every
 return path. Allocation and progress paths yield periodically to the RTOS.
@@ -47,3 +56,9 @@ SOLAR_OS_LIBGIT2_SOURCE_DIR=/path/to/pinned/libgit2 python3 tests/test_git_clien
 These tests build the production Git service against host libgit2 and use an
 isolated local git-daemon for pack transfer and rejection tests. They do not
 validate the ESP VFS, SSH or TLS adapters; those need device testing.
+
+Verify a linked ESP32-S3 firmware's PSRAM state and initialization records with:
+
+```sh
+/home/nils/.platformio/penv/bin/python components/solaros_git/check_memory.py .pio/build/t_deck_plus/firmware.elf
+```

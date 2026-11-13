@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include "solar_os_git_state.h"
 struct passwd;
 struct git_config;
 

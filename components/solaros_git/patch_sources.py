@@ -2,9 +2,22 @@
 from pathlib import Path
 import sys
 import re
+sys.dont_write_bytecode = True
+from state_sources import INITIALIZED_STATE, move_initializers
 
-source, output = map(Path, sys.argv[1:])
+source, output = (Path(p).resolve() for p in sys.argv[1:])
 patches = {
+    # The SHA1 collision-detection vectors are immutable lookup data. Without
+    # const, ESP-IDF copies the 11,352-byte table into internal SRAM at boot.
+    "src/util/hash/sha1dc/ubc_check.h": [
+        ("extern dv_info_t sha1_dvs[];", "extern const dv_info_t sha1_dvs[];", 1)],
+    "src/util/hash/sha1dc/ubc_check.c": [
+        ("dv_info_t sha1_dvs[] =", "const dv_info_t sha1_dvs[] =", 1)],
+    "src/util/hash/sha1dc/sha1.c": [],
+    "src/libgit2/libgit2.c": [
+        ("int git_libgit2_init(void)\n{", "int git_libgit2_init(void)\n{\n\tsolar_os_git_state_init();", 1)],
+    "src/libgit2/settings.c": [
+        ("int git_libgit2_opts(int key, ...)\n{", "int git_libgit2_opts(int key, ...)\n{\n\tsolar_os_git_state_init();", 1)],
     # Streaming buffers must fit an embedded foreground stack. Upstream's
     # 64 KiB arrays reserve their space even when an optional copy is skipped.
     "src/util/filebuf.c": [("buffer[GIT_BUFSIZE_FILEIO]", "buffer[2048]", 1)],
@@ -52,17 +65,30 @@ patches = {
          "cworkspace = (PCRE2_UCHAR *)c16workspace;\n\n/* There must be a pattern", 1),
     ],
 }
+for name in INITIALIZED_STATE:
+    patches.setdefault(name, [])
 for name, replacements in patches.items():
     text = (source / name).read_text()
     for before, after, count in replacements:
         if text.count(before) != count:
             raise SystemExit(f"libgit2 patch mismatch: {name}: {before}")
         text = text.replace(before, after)
+    if name in INITIALIZED_STATE:
+        text = move_initializers(text, INITIALIZED_STATE[name], name)
     # Preserve quoted include lookup from the original source directory. In
     # particular, libgit2's internal config.h differs from PCRE2's generated one.
+    # Consumers of a patched header must use its generated copy as well.
     parent = (source / name).parent
+    def include_path(match):
+        original = (parent / match[2]).resolve()
+        if not original.is_file():
+            return match[0]
+        relative = original.relative_to(source).as_posix()
+        target = output / original.name if relative in patches else original
+        return f'{match[1]}"{target}"'
     text = re.sub(r'(#\s*include\s*)"([^"]+)"',
-        lambda m: f'{m[1]}"{parent / m[2]}"' if (parent / m[2]).is_file() else m[0], text)
+        include_path, text)
     target = output / Path(name).name
     if not target.exists() or target.read_text() != text:
         target.write_text(text)
+print(";".join(name for name in patches if name.endswith(".c")))

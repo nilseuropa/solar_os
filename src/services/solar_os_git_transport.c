@@ -1,4 +1,5 @@
 #include "solar_os_git_transport.h"
+#include "solar_os_git_state.h"
 
 #include <ctype.h>
 #include <stdlib.h>
@@ -20,7 +21,7 @@
 
 /* libgit2 is serialized by solar_os_git_run; stream constructors have no
  * payload slot. The pointer is valid only for the duration of that call. */
-static const solar_os_git_options_t *active_options;
+static SOLAR_OS_GIT_STATE_BSS const solar_os_git_options_t *active_options;
 
 static bool stopped(void *unused)
 {

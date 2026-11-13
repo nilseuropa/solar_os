@@ -41,6 +41,27 @@ int main(int argc, char **argv)
     char error[512];
     solar_os_git_options_t options = { .output = emit, .cancelled = stop,
         .error = error, .error_size = sizeof(error) };
+    if (!strcmp(argv[2], "__test_state")) {
+        int ownership = -1;
+        size_t window = 0;
+        /* Options can run before init (the service sets its allocator here).
+         * Copy flash defaults once, and preserve later writes across init. */
+        assert(git_libgit2_opts(GIT_OPT_GET_OWNER_VALIDATION, &ownership) == 0);
+        assert(ownership == 1);
+        assert(git_libgit2_opts(GIT_OPT_GET_MWINDOW_SIZE, &window) == 0);
+        assert(window > 0);
+        assert(git_libgit2_opts(GIT_OPT_SET_OWNER_VALIDATION, 0) == 0);
+        assert(git_libgit2_opts(GIT_OPT_SET_MWINDOW_SIZE, (size_t)16384) == 0);
+        for (int i = 0; i < 3; i++) {
+            assert(git_libgit2_init() == 1);
+            assert(git_libgit2_opts(GIT_OPT_GET_OWNER_VALIDATION, &ownership) == 0);
+            assert(ownership == 0);
+            assert(git_libgit2_opts(GIT_OPT_GET_MWINDOW_SIZE, &window) == 0);
+            assert(window == 16384);
+            assert(git_libgit2_shutdown() == 0);
+        }
+        return 0;
+    }
     if (!strcmp(argv[2], "__test_lifecycle")) {
         char *status[] = { "status" };
         for (int i = 0; i < 100; i++) {
