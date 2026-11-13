@@ -4,8 +4,12 @@
 #include <string.h>
 
 #include "solar_os_expansion.h"
+#include "solar_os_input.h"
 
-#define PS2_KEYBOARD_JOB_DEVICE "ps2-keyboard-job"
+#define PS2_KEYBOARD_JOB_DEVICE "ps2-kbd-job"
+
+_Static_assert(sizeof(PS2_KEYBOARD_JOB_DEVICE) <= SOLAR_OS_INPUT_SOURCE_NAME_MAX,
+               "PS/2 keyboard job device name must fit an input source");
 
 static bool attached;
 

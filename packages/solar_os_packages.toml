@@ -337,6 +337,11 @@ label = "HTTP client and Curl"
 category = "Networking"
 members = ["app_curl"]
 
+[groups.git]
+label = "Git version control"
+category = "Networking"
+members = ["service_git"]
+
 [groups.web_browser]
 label = "Web browser"
 category = "Networking"
@@ -1232,6 +1237,13 @@ label = "network.sftpsync"
 depends = ["service_ssh"]
 sources = ["services/solar_os_sftpsync.c"]
 capabilities = ["wifi"]
+
+[packages.service_git]
+label = "network.git"
+depends = ["service_ssh"]
+sources = ["services/solar_os_git.c", "services/solar_os_git_transport.c", "shell/solar_os_shell_git.c"]
+requires = ["solaros_git", "esp-tls", "mbedtls"]
+capabilities = ["wifi", "psram"]
 
 [packages.service_sftp]
 label = "network.sftp"

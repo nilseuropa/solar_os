@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.17.11** — 2026-11-13 — Added Git version control for small projects,
+  with SSH authentication, anonymous HTTPS cloning, branches, diffs and remote
+  synchronization. Git shows live progress and uses less internal RAM. New SSH
+  keys default to 3072-bit RSA. Fixed PS/2 keyboard job startup.
 - **4.17.10** — 2026-11-11 — Added USB hub support, report-protocol
   keyboards, and USB serial connections for CDC-ACM, Espressif native USB,
   CP210x, and CH340/CH341 devices. Flash can now program ESP boards over USB

@@ -1,0 +1,18 @@
+# Git executes only in ordinary serialized task context with cache enabled.
+# Its worker stack and service serialization guard are outside this archive.
+[sections:solar_git_initializers]
+entries:
+    .solaros_git_initializers
+
+[scheme:solar_git_state]
+entries:
+    solar_git_initializers -> flash_rodata
+    bss -> extern_ram
+    common -> extern_ram
+
+[mapping:solar_git_state]
+archive: libsolaros_git.a
+entries:
+    if ESP_ALLOW_BSS_SEG_EXTERNAL_MEMORY = y:
+        * (solar_git_state);
+            solar_git_initializers -> flash_rodata KEEP() ALIGN(4) SURROUND(solar_git_initializers)

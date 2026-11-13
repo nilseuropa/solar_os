@@ -788,6 +788,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
     {"sshkey", "manage SSH keys", solar_os_shell_cmd_sshkey},
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GIT
+    {"git", "version control for user projects", solar_os_shell_cmd_git},
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
     {"temperature", "read SHTC3 temperature", solar_os_shell_cmd_temperature},
     {"humidity", "read SHTC3 humidity", solar_os_shell_cmd_humidity},
@@ -1671,6 +1674,15 @@ static const char * const say_speed_values[] = {
 
 static const char * const sshkey_gen_values[] = {"-f", "2048", "3072", "4096"};
 static const char * const sshkey_bits_values[] = {"2048", "3072", "4096"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GIT
+static const char * const git_subcommands[] = {
+    "help", "init", "clone", "config", "status", "add", "diff", "commit", "log",
+    "branch", "checkout", "switch", "remote", "fetch", "pull", "push",
+};
+static const char * const git_config_keys[] = {"user.name", "user.email"};
+static const char * const git_remote_commands[] = {"-v", "add", "set-url"};
+static const char * const git_diff_options[] = {"--cached"};
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
@@ -2914,6 +2926,14 @@ static const char * const path_say_file[] = {"say", "--file"};
 static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
 static const char * const path_sshkey_gen_force[] = {"sshkey", "gen", "-f"};
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GIT
+static const char * const path_git[] = {"git"};
+static const char * const path_git_config[] = {"git", "config"};
+static const char * const path_git_remote[] = {"git", "remote"};
+static const char * const path_git_diff[] = {"git", "diff"};
+static const char * const path_git_init[] = {"git", "init"};
+static const char * const path_git_add[] = {"git", "add"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 static const char * const path_ota[] = {"ota"};
@@ -4169,6 +4189,14 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_sshkey, sshkey_subcommands),
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),
     SHELL_COMPLETION_STATIC(path_sshkey_gen_force, sshkey_bits_values),
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GIT
+    SHELL_COMPLETION_STATIC(path_git, git_subcommands),
+    SHELL_COMPLETION_STATIC(path_git_config, git_config_keys),
+    SHELL_COMPLETION_STATIC(path_git_remote, git_remote_commands),
+    SHELL_COMPLETION_STATIC(path_git_diff, git_diff_options),
+    SHELL_COMPLETION_PATH(path_git_init, true),
+    SHELL_COMPLETION_PATH(path_git_add, false),
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     SHELL_COMPLETION_STATIC(path_ota, ota_subcommands),

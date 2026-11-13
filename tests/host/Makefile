@@ -20,6 +20,7 @@ TARGETS += usb_service_serial_test
 TARGETS += usb_service_storage_test
 TARGETS += usb_service_vbus_test
 TARGETS += storage_usb_mounts_test
+TARGETS += ps2_keyboard_job_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_keyboard_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -930,6 +931,11 @@ ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/servi
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		ble_keyboard_scan_policy_test.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.c -o $@
 
+ps2_keyboard_job_test: ps2_keyboard_job_test.c input_test.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services \
+		ps2_keyboard_job_test.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.c \
+		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
+
 ps2_keyboard_test: ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c $(ROOT)/src/services/solar_os_ps2_keyboard.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		ps2_keyboard_test.c $(ROOT)/src/services/solar_os_ps2_keyboard.c -o $@
@@ -1468,6 +1474,7 @@ test: $(TARGETS)
 	./hid_keyboard_report_test
 	./ble_keyboard_scan_policy_test
 	./ps2_keyboard_test
+	./ps2_keyboard_job_test
 	./ps2_mouse_test
 	./cardkb_codec_test
 	./inputronic_keyboard_test
