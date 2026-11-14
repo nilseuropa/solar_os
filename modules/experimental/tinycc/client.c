@@ -8,6 +8,7 @@
 #include "solar_os_native_storage_abi.h"
 #include "solar_os_native_elf.h"
 #include "sdk_reader.h"
+#include "sdk_cli.h"
 
 static const char library_source[] =
 #include "library_probe.inc"
@@ -132,7 +133,7 @@ static int read_header(void *user, const char *name, void *buffer, uint32_t capa
 static int compile_file(int argc, char **argv, const solar_os_native_memory_api_v1_t *memory,
                          void *output, unsigned capacity)
 {
-    const solar_os_native_storage_api_v1_t *storage = host->get_service("storage", 1, sizeof(*storage));
+    const solar_os_native_storage_api_v1_t *storage = host->get_service("storage", 1, SOLAR_OS_NATIVE_STORAGE_BASE_SIZE);
     if (!storage) { print("cc: file compilation requires the native storage service\n"); return -6; }
     const char *inputs[SOLAR_OS_CC_SOURCE_FILES_MAX],*output_name="a.elf";
     unsigned input_count=0;
@@ -216,11 +217,19 @@ int app_main(int argc, char **argv)
     const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
     const solar_os_native_library_service_api_v1_t *libraries = host->get_service("library", 1, sizeof(*libraries));
     if (!libc_api || !memory || !libraries) return 2;
-    if (argc < 2 || equal(argv[1], "--help")) { print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n"); return argc < 2 ? 2 : 0; }
+    if (argc < 2 || equal(argv[1], "--help")) {
+        print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n");
+        print("       cc sdk list | show HEADER | export NEW_DIRECTORY\n");
+        return argc < 2 ? 2 : 0;
+    }
     const void *table = NULL; uint32_t lease = 0;
-    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, sizeof(*compiler), &lease, &table);
+    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
     if (code) { print("CC_ERROR acquire=%d\n", code); return code; }
     compiler = table;
+    if(equal(argv[1],"sdk")) {
+        code=solar_os_cc_sdk_command(host,libc_api,compiler,memory,argc,argv);
+        libraries->release(lease);return code;
+    }
     bool diagnostic_mode = equal(argv[1], "--self-test") || equal(argv[1], "--demo-hex") ||
                            equal(argv[1], "--scalar-hex") || equal(argv[1], "--emit-hex");
     const unsigned capacity = diagnostic_mode ? 256 * 1024 : SOLAR_OS_CC_OUTPUT_MAX;

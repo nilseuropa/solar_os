@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import struct
 import subprocess
+import tomllib
 
 from build import HERE, ROOT, CACHE, prepare, replace, run
 
@@ -69,6 +70,7 @@ def main():
     # Embed a target SDK as bounded read-only files, without a host filesystem.
     headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
     headers["solar_os_key_codes.h"] = ROOT / "include/solar_os_key_codes.h"
+    headers["solar_os_cc_abi.h"] = HERE / "include/solar_os_cc_abi.h"
     headers.update({p.name: p for p in (HERE / "sdk").glob("*.h")})
     for name in ("stddef.h", "stdbool.h", "stdarg.h"):
         if name not in headers: headers[name] = source / "include" / name
@@ -78,10 +80,13 @@ def main():
         data = path.read_bytes()
         sdk.append("{%s, %s, %d}," % (json.dumps(name), json.dumps(data.decode()), len(data)))
     (output / "sdk.inc").write_text("\n".join(sdk) + "\n")
+    version = tomllib.loads((ROOT / "modules/tinycc/module.toml").read_text())["version"]
+    (output / "sdk_version.inc").write_text(json.dumps(version) + "\n")
     (output / "sdk_runtime.inc").write_text(json.dumps((HERE/"sdk_runtime.c").read_text())+"\n")
     for name in ("library_probe", "scalar_probe", "sdk_check", "sdk_aux"):
         (output / (name + ".inc")).write_text(json.dumps((HERE / "examples" / (name + ".c")).read_text()) + "\n")
     for name, path in (("runtime", HERE / "runtime.c"), ("module", HERE / "module.c"), ("client", HERE / "client.c"),
+                       ("sdk_cli",HERE/"sdk_cli.c"),
                        ("sdk_reader",HERE/"sdk_reader.c"),
                        ("validator", ROOT / "src/services/solar_os_native_elf.c")):
         run(cc, *flags, "-I", output, "-c", path, "-o", output / (name + ".o"))
@@ -96,7 +101,7 @@ def main():
     run(prefix + "objcopy", "--set-section-flags", ".rodata*=alloc,load,data,contents",
         "--remove-section=.eh_frame", libgcc, output / "libgcc.a")
     # Hide all private runtime/compiler names; only the versioned host imports escape.
-    for name, objects in (("tinycc.library", ["core.o", "runtime.o", "module.o"]), ("cc.app", ["client.o", "sdk_reader.o", "validator.o"])):
+    for name, objects in (("tinycc.library", ["core.o", "runtime.o", "module.o"]), ("cc.app", ["client.o", "sdk_cli.o", "sdk_reader.o", "validator.o"])):
         run(cc, "-r", "-nostdlib", *[output / p for p in objects], output / "libgcc.a", "-o", output / (name + ".o"))
         run(prefix + "objcopy", "--keep-global-symbol=app_main", output / (name + ".o"), output / (name + ".local.o"))
         run(cc, "-nostdlib", "-nostartfiles", "-shared", "-Wl,-Bsymbolic", "-Wl,--gc-sections",
@@ -110,7 +115,7 @@ def main():
     run("cc", "-std=c11", "-O2", "-include", "stdbool.h", "-I", ROOT / "tests/host",
         "-I", ROOT / "include", "-I", ROOT / "src/services",
         HERE / "elf_check.c", ROOT / "src/services/solar_os_native_elf.c", "-o", CACHE / "elf-check")
-    report = {"upstream": json.loads((HERE / "upstream.json").read_text())["revision"],
+    report = {"version":version,"upstream": json.loads((HERE / "upstream.json").read_text())["revision"],
               "support":json.loads((CACHE/"support/build.json").read_text()),
               "gcc": subprocess.check_output([str(cc), "-dumpfullversion"], text=True).strip(),
               "sdk": {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in headers.items()},
@@ -119,7 +124,7 @@ def main():
                                        ROOT / "src/services/solar_os_native_elf.h"] + [HERE / name for name in ("runtime.c", "embedded.c", "client.c", "module.c",
                                                                "native_build.py", "xtensa-gen.c", "xtensa-link.c",
                                                                "include/solar_os_cc_abi.h","support.c","support_build.py",
-                                                               "support-bridge.c","standard-bridge.c","build.py","driver.c","sdk_reader.c","sdk_reader.h","sdk_runtime.c")]
+                                                               "support-bridge.c","standard-bridge.c","build.py","driver.c","sdk_reader.c","sdk_reader.h","sdk_cli.c","sdk_cli.h","sdk_runtime.c")]
                           +[ROOT/"include/solar_os_native_sdk.h"]}, "artifacts": {}}
     for name in ("tinycc.library.elf", "cc.app.elf"):
         path = output / name

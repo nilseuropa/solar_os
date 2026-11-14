@@ -22,12 +22,14 @@ static bool valid_path(const char *name)
     }
 }
 
-int solar_os_cc_sdk_extract(solar_os_cc_sdk_read_fn read,void *context,uint32_t file_bytes,
-    const char *module_id,const char *header,void *buffer,uint32_t capacity,uint32_t *bytes)
+static int sdk_parse(solar_os_cc_sdk_read_fn read,void *context,uint32_t file_bytes,
+    const char *module_id,const char *header,void *buffer,uint32_t capacity,uint32_t *bytes,
+    solar_os_cc_sdk_index_t *index)
 {
     unsigned char elf[52],section[40],meta[SOLAR_OS_NATIVE_SDK_HEADER_BYTES];
     uint32_t names_at,names_bytes,sdk_at=0,sdk_bytes=0;
-    if(!read || !module_id || !header || !bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if(!read || !module_id || (!header && !index) || !bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if(index) memset(index,0,sizeof(*index));
     *bytes=0;
     if(file_bytes<52) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     int code=read(context,0,elf,sizeof(elf));if(code) return code;
@@ -58,6 +60,10 @@ int solar_os_cc_sdk_extract(solar_os_cc_sdk_read_fn read,void *context,uint32_t 
     if(memcmp(meta,SOLAR_OS_NATIVE_SDK_MAGIC,8) || u32(meta+8)!=sdk_bytes || !count || count>32 ||
        !memchr(meta+16,0,48) || !memchr(meta+64,0,32) || !meta[64] ||
        strcmp((const char *)meta+16,module_id)) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    for(const unsigned char *p=meta+64;*p;++p)
+        if(!((*p>='a' && *p<='z') || (*p>='A' && *p<='Z') || (*p>='0' && *p<='9') ||
+             *p=='_' || *p=='-' || *p=='.')) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    if(index) {memcpy(index->version,meta+64,32);index->count=count;}
     unsigned char record[SOLAR_OS_NATIVE_SDK_RECORD_BYTES];
     char previous[96]={0};uint32_t expected=96+count*104,found=0,found_bytes=0,text_bytes=0;
     if(expected>sdk_bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
@@ -70,9 +76,14 @@ int solar_os_cc_sdk_extract(solar_os_cc_sdk_read_fn read,void *context,uint32_t 
            offset!=expected || length>32768 || !bounds(sdk_bytes,offset,length) ||
            length>262144-text_bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
         memcpy(previous,name,strlen(name)+1);expected+=length;text_bytes+=length;
-        if(!strcmp(name,header)) {found=offset;found_bytes=length;}
+        if(index) {
+            memcpy(index->entries[i].name,name,96);
+            index->entries[i].offset=sdk_at+offset;index->entries[i].bytes=length;
+        }
+        if(header && !strcmp(name,header)) {found=offset;found_bytes=length;}
     }
     if(expected!=sdk_bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    if(index) return 0;
     if(!found) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     *bytes=found_bytes;
     if(!buffer) return 0;
@@ -82,12 +93,35 @@ int solar_os_cc_sdk_extract(solar_os_cc_sdk_read_fn read,void *context,uint32_t 
     return code;
 }
 
+int solar_os_cc_sdk_extract(solar_os_cc_sdk_read_fn read,void *context,uint32_t file_bytes,
+    const char *module_id,const char *header,void *buffer,uint32_t capacity,uint32_t *bytes)
+{
+    return sdk_parse(read,context,file_bytes,module_id,header,buffer,capacity,bytes,NULL);
+}
+int solar_os_cc_sdk_index(solar_os_cc_sdk_read_fn read,void *context,uint32_t file_bytes,
+    const char *module_id,solar_os_cc_sdk_index_t *index)
+{
+    uint32_t bytes=0;
+    if(!index) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    return sdk_parse(read,context,file_bytes,module_id,NULL,NULL,0,&bytes,index);
+}
+
 struct sdk_file {const solar_os_native_storage_api_v1_t *storage;char path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];};
 static int read_exact(void *user,uint32_t offset,void *data,uint32_t bytes)
 {
     struct sdk_file *file=user;size_t actual=0;
     int code=file->storage->read_file(file->storage->context,file->path,offset,data,bytes,&actual);
     return code ? code : actual==bytes ? 0 : SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+}
+int solar_os_cc_sdk_library_index(const solar_os_native_storage_api_v1_t *storage,
+    const char *path,const char *module_id,solar_os_cc_sdk_index_t *index)
+{
+    if(!storage || !path || strlen(path)>=SOLAR_OS_NATIVE_STORAGE_PATH_MAX) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    struct sdk_file file={.storage=storage};memcpy(file.path,path,strlen(path)+1);
+    uint32_t bytes=0;int code=storage->file_size(storage->context,path,&bytes);
+    if(code) return code;
+    if(bytes>2U*1024U*1024U) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    return solar_os_cc_sdk_index(read_exact,&file,bytes,module_id,index);
 }
 int solar_os_cc_sdk_read(const solar_os_native_storage_api_v1_t *storage,
     const char *name,void *buffer,uint32_t capacity,uint32_t *bytes)

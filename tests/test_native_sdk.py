@@ -70,6 +70,17 @@ int main(int argc,char **argv)
 {
  assert(argc==6);FILE *f=fopen(argv[1],"rb");assert(f);fseek(f,0,SEEK_END);length=ftell(f);rewind(f);
  data=malloc(length?length:1);assert(fread(data,1,length,f)==length);fclose(f);
+ struct {unsigned char before[16];solar_os_cc_sdk_index_t index;unsigned char after[16];} indexed;
+ memset(&indexed,0x5a,sizeof(indexed));
+ int index_code=solar_os_cc_sdk_index(read_data,NULL,length,argv[2],&indexed.index);
+ for(unsigned i=0;i<16;i++)assert(indexed.before[i]==0x5a && indexed.after[i]==0x5a);
+ if(!index_code) {
+  assert(indexed.index.count && indexed.index.count<=32 && memchr(indexed.index.version,0,32));
+  for(unsigned i=0;i<indexed.index.count;i++) {
+   assert(memchr(indexed.index.entries[i].name,0,96));
+   assert(indexed.index.entries[i].offset<=length && indexed.index.entries[i].bytes<=length-indexed.index.entries[i].offset);
+  }
+ }
  uint32_t bytes=0;int expected=atoi(argv[4]);
  solar_os_native_storage_api_v1_t storage={.resolve_path=resolve,.file_size=file_size,.read_file=storage_read};
  int dispatch=!strcmp(argv[5],"dispatch");

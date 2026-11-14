@@ -13,6 +13,21 @@ Use `-I directory` for local headers. SolarOS ABI headers and a bounded standard
 C library are included. Installed libraries can supply namespaced headers in
 their ELF packages: Jet provides `<jet/solar_os_jet_abi.h>`.
 
+Browse the available SDK directly on the device:
+
+```
+cc sdk list
+cc sdk show jet/solar_os_jet_abi.h
+cc sdk export /dev/sdk
+edit /dev/sdk/jet/solar_os_jet_abi.h
+```
+
+`list` shows header names, provider package versions and sizes. `show` prints
+the selected header. `export` requires a new destination directory, creates its
+parents and preserves the include namespaces. Use another destination for a
+fresh export after updating packages. Existing directories and edited headers
+are preserved. Library SDK metadata is read directly from installed files.
+
 The [Jet cube example](../experimental/tinycc/examples/jet-cube) builds a native
 foreground app with input, suspend/resume and clean exit. The compiler accepts
 up to eight source files totaling 64 KiB, eight include directories, a 2 MiB

@@ -413,7 +413,14 @@ static int shutdown(void)
     if (busy) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     memory_api->free(data_snapshot); data_snapshot = NULL; return 0;
 }
-static const solar_os_cc_api_v1_t api = {SOLAR_OS_CC_ABI, sizeof(api), compile, sizeof(solar_os_cc_request_v1_t)};
+static const char sdk_version[] =
+#include "sdk_version.inc"
+;
+static const solar_os_cc_api_v1_t api = {
+    .abi_version = SOLAR_OS_CC_ABI, .struct_size = sizeof(api), .compile = compile,
+    .request_size = sizeof(solar_os_cc_request_v1_t), .sdk_version = sdk_version,
+    .sdk_count = sizeof(sdk)/sizeof(sdk[0]), .sdk_headers = sdk,
+};
 int app_main(int argc, char **argv)
 {
     (void)argc; (void)argv;

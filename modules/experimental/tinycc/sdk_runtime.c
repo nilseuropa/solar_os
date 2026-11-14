@@ -89,7 +89,7 @@ FILE *stdout=&output_stream,*stderr=&error_stream;
 static FILE *streams[16];
 FILE *fopen(const char *name,const char *mode)
 {
-    const solar_os_native_storage_api_v1_t *storage=service("storage",sizeof(*storage));
+    const solar_os_native_storage_api_v1_t *storage=service("storage",SOLAR_OS_NATIVE_STORAGE_BASE_SIZE);
     int reading=!strcmp(mode,"r") || !strcmp(mode,"rb");
     int writing=!strcmp(mode,"w") || !strcmp(mode,"wb");
     if(!storage || (!reading && !writing)) return NULL;

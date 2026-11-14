@@ -73,4 +73,11 @@ typedef struct {
                    solar_os_cc_result_v1_t *result,
                    char *diagnostics, uint32_t diagnostics_size);
     uint32_t request_size; /* Append-only capability: largest supported request. */
+    /* Read-only built-in SDK, borrowed while the provider lease is held.
+     * These entries need no compilation worker and remain immutable. */
+    const char *sdk_version;
+    uint32_t sdk_count;
+    const solar_os_cc_header_v1_t *sdk_headers;
 } solar_os_cc_api_v1_t;
+
+#define SOLAR_OS_CC_API_BASE_SIZE offsetof(solar_os_cc_api_v1_t, sdk_version)

@@ -83,6 +83,32 @@ documented subsets of standard C headers:
 | `stdio.h` | `printf`/`fprintf`/`snprintf` and their `va_list` forms, `puts`/`fputs`, character I/O on files, `fopen`/`fclose`/`fflush`, `fread`/`fwrite`, `fseek`/`ftell`/`rewind`, EOF/error indicators |
 | `math.h` | `floor`, `fabs`, `ldexp`, `expf`, `floorf`, `fmodf`, `logf`, `powf`, `sqrtf`, `fabsf`, infinity/NaN constants and classification |
 
+### Browse and export headers
+
+```
+cc sdk list
+cc sdk show stdio.h
+cc sdk show jet/solar_os_jet_abi.h
+cc sdk export /dev/sdk
+```
+
+Listing shows provider package versions and byte sizes. Built-in headers are
+borrowed through the compiler's append-only API table; installed-library
+headers and versions are read from their `.solaros.sdk` metadata without
+activating those providers. Export preserves namespaces, validates the complete
+inventory and header text before writing, and requires a new destination
+directory. Existing directories are refused. Cancellation and ordinary write
+failures clean up the files created by that export; cleanup errors identify
+the remaining destination. The browser supports 128 built-in headers and up to
+16 installed library SDKs, with the library SDK format's existing text limits.
+
+The compiler API appends `sdk_version`, `sdk_count` and `sdk_headers`; their
+read-only pointers remain valid while the provider lease is held. Earlier
+compile clients continue to use `SOLAR_OS_CC_API_BASE_SIZE`. The scoped storage
+API appends directory enumeration, directory creation and nonrecursive removal;
+its original file-operation prefix remains available through
+`SOLAR_OS_NATIVE_STORAGE_BASE_SIZE`.
+
 When a program uses supported C functions, the compiler links one private C
 runtime into its output. It calls published SolarOS services and imports no
 private firmware symbols. All translation units share its streams and globals.
@@ -341,7 +367,7 @@ The runtime fixes `__DATE__`/`__TIME__` to the Unix epoch and defines
 
 The compile request appends a translation-unit array; both earlier request
 prefixes retain their behavior. The API table appends `request_size` for
-capability checks. Install the matching version 0.4 compiler and client pair.
+capability checks. Install matching compiler and client packages.
 For the Linux-hosted low-level driver, standard C use prints the selected
 `solar_os_c_main` entry; pass that name to the module writer to include stream
 cleanup when `main` returns.

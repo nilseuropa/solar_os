@@ -26,7 +26,7 @@ static const hello_library_api_v1_t provider = {1, sizeof(provider), add};
 static int acquire(const char *id, uint32_t abi, uint32_t size, uint32_t *lease, const void **table)
 {
     assert(abi == 1 && !*lease && !*table);
-    if (!strcmp(id, "tinycc")) { assert(size == sizeof(solar_os_cc_api_v1_t)); *table = compiler->api; }
+    if (!strcmp(id, "tinycc")) { assert(size == SOLAR_OS_CC_API_BASE_SIZE); *table = compiler->api; }
     else { assert(!strcmp(id, "hello-library") && size == sizeof(provider)); *table = &provider; }
     *lease = ++leases; return 0;
 }

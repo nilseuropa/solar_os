@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <errno.h>
+#include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -17,6 +18,8 @@ static bool cancelled(void *user)
 { assert(user == &cancel_calls); return cancel_at && ++cancel_calls >= cancel_at; }
 bool solar_os_disk_image_path_busy(const char *path) { (void)path; return busy_path; }
 void solar_os_storage_notify_changed(void) {}
+size_t strlcpy(char *out,const char *text,size_t capacity)
+{ size_t n=strlen(text);if(capacity)snprintf(out,capacity,"%s",text);return n; }
 esp_err_t solar_os_storage_resolve_path_at(const char *cwd, const char *path, char *out, size_t capacity)
 {
     if (!cwd) cwd = "/";
@@ -35,6 +38,8 @@ esp_err_t solar_os_storage_stat(const char *path, solar_os_storage_metadata_t *m
     return ESP_OK;
 }
 esp_err_t solar_os_storage_remove(const char *path) { return remove(path) ? ESP_FAIL : ESP_OK; }
+esp_err_t solar_os_storage_exists(const char *path,bool *exists)
+{ struct stat info;*exists=!stat(path,&info);return *exists || errno==ENOENT?ESP_OK:ESP_FAIL; }
 static int checked_rename(const char *from, const char *to)
 {
     if (reenter) {
@@ -66,6 +71,7 @@ int main(int argc, char **argv)
     const solar_os_native_storage_api_v1_t *a = solar_os_native_storage_get_service("storage", 1, sizeof(*a), &one);
     const solar_os_native_storage_api_v1_t *b = solar_os_native_storage_get_service("storage", 1, sizeof(*b), &two);
     assert(a && b && a != b && a->context != b->context);
+    assert(solar_os_native_storage_get_service("storage",1,SOLAR_OS_NATIVE_STORAGE_BASE_SIZE,&one)==a);
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     assert(!a->resolve_path(a->context, "input.c", path, sizeof(path)) && !strcmp(path, "/first/input.c"));
     assert(!b->resolve_path(b->context, "input.c", path, sizeof(path)) && !strcmp(path, "/second/input.c"));
@@ -106,6 +112,29 @@ int main(int argc, char **argv)
     assert(reentered == -3 && access(nested_path, F_OK)); expect(path, "final");
     assert(!current->replace_file(current->context, path, "again", 5)); expect(path, "again");
     assert(!remove(path));
+    assert(!current->resolve_path(current->context,"headers/nested",path,sizeof(path)));
+    assert(!current->make_directories(current->context,path,false));
+    assert(current->make_directories(current->context,path,false)==-3);
+    assert(!current->make_directories(current->context,path,true));
+    solar_os_native_storage_entry_v1_t entry;bool more=true;
+    assert(current->directory_entry(current->context,path,0,&entry,&more)==-5 && !more);
+    char file[SOLAR_OS_STORAGE_PATH_MAX];assert(snprintf(file,sizeof(file),"%s/api.h",path)<(int)sizeof(file));put(file,"header");
+    assert(!current->directory_entry(current->context,path,0,&entry,&more));
+    assert(!strcmp(entry.name,"api.h") && entry.bytes==6 && entry.flags==SOLAR_OS_NATIVE_STORAGE_ENTRY_FILE && !more);
+    for(size_t i=strlen(entry.name)+1;i<sizeof(entry.name);++i)assert(!entry.name[i]);
+    assert(current->directory_entry(current->context,path,1,&entry,&more)==-5);
+    assert(current->directory_entry(current->context,"relative",0,&entry,&more)==-2);
+    assert(current->make_directories(current->context,"relative",false)==-2);
+    assert(current->remove_path(current->context,"relative",false)==-2);
+    busy_path=true;assert(current->remove_path(current->context,file,false)==-3);busy_path=false;
+    cancel_at=1;cancel_calls=0;
+    assert(current->directory_entry(current->context,path,0,&entry,&more)==-7);
+    assert(current->make_directories(current->context,path,true)==-7);
+    assert(!current->remove_path(current->context,file,false));
+    assert(current->remove_path(current->context,file,false)==-5);
+    assert(!current->remove_path(current->context,path,true));
+    char *slash=strrchr(path,'/');assert(slash);*slash=0;
+    assert(!current->remove_path(current->context,path,true));
     puts("native storage scope, bounds, rollback, cancellation and writer serialization passed");
     return 0;
 }

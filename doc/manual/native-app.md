@@ -83,6 +83,13 @@ to preserve the previous output on ordinary filesystem errors. It reserves
 `.native.tmp` and `.native.bak` siblings. An existing staging file refuses
 replacement. This does not guarantee atomic visibility or power-loss recovery.
 
+The appended `directory_entry`, `make_directories` and `remove_path` methods
+support directory traversal and output cleanup. Request the full table to use
+them; older firmware supports the prefix `SOLAR_OS_NATIVE_STORAGE_BASE_SIZE`.
+`directory_entry` returns one entry in filesystem order and indicates whether
+more follow. `remove_path` removes one file or empty directory and remains
+available after cancellation so a caller can clean up its own unfinished files.
+
 Poll `stop_requested(context)` during long operations. It latches Ctrl+C,
 Ctrl+] and shell shutdown requests from the launching display or port shell.
 The service table and context live until the command's native entry returns.

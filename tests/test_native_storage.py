@@ -12,6 +12,8 @@ class NativeStorageTest(unittest.TestCase):
     def test_scopes_bounds_cancellation_and_recoverable_replacement(self):
         source = (ROOT / "src/services/solar_os_storage.c").read_text()
         replacements = production_functions(source, (
+            "storage_errno_to_esp", "storage_metadata_from_stat", "storage_ensure_directory",
+            "solar_os_storage_scandir", "solar_os_storage_makedirs", "solar_os_storage_rmdir",
             "solar_os_storage_sync_file", "solar_os_storage_sibling_path",
             "solar_os_storage_replace_file", "solar_os_storage_replace_files"))
         with tempfile.TemporaryDirectory() as temporary:

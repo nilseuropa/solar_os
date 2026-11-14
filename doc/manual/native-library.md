@@ -133,6 +133,22 @@ namespace. Headers can include published SolarOS ABI headers from the compiler
 SDK or namespaced headers from other installed libraries. They must remain
 compatible with the provider's versioned API table.
 
+Browse the compiler's built-in SDK and installed library SDKs with:
+
+```text
+cc sdk list
+cc sdk show solar_os_native_app_abi.h
+cc sdk show jet/solar_os_jet_abi.h
+cc sdk export /dev/sdk
+edit /dev/sdk/jet/solar_os_jet_abi.h
+```
+
+`list` includes provider package versions and header sizes. Browsing reads ELF
+metadata without activating the library providers. The built-in SDK version is
+the TinyCC package version. `export` requires a new directory and preserves
+the header namespaces and relative includes; an existing directory is refused.
+Exported files can be browsed with `edit` or supplied through `-I /dev/sdk`.
+
 The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
 256 KiB of text in total. Exported names include the module ID and fit in
 95 bytes. Names use letters, digits, underscores, hyphens, dots and directory
