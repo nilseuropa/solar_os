@@ -1,0 +1,4 @@
+sources = ["src/main.c", "src/helpers.c"]
+include_dirs = ["include"]
+output = "build/demo.elf"
+dependencies = [{ id = "hello-library", version = "1.1.0" }]

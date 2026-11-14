@@ -16,6 +16,7 @@
 #include "solar_os_native_libc_abi.h"
 #include "solar_os_native_thread_abi.h"
 #include "solar_os_native_time_abi.h"
+#include "solar_os_native_storage_abi.h"
 #include "hello_library_api.h"
 
 static const solar_os_native_library_descriptor_v1_t *compiler;
@@ -54,12 +55,52 @@ static solar_os_native_libc_api_v1_t libc_api = {.abi_version=1, .struct_size=si
 static const solar_os_native_time_api_v1_t clock_api = {1, sizeof(clock_api), esp_timer_get_time, sleep_ms};
 static const solar_os_native_thread_api_v1_t threads = {.abi_version=1, .struct_size=sizeof(threads), .worker_start=start_worker, .worker_join=join_worker};
 static const solar_os_native_library_service_api_v1_t libraries = {.abi_version=1, .struct_size=sizeof(libraries), .acquire=acquire, .release=release};
+static void *project_output;
+static size_t project_output_bytes;
+static unsigned project_writes;
+static bool project_bad_source;
+static const char *project_file = "sources=['main.c','helper.c']\ninclude_dirs=['include']\noutput='build/demo.elf'\n";
+static const char *project_text(const char *path)
+{
+    if(!strcmp(path,"/project/cc.toml"))return project_file;
+    if(!strcmp(path,"/project/main.c"))return "#include <answer.h>\nint main(void){return answer();}\n";
+    if(!strcmp(path,"/project/helper.c"))return project_bad_source?"int broken(":
+        "#include <answer.h>\nint answer(void){return 42;}\n";
+    if(!strcmp(path,"/project/include/answer.h"))return "int answer(void);\n";
+    return NULL;
+}
+static int project_resolve(void *context,const char *path,char *out,size_t capacity)
+{
+    (void)context;int n=snprintf(out,capacity,"%s%s",path[0]=='/'?"":"/other/",path);
+    return n<0 || (size_t)n>=capacity?SOLAR_OS_NATIVE_ERROR_INVALID_SIZE:0;
+}
+static int project_size(void *context,const char *path,uint32_t *bytes)
+{ (void)context;const char *text=project_text(path);if(!text)return -5;*bytes=strlen(text);return 0; }
+static int project_read(void *context,const char *path,uint32_t offset,void *out,size_t capacity,size_t *bytes)
+{
+    (void)context;const char *text=project_text(path);if(!text)return -5;
+    size_t n=strlen(text);if(offset>n)return -10;n-=offset;if(n>capacity)n=capacity;
+    memcpy(out,text+offset,n);*bytes=n;return 0;
+}
+static int project_replace(void *context,const char *path,const void *data,size_t bytes)
+{
+    (void)context;assert(!strcmp(path,"/project/build/demo.elf"));assert(!project_output);
+    project_output=solar_os_memory_elf_alloc(bytes);assert(project_output);
+    memcpy(project_output,data,bytes);project_output_bytes=bytes;project_writes++;return 0;
+}
+static int project_mkdir(void *context,const char *path,bool exist_ok)
+{ (void)context;assert(exist_ok && !strcmp(path,"/project/build"));return 0; }
+static bool project_stopped(void *context) { (void)context;return false; }
+static const solar_os_native_storage_api_v1_t storage={.abi_version=1,.struct_size=sizeof(storage),
+    .resolve_path=project_resolve,.file_size=project_size,.read_file=project_read,.replace_file=project_replace,
+    .stop_requested=project_stopped,.make_directories=project_mkdir};
 static const void *service(const char *name, uint32_t abi, uint32_t size)
 {
     assert(abi == 1);
 #define OFFER(id, table) if (!strcmp(name, id) && size <= sizeof(table)) return &table
     OFFER("memory", memory); OFFER("libc", libc_api); OFFER("time", clock_api);
     OFFER("thread", threads); OFFER("library", libraries);
+    OFFER("storage", storage);
     return NULL;
 }
 static int write_text(const char *text, size_t bytes) { fwrite(text, 1, bytes, stdout); return 0; }
@@ -107,6 +148,18 @@ void app_main(void)
     char *argv[] = {"cc", "--self-test"};
     int code = ((int (*)(int,char **))client_elf.entry)(2, argv);
     printf("NATIVE_CLIENT_RESULT=%d\n", code); assert(!code);
+    char *build_argv[]={"cc","build","/project/cc.toml"};
+    assert(!((int (*)(int,char **))client_elf.entry)(3,build_argv));
+    assert(project_writes==1 && project_output && project_output_bytes);
+    assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf,project_output));
+    assert(((int (*)(int,char **))program_elf.entry)(0,NULL)==42);esp_elf_deinit(&program_elf);
+    project_bad_source=true;
+    assert(((int (*)(int,char **))client_elf.entry)(3,build_argv)!=0);
+    assert(project_writes==1 && project_output_bytes);project_bad_source=false;
+    project_file="sources=['main.c']\nunknown=true\n";
+    assert(((int (*)(int,char **))client_elf.entry)(3,build_argv)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(project_writes==1 && !leases);heap_caps_free(project_output);project_output=NULL;
+    printf("SOLAR_CC_PROJECT_PASS: manifest-relative sources, includes, native execution and failed-build preservation\n");
     esp_elf_deinit(&client_elf);
     const solar_os_cc_api_v1_t *api = (const void *)compiler->api;
     void *output = solar_os_memory_elf_alloc(8192); assert(output);

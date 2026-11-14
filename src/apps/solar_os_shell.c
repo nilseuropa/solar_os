@@ -882,7 +882,7 @@ static const char * const engine_subcommands[] = {"status", "list", "reset"};
 #endif
 static const char * const mem_subcommands[] = {"policy", "reclaim", "compact", "owners"};
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
-static const char * const cc_subcommands[] = {"sdk"};
+static const char * const cc_subcommands[] = {"build", "sdk"};
 static const char * const cc_sdk_subcommands[] = {"list", "show", "export"};
 static const char * const pkg_subcommands[] = {
     "system", "available", "installed", "install", "remove", "unload",
@@ -2154,6 +2154,7 @@ static const char * const path_pkg[] = {"pkg"};
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const path_pkg_install[] = {"pkg", "install"};
 static const char * const path_cc[] = {"cc"};
+static const char * const path_cc_build[] = {"cc", "build"};
 static const char * const path_cc_sdk[] = {"cc", "sdk"};
 static const char * const path_cc_sdk_export[] = {"cc", "sdk", "export"};
 static const char * const path_pkg_remove[] = {"pkg", "remove"};
@@ -3609,6 +3610,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_pkg, pkg_subcommands),
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
     SHELL_COMPLETION_STATIC(path_cc, cc_subcommands),
+    SHELL_COMPLETION_PATH(path_cc_build, false),
     SHELL_COMPLETION_STATIC(path_cc_sdk, cc_sdk_subcommands),
     SHELL_COMPLETION_PATH(path_cc_sdk_export, true),
     SHELL_COMPLETION_MODULES_AVAILABLE(path_pkg_install),

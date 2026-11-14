@@ -296,6 +296,17 @@ compilation and validation. The library itself has no filesystem imports.
 
 ### Compile files on SolarOS
 
+The `cc` client also supports declarative projects with `cc build` or
+`cc build path/to/cc.toml`. The bounded TOML project lists sources, include
+directories, an output and exact installed SDK dependencies. Paths are relative
+to the project file; dependencies are checked without executing providers.
+Builds recompile all sources and create output directories only after successful
+compilation and ELF validation. See the [compiler guide](../../cc/README.md) and
+[complete project example](examples/build-project) for the format and commands.
+Project files are capped at 8 KiB and eight dependencies; compiler source,
+include, heap, output and deadline limits still apply. Project parsing and file
+path workspaces use request-owned heap storage.
+
 The file command requires firmware with
 `include/solar_os_native_storage_abi.h` support. Install `cc.app.elf` as
 `/modules/apps/cc.elf` and `tinycc.library.elf` as

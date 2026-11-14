@@ -101,6 +101,32 @@ These APIs do not expose arbitrary firmware symbols to external libraries.
 
 ## C headers in library packages
 
+Native C projects can declare exact SDK dependencies in `cc.toml`:
+
+```toml
+sources = ["main.c", "helpers.c"]
+include_dirs = ["include"]
+output = "build/demo.elf"
+dependencies = [{ id = "jet", version = "1.12.0" }]
+```
+
+Run `cc build` beside the project file, or `cc build /dev/demo/cc.toml` from
+another directory. Relative paths belong to the project file's directory.
+`sources` is required; include directories and dependencies default to empty,
+and the default output is `a.elf`. Projects support at most eight sources,
+eight include directories and eight dependencies in an 8 KiB file. Use explicit
+source paths. The format accepts single or double quoted strings, comments,
+multiline arrays and inline dependency tables. Unknown or duplicate keys,
+other TOML tables, multiline strings and escapes other than `\\` and `\"`
+are rejected with a line number.
+
+Builds check installed library SDK versions without loading providers or
+downloading packages. Missing dependencies report `pkg install ID`; the
+repository must provide the exact declared version. After compilation and ELF
+validation succeed, missing output directories are created and the executable
+is replaced. Build errors and cooperative cancellation preserve the existing
+output. Applications still acquire and release their runtime library leases.
+
 Libraries can embed their public C headers in the same ELF as their executable
 code. Declare the exported paths in `module.toml`:
 
