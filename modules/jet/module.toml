@@ -2,7 +2,7 @@ schema_version = 2
 type = "library"
 id = "jet"
 name = "Jet 3D renderer"
-version = "1.11.0"
+version = "1.12.0"
 description = "Resident Jet scene renderer with RGB565 wire-order output."
 target = "esp32s3"
 native_abi = 1
@@ -10,3 +10,15 @@ lifecycle_abi = 1
 minimum_host_api_size = 24
 required_capabilities = ["psram"]
 artifact = "jet.library.elf"
+required_services = [
+    { name = "memory", abi = 1, minimum_struct_size = 48 },
+    { name = "thread", abi = 1, minimum_struct_size = 64 },
+    { name = "time", abi = 1, minimum_struct_size = 16 },
+    { name = "libc", abi = 1, minimum_struct_size = 52 },
+]
+
+[sdk.headers]
+"solar_os_jet_abi.h" = "solar_os_jet_abi.h"
+"solar_os_jet_commands.h" = "solar_os_jet_commands.h"
+"solar_os_jet_scene_commands.h" = "solar_os_jet_scene_commands.h"
+"solar_os_jet_effect_commands.h" = "solar_os_jet_effect_commands.h"

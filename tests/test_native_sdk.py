@@ -26,6 +26,19 @@ def fixture():
 
 
 class NativeSdkTest(unittest.TestCase):
+    def test_shared_headers_are_confined_to_explicit_root(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);public=root/'include';public.mkdir()
+            (public/'api.h').write_text('#define SHARED 1\n')
+            module=root/'module';module.mkdir()
+            manifest=module/'module.toml'
+            manifest.write_text('type="library"\nid="shared"\nversion="1.0"\n[sdk.headers]\n"api.h"="api.h"\n')
+            self.assertEqual(pack.load_headers(manifest,public)[2][0][1],b'#define SHARED 1\n')
+            (public/'api.h').unlink()
+            (root/'secret.h').write_text('private')
+            (public/'api.h').symlink_to(root/'secret.h')
+            with self.assertRaises(ValueError):pack.load_headers(manifest,public)
+
     @classmethod
     def setUpClass(cls):
         cls.temporary=tempfile.TemporaryDirectory()

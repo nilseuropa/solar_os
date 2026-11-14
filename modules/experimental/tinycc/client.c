@@ -186,7 +186,7 @@ static int compile_file(int argc, char **argv, const solar_os_native_memory_api_
     }
     solar_os_cc_request_v1_t request = {
         .struct_size = sizeof(request), .sources=sources,.source_count=input_count,
-        .timeout_ms=5000,
+        .timeout_ms=20000,
         .include_paths = includes, .include_count = include_count,
         .read_header = read_header, .header_user = (void *)storage,
         .cancel = storage->stop_requested, .cancel_user = storage->context,

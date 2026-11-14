@@ -14,6 +14,7 @@
 #include "solar_os_native_time_abi.h"
 #include "solar_os_native_thread_abi.h"
 #include "solar_os_native_libc_abi.h"
+#include "solar_os_native_storage_abi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "sdkconfig.h"
@@ -562,9 +563,10 @@ static const solar_os_native_ble_client_api_v1_t native_ble_client_v1 = {
 };
 #endif
 
-static const void *native_job_get_service(const char *name,
-                                          uint32_t abi_version,
-                                          uint32_t minimum_struct_size)
+static const void *native_get_service(const char *name,
+                                      uint32_t abi_version,
+                                      uint32_t minimum_struct_size,
+                                      bool scoped)
 {
     if (name != NULL && strcmp(name, SOLAR_OS_NATIVE_TIME_SERVICE) == 0 &&
         abi_version == SOLAR_OS_NATIVE_TIME_ABI && minimum_struct_size <= sizeof(native_time_api))
@@ -580,7 +582,7 @@ static const void *native_job_get_service(const char *name,
         minimum_struct_size <= sizeof(native_library_api)) {
         return &native_library_api;
     }
-    native_run_scope_t *scope = native_run_scope_current();
+    native_run_scope_t *scope = scoped ? native_run_scope_current() : NULL;
     if (scope != NULL && scope->options.get_service != NULL) {
         const void *custom = scope->options.get_service(name, abi_version,
             minimum_struct_size, scope->options.service_user);
@@ -608,6 +610,18 @@ static const void *native_job_get_service(const char *name,
     (void)minimum_struct_size;
 #endif
     return NULL;
+}
+
+static const void *native_job_get_service(const char *name, uint32_t abi, uint32_t size)
+{
+    return native_get_service(name, abi, size, true);
+}
+
+bool solar_os_native_service_available(const char *name, uint32_t abi, uint32_t size)
+{
+    if (name && !strcmp(name, SOLAR_OS_NATIVE_STORAGE_SERVICE))
+        return abi == SOLAR_OS_NATIVE_STORAGE_ABI && size <= sizeof(solar_os_native_storage_api_v1_t);
+    return native_get_service(name, abi, size, false) != NULL;
 }
 
 static const solar_os_native_job_host_api_v1_t native_job_host_v1 = {

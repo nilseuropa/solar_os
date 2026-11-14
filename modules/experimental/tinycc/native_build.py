@@ -68,6 +68,7 @@ def main():
     run(prefix + "objcopy", *rename, output / "core.raw.o", output / "core.o")
     # Embed a target SDK as bounded read-only files, without a host filesystem.
     headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
+    headers["solar_os_key_codes.h"] = ROOT / "include/solar_os_key_codes.h"
     headers.update({p.name: p for p in (HERE / "sdk").glob("*.h")})
     for name in ("stddef.h", "stdbool.h", "stdarg.h"):
         if name not in headers: headers[name] = source / "include" / name

@@ -35,6 +35,18 @@ jobs
 native modules. A compiled driver is available to use, but does not mean its
 hardware is attached; check `expansion devices`.
 
+Native packages can require exact versions of library packages and minimum
+firmware service tables. `pkg install cc` installs its matching `tinycc` library
+first. Installation verifies the complete dependency graph and required services
+before downloading artifacts. A dependency already on storage is reused only
+when its size and SHA-256 match the signed catalog. Close or unload active
+modules before replacing them.
+
+Each artifact is validated and replaced separately. If a later download fails,
+successfully installed dependencies remain available and the previous requested
+module is preserved. Removing a library can leave its consumers unable to run;
+reinstall the consumer to restore its declared dependencies.
+
 ## Choose features
 
 Use the [SolarOS Builder](#solaros-builder) to select a board and flavor, or

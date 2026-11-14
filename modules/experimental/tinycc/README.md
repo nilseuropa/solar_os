@@ -1,5 +1,10 @@
 # TinyCC Xtensa prototype
 
+The installable packages are declared in `modules/cc` and `modules/tinycc`.
+On compatible firmware, `pkg install cc` installs both through the signed
+catalog. `pkg install jet` also supplies the Jet C headers. See
+[`examples/jet-cube`](examples/jet-cube) for an editable native graphics app.
+
 This prototype compiles C **on ESP32-S3** into native modules that use the
 published SolarOS host and library ABIs. The `tinycc` native library exposes
 a bounded compilation API; the `cc` client reads source and headers from
@@ -315,7 +320,7 @@ update firmware. Its report and retrieved/validated ELFs are under
 | Additional include directories | 8 |
 | Private compile heap | Default/max 2 MiB, configurable down to 64 KiB |
 | Output ELF | 2 MiB maximum, also limited by caller capacity |
-| Deadline | Cooperative: API default 2000 ms, file command 5000 ms, maximum 20000 ms |
+| Deadline | Cooperative: API default 2000 ms, file command 20000 ms, maximum 20000 ms |
 | Stack | Function-entry guard at 12,000 bytes on the 16 KiB worker |
 
 The private heap limit includes compiler allocations, the intermediate object

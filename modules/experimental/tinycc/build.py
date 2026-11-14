@@ -8,10 +8,12 @@ import shutil
 import subprocess
 import tarfile
 import urllib.request
+import fcntl
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 CACHE = ROOT / ".pio/tinycc"
+_source_lock = None
 
 
 def run(*args, cwd=None):
@@ -26,8 +28,14 @@ def replace(path, old, new):
 
 
 def prepare(archive=None):
+    global _source_lock
     pin = json.loads((HERE / "upstream.json").read_text())
     CACHE.mkdir(parents=True, exist_ok=True)
+    # Independent package builds share generated sources and compiler outputs.
+    # Keep ownership until process exit, including compilation after prepare.
+    if _source_lock is None:
+        _source_lock = (CACHE / "source.lock").open("a+")
+        fcntl.flock(_source_lock.fileno(), fcntl.LOCK_EX)
     archive = Path(archive) if archive else CACHE / "tinycc.tar.gz"
     if not archive.exists():
         urllib.request.urlretrieve(pin["archive"], archive)

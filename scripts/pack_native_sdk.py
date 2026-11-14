@@ -19,8 +19,9 @@ def safe_path(name):
                 for part in name.split('/')))
 
 
-def load_headers(manifest):
+def load_headers(manifest, source_root=None):
     manifest=Path(manifest).resolve()
+    source_root=Path(source_root).resolve() if source_root else manifest.parent
     meta=tomllib.loads(manifest.read_text())
     declarations=meta.get('sdk',{}).get('headers',{})
     if meta.get('type')!='library' or not isinstance(declarations,dict) or not 1<=len(declarations)<=32:
@@ -31,8 +32,8 @@ def load_headers(manifest):
     entries=[]
     for name,relative in sorted(declarations.items()):
         if not safe_path(name) or not safe_path(relative): raise ValueError('SDK paths must be safe relative paths')
-        path=(manifest.parent/relative).resolve()
-        path.relative_to(manifest.parent)
+        path=(source_root/relative).resolve()
+        path.relative_to(source_root)
         text=path.read_bytes();text.decode('utf-8')
         full=module_id+'/'+name
         if len(full.encode())>=96 or len(text)>32768 or b'\0' in text:
@@ -42,8 +43,8 @@ def load_headers(manifest):
     return module_id,version,entries
 
 
-def section_data(manifest):
-    module_id,version,entries=load_headers(manifest)
+def section_data(manifest, source_root=None):
+    module_id,version,entries=load_headers(manifest,source_root)
     offset=HEADER+len(entries)*RECORD
     directory=bytearray();text=bytearray()
     for name,data,_ in entries:
@@ -53,7 +54,7 @@ def section_data(manifest):
                        module_id.encode(),version.encode())+directory+text
 
 
-def pack_elf(data,manifest):
+def pack_elf(data,manifest,source_root=None):
     if len(data)<52 or data[:7]!=b'\x7fELF\1\1\1' or struct.unpack_from('<HH',data,16)!=(3,94):
         raise ValueError('SDK input must be little-endian Xtensa ELF32 ET_DYN')
     table=struct.unpack_from('<I',data,32)[0]
@@ -68,7 +69,7 @@ def pack_elf(data,manifest):
         if s[0]>=len(names_data) or b'\0' not in names_data[s[0]:]: raise ValueError('invalid ELF section name')
         if names_data[s[0]:].split(b'\0',1)[0]==SECTION[:-1]:
             raise ValueError('pack the original build artifact, not an already packaged ELF')
-    payload=section_data(manifest)
+    payload=section_data(manifest,source_root)
     result=bytearray(data)
     result.extend(b'\0'*(-len(result)%4));payload_offset=len(result);result.extend(payload)
     names_offset=len(result);result.extend(names_data+SECTION)
@@ -84,14 +85,15 @@ def pack_elf(data,manifest):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest',required=True,type=Path)
+    parser.add_argument('--source-root',type=Path,help='Explicit root for shared public headers')
     parser.add_argument('--input',type=Path)
     parser.add_argument('--output',type=Path)
     parser.add_argument('--list-inputs',action='store_true')
     args=parser.parse_args()
     if args.list_inputs:
-        print(';'.join(str(p) for _,_,p in load_headers(args.manifest)[2]),end='');return
+        print(';'.join(str(p) for _,_,p in load_headers(args.manifest,args.source_root)[2]),end='');return
     if not args.input or not args.output:parser.error('--input and --output are required')
-    data=pack_elf(args.input.read_bytes(),args.manifest)
+    data=pack_elf(args.input.read_bytes(),args.manifest,args.source_root)
     args.output.parent.mkdir(parents=True,exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=args.output.parent,delete=False) as stream:
         temporary=Path(stream.name)

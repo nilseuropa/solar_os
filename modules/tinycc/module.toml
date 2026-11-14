@@ -1,0 +1,18 @@
+schema_version = 2
+type = "library"
+id = "tinycc"
+name = "TinyCC C compiler"
+version = "0.5.0"
+description = "Bounded on-device C compiler with SolarOS and installed-library headers."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "tinycc.library.elf"
+required_services = [
+    { name = "memory", abi = 1, minimum_struct_size = 48 },
+    { name = "thread", abi = 1, minimum_struct_size = 64 },
+    { name = "time", abi = 1, minimum_struct_size = 16 },
+    { name = "libc", abi = 1, minimum_struct_size = 52 },
+]

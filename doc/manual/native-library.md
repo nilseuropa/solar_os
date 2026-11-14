@@ -116,11 +116,16 @@ non-allocated `.solaros.sdk` section. The package catalog's artifact hash covers
 both code and headers. Installing, updating or removing the ELF does the same
 for its headers; there are no separate header files to keep in sync.
 
-The experimental `cc` compiler discovers these declarations by module ID:
+The `cc` compiler discovers these declarations by module ID:
 
 ```c
 #include <hello-library/hello_library_api.h>
 ```
+
+Jet includes its public headers in the library package. Install `cc` and `jet`,
+then use `#include <jet/solar_os_jet_abi.h>`. The
+[native C graphics example](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc/examples/jet-cube)
+shows a resumable foreground app with input and explicit library cleanup.
 
 No manual header copy or `-I` option is needed for installed library headers.
 Quoted relative includes within a packaged header stay in that library's
@@ -132,6 +137,8 @@ The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
 256 KiB of text in total. Exported names include the module ID and fit in
 95 bytes. Names use letters, digits, underscores, hyphens, dots and directory
 separators; absolute paths and parent traversal in declarations are rejected.
+Builds that share public headers can pass an explicit `--source-root` to the
+packer. Declared files, including symlinks, must stay within that root.
 
 ## Runtime helpers
 
