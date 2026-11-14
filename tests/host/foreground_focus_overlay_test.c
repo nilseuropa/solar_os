@@ -3,6 +3,8 @@
 #include "input_test.c"
 #undef main
 
+#include "solar_os.h"
+
 #define SOLAR_OS_PACKAGE_SERVICE_AUDIO 0
 static bool session_switch_alt_held, overlay_active;
 static uint8_t session_switch_nav_held;
@@ -20,8 +22,25 @@ static void solar_os_power_note_activity(uint32_t now) { (void)now; }
 static bool input_focus_accepts_key_events(void) { return !char_input; }
 static void solar_os_sessions_show_input_focus_overlay(void) { overlay_active = true; }
 static void close_session_overlay(void) { overlay_active = false; overlay_closes++; }
+static const solar_os_app_t guest_app, other_app;
+static const solar_os_app_t *focus_app = &guest_app;
+static bool key_moves_focus;
+static unsigned text_events, text_after_guest_events;
+static uint8_t text_char;
+static const solar_os_app_t *solar_os_sessions_input_app(void) { return focus_app; }
 static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *event)
-{ guest_events++; guest_modifiers = event->modifiers; }
+{
+    guest_events++;
+    guest_modifiers = event->modifiers;
+    if (key_moves_focus) focus_app = &other_app;
+}
+static bool dispatch_text_to_input_focus(uint8_t ch)
+{
+    text_events++;
+    text_after_guest_events = guest_events;
+    text_char = ch;
+    return false;
+}
 static void process_app_requests(void) {}
 static bool solar_os_sessions_cycle_display_focus(void) { display_moves[0]++; return true; }
 static bool solar_os_sessions_cycle_display_focus_previous(void) { display_moves[1]++; return true; }
@@ -519,6 +538,31 @@ int main(void)
         assert(!overlay_active && !session_switch_alt_held);
     }
     assert(app_exits == 2);
+    /* Key-event apps receive a typed key first, then its text, unless the key
+     * was typed with left Alt or moved input focus. */
+    char_input = false;
+    solar_os_input_key_event_t typed = {.source = source, .key = 'a',
+        .action = SOLAR_OS_INPUT_KEY_PRESS};
+    const unsigned typed_keys = guest_events, typed_texts = text_events;
+    dispatch_input_key(&typed);
+    assert(guest_events == typed_keys + 1 && text_events == typed_texts + 1);
+    assert(text_after_guest_events == guest_events && text_char == 'a');
+    typed.modifiers = SOLAR_OS_INPUT_MOD_LEFT_ALT;
+    dispatch_input_key(&typed);
+    assert(guest_events == typed_keys + 2 && text_events == typed_texts + 1);
+    typed.modifiers = SOLAR_OS_INPUT_MOD_RIGHT_ALT;
+    dispatch_input_key(&typed);
+    assert(guest_events == typed_keys + 3 && text_events == typed_texts + 2);
+    typed.modifiers = 0;
+    typed.action = SOLAR_OS_INPUT_KEY_RELEASE;
+    dispatch_input_key(&typed);
+    assert(guest_events == typed_keys + 4 && text_events == typed_texts + 2);
+    typed.action = SOLAR_OS_INPUT_KEY_PRESS;
+    key_moves_focus = true;
+    dispatch_input_key(&typed);
+    assert(guest_events == typed_keys + 5 && text_events == typed_texts + 2);
+    key_moves_focus = false;
+    focus_app = &guest_app;
     /* Main-loop text dispatch applies the same control encoding as direct
      * read_chars consumers, without altering structured native key events. */
     text_probe = true;

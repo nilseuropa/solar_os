@@ -1103,6 +1103,19 @@ static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
     return true;
 }
 
+static bool writer_handle_text(solar_os_context_t *ctx, const char *text)
+{
+    writer_wake_cursor();
+    const size_t len = strlen(text);
+    if (writer.dialog != WRITER_DIALOG_NONE) {
+        return len == 1U ? writer_handle_dialog(ctx, (uint8_t)text[0]) : true;
+    }
+    if (len > 0U) {
+        (void)writer_insert(text, len);
+    }
+    return true;
+}
+
 static int writer_max_scroll(solar_os_gfx_t *gfx)
 {
     const int max_scroll = writer.content_height - writer_view_height(gfx);
@@ -1535,6 +1548,9 @@ static bool writer_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         return writer_handle_char(ctx, (uint8_t)event->data.ch);
     }
+    if (event->type == SOLAR_OS_EVENT_TEXT) {
+        return writer_handle_text(ctx, event->data.text);
+    }
     if (event->type == SOLAR_OS_EVENT_TICK) {
         writer.last_tick_ms = event->data.tick_ms;
         if (writer.dirty && !writer.recovery_written &&
@@ -1584,7 +1600,7 @@ const solar_os_app_t solar_os_writer_app = {
     .name = "writer",
     .summary = "hybrid WYSIWYG Markdown editor",
     .app_class = SOLAR_OS_APP_CLASS_GUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_TEXT_EVENTS,
     .start = writer_start,
     .suspend = writer_suspend,
     .resume = writer_resume,
