@@ -2415,6 +2415,131 @@ kind = "gpio"
 hint = "gpio"
 required = true
 
+[drivers.spd2010]
+summary = "SPD2010 412x412 QSPI color display"
+package = "driver_display_spd2010"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio", "psram"]
+default_name = "display0"
+board_driver = "display_spd2010"
+board_capabilities = ["display", "gfx", "display_brightness", "streaming_display"]
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SPD2010"', SOLAR_OS_BOARD_DISPLAY_CONTROLLER_SPD2010 = "1", SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"spd2010"' }
+
+[[drivers.spd2010.display_profiles]]
+name = "412x412"
+label = "412x412 RGB565"
+width = 412
+height = 412
+default = true
+
+[[drivers.spd2010.bindings]]
+key = "host"
+kind = "parameter"
+hint = "1=SPI2|2=SPI3"
+required = true
+min = 1
+max = 2
+
+[[drivers.spd2010.bindings]]
+key = "sclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d0"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d1"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d2"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d3"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "cs"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.spd2010.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..40000 kHz"
+min = 100
+max = 40000
+
+[[drivers.spd2010.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[[drivers.spd2010.bindings]]
+key = "bgr"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "invert"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "power_active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.ft6336]
 summary = "capacitive touch"
 package = "driver_ft6336"

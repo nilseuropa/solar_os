@@ -867,6 +867,11 @@ label = "VGA display"
 category = "Expansion hardware"
 members = ["driver_display_vga32"]
 
+[groups.spd2010]
+label = "SPD2010 QSPI color display"
+category = "Expansion hardware"
+members = ["driver_display_spd2010"]
+
 [groups.ft6336]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
@@ -2823,6 +2828,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_display_spd2010]
+label = "driver.display-spd2010"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_spd2010_expansion_driver"]
+depends = ["service_expansion", "service_resources", "driver_pwm_port"]
+sources = ["board/solar_os_board_display_expansion.c", "drivers/spd2010.c", "drivers/solar_os_rgb_panel_buffer.c", "services/solar_os_spd2010_display.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_lcd_spd2010", "u8g2"]
+capabilities = ["gfx", "psram", "expansion_gpio"]
 
 [packages.driver_display_cvbs_pal]
 label = "driver.display-cvbs-pal"
