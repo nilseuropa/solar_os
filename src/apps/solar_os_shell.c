@@ -9337,22 +9337,30 @@ static bool shell_completion_normalize_mac_arguments(const char **tokens, size_t
 }
 #endif
 
-static bool shell_complete_argument(solar_os_context_t *ctx,
+typedef struct {
+    const char *completed_tokens[SHELL_ARG_MAX];
+    char *alias_tokens[SHELL_ARG_MAX];
+    char effective_command[SHELL_INPUT_MAX];
+    shell_completion_match_t state;
+    char encoded_match[SHELL_INPUT_MAX];
+    char completed[SHELL_INPUT_MAX];
+} shell_argument_completion_work_t;
+
+/* Discovery can read ELF metadata below completion. Keep optional argument
+ * helpers and their scratch buffers off the display shell's main-task stack. */
+static bool SHELL_NOINLINE shell_complete_argument_with_work(solar_os_context_t *ctx,
                                     const shell_completion_parse_t *parse,
                                     size_t current_index,
                                     size_t token_start,
-                                    bool show_matches)
+                                    bool show_matches,
+                                    shell_argument_completion_work_t *work)
 {
-    const char *completed_tokens[SHELL_ARG_MAX];
-    char effective_command[SHELL_INPUT_MAX];
-    char *alias_tokens[SHELL_ARG_MAX] = {0};
+    const char **completed_tokens = work->completed_tokens;
+    char *effective_command = work->effective_command;
+    char **alias_tokens = work->alias_tokens;
     const char *prefix = "";
     size_t completed_count = current_index;
-    shell_completion_match_t state;
-
-    if (parse == NULL || parse->count == 0 || current_index >= SHELL_ARG_MAX) {
-        return false;
-    }
+    shell_completion_match_t *state = &work->state;
 
     for (size_t i = 0; i < completed_count; i++) {
         completed_tokens[i] = parse->tokens[i];
@@ -9362,7 +9370,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
     if (shell_completion_expand_alias(parse,
                                       completed_count,
                                       effective_command,
-                                      sizeof(effective_command),
+                                      sizeof(work->effective_command),
                                       alias_tokens,
                                       &alias_count)) {
         completed_count = alias_count;
@@ -9371,8 +9379,8 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         }
     } else if (!shell_alias_lookup_target_command(parse->tokens[0],
                                                   effective_command,
-                                                  sizeof(effective_command))) {
-        strlcpy(effective_command, parse->tokens[0], sizeof(effective_command));
+                                                  sizeof(work->effective_command))) {
+        strlcpy(effective_command, parse->tokens[0], sizeof(work->effective_command));
     }
     if (alias_count == 0) {
         completed_tokens[0] = effective_command;
@@ -9454,7 +9462,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                                                             completed_count,
                                                             prefix,
                                                             false,
-                                                            &state);
+                                                            state);
     if (!rule_seen) {
         if (path_rule != NULL) {
             shell_complete_path(
@@ -9467,7 +9475,7 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         }
         return mac_speed_value;
     }
-    if (state.count == 0) {
+    if (state->count == 0) {
         if (path_rule != NULL) {
             shell_complete_path(
                 ctx,
@@ -9483,34 +9491,32 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
     shell_session(ctx)->history_browsing = false;
     shell_session(ctx)->history_index = -1;
 
-    char encoded_match[SHELL_INPUT_MAX];
-    const char *match = state.match;
+    const char *match = state->match;
     if (completed_count == 3 && !strcmp(completed_tokens[0], "sc2") &&
         !strcmp(completed_tokens[1], "room") && !strcmp(completed_tokens[2], "invite") &&
-        solar_os_shell_completion_encode_token(state.match, encoded_match, sizeof(encoded_match))) match = encoded_match;
+        solar_os_shell_completion_encode_token(state->match, work->encoded_match,
+            sizeof(work->encoded_match))) match = work->encoded_match;
 
-    if (state.count == 1 && !show_matches) {
-        char completed[SHELL_INPUT_MAX];
-        snprintf(completed,
-                 sizeof(completed),
+    if (state->count == 1 && !show_matches) {
+        snprintf(work->completed,
+                 sizeof(work->completed),
                  "%.*s%s%s",
                  (int)token_start,
                  shell_session(ctx)->input,
                  match,
                  solar_os_shell_completion_needs_trailing_space(match) ? " " : "");
-        shell_replace_input(ctx, completed);
+        shell_replace_input(ctx, work->completed);
         return true;
     }
 
-    if (!show_matches && strlen(state.match) > strlen(prefix)) {
-        char completed[SHELL_INPUT_MAX];
-        snprintf(completed,
-                 sizeof(completed),
+    if (!show_matches && strlen(state->match) > strlen(prefix)) {
+        snprintf(work->completed,
+                 sizeof(work->completed),
                  "%.*s%s",
                  (int)token_start,
                  shell_session(ctx)->input,
                  match);
-        shell_replace_input(ctx, completed);
+        shell_replace_input(ctx, work->completed);
         return true;
     }
 
@@ -9521,6 +9527,25 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
                                                 prefix[0] == '\0' ? NULL : prefix);
     }
     return true;
+}
+
+static bool SHELL_NOINLINE shell_complete_argument(solar_os_context_t *ctx,
+                                    const shell_completion_parse_t *parse,
+                                    size_t current_index,
+                                    size_t token_start,
+                                    bool show_matches)
+{
+    if (parse == NULL || parse->count == 0 || current_index >= SHELL_ARG_MAX) {
+        return false;
+    }
+    shell_argument_completion_work_t *work = solar_os_memory_calloc(1U, sizeof(*work),
+        SOLAR_OS_MEMORY_TRANSIENT, "shell.complete");
+    /* Leave the input unchanged on allocation failure, including path fallback. */
+    if (!work) return true;
+    const bool handled = shell_complete_argument_with_work(ctx, parse, current_index,
+        token_start, show_matches, work);
+    solar_os_memory_free(work);
+    return handled;
 }
 
 static void shell_complete_command(solar_os_context_t *ctx, bool show_matches)
