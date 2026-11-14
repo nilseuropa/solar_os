@@ -1,16 +1,23 @@
 # SolarOS Changelog
 
-## Unreleased
-
-- Added the Seeed Studio reTerminal E1003 target with its 10.3-inch grayscale
-  e-paper display, touch, microSD, microphone, buzzer, battery and charger
-  monitoring, RTC, and temperature/humidity sensor.
-- Added the M5Stack Paper Mono target with its e-paper display, touch,
-  frontlight, LoRa, NFC, RTC, IMU, microSD, microphone, buzzer, battery
-  and charger. Button B shuts the device down cleanly on a long press.
-
 ## 4.x
 
+- **4.17.12** — 2026-11-13 — Added Seeed Studio reTerminal E1003 support
+  with its 10.3-inch grayscale e-paper display, touch, microSD, microphone,
+  buzzer, battery and charger monitoring, RTC, and temperature/humidity sensor.
+  Added M5Stack Paper Mono support with e-paper, touch, frontlight, LoRa, NFC,
+  RTC, IMU, microSD, microphone, buzzer, battery and charger. Long-pressing
+  Button B shuts Paper Mono down cleanly. Improved Fastwave e-paper
+  responsiveness with automatic refresh pacing, black and white redrive controls, and
+  optional timed cleanup. E1003 graphics refreshes now run in the background
+  and avoid redundant full refreshes when switching between terminal and
+  graphics. Added TLS 1.3 support for HTTPS clients. Fixed saved profiles and
+  history not loading from built-in SPI microSD cards at startup. Storage now
+  clearly identifies unrecognized internal flash filesystems, and Messages
+  explains sends refused for untrusted or blocked contacts. Fixed SX1262 LoRa
+  low-data-rate optimization and reception after fast tuning; added a manual
+  low-data-rate optimization setting. PDM microphones with power control now
+  power down when idle.
 - **4.17.11** — 2026-11-13 — Added Git version control for small projects,
   with SSH authentication, anonymous HTTPS cloning, branches, diffs and remote
   synchronization. Git shows live progress and uses less internal RAM. New SSH
