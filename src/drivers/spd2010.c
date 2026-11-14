@@ -138,7 +138,10 @@ esp_err_t solar_os_spd2010_resume(solar_os_spd2010_t *d)
     }
     if (!error) error = esp_lcd_panel_reset(d->panel);
     if (!error) error = esp_lcd_panel_init(d->panel);
-    if (!error) error = esp_lcd_panel_invert_color(d->panel, d->config.invert);
+    /* Reapply address direction after the vendor initialization sequence,
+     * matching the panel supplier's startup procedure. */
+    if (!error) error = esp_lcd_panel_mirror(d->panel, false, false);
+    if (!error && d->config.invert) error = esp_lcd_panel_invert_color(d->panel, true);
     if (!error) error = flush_rows(d, 0, HEIGHT);
     if (!error) error = esp_lcd_panel_disp_on_off(d->panel, true);
     if (!error) error = backlight(d, true);

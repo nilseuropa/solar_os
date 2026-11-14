@@ -3,10 +3,71 @@ import subprocess
 import tempfile
 import unittest
 
+from test_foreground_presenter import production_functions
+from test_shutdown_policy import run_c
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class Spd2010RasterTest(unittest.TestCase):
+    def test_supplier_startup_order_and_failure_keeps_backlight_off(self):
+        source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
+                                      ("solar_os_spd2010_resume",))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "esp_err.h"
+#define HEIGHT 412
+#define portMAX_DELAY 0
+#define pdMS_TO_TICKS(ms) (ms)
+typedef struct {
+    struct { bool have_power, power_active_high, have_reset, invert; int power, reset; } config;
+    void *panel, *mutex;
+    bool ready, sleeping;
+    esp_err_t last_error;
+} solar_os_spd2010_t;
+static int stage, locked, lights;
+static bool inversion;
+static esp_err_t init_error, mirror_error;
+static void xSemaphoreTake(void *m, int delay) { (void)m; (void)delay; assert(!locked++); }
+static void xSemaphoreGive(void *m) { (void)m; assert(locked-- == 1); }
+static void vTaskDelay(int ms) { assert(ms > 0); }
+static esp_err_t backlight(solar_os_spd2010_t *d, bool on) {
+    assert(d && locked);
+    if (on) { assert(stage == (inversion ? 7 : 6)); lights++; }
+    else { assert(stage++ == 0); lights = 0; }
+    return ESP_OK;
+}
+static esp_err_t control(const int *line, bool high) { assert(*line == 9 && high && stage++ == 1); return ESP_OK; }
+static esp_err_t esp_lcd_panel_reset(void *panel) { assert(panel && stage++ == 2); return ESP_OK; }
+static esp_err_t esp_lcd_panel_init(void *panel) { assert(panel && stage++ == 3); return init_error; }
+static esp_err_t esp_lcd_panel_mirror(void *panel, bool x, bool y) { assert(panel && !x && !y && stage++ == 4); return mirror_error; }
+static esp_err_t esp_lcd_panel_invert_color(void *panel, bool invert) { assert(panel && inversion && invert && stage++ == 5); return ESP_OK; }
+static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end) {
+    assert(d && first == 0 && end == 412 && stage++ == (inversion ? 6 : 5)); return ESP_OK;
+}
+static esp_err_t esp_lcd_panel_disp_on_off(void *panel, bool on) {
+    assert(panel && on && stage == (inversion ? 7 : 6)); return ESP_OK;
+}
+''' + source + r'''
+int main(void) {
+    int panel;
+    solar_os_spd2010_t d = {.panel = &panel,
+        .config = {.have_power = true, .power = 9, .power_active_high = true}};
+    for (int invert = 0; invert < 2; invert++) {
+        stage = 0; inversion = d.config.invert = invert;
+        assert(solar_os_spd2010_resume(&d) == ESP_OK);
+        assert(d.ready && !d.sleeping && lights == 1 && !locked);
+    }
+    stage = 0; init_error = ESP_FAIL;
+    assert(solar_os_spd2010_resume(&d) == ESP_FAIL && !d.ready && !lights && stage == 4 && !locked);
+    stage = 0; init_error = ESP_OK; mirror_error = ESP_FAIL;
+    assert(solar_os_spd2010_resume(&d) == ESP_FAIL && !d.ready && !lights && stage == 5 && !locked);
+}
+''')
+
     def test_rgb_indexed_scaling_rotation_and_bounds(self):
         source = r'''
 #include <assert.h>
