@@ -206,6 +206,14 @@ static esp_err_t audio_codec_ensure_common_interfaces(void)
 {
     ESP_RETURN_ON_ERROR(audio_codec_i2s_ensure_channels(), TAG,
                         "create I2S channels failed");
+    /* The codec SDK reconfigures the peer TX clock when capture opens first.
+     * Both handles it receives must already have a standard-I2S configuration. */
+    if (audio_codec_is_es7243()) {
+        ESP_RETURN_ON_ERROR(audio_codec_i2s_ensure_tx(), TAG,
+                            "start shared I2S output failed");
+        ESP_RETURN_ON_ERROR(audio_codec_i2s_ensure_rx(), TAG,
+                            "start shared I2S input failed");
+    }
     if (audio_codec.gpio_if == NULL) {
         audio_codec.gpio_if = audio_codec_new_gpio();
         if (audio_codec.gpio_if == NULL) {

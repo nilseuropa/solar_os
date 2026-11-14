@@ -234,6 +234,60 @@ int main(void) {
             with self.assertRaises(ManifestError):
                 validate_board(invalid, drivers)
 
+    def test_pair_prepares_peer_channel_before_codec_sdk_reconfigures_clocks(self):
+        function = production_functions(
+            (ROOT / "src/drivers/audio_codec_board.c").read_text(),
+            ("audio_codec_ensure_common_interfaces",))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#include "esp_err.h"
+#define ESP_RETURN_ON_ERROR(expr,...) do { int err_ = (expr); if (err_) return err_; } while (0)
+typedef struct { int port; void *rx_handle, *tx_handle; } audio_codec_i2s_cfg_t;
+static struct {
+    struct { int i2s_port; } config;
+    void *rx_handle, *tx_handle;
+    const void *gpio_if, *data_if;
+} audio_codec;
+static bool family, tx_ready, rx_ready;
+static int tx_calls, rx_calls, constructors, token;
+static esp_err_t tx_error, rx_error;
+static bool audio_codec_is_es7243(void) { return family; }
+static esp_err_t audio_codec_i2s_ensure_channels(void) { return ESP_OK; }
+static esp_err_t audio_codec_i2s_ensure_tx(void) { tx_calls++; if (tx_error) return tx_error; tx_ready = true; return ESP_OK; }
+static esp_err_t audio_codec_i2s_ensure_rx(void) { rx_calls++; if (rx_error) return rx_error; rx_ready = true; return ESP_OK; }
+static const void *audio_codec_new_gpio(void) { return &token; }
+static const void *audio_codec_new_i2s_data(const audio_codec_i2s_cfg_t *c) {
+    assert(c->port == 0 && c->rx_handle && c->tx_handle);
+    if (family) assert(tx_ready && rx_ready);
+    constructors++; return &token;
+}
+''' + function + r'''
+static void reset(bool es7243) {
+    memset(&audio_codec, 0, sizeof(audio_codec));
+    audio_codec.rx_handle = audio_codec.tx_handle = &token;
+    family = es7243; tx_ready = rx_ready = false;
+    tx_error = rx_error = ESP_OK; tx_calls = rx_calls = constructors = 0;
+}
+int main(void) {
+    for (int capture_first = 0; capture_first < 2; capture_first++) {
+        reset(true); rx_ready = capture_first; tx_ready = !capture_first;
+        assert(audio_codec_ensure_common_interfaces() == ESP_OK);
+        assert(tx_ready && rx_ready && constructors == 1);
+        assert(audio_codec_ensure_common_interfaces() == ESP_OK && constructors == 1);
+    }
+    reset(true); tx_error = ESP_FAIL;
+    assert(audio_codec_ensure_common_interfaces() == ESP_FAIL && !constructors);
+    reset(true); rx_error = ESP_FAIL;
+    assert(audio_codec_ensure_common_interfaces() == ESP_FAIL && !constructors);
+    reset(false);
+    assert(audio_codec_ensure_common_interfaces() == ESP_OK && constructors == 1);
+    assert(tx_calls == 0 && rx_calls == 0); /* Preserve legacy TDM setup. */
+}
+''')
+
 
 if __name__ == "__main__":
     unittest.main()
