@@ -190,6 +190,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
 const solar_os_expansion_driver_t solar_os_spd2010_expansion_driver = {
     .name = "spd2010", .category = SOLAR_OS_EXPANSION_CATEGORY_DISPLAY,
     .summary = "SPD2010 412x412 QSPI color display",
+    .early = true,
     .required_capabilities = SOLAR_OS_BOARD_CAP_EXPANSION_GPIO | SOLAR_OS_BOARD_CAP_PSRAM,
     .binding_specs = specs, .binding_spec_count = sizeof(specs) / sizeof(specs[0]),
     .attach = attach, .detach = detach,

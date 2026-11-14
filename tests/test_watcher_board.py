@@ -60,6 +60,92 @@ class WatcherBoardTest(unittest.TestCase):
             with self.assertRaises(ManifestError):
                 validate_board(invalid, self.drivers)
 
+    def test_primary_display_attaches_before_display_service_and_touch(self):
+        # Exercise the real board-device dispatcher with the actual SPD2010
+        # descriptor. A late display can attach successfully but leaves the
+        # display service and touch source unavailable for the entire boot.
+        source = (ROOT / "src/services/solar_os_spd2010_display.c").read_text()
+        descriptor = source[source.index(
+            "const solar_os_expansion_driver_t solar_os_spd2010_expansion_driver") :]
+        dispatcher = production_functions(
+            (ROOT / "src/services/solar_os_expansion.c").read_text(),
+            ("expansion_init_board_defaults",))
+        self.assertTrue(self.drivers["spd2010"].early)
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <string.h>
+#include "esp_err.h"
+#define SOLAR_OS_EXPANSION_CATEGORY_DISPLAY 1
+#define SOLAR_OS_BOARD_CAP_EXPANSION_GPIO 1
+#define SOLAR_OS_BOARD_CAP_PSRAM 2
+#define SOLAR_OS_EXPANSION_ORIGIN_BOARD 1
+#define SOLAR_OS_BOARD_DEFAULT_EXPANSION_DEVICE_COUNT 3
+#define ESP_LOGW(...) ((void)0)
+#define ESP_RETURN_ON_ERROR(expr,...) do { int err_ = (expr); if (err_) return err_; } while (0)
+typedef struct {
+    const char *name, *summary;
+    int category, required_capabilities;
+    bool early;
+    const void *binding_specs;
+    size_t binding_spec_count;
+    esp_err_t (*attach)(const char *, const void *, size_t);
+    esp_err_t (*detach)(const char *);
+} solar_os_expansion_driver_t;
+typedef struct { const char *driver, *name; const void *bindings; size_t binding_count; bool detachable; } solar_os_expansion_default_device_t;
+static const int specs[1] = {0};
+static bool power_ready, display_ready, service_ready, touch_ready;
+static int order;
+static esp_err_t attach(const char *name, const void *bindings, size_t count) {
+    (void)bindings; (void)count; assert(!strcmp(name, "display0"));
+    assert(power_ready && order++ == 1); display_ready = true; return ESP_OK;
+}
+static esp_err_t detach(const char *name) { (void)name; return ESP_OK; }
+''' + descriptor + r'''
+static const solar_os_expansion_driver_t power = {.name = "pca9535", .early = true};
+static const solar_os_expansion_driver_t touch = {.name = "spd2010-touch"};
+static const solar_os_expansion_default_device_t board_default_devices[] = {
+    {.driver = "pca9535", .name = "gpiox0"},
+    {.driver = "spd2010", .name = "display0"},
+    {.driver = "spd2010-touch", .name = "touch0"},
+};
+static bool board_device_detached[3];
+static esp_err_t ensure_devices_mutex(void) { return ESP_OK; }
+static esp_err_t solar_os_resources_init(void) { return ESP_OK; }
+static esp_err_t solar_os_buses_init(void) { return ESP_OK; }
+static bool devices_lock_take(void) { return true; }
+static void devices_lock_give(void) { }
+static const solar_os_expansion_driver_t *find_driver(const char *name) {
+    if (!strcmp(name, power.name)) return &power;
+    if (!strcmp(name, touch.name)) return &touch;
+    assert(!strcmp(name, "spd2010")); return &solar_os_spd2010_expansion_driver;
+}
+static bool expansion_device_exists(const char *name) {
+    return !strcmp(name, "gpiox0") ? power_ready : !strcmp(name, "display0") ? display_ready : touch_ready;
+}
+static esp_err_t expansion_attach(const char *driver, const char *name, const void *bindings,
+    size_t count, int origin, bool automatic, bool detachable, bool defaults) {
+    assert(origin == 1 && automatic && !detachable && defaults);
+    if (!strcmp(driver, "pca9535")) {
+        assert(order++ == 0); power_ready = true;
+    } else if (!strcmp(driver, "spd2010")) {
+        return solar_os_spd2010_expansion_driver.attach(name, bindings, count);
+    } else {
+        assert(service_ready && display_ready && order++ == 2); touch_ready = true;
+    }
+    return ESP_OK;
+}
+''' + dispatcher + r'''
+int main(void) {
+    assert(expansion_init_board_defaults(true) == ESP_OK);
+    assert(power_ready && display_ready && !touch_ready);
+    service_ready = true;
+    assert(expansion_init_board_defaults(false) == ESP_OK && touch_ready);
+    assert(order == 3);
+}
+''')
+
     def test_wheel_push_debounce_held_start_read_errors_and_poll_rate(self):
         source = (ROOT / "src/services/solar_os_rotary_encoder.c").read_text()
         function = production_functions(source, ("rotary_poll_button",))

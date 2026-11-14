@@ -2420,6 +2420,7 @@ summary = "SPD2010 412x412 QSPI color display"
 package = "driver_display_spd2010"
 targets = ["esp32", "esp32s3"]
 capabilities = ["expansion_gpio", "psram"]
+early = true
 default_name = "display0"
 board_driver = "display_spd2010"
 board_capabilities = ["display", "gfx", "display_brightness", "streaming_display"]
