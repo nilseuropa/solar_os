@@ -3883,6 +3883,11 @@ kind = "gpio"
 hint = "gpio"
 required = true
 
+[[drivers.rotary-encoder.bindings]]
+key = "button"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
 [drivers.bq27220]
 summary = "BQ27220 fuel gauge"
 package = "bq27220"

@@ -301,8 +301,10 @@ input status
 
 Use only bindings listed by `expansion drivers` and resources shown on the
 running board. A rotary encoder decodes interrupts from its quadrature A/B
-signals and publishes Up/Down detents; wire its independent push switch through
-`gpio-keys`. A PS/2 mouse publishes relative pointer events. An analog joystick
+signals and publishes Up/Down detents. Optional `button=<gpio-or-controller:line>`
+publishes Enter when the debounced active-low switch is released; controller
+lines require an external pull-up. Use `gpio-keys` for separate key mappings.
+A PS/2 mouse publishes relative pointer events. An analog joystick
 consumes two scalar streams and publishes axes, never keys.
 Foreground Python and Lua applications receive those pointer, axis, and gesture events
 through `solaros.input`; use `solaros.tui.getch()` for keyboard characters.

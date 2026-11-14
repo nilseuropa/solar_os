@@ -11,6 +11,7 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "solar_os_input.h"
+#include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
 #include "solar_os_task.h"
 
@@ -22,13 +23,15 @@
  *
  * Each detent is delivered as a single Up/Down key tap through the same
  * input path the board buttons use, so the shell, menus, and apps see it
- * exactly like Elecrow's rotary buttons. The encoder's push switch is not
- * handled here; declare it in SOLAR_OS_BOARD_BUTTONS (as Enter) instead.
+ * exactly like Elecrow's rotary buttons. An optional active-low push switch
+ * can use a native GPIO or an externally pulled-up GPIO controller line.
  */
 
 #define ROTARY_TASK_STACK 2560U
 #define ROTARY_TASK_PRIORITY (tskIDLE_PRIORITY + 2)
 #define ROTARY_EDGE_QUEUE_DEPTH 16U
+#define ROTARY_BUTTON_POLL_MS 10U
+#define ROTARY_BUTTON_DEBOUNCE_MS 25U
 
 /* Turning clockwise scrolls "forward" (next item = Down). Swap these two if
  * the wheel on a given board feels backwards. */
@@ -63,6 +66,10 @@ typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     int pin_a;
     int pin_b;
+    bool have_button;
+    solar_os_gpio_line_ref_t button;
+    bool button_raw, button_pressed, button_armed;
+    uint32_t button_changed_ms, button_polled_ms, button_presses, button_errors;
     uint8_t state;
     solar_os_input_source_t input_source;
     TaskHandle_t worker_task;
@@ -88,15 +95,28 @@ static bool binding_role_is(const solar_os_expansion_binding_t *binding, const c
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count,
                                 int *pin_a,
-                                int *pin_b)
+                                int *pin_b,
+                                solar_os_gpio_line_ref_t *button,
+                                bool *have_button)
 {
-    if (bindings == NULL || pin_a == NULL || pin_b == NULL) {
+    if (bindings == NULL || pin_a == NULL || pin_b == NULL || button == NULL || have_button == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     *pin_a = -1;
     *pin_b = -1;
+    *have_button = false;
+    memset(button, 0, sizeof(*button));
     for (size_t i = 0; i < binding_count; i++) {
         const solar_os_expansion_binding_t *binding = &bindings[i];
+        if (binding->kind == SOLAR_OS_EXPANSION_BINDING_GPIO_LINE &&
+            binding_role_is(binding, "button") && !*have_button) {
+            if (binding->value < 0 || binding->value > UINT8_MAX ||
+                strlcpy(button->controller, binding->target, sizeof(button->controller)) >= sizeof(button->controller))
+                return ESP_ERR_INVALID_ARG;
+            button->line = binding->value;
+            *have_button = true;
+            continue;
+        }
         if (binding->kind != SOLAR_OS_EXPANSION_BINDING_GPIO) {
             return ESP_ERR_INVALID_ARG;
         }
@@ -108,7 +128,38 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
             return ESP_ERR_INVALID_ARG;
         }
     }
-    return (*pin_a >= 0 && *pin_b >= 0 && *pin_a != *pin_b) ? ESP_OK : ESP_ERR_INVALID_ARG;
+    return (GPIO_IS_VALID_GPIO(*pin_a) && GPIO_IS_VALID_GPIO(*pin_b) && *pin_a != *pin_b &&
+        (!*have_button || button->controller[0] ||
+         (GPIO_IS_VALID_GPIO(button->line) && button->line != *pin_a && button->line != *pin_b))) ?
+        ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
+static void rotary_poll_button(solar_os_rotary_device_t *device, uint32_t now_ms)
+{
+    if (!device->have_button) return;
+    if ((uint32_t)(now_ms - device->button_polled_ms) < ROTARY_BUTTON_POLL_MS) return;
+    device->button_polled_ms = now_ms;
+    bool level;
+    if (solar_os_gpio_line_read(&device->button, &level) != ESP_OK) {
+        device->button_errors++;
+        return;
+    }
+    const bool pressed = !level;
+    if (pressed != device->button_raw) {
+        device->button_raw = pressed;
+        device->button_changed_ms = now_ms;
+        return;
+    }
+    if (pressed == device->button_pressed ||
+        (uint32_t)(now_ms - device->button_changed_ms) < ROTARY_BUTTON_DEBOUNCE_MS) return;
+    device->button_pressed = pressed;
+    if (pressed) device->button_armed = true;
+    else if (device->button_armed) {
+        device->button_armed = false;
+        if (solar_os_input_write_char(device->input_source, (char)SOLAR_OS_KEY_ENTER) == ESP_OK)
+            device->button_presses++;
+        else device->dropped++;
+    }
 }
 
 static void rotary_gpio_isr(void *arg)
@@ -134,12 +185,11 @@ static void rotary_worker(void *arg)
     solar_os_rotary_device_t *device = arg;
     while (!device->stop_requested) {
         uint8_t pinstate = 0U;
-        if (xQueueReceive(device->edge_queue, &pinstate, portMAX_DELAY) != pdTRUE ||
-            device->stop_requested) {
-            continue;
-        }
-        device->state = ttable[device->state & 0x0FU][pinstate];
-        const uint8_t dir = device->state & DIR_MASK;
+        const bool edge = xQueueReceive(device->edge_queue, &pinstate,
+            device->have_button ? pdMS_TO_TICKS(ROTARY_BUTTON_POLL_MS) : portMAX_DELAY) == pdTRUE;
+        if (device->stop_requested) break;
+        if (edge) device->state = ttable[device->state & 0x0FU][pinstate];
+        const uint8_t dir = edge ? device->state & DIR_MASK : 0U;
         if (dir != 0U) {
             const uint8_t key = (dir == DIR_CW) ? ROTARY_KEY_CLOCKWISE : ROTARY_KEY_COUNTER_CLOCKWISE;
             if (solar_os_input_write_char(device->input_source, (char)key) == ESP_OK) {
@@ -152,6 +202,7 @@ static void rotary_worker(void *arg)
                 device->dropped++;
             }
         }
+        rotary_poll_button(device, (uint32_t)(xTaskGetTickCount() * portTICK_PERIOD_MS));
     }
     device->worker_done = true;
     solar_os_task_delete_internal(NULL);
@@ -207,6 +258,8 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
 {
     int pin_a = -1;
     int pin_b = -1;
+    solar_os_gpio_line_ref_t button;
+    bool have_button;
 
     if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
@@ -214,7 +267,7 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
     if (rotary.active) {
         return ESP_ERR_INVALID_STATE;
     }
-    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, &pin_a, &pin_b), TAG, "invalid bindings");
+    ESP_RETURN_ON_ERROR(parse_bindings(bindings, binding_count, &pin_a, &pin_b, &button, &have_button), TAG, "invalid bindings");
 
     const gpio_config_t config = {
         .pin_bit_mask = (1ULL << (uint32_t)pin_a) | (1ULL << (uint32_t)pin_b),
@@ -229,6 +282,8 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
     rotary.active = true;
     rotary.pin_a = pin_a;
     rotary.pin_b = pin_b;
+    rotary.button = button;
+    rotary.have_button = have_button;
     rotary.state = R_START;
     strlcpy(rotary.name, name, sizeof(rotary.name));
     rotary.edge_queue = xQueueCreateStatic(
@@ -247,6 +302,14 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
     if (err != ESP_OK) {
         clear_device(&rotary);
         return err;
+    }
+    if (have_button) {
+        err = solar_os_gpio_line_configure(&button, SOLAR_OS_GPIO_LINE_MODE_INPUT,
+            solar_os_gpio_line_is_native(&button) ? SOLAR_OS_GPIO_LINE_PULL_UP : SOLAR_OS_GPIO_LINE_PULL_NONE);
+        bool level;
+        if (err == ESP_OK) err = solar_os_gpio_line_read(&button, &level);
+        if (err != ESP_OK) { clear_device(&rotary); return err; }
+        rotary.button_raw = rotary.button_pressed = !level;
     }
     /* Keep this service cache-dependent: its handler only snapshots GPIO and
      * queues an edge, and does not need scarce IRAM residency. */
@@ -277,7 +340,7 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
     }
     if (solar_os_task_create_pinned_internal(rotary_worker,
                                              rotary.name,
-                                             ROTARY_TASK_STACK,
+                                             have_button ? 4096U : ROTARY_TASK_STACK,
                                              &rotary,
                                              ROTARY_TASK_PRIORITY,
                                              &rotary.worker_task,
