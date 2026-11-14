@@ -6,6 +6,7 @@
 
 #include "driver/i2c_master.h"
 #include "esp_err.h"
+#include "solar_os_gpio_controller.h"
 
 #define AUDIO_CODEC_BOARD_DEFAULT_SAMPLE_RATE 16000U
 #define AUDIO_CODEC_BOARD_DEFAULT_CHANNELS 2U
@@ -34,6 +35,8 @@ typedef struct {
 typedef enum {
     AUDIO_CODEC_BOARD_ES8311_ES7210,
     AUDIO_CODEC_BOARD_ES8311_DUPLEX,
+    AUDIO_CODEC_BOARD_ES8311_ES7243,
+    AUDIO_CODEC_BOARD_ES8311_ES7243E,
 } audio_codec_board_mode_t;
 
 typedef struct {
@@ -47,6 +50,9 @@ typedef struct {
     int din_pin;
     int dout_pin;
     int pa_pin;
+    uint8_t input_address, output_address; /* 7-bit; zero preserves legacy defaults. */
+    bool have_pa_line;
+    solar_os_gpio_line_ref_t pa_line; /* Optional active-high amplifier enable. */
 } audio_codec_board_config_t;
 
 esp_err_t audio_codec_board_attach(const char *name,

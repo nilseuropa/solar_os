@@ -10,6 +10,7 @@ typedef struct {
     const char *id;
     const char *name;
     bool has_input;
+    float input_gain_min_db, input_gain_max_db, input_gain_step_db;
 } solar_os_audio_backend_info_t;
 
 typedef struct {

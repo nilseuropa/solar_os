@@ -817,13 +817,18 @@ label = "INMP441 / ICS-43432 microphone and shared I2S playback"
 category = "Expansion hardware"
 members = ["expansion_inmp441"]
 
+[groups.es7243]
+label = "ES7243 and ES7243E microphone ADCs"
+category = "Expansion hardware"
+members = ["expansion_es7243"]
+
 [groups.es7210]
 label = "ES7210 audio input"
 category = "Expansion hardware"
 members = ["expansion_es7210"]
 
 [groups.es8311]
-label = "ES8311/ES7210 audio codecs"
+label = "ES8311 audio codecs"
 category = "Expansion hardware"
 members = ["driver_audio_es8311_codecs"]
 
@@ -2728,6 +2733,15 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
 
+[packages.expansion_es7243]
+label = "expansion.es7243"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_es7243_expansion_driver", "solar_os_es7243e_expansion_driver"]
+depends = ["service_audio", "service_expansion", "service_i2c"]
+sources = ["services/solar_os_es7243.c", "services/solar_os_es7243_driver.c"]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
+capabilities = ["i2c", "expansion_i2s"]
+
 [packages.expansion_es7210]
 label = "expansion.es7210"
 targets = ["esp32s3"]
@@ -2746,12 +2760,15 @@ targets = ["esp32s3"]
 expansion_drivers = [
   "solar_os_es8311_es7210_expansion_driver",
   "solar_os_es8311_duplex_expansion_driver",
+  "solar_os_es8311_es7243_expansion_driver",
+  "solar_os_es8311_es7243e_expansion_driver",
 ]
 depends = ["service_audio", "service_expansion", "service_i2c"]
 sources = [
   "drivers/audio_codec_board.c",
   "services/solar_os_audio_backend.c",
   "services/solar_os_audio_codec_expansion.c",
+  "services/solar_os_es7243_pair.c",
 ]
 requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["i2c", "expansion_i2s"]

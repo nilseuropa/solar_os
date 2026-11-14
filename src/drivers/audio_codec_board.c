@@ -14,6 +14,7 @@
 #include "soc/soc_caps.h"
 #include "solar_os_audio.h"
 #include "solar_os_audio_backend.h"
+#include "es7243_gain.h"
 
 #define AUDIO_CODEC_DEVICE_ID_MAX 16U
 #define AUDIO_CODEC_DMA_DESC_NUM 4
@@ -29,6 +30,7 @@ typedef struct {
     bool rx_enabled;
     bool volume_valid;
     bool mic_gain_valid;
+    bool streams_registered;
     char id[AUDIO_CODEC_DEVICE_ID_MAX];
     audio_codec_board_config_t config;
     i2s_chan_handle_t tx_handle;
@@ -46,6 +48,7 @@ typedef struct {
     uint8_t bits_per_sample;
     uint8_t volume;
     float mic_gain_db;
+    float mic_gain_requested_db;
 } audio_codec_board_state_t;
 
 static const char *TAG = "audio_codec";
@@ -54,6 +57,32 @@ static audio_codec_board_state_t audio_codec;
 static bool audio_codec_is_duplex(void)
 {
     return audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_DUPLEX;
+}
+
+static bool audio_codec_is_es7243(void)
+{
+    return audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243 ||
+        audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E;
+}
+
+static const char *audio_codec_input_name(void)
+{
+    return audio_codec_is_duplex() ? "ES8311" : audio_codec_is_es7243() ?
+        (audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E ? "ES7243E" : "ES7243") : "ES7210";
+}
+
+static float audio_codec_default_gain(void)
+{
+    return audio_codec_is_es7243() ? 27.0f : AUDIO_CODEC_BOARD_DEFAULT_MIC_GAIN_DB;
+}
+
+static esp_err_t audio_codec_pa(bool enabled)
+{
+    if (!audio_codec.config.have_pa_line) return ESP_OK;
+    esp_err_t error = solar_os_gpio_line_write(&audio_codec.config.pa_line, enabled);
+    if (!error) error = solar_os_gpio_line_configure(&audio_codec.config.pa_line,
+        SOLAR_OS_GPIO_LINE_MODE_OUTPUT, SOLAR_OS_GPIO_LINE_PULL_NONE);
+    return error;
 }
 
 static void audio_codec_log_init_failure(esp_err_t ret)
@@ -135,7 +164,7 @@ static esp_err_t audio_codec_i2s_ensure_channels(void)
 static esp_err_t audio_codec_i2s_start(i2s_chan_handle_t handle)
 {
     esp_err_t ret;
-    if (audio_codec_is_duplex()) {
+    if (audio_codec_is_duplex() || audio_codec_is_es7243()) {
         i2s_std_config_t config = audio_codec_i2s_std_config();
         ret = i2s_channel_init_std_mode(handle, &config);
     } else {
@@ -218,7 +247,7 @@ static esp_err_t audio_codec_ensure_output(void)
     i2c_bus_lock();
     audio_codec_i2c_cfg_t i2c = {
         .port = audio_codec.config.i2c_port,
-        .addr = ES8311_CODEC_DEFAULT_ADDR,
+        .addr = audio_codec.config.output_address ? audio_codec.config.output_address << 1 : ES8311_CODEC_DEFAULT_ADDR,
         .bus_handle = audio_codec.config.i2c_handle,
     };
     if (audio_codec.out_ctrl_if == NULL) {
@@ -282,6 +311,7 @@ static esp_err_t audio_codec_ensure_output(void)
     audio_codec.output_initialized = true;
 out:
     i2c_bus_unlock();
+    if (ret == ESP_OK) ret = audio_codec_pa(true);
     return ret;
 }
 
@@ -317,7 +347,7 @@ static esp_err_t audio_codec_ensure_input(void)
     i2c_bus_lock();
     audio_codec_i2c_cfg_t i2c = {
         .port = audio_codec.config.i2c_port,
-        .addr = ES7210_CODEC_DEFAULT_ADDR,
+        .addr = audio_codec.config.input_address ? audio_codec.config.input_address << 1 : ES7210_CODEC_DEFAULT_ADDR,
         .bus_handle = audio_codec.config.i2c_handle,
     };
     if (audio_codec.in_ctrl_if == NULL) {
@@ -328,12 +358,20 @@ static esp_err_t audio_codec_ensure_input(void)
         }
     }
     if (audio_codec.in_codec_if == NULL) {
-        es7210_codec_cfg_t config = {
-            .ctrl_if = audio_codec.in_ctrl_if,
-            .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 |
-                            ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
-        };
-        audio_codec.in_codec_if = es7210_codec_new(&config);
+        if (audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E) {
+            es7243e_codec_cfg_t config = {.ctrl_if = audio_codec.in_ctrl_if};
+            audio_codec.in_codec_if = es7243e_codec_new(&config);
+        } else if (audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243) {
+            es7243_codec_cfg_t config = {.ctrl_if = audio_codec.in_ctrl_if};
+            audio_codec.in_codec_if = es7243_codec_new(&config);
+        } else {
+            es7210_codec_cfg_t config = {
+                .ctrl_if = audio_codec.in_ctrl_if,
+                .mic_selected = ES7210_SEL_MIC1 | ES7210_SEL_MIC2 |
+                                ES7210_SEL_MIC3 | ES7210_SEL_MIC4,
+            };
+            audio_codec.in_codec_if = es7210_codec_new(&config);
+        }
         if (audio_codec.in_codec_if == NULL) {
             ret = ESP_ERR_NO_MEM;
             goto out;
@@ -360,9 +398,15 @@ static esp_err_t audio_codec_ensure_input(void)
         ret = ESP_FAIL;
         goto out;
     }
-    const float gain = audio_codec.mic_gain_valid ? audio_codec.mic_gain_db :
-        AUDIO_CODEC_BOARD_DEFAULT_MIC_GAIN_DB;
-    if (esp_codec_dev_set_in_gain(audio_codec.record, gain) !=
+    const float requested = audio_codec.mic_gain_valid ?
+        (audio_codec_is_es7243() ? audio_codec.mic_gain_requested_db : audio_codec.mic_gain_db) :
+        audio_codec_default_gain();
+    float gain = requested;
+    if (audio_codec_is_es7243()) {
+        ret = solar_os_es7243_gain(audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E, requested, &gain);
+        if (ret != ESP_OK) goto out;
+    }
+    if (esp_codec_dev_set_in_gain(audio_codec.record, requested) !=
         ESP_CODEC_DEV_OK) {
         ret = ESP_FAIL;
         goto out;
@@ -371,6 +415,7 @@ static esp_err_t audio_codec_ensure_input(void)
     audio_codec.channels = AUDIO_CODEC_BOARD_DEFAULT_CHANNELS;
     audio_codec.bits_per_sample = AUDIO_CODEC_BOARD_DEFAULT_BITS;
     audio_codec.mic_gain_db = gain;
+    audio_codec.mic_gain_requested_db = requested;
     audio_codec.mic_gain_valid = true;
     audio_codec.input_initialized = true;
 out:
@@ -395,7 +440,7 @@ esp_err_t audio_codec_board_init(void)
     }
     ESP_LOGI(TAG,
              "audio ready: %s I2S%d mclk=%d bclk=%d ws=%d din=%d dout=%d pa=%d",
-             audio_codec_is_duplex() ? "ES8311 duplex" : "ES8311/ES7210",
+             audio_codec_input_name(),
              audio_codec.config.i2s_port, audio_codec.config.mclk_pin,
              audio_codec.config.bclk_pin, audio_codec.config.ws_pin,
              audio_codec.config.din_pin, audio_codec.config.dout_pin,
@@ -405,6 +450,7 @@ esp_err_t audio_codec_board_init(void)
 
 void audio_codec_board_deinit(void)
 {
+    (void)audio_codec_pa(false);
     if (audio_codec.playback != NULL) {
         esp_codec_dev_close(audio_codec.playback);
         esp_codec_dev_delete(audio_codec.playback);
@@ -432,6 +478,8 @@ void audio_codec_board_deinit(void)
     const uint8_t volume = audio_codec.volume;
     const bool gain_valid = audio_codec.mic_gain_valid;
     const float gain = audio_codec.mic_gain_db;
+    const float requested_gain = audio_codec.mic_gain_requested_db;
+    const bool streams_registered = audio_codec.streams_registered;
     memset(&audio_codec, 0, sizeof(audio_codec));
     audio_codec.attached = attached;
     strlcpy(audio_codec.id, id, sizeof(audio_codec.id));
@@ -440,6 +488,8 @@ void audio_codec_board_deinit(void)
     audio_codec.volume = volume;
     audio_codec.mic_gain_valid = gain_valid;
     audio_codec.mic_gain_db = gain;
+    audio_codec.mic_gain_requested_db = requested_gain;
+    audio_codec.streams_registered = streams_registered;
 }
 
 esp_err_t audio_codec_board_set_volume(uint8_t volume)
@@ -459,13 +509,19 @@ esp_err_t audio_codec_board_set_volume(uint8_t volume)
 
 esp_err_t audio_codec_board_set_mic_gain(float gain_db)
 {
+    float applied = gain_db;
+    if (audio_codec_is_es7243()) {
+        esp_err_t error = solar_os_es7243_gain(audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E, gain_db, &applied);
+        if (error) return error;
+    }
     esp_err_t ret = audio_codec_ensure_input();
     if (ret != ESP_OK) return audio_codec_handle_init_error(ret);
     i2c_bus_lock();
     ret = esp_codec_dev_set_in_gain(audio_codec.record, gain_db) == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
     i2c_bus_unlock();
     if (ret == ESP_OK) {
-        audio_codec.mic_gain_db = gain_db;
+        audio_codec.mic_gain_db = applied;
+        audio_codec.mic_gain_requested_db = gain_db;
         audio_codec.mic_gain_valid = true;
     }
     return ret;
@@ -496,7 +552,7 @@ void audio_codec_board_get_status(audio_codec_board_status_t *status)
         .channels = audio_codec.channels != 0U ? audio_codec.channels : AUDIO_CODEC_BOARD_DEFAULT_CHANNELS,
         .bits_per_sample = audio_codec.bits_per_sample != 0U ? audio_codec.bits_per_sample : AUDIO_CODEC_BOARD_DEFAULT_BITS,
         .volume = audio_codec.volume_valid ? audio_codec.volume : AUDIO_CODEC_BOARD_DEFAULT_VOLUME,
-        .mic_gain_db = audio_codec.mic_gain_valid ? audio_codec.mic_gain_db : AUDIO_CODEC_BOARD_DEFAULT_MIC_GAIN_DB,
+        .mic_gain_db = audio_codec.mic_gain_valid ? audio_codec.mic_gain_db : audio_codec_default_gain(),
         .i2s_port = audio_codec.config.i2s_port,
         .mclk_pin = audio_codec.config.mclk_pin,
         .bclk_pin = audio_codec.config.bclk_pin,
@@ -505,7 +561,7 @@ void audio_codec_board_get_status(audio_codec_board_status_t *status)
         .dout_pin = audio_codec.config.dout_pin,
         .pa_pin = audio_codec.config.pa_pin,
         .output_codec = "ES8311",
-        .input_codec = audio_codec_is_duplex() ? "ES8311" : "ES7210",
+        .input_codec = audio_codec_input_name(),
     };
 }
 
@@ -538,8 +594,11 @@ static void backend_info(void *context, solar_os_audio_backend_info_t *info)
     if (context == &audio_codec && info != NULL) {
         *info = (solar_os_audio_backend_info_t) {
             .id = audio_codec.id,
-            .name = audio_codec_is_duplex() ? "ES8311 duplex audio" : "ES8311/ES7210 audio",
+            .name = audio_codec_is_duplex() ? "ES8311 duplex audio" : audio_codec_is_es7243() ?
+                (audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243E ? "ES8311/ES7243E audio" : "ES8311/ES7243 audio") : "ES8311/ES7210 audio",
             .has_input = true,
+            .input_gain_max_db = audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243 ? 27.0f : 37.5f,
+            .input_gain_step_db = audio_codec.config.mode == AUDIO_CODEC_BOARD_ES8311_ES7243 ? 0.5f : 3.0f,
         };
     }
 }
@@ -554,6 +613,11 @@ static const solar_os_audio_backend_ops_t backend_ops = {
 static bool audio_codec_config_valid(const audio_codec_board_config_t *config)
 {
     return config != NULL && config->i2c_handle != NULL &&
+        config->mode >= AUDIO_CODEC_BOARD_ES8311_ES7210 && config->mode <= AUDIO_CODEC_BOARD_ES8311_ES7243E &&
+        (config->mode < AUDIO_CODEC_BOARD_ES8311_ES7243 ||
+         (config->input_address >= 0x08 && config->input_address <= 0x77 &&
+          config->output_address >= 0x08 && config->output_address <= 0x77 &&
+          config->input_address != config->output_address)) &&
         config->i2c_port >= 0 && config->i2s_port >= 0 && config->i2s_port < SOC_I2S_NUM &&
         GPIO_IS_VALID_OUTPUT_GPIO(config->mclk_pin) &&
         GPIO_IS_VALID_OUTPUT_GPIO(config->bclk_pin) &&
@@ -574,8 +638,10 @@ esp_err_t audio_codec_board_attach(const char *name, const audio_codec_board_con
     audio_codec.attached = true;
     strlcpy(audio_codec.id, name, sizeof(audio_codec.id));
     audio_codec.config = *config;
-    esp_err_t ret = solar_os_audio_backend_attach(&backend_ops, &audio_codec);
+    esp_err_t ret = audio_codec_pa(false);
+    if (ret == ESP_OK) ret = solar_os_audio_backend_attach(&backend_ops, &audio_codec);
     if (ret == ESP_OK) ret = solar_os_audio_register_streams();
+    if (ret == ESP_OK) audio_codec.streams_registered = true;
     if (ret != ESP_OK) {
         (void)solar_os_audio_backend_detach(&audio_codec);
         memset(&audio_codec, 0, sizeof(audio_codec));
@@ -586,7 +652,11 @@ esp_err_t audio_codec_board_attach(const char *name, const audio_codec_board_con
 esp_err_t audio_codec_board_detach(const char *name)
 {
     if (name == NULL || !audio_codec.attached || strcmp(name, audio_codec.id) != 0) return ESP_ERR_NOT_FOUND;
-    esp_err_t ret = solar_os_audio_unregister_streams(name);
+    esp_err_t ret = ESP_OK;
+    if (audio_codec.streams_registered) ret = solar_os_audio_unregister_streams(name);
+    if (ret != ESP_OK) return ret;
+    audio_codec.streams_registered = false;
+    ret = audio_codec_pa(false);
     if (ret != ESP_OK) return ret;
     audio_codec_board_deinit();
     ret = solar_os_audio_backend_detach(&audio_codec);

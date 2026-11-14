@@ -153,6 +153,7 @@ pcm1808 = true
 audio_pdm = true
 inmp441 = true
 es8311 = true
+es7243 = true
 esp32_dac = true
 st7305 = true
 ili9341 = true
