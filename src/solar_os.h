@@ -36,7 +36,8 @@ typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
 #define SOLAR_OS_APP_FLAG_GESTURE_EVENTS (1U << 5)
 /* Retain the ordinary graphics snapshot even when resume also manages workers. */
 #define SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT (1U << 6)
-/* Receive typed local text as UTF-8 instead of its legacy character form. */
+/* Receive typed local text as UTF-8 instead of its legacy character form.
+ * With KEY_EVENTS, text follows the key press or repeat that typed it. */
 #define SOLAR_OS_APP_FLAG_TEXT_EVENTS (1U << 7)
 
 /*

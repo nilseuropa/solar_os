@@ -1756,7 +1756,13 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
     }
 
     if (input_focus_accepts_key_events()) {
+        const solar_os_app_t *input_app = solar_os_sessions_input_app();
         dispatch_key_to_input_focus(event);
+        if ((event->modifiers & SOLAR_OS_INPUT_MOD_LEFT_ALT) == 0 &&
+            solar_os_sessions_input_app() == input_app) {
+            (void)dispatch_text_to_input_focus(
+                solar_os_input_translate_char_key(event->key, event->modifiers));
+        }
         return;
     }
 
