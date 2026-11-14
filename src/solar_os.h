@@ -36,6 +36,8 @@ typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
 #define SOLAR_OS_APP_FLAG_GESTURE_EVENTS (1U << 5)
 /* Retain the ordinary graphics snapshot even when resume also manages workers. */
 #define SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT (1U << 6)
+/* Receive typed local text as UTF-8 instead of its legacy character form. */
+#define SOLAR_OS_APP_FLAG_TEXT_EVENTS (1U << 7)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -115,12 +117,17 @@ typedef enum {
     SOLAR_OS_EVENT_GESTURE,
     SOLAR_OS_EVENT_TICK,
     SOLAR_OS_EVENT_RESUME,
+    SOLAR_OS_EVENT_TEXT,
 } solar_os_event_type_t;
+
+/* One NUL-terminated UTF-8 character. */
+#define SOLAR_OS_EVENT_TEXT_MAX 5U
 
 typedef struct {
     solar_os_event_type_t type;
     union {
         char ch;
+        char text[SOLAR_OS_EVENT_TEXT_MAX];
         solar_os_input_key_event_t key;
         solar_os_input_pointer_event_t pointer;
         solar_os_input_axis_event_t axis;

@@ -1583,6 +1583,33 @@ static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *key)
     process_app_requests();
 }
 
+static bool input_focus_accepts_text_events(void)
+{
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    return input_app != NULL &&
+        (input_app->flags & SOLAR_OS_APP_FLAG_TEXT_EVENTS) != 0;
+}
+
+static bool dispatch_text_to_input_focus(uint8_t ch)
+{
+    if (alt_prefix_pending || !input_focus_accepts_text_events() ||
+        ch < 0x20U || ch == 0x7fU || (ch >= 0x80U && ch < 0xc0U)) {
+        return false;
+    }
+    solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_TEXT,
+    };
+    if (ch < 0x80U) {
+        event.data.text[0] = (char)ch;
+    } else {
+        event.data.text[0] = (char)(0xc0U | (ch >> 6));
+        event.data.text[1] = (char)(0x80U | (ch & 0x3fU));
+    }
+    (void)solar_os_sessions_dispatch_input_event(&event);
+    process_app_requests();
+    return true;
+}
+
 static void dispatch_input_key(const solar_os_input_key_event_t *event)
 {
     if (event == NULL) {
@@ -1743,6 +1770,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         dispatch_input_chars(&prefix, 1);
     }
     const char text_key = (char)solar_os_input_translate_char_key(event->key, event->modifiers);
+    if (dispatch_text_to_input_focus((uint8_t)text_key)) {
+        return;
+    }
     dispatch_input_chars(&text_key, 1);
 }
 
