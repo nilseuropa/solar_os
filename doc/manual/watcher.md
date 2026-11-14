@@ -22,6 +22,19 @@ used for native USB CDC.
 Identify the ESP32 port by its `ESP-ROM:esp32s3` startup message. Serial-port
 numbering varies; the other interface belongs to Himax and runs at 921600 baud.
 
+On Linux, disable hang-up-on-close on the identified ESP32 port before opening
+the terminal. For example, if that port is `/dev/ttyACM1`:
+
+```sh
+stty -F /dev/ttyACM1 -hupcl
+pio device monitor -e seeed_sensecap_watcher -p /dev/ttyACM1
+```
+
+The Watcher environment keeps DTR and RTS asserted together. Both lines feed
+the hardware reset/boot circuit; changing them separately can reboot the ESP32.
+Keep hardware flow control disabled and close other monitors before connecting.
+The Linux hang-up setting must be applied again after reconnecting USB.
+
 ## Board devices
 
 These devices attach automatically with `origin=board` and reserve their
