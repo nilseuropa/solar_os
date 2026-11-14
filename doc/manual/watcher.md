@@ -19,10 +19,13 @@ port; use the ESP32 port at 115200 baud. A SolarOS shell starts automatically
 on `uart0`. GPIO19/20 are available on the expansion header rather than being
 used for native USB CDC.
 
+Identify the ESP32 port by its `ESP-ROM:esp32s3` startup message. Serial-port
+numbering varies; the other interface belongs to Himax and runs at 921600 baud.
+
 ## Board devices
 
 These devices attach automatically with `origin=board` and reserve their
-wiring. Inspect them with `expansion list`, `board`, `io`, and `input status`.
+wiring. Inspect them with `expansion devices`, `board`, `io`, and `input status`.
 
 | Device | Driver | Wiring |
 | --- | --- | --- |
