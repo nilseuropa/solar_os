@@ -872,6 +872,11 @@ label = "SPD2010 QSPI color display"
 category = "Expansion hardware"
 members = ["driver_display_spd2010"]
 
+[groups.spd2010_touch]
+label = "SPD2010 capacitive touch"
+category = "Expansion hardware"
+members = ["driver_spd2010_touch"]
+
 [groups.ft6336]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
@@ -2863,6 +2868,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_spd2010_touch]
+label = "driver.spd2010-touch"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_spd2010_touch_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
+requires = ["esp_driver_gpio", "esp_rom"]
+capabilities = ["gfx", "i2c"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

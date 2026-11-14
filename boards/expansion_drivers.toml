@@ -2540,6 +2540,57 @@ hint = "0|1"
 min = 0
 max = 1
 
+[drivers.spd2010-touch]
+summary = "SPD2010 capacitive touch over I2C"
+package = "driver_spd2010_touch"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c", "gfx"]
+board_capabilities = ["pointer"]
+board_driver = "pointer_spd2010"
+default_name = "touch0"
+
+[[drivers.spd2010-touch.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.spd2010-touch.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x53"
+required = true
+allowed = [0x53]
+
+[[drivers.spd2010-touch.bindings]]
+key = "irq"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[[drivers.spd2010-touch.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
 [drivers.ft6336]
 summary = "capacitive touch"
 package = "driver_ft6336"
