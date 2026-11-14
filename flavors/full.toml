@@ -172,6 +172,7 @@ battery_adc = true
 tca8418 = true
 lilygo_pager_keyboard = true
 xl9555 = true
+pca9535 = true
 m5ioe1 = true
 m5pm1 = true
 rx8130 = true

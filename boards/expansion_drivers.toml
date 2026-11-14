@@ -454,6 +454,41 @@ hint = "0..65535"
 min = 0
 max = 65535
 
+[drivers.pca9535]
+summary = "PCA9535 16-line I2C GPIO controller"
+package = "pca9535"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+early = true
+default_name = "gpiox0"
+
+[[drivers.pca9535.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.pca9535.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x20..0x27"
+required = true
+allowed = [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27]
+
+[[drivers.pca9535.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
+[[drivers.pca9535.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
 [drivers.m5ioe1]
 summary = "M5IOE1 14-line I2C GPIO controller"
 package = "m5ioe1"

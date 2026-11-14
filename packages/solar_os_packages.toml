@@ -722,6 +722,11 @@ label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
 
+[groups.pca9535]
+label = "PCA9535 GPIO controller"
+category = "Expansion hardware"
+members = ["pca9535"]
+
 [groups.m5ioe1]
 label = "M5IOE1 GPIO controller"
 category = "Expansion hardware"
@@ -2319,6 +2324,14 @@ sources = [
   "services/solar_os_xl9555.c",
   "services/solar_os_xl9555_driver.c",
 ]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
+[packages.pca9535]
+label = "expansion.pca9535"
+depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_pca9535_expansion_driver"]
+sources = ["drivers/pca9535.c", "services/solar_os_pca9535.c", "services/solar_os_pca9535_driver.c"]
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 
