@@ -49,12 +49,19 @@ wiring. Inspect them with `expansion devices`, `board`, `io`, and `input status`
 | `audio0` | ES8311 + ES7243E | `i2c0`, DAC `0x18`, ADC `0x14`; I2S0 MCLK10/BCLK11/WS12/DIN15/DOUT16; amplifier `gpiox0:12` |
 | `battery0` | Battery ADC | GPIO3, divider ratio 4.1; 400 mAh capacity |
 | `rtc0` | PCF8563 | `i2c0`, address `0x51` |
-| `wheel0` | Rotary encoder | A41/B42; active-low button `gpiox0:3`; Up/Down detents and Enter on release |
+| `wheel0` | Rotary encoder | Logical A42/B41; Up/Down detents |
+| `system-key` | System KEY | Active-low wheel push button `gpiox0:3`; short press Enter, long press BLE pairing |
 | `pixels0` | One WS2812 RGB LED | GPIO40 |
 
 The expander attaches first. It enables the system latch, SD, LCD, Grove,
 battery divider, and the factory AI power rail, while leaving the speaker
 amplifier disabled until audio output starts. Touch uses its own I2C bus.
+
+The wheel push button uses the system KEY policy. Its default long-press
+threshold is 1.2 seconds; releasing a long press does not also send Enter.
+Change either action with `power key short <action>` or `power key long <action>`.
+The expander-backed button can resume software suspension; it is not an RTC
+wake GPIO for light or deep sleep.
 
 Some Watcher revisions fit **ES7243 at `0x13`** rather than ES7243E at `0x14`.
 For those boards, change `audio0` to `driver = "es8311-es7243"`, `addr = 0x13`,

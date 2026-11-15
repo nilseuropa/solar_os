@@ -4,7 +4,7 @@ schema = 1
 
 [devices.seeed_sensecap_watcher]
 display = "412×412 SPD2010 QSPI color LCD with PWM brightness."
-keyboard = "SPD2010 capacitive touch; wheel supplies Up/Down, push switch supplies Enter."
+keyboard = "SPD2010 capacitive touch; wheel supplies Up/Down. Wheel push is KEY: short press Enter, long press BLE pairing."
 sound = "ES8311 speaker output and ES7243E microphone capture on shared I2S."
 storage = "microSD over SPI; internal FAT storage on 32 MB flash."
 connectivity = "Wi-Fi, BLE, and dual USB-to-UART bridge; UART0 shell starts automatically."

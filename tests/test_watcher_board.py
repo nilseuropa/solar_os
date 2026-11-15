@@ -51,7 +51,10 @@ class WatcherBoardTest(unittest.TestCase):
             self.assertEqual(connectors[key]["gpio"], 47)
         for key in (("J2", 6), ("J5", 1)):
             self.assertEqual(connectors[key]["gpio"], 48)
-        self.assertIn('.role = "button", .target = "gpiox0", .value = 3', header)
+        self.assertIn('#define SOLAR_OS_BOARD_KEY_GPIO_LINE "gpiox0:3"', header)
+        self.assertIn("key", self.board["build"]["capabilities"])
+        main = (ROOT / "src/main.c").read_text().split("void app_main(void)", 1)[1]
+        self.assertLess(main.index("solar_os_expansion_init_early()"), main.index("key_button_init()"))
         self.assertIn('.role = "irq", .target = "gpiox0", .value = 5', header)
         # Reusing onboard SPI or I2C signals for another fixed peripheral is rejected.
         for pin in (4, 47):
@@ -146,7 +149,184 @@ int main(void) {
 }
 ''')
 
-    def test_wheel_push_debounce_held_start_read_errors_and_poll_rate(self):
+    def test_wheel_direction_matches_mounted_phase_order(self):
+        wheel = next(d for d in self.board["devices"] if d["name"] == "wheel0")
+        self.assertNotIn("button", wheel["bindings"])
+        source = (ROOT / "src/services/solar_os_rotary_encoder.c").read_text()
+        definitions = source[source.index("#define ROTARY_TASK_STACK"):source.index("typedef struct {")]
+        worker = production_functions(source, ("rotary_worker",))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include "esp_err.h"
+#include "solar_os_key_codes.h"
+#define tskIDLE_PRIORITY 0
+#define pdTRUE 1
+#define pdMS_TO_TICKS(ms) (ms)
+#define portMAX_DELAY 0
+#define portTICK_PERIOD_MS 1
+''' + definitions + r'''
+typedef struct {
+    bool stop_requested, worker_done, have_button;
+    uint8_t state;
+    int edge_queue, input_source;
+    unsigned clockwise, counter_clockwise, dropped;
+} solar_os_rotary_device_t;
+static solar_os_rotary_device_t device;
+static uint8_t edges[10], keys[2];
+static unsigned position, written;
+static int xQueueReceive(int queue, uint8_t *state, int timeout) {
+    (void)queue; (void)timeout;
+    if (position == sizeof(edges)) { device.stop_requested = true; return 0; }
+    *state = edges[position++]; return pdTRUE;
+}
+static esp_err_t solar_os_input_write_char(int source, char key) {
+    (void)source; assert(written < 2); keys[written++] = (uint8_t)key; return ESP_OK;
+}
+static uint32_t xTaskGetTickCount(void) { return 0; }
+static void rotary_poll_button(solar_os_rotary_device_t *d, uint32_t now) { (void)now; assert(!d->have_button); }
+static void solar_os_task_delete_internal(void *task) { assert(task == NULL); }
+''' + worker + r'''
+int main(void) {
+    /* Physical GPIO41/42 states for an Up detent followed by a Down detent. */
+    const uint8_t physical[] = {3,1,0,2,3, 3,2,0,1,3};
+''' + f'    const unsigned pin_a = {wheel["bindings"]["a"]}, pin_b = {wheel["bindings"]["b"]};\n' + r'''
+    for (unsigned i = 0; i < sizeof(edges); i++) {
+        unsigned a = (physical[i] >> (pin_a == 41 ? 0 : 1)) & 1;
+        unsigned b = (physical[i] >> (pin_b == 41 ? 0 : 1)) & 1;
+        edges[i] = (uint8_t)((b << 1) | a);
+    }
+    rotary_worker(&device);
+    assert(device.worker_done && written == 2 && !device.dropped);
+    assert(keys[0] == SOLAR_OS_KEY_UP && keys[1] == SOLAR_OS_KEY_DOWN);
+}
+''', "-I", str(ROOT / "include"))
+
+    def test_expander_key_uses_shared_short_long_policy_and_debounce(self):
+        main = (ROOT / "src/main.c").read_text()
+        functions = production_functions(main, (
+            "key_level_is_pressed", "key_button_is_pressed", "key_rtc_is_pressed",
+            "key_button_configure_gpio", "key_prepare_rtc_wakeup",
+            "handle_key_pairing", "handle_key_input", "handle_key_action",
+            "handle_key_short_press", "key_button_init", "poll_key_button"))
+        defaults = production_functions((ROOT / "src/services/solar_os_power.c").read_text(),
+                                        ("default_key_action",))
+        defines = self.board["defines"]
+        configuration = "\n".join(f"#define {key} {defines[key]}" for key in (
+            "SOLAR_OS_BOARD_KEY_GPIO_LINE", "SOLAR_OS_BOARD_KEY_SHORT_ACTION",
+            "SOLAR_OS_BOARD_KEY_LONG_ACTION"))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
+#include "solar_os_gpio_controller.h"
+#include "solar_os_power.h"
+#include "solar_os_keys.h"
+#define SOLAR_OS_PACKAGE_SERVICE_BLE 1
+#define SOLAR_OS_BOARD_CAP_KEY 1
+#define SOLAR_OS_BOARD_CAP_BLE 2
+#define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
+#define SOLAR_OS_BOARD_KEY_PULL_UP 0
+#define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
+#define KEY_LINE_POLL_MS 10U
+#define KEY_LINE_DEBOUNCE_MS 25U
+#define KEY_SHORT_PRESS_MIN_MS 30U
+#define KEY_LONG_PRESS_MS 1200U
+#define SOLAR_OS_INPUT_SOURCE_BUTTONS 1
+#define SOLAR_OS_LOGI(...) ((void)0)
+#define SOLAR_OS_LOGW(...) ((void)0)
+#define ESP_ERROR_CHECK(err) assert((err) == ESP_OK)
+''' + configuration + r'''
+static solar_os_gpio_line_ref_t key_line;
+static bool key_line_ready, key_line_raw, key_line_pressed;
+static uint32_t key_line_polled_ms, key_line_changed_ms;
+static bool down = true, key_irq_pending, key_interrupt_ready, key_pressed;
+static bool key_ignore_until_released, key_long_press_fired;
+static uint32_t now, key_pressed_ms, last_status_update_ms;
+static int key_input_source;
+static unsigned reads, chars, pairs, forgets, wakes, sleeps;
+static solar_os_power_key_action_t key_release_action;
+static solar_os_power_status_t status;
+static esp_err_t read_error;
+static uint32_t millis_u32(void) { return now; }
+static bool board_has(int cap) { (void)cap; return true; }
+bool solar_os_gpio_line_parse(const char *name, solar_os_gpio_line_ref_t *line) {
+    assert(!strcmp(name, "gpiox0:3")); strcpy(line->controller, "gpiox0"); line->line = 3; return true;
+}
+esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
+    solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull) {
+    assert(!strcmp(line->controller, "gpiox0") && line->line == 3);
+    assert(mode == SOLAR_OS_GPIO_LINE_MODE_INPUT && pull == SOLAR_OS_GPIO_LINE_PULL_NONE);
+    return ESP_OK;
+}
+esp_err_t solar_os_gpio_line_read(const solar_os_gpio_line_ref_t *line, bool *level) {
+    assert(!strcmp(line->controller, "gpiox0") && line->line == 3); reads++;
+    *level = !down; return read_error;
+}
+static esp_err_t solar_os_input_key_source_open(const char *name, int type, int *out) {
+    assert(!strcmp(name, "system-key") && type == SOLAR_OS_INPUT_SOURCE_BUTTONS); *out = 1; return ESP_OK;
+}
+static esp_err_t solar_os_input_write_char(int source, char key) {
+    assert(source == 1 && key == SOLAR_OS_KEY_ENTER); chars++; return ESP_OK;
+}
+void solar_os_power_get_status(solar_os_power_status_t *out) { *out = status; }
+void solar_os_power_note_activity(uint32_t ms) { status.last_activity_ms = ms; }
+static bool solar_os_ble_keyboard_enabled_for_current_boot(void) { return true; }
+static esp_err_t solar_os_ble_keyboard_forget(void) { forgets++; return ESP_OK; }
+static esp_err_t solar_os_ble_keyboard_start_pairing(void) { pairs++; return ESP_OK; }
+esp_err_t solar_os_shutdown_request(void) { assert(false); return ESP_OK; }
+static void update_status(void) { }
+static void draw_terminal_if_needed(void) { }
+static void enter_light_sleep(const char *reason) { (void)reason; sleeps++; }
+static void enter_deep_sleep(const char *reason) { (void)reason; assert(false); }
+static void enter_suspend(const char *reason) { (void)reason; status.suspend_active = true; }
+static void exit_suspend(const char *reason) { (void)reason; status.suspend_active = false; wakes++; }
+''' + defaults + functions + r'''
+static void poll(bool pressed, uint32_t elapsed) { down = pressed; now += elapsed; poll_key_button(); }
+static void press(void) { poll(true, 10); poll(true, 30); }
+static void release(void) { poll(false, 10); poll(false, 30); }
+int main(void) {
+    status.key_action = default_key_action(false);
+    status.key_long_action = default_key_action(true);
+    assert(status.key_action == SOLAR_OS_POWER_KEY_ACTION_ENTER);
+    assert(status.key_long_action == SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR);
+    /* A wheel held during startup is consumed, including a long hold. */
+    key_button_init(); assert(key_ignore_until_released && reads == 1);
+    poll(true, 5); assert(reads == 1);  /* Bound I2C polling frequency. */
+    poll(true, 5000); assert(!pairs && !chars);
+    release(); assert(!key_ignore_until_released && !chars);
+    assert(!key_rtc_is_pressed() && key_prepare_rtc_wakeup() == ESP_ERR_NOT_SUPPORTED);
+    /* Contact bounce cannot send Enter. */
+    poll(true, 10); poll(false, 10); poll(true, 10);
+    poll(true, 20); assert(!key_pressed && !chars);
+    poll(true, 10); assert(key_pressed);
+    poll(true, 50); release(); assert(chars == 1 && !pairs);
+    /* A hold pairs once, and releasing it cannot also send Enter. */
+    press(); poll(true, 1190); assert(!pairs);
+    poll(true, 10); assert(pairs == 1 && forgets == 1);
+    poll(true, 5000); release(); assert(pairs == 1 && chars == 1);
+    /* Read failures preserve the held state instead of fabricating release. */
+    press(); poll(false, 100); read_error = ESP_FAIL;
+    poll(false, 30); assert(key_pressed && chars == 1);
+    read_error = ESP_OK; poll(false, 10); assert(!key_pressed && chars == 2);
+    /* User KEY settings still control the push button. */
+    status.key_action = SOLAR_OS_POWER_KEY_ACTION_SLEEP;
+    press(); poll(true, 50); release(); assert(sleeps == 1 && chars == 2);
+    status.key_action = SOLAR_OS_POWER_KEY_ACTION_ENTER;
+    status.suspend_active = true;
+    press(); assert(!status.suspend_active && wakes == 1);
+    poll(true, 2000); release(); assert(chars == 2 && pairs == 1);
+    /* Millisecond wrap preserves polling, debounce, and short-press timing. */
+    now = key_line_polled_ms = UINT32_MAX - 5U;
+    press(); poll(true, 50); release(); assert(chars == 3 && pairs == 1);
+}
+''', "-I", str(ROOT / "src/services"), "-I", str(ROOT / "include"),
+              "-fsanitize=address,undefined", "-no-pie")
+
+    def test_optional_encoder_push_debounce_held_start_read_errors_and_poll_rate(self):
         source = (ROOT / "src/services/solar_os_rotary_encoder.c").read_text()
         function = production_functions(source, ("rotary_poll_button",))
         run_c(r'''

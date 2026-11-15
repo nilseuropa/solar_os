@@ -19,7 +19,7 @@ drivers = [
 capabilities = [
   "psram", "simd", "display", "gfx", "streaming_display", "display_brightness",
   "pointer", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
-  "wifi", "ble", "gpio", "adc", "pwm", "expansion_gpio", "expansion_i2c",
+  "wifi", "ble", "gpio", "adc", "pwm", "key", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
 required_packages = []
@@ -29,6 +29,10 @@ psram_bytes = 8388608
 # Keep both SPI2 slaves deselected before their shared bus starts.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_21, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_8, .level = 0}}'
 SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_KEY_GPIO_LINE = '"gpiox0:3"'
+SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_ENTER"
+SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR"
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SPD2010"'
 SOLAR_OS_BOARD_DISPLAY_WIDTH = "412"
 SOLAR_OS_BOARD_DISPLAY_HEIGHT = "412"
@@ -139,7 +143,8 @@ bindings = { i2c = "i2c0", addr = 0x51 }
 [[devices]]
 driver = "rotary-encoder"
 name = "wheel0"
-bindings = { a = 41, b = 42, button = "gpiox0:3" }
+# Reverse the logical phase order to match the mounted wheel's Up/Down motion.
+bindings = { a = 42, b = 41 }
 
 [[devices]]
 driver = "neopixel"
@@ -450,12 +455,12 @@ role = "WS2812 RGB LED"
 [[pins]]
 gpio = 41
 policy = "fixed"
-role = "wheel A"
+role = "wheel phase B (logical)"
 
 [[pins]]
 gpio = 42
 policy = "fixed"
-role = "wheel B"
+role = "wheel phase A (logical)"
 
 [[pins]]
 gpio = 43
