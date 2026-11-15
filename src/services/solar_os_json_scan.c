@@ -124,7 +124,7 @@ static const char *json_scan_skip_value(const char *p)
     }
 
     const char *start = p;
-    while (*p != '\0' && *p != ',' && *p != '}') {
+    while (*p != '\0' && *p != ',' && *p != '}' && *p != ']') {
         p++;
     }
     return p != start ? p : NULL;
@@ -181,6 +181,36 @@ static const char *json_scan_member_value(const char *json,
         }
     }
     return NULL;
+}
+
+bool solar_os_json_scan_object_value(const char *json, const char *key,
+                                      const char **value, size_t *length)
+{
+    if (value == NULL || length == NULL) return false;
+    const char *start = json_scan_member_value(json, key);
+    const char *end = json_scan_skip_value(start);
+    const char *next = json_scan_skip_ws(end);
+    if (start == NULL || end == NULL || next == NULL || (*next != ',' && *next != '}')) return false;
+    *value = start; *length = (size_t)(end - start);
+    return true;
+}
+
+bool solar_os_json_scan_array_value(const char *json, size_t index,
+                                     const char **value, size_t *length)
+{
+    if (value == NULL || length == NULL) return false;
+    const char *p = json_scan_skip_ws(json);
+    if (p == NULL || *p++ != '[') return false;
+    for (size_t i = 0;; i++) {
+        p = json_scan_skip_ws(p);
+        if (p == NULL || *p == ']') return false;
+        const char *end = json_scan_skip_value(p);
+        const char *next = json_scan_skip_ws(end);
+        if (end == NULL || next == NULL || (*next != ',' && *next != ']')) return false;
+        if (i == index) { *value = p; *length = (size_t)(end - p); return true; }
+        if (*next != ',') return false;
+        p = next + 1;
+    }
 }
 
 bool solar_os_json_scan_object_string(const char *json,

@@ -44,7 +44,7 @@ members = ["service_audio"]
 [groups.camera]
 label = "Camera"
 category = "Hardware interfaces"
-members = ["driver_camera_esp32", "job_cam_webd"]
+members = ["driver_camera_esp32", "driver_himax_hx6538", "job_cam_webd"]
 
 [groups.rtsp]
 label = "RTSP streaming"
@@ -1550,6 +1550,15 @@ expansion_drivers = ["solar_os_camera_esp32_expansion_driver"]
 requires = ["espressif__esp32-camera"]
 targets = ["esp32s3"]
 capabilities = ["psram", "expansion_gpio"]
+
+[packages.driver_himax_hx6538]
+label = "driver.himax-hx6538"
+depends = ["service_camera", "service_expansion", "service_json_scan"]
+sources = ["drivers/himax_hx6538.c", "services/solar_os_himax_hx6538.c"]
+expansion_drivers = ["solar_os_himax_hx6538_expansion_driver"]
+requires = ["esp_driver_spi", "esp_timer", "mbedtls"]
+targets = ["esp32s3"]
+capabilities = ["psram", "expansion_spi"]
 
 [packages.service_audio]
 label = "service.audio"

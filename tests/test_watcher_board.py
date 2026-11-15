@@ -21,7 +21,7 @@ class WatcherBoardTest(unittest.TestCase):
         self.board = load_board_manifest(directory / "seeed_sensecap_watcher.toml", directory)
         self.drivers = load_driver_catalog(ROOT / "boards/expansion_drivers.toml")
 
-    def test_builtin_devices_survive_flavor_pruning_without_camera_or_cdc(self):
+    def test_builtin_devices_survive_flavor_pruning_without_cdc(self):
         catalog = generate_flavor_config.load_catalog(ROOT / "packages/solar_os_packages.toml")
         for flavor in ("writerdeck", "full"):
             _, _, groups, packages = generate_flavor_config.load_flavor(
@@ -34,7 +34,10 @@ class WatcherBoardTest(unittest.TestCase):
             self.assertTrue(all(selected[package] for package in required))
         validate_board(self.board, self.drivers)
         self.assertNotIn("cdc", self.board["build"]["capabilities"])
-        self.assertNotIn("camera", self.board["build"]["capabilities"])
+        self.assertIn("camera", self.board["build"]["capabilities"])
+        camera = next(d for d in self.board["devices"] if d["name"] == "camera0")
+        self.assertEqual(camera["driver"], "himax-hx6538")
+        self.assertEqual(camera["bindings"]["ready"], "gpiox0:6")
         self.assertFalse(any(device["driver"] == "esp32-camera" for device in self.board["devices"]))
         self.assertFalse(any(device.get("detachable", False) for device in self.board["devices"]))
         self.assertEqual(self.board["devices"][0]["name"], "gpiox0")

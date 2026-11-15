@@ -274,6 +274,7 @@ static int solua_camera_status(lua_State *L)
     solua_set_int(L, -1, "width", status.config.width);
     solua_set_int(L, -1, "height", status.config.height);
     solua_set_int(L, -1, "jpeg_quality", status.config.jpeg_quality);
+    solua_set_bool(L, -1, "jpeg_quality_fixed", status.sensor.jpeg_quality_fixed);
     solua_set_int(L, -1, "capture_count", status.capture_count);
     solua_set_int(L, -1, "frame_buffer_count", status.sensor.frame_buffer_count);
     solua_set_str(L, -1, "orientation", solar_os_camera_orientation_name(status.orientation));

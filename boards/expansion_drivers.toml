@@ -3470,6 +3470,49 @@ kind = "gpio"
 hint = "gpio"
 required = false
 
+[drivers.himax-hx6538]
+summary = "Himax HX6538 SSCMA JPEG camera"
+package = "driver_himax_hx6538"
+targets = ["esp32s3"]
+capabilities = ["psram", "expansion_spi"]
+board_capabilities = ["camera"]
+default_name = "camera0"
+early = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "cs"
+required = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "ready"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..12000 kHz"
+min = 100
+max = 12000
+
 [drivers.esp32-camera]
 summary = "DVP JPEG camera"
 package = "driver_camera_esp32"

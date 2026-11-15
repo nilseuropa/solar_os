@@ -49,6 +49,7 @@ wiring. Inspect them with `expansion devices`, `board`, `io`, and `input status`
 | Device | Driver | Wiring |
 | --- | --- | --- |
 | `gpiox0` | PCA9535 | `i2c0`, address `0x21`, SDA47/SCL48 |
+| `camera0` | Himax HX6538 | SPI2 shared with SD, CS21, ready `gpiox0:6`, reset `gpiox0:7`, power `gpiox0:11` |
 | `display0` | SPD2010 | SPI3 QSPI, CLK7, D0=9, D1=1, D2=14, D3=13, CS45, backlight8 |
 | `touch0` | SPD2010 touch | `touch-i2c`, address `0x53`, SDA39/SCL38, IRQ `gpiox0:5` |
 | `storage0` | SDSPI | SPI2, CLK4, MOSI5, MISO6, CS46, power `gpiox0:8` |
@@ -79,6 +80,13 @@ Some Watcher revisions fit **ES7243 at `0x13`** rather than ES7243E at `0x14`.
 For those boards, change `audio0` to `driver = "es8311-es7243"`, `addr = 0x13`,
 and set `SOLAR_OS_BOARD_AUDIO_CODEC_IN` to `"ES7243"` in the board manifest.
 The ES8311 DAC remains at the 7-bit address `0x18` in either revision.
+
+The [Himax camera driver](himax-hx6538.md) samples the OV5647 through the factory
+SSCMA firmware. Use `camera resolutions` to list its modes and
+`camera capture /sample.jpg 416x416` to save a JPEG. The default is 240x240;
+416x416, 480x480, and 640x480 are also available. Camera sampling preserves the
+Himax firmware and installed models. Model management and inference are not
+exposed by this driver.
 
 Battery percentage is estimated from voltage. The standalone charger operates
 in hardware; this profile does not expose charging-current control.
@@ -118,4 +126,4 @@ and [SenseCAP Watcher BSP](https://github.com/Seeed-Studio/SenseCAP-Watcher-Firm
 
 Target: `seeed_sensecap_watcher`. Console: bottom USB-C, ESP32 UART port,
 115200 baud. Display/touch: SPD2010, 412x412. I2C expansions: `i2c0`, SDA47,
-SCL48. Free header GPIOs: 19 and 20. Camera/Himax support is excluded.
+SCL48. Free header GPIOs: 19 and 20. Camera: `camera0`, factory Himax JPEG sampling.

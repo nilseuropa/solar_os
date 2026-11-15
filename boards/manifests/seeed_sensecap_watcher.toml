@@ -19,7 +19,7 @@ drivers = [
 capabilities = [
   "psram", "simd", "display", "gfx", "streaming_display", "display_brightness",
   "pointer", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
-  "wifi", "ble", "gpio", "adc", "pwm", "key", "expansion_gpio", "expansion_i2c",
+  "wifi", "ble", "gpio", "adc", "pwm", "key", "camera", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
 required_packages = []
@@ -94,7 +94,7 @@ host = "SPI2_HOST"
 sclk = 4
 mosi = 5
 miso = 6
-cs = [46]
+cs = [46, 21]
 max_transfer_size = 4096
 
 [[buses]]
@@ -108,11 +108,16 @@ baud_rate = "115200"
 
 # The early expander attachment precedes every consumer of its power/IRQ lines.
 # Inputs: 0..7 and 13. Keep the system latch, SD, LCD, AI, Grove and battery
-# divider enabled; the speaker amplifier starts disabled. No AI driver attaches.
+# divider enabled; the speaker amplifier starts disabled.
 [[devices]]
 driver = "pca9535"
 name = "gpiox0"
 bindings = { i2c = "i2c0", addr = 0x21, direction = 0x20FF, output = 0xCF00 }
+
+[[devices]]
+driver = "himax-hx6538"
+name = "camera0"
+bindings = { spi = "spi0", cs = 21, ready = "gpiox0:6", reset = "gpiox0:7", power = "gpiox0:11", clock = 12000 }
 
 [[devices]]
 driver = "sdspi"
@@ -381,7 +386,7 @@ pwm = true
 [[pins]]
 gpio = 21
 policy = "fixed"
-role = "Himax SPI CS (reserved)"
+role = "Himax SPI CS"
 
 [[pins]]
 gpio = 26
