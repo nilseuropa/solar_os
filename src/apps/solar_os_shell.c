@@ -1210,7 +1210,7 @@ static const char * const charger_subcommands[] = {
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
-static const char * const camera_subcommands[] = {"status", "capture", "orientation", "off"};
+static const char * const camera_subcommands[] = {"status", "resolutions", "capture", "orientation", "off"};
 static const char * const camera_orientation_values[] = {"normal", "mirror", "flip", "180"};
 static const char * const camera_frame_sizes[] = {"qvga", "vga"};
 #endif

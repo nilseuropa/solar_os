@@ -18,6 +18,7 @@ typedef struct {
     uint32_t owner_generation;
     solar_os_camera_sensor_info_t sensor;
     solar_os_camera_config_t config;
+    solar_os_camera_config_t default_config;
     solar_os_camera_orientation_t orientation;
     solar_os_camera_backend_frame_t backend_frame;
     solar_os_camera_frame_t frame;
@@ -39,15 +40,14 @@ static esp_err_t ensure_mutex(void)
 static bool config_valid(const solar_os_camera_config_t *config)
 {
     return config != NULL &&
-        (config->frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_QVGA ||
-         config->frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA) &&
+        config->width != 0U && config->height != 0U &&
         config->jpeg_quality <= 63U;
 }
 
 static bool config_equal(const solar_os_camera_config_t *left,
                          const solar_os_camera_config_t *right)
 {
-    return left->frame_size == right->frame_size &&
+    return left->width == right->width && left->height == right->height &&
         left->jpeg_quality == right->jpeg_quality;
 }
 
@@ -60,10 +60,27 @@ static bool owner_valid(const solar_os_camera_owner_t *token)
 
 solar_os_camera_config_t solar_os_camera_default_config(void)
 {
-    return (solar_os_camera_config_t) {
-        .frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_QVGA,
-        .jpeg_quality = 12U,
-    };
+    solar_os_camera_config_t config = {.width = 320U, .height = 240U, .jpeg_quality = 12U};
+    if (ensure_mutex() != ESP_OK) return config;
+    xSemaphoreTake(camera_mutex, portMAX_DELAY);
+    if (camera_state.backend_registered) config = camera_state.default_config;
+    xSemaphoreGive(camera_mutex);
+    return config;
+}
+
+esp_err_t solar_os_camera_get_resolutions(solar_os_camera_resolution_t *out,
+                                          size_t capacity, size_t *count)
+{
+    if (count == NULL || (capacity && out == NULL)) return ESP_ERR_INVALID_ARG;
+    *count = 0;
+    esp_err_t error = ensure_mutex();
+    if (error != ESP_OK) return error;
+    xSemaphoreTake(camera_mutex, portMAX_DELAY);
+    error = camera_state.backend_registered && camera_state.backend.ops->get_resolutions ?
+        camera_state.backend.ops->get_resolutions(camera_state.backend.ctx, out, capacity, count) :
+        ESP_ERR_NOT_SUPPORTED;
+    xSemaphoreGive(camera_mutex);
+    return error;
 }
 
 esp_err_t solar_os_camera_register_backend(
@@ -75,7 +92,8 @@ esp_err_t solar_os_camera_register_backend(
             SOLAR_OS_CAMERA_DRIVER_NAME_MAX ||
         backend->ops == NULL || backend->ops->start == NULL ||
         backend->ops->stop == NULL || backend->ops->capture == NULL ||
-        backend->ops->release == NULL) {
+        backend->ops->release == NULL ||
+        (backend->default_config != NULL && !config_valid(backend->default_config))) {
         return ESP_ERR_INVALID_ARG;
     }
     const esp_err_t mutex_error = ensure_mutex();
@@ -89,6 +107,8 @@ esp_err_t solar_os_camera_register_backend(
         return ESP_ERR_INVALID_STATE;
     }
     camera_state.backend = *backend;
+    camera_state.default_config = backend->default_config != NULL ? *backend->default_config :
+        (solar_os_camera_config_t){.width = 320U, .height = 240U, .jpeg_quality = 12U};
     camera_state.backend_registered = true;
     strlcpy(camera_state.driver, backend->driver, sizeof(camera_state.driver));
     camera_state.last_error = ESP_OK;
@@ -309,7 +329,9 @@ esp_err_t solar_os_camera_capture(const solar_os_camera_owner_t *token,
     }
     if (camera_state.backend_frame.data == NULL ||
         camera_state.backend_frame.length == 0U ||
-        camera_state.backend_frame.release_token == NULL) {
+        camera_state.backend_frame.release_token == NULL ||
+        camera_state.backend_frame.width != camera_state.config.width ||
+        camera_state.backend_frame.height != camera_state.config.height) {
         if (camera_state.backend_frame.release_token != NULL) {
             camera_state.backend.ops->release(
                 camera_state.backend.ctx,
@@ -424,16 +446,6 @@ const char *solar_os_camera_orientation_name(solar_os_camera_orientation_t orien
     case SOLAR_OS_CAMERA_ORIENTATION_MIRROR: return "mirror";
     case SOLAR_OS_CAMERA_ORIENTATION_FLIP: return "flip";
     case SOLAR_OS_CAMERA_ORIENTATION_180: return "180";
-    default: return "unknown";
-    }
-}
-
-const char *solar_os_camera_frame_size_name(
-    solar_os_camera_frame_size_t frame_size)
-{
-    switch (frame_size) {
-    case SOLAR_OS_CAMERA_FRAME_SIZE_QVGA: return "qvga";
-    case SOLAR_OS_CAMERA_FRAME_SIZE_VGA: return "vga";
     default: return "unknown";
     }
 }

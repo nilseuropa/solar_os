@@ -620,11 +620,10 @@ static void rtspd_video_reader(void *arg)
     (void)arg;
     rtspd_video_scratch_t *scratch = rtspd.sources[RTSPD_VIDEO].scratch;
     uint8_t *packet = scratch->packet;
-    const bool vga = rtspd.options.camera.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
     const solar_os_stream_open_options_t options = {
         .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
         .requested_video = {.codec = SOLAR_OS_STREAM_VIDEO_JPEG,
-            .width = vga ? 640U : 320U, .height = vga ? 480U : 240U,
+            .width = rtspd.options.camera.width, .height = rtspd.options.camera.height,
             .jpeg_quality = rtspd.options.camera.jpeg_quality},
     };
     esp_err_t error = solar_os_stream_open_ex(rtspd.options.video_source,
@@ -1039,7 +1038,7 @@ static esp_err_t rtspd_job_start(solar_os_context_t *ctx, int argc, char **argv)
     if (!solar_os_rtspd_parse_options(argc, argv, &options)) {
         if (io) solar_os_shell_io_printf(io,
             "usage: job start rtspd [video=<stream>|none] [audio=<stream>|none] "
-            "[size=qvga|vga] [fps=0..30] [port=<port>]\n");
+            "[size=<width>x<height>|qvga|vga] [fps=0..30] [port=<port>]\n");
         return ESP_ERR_INVALID_ARG;
     }
     if (rtspd.running || rtspd.worker_task || rtspd.session ||
@@ -1055,6 +1054,11 @@ static esp_err_t rtspd_job_start(solar_os_context_t *ctx, int argc, char **argv)
                                              options.video_source, esp_err_to_name(error));
             return error;
         }
+        if (!options.camera.width) {
+            options.camera.width = video_info.video.width;
+            options.camera.height = video_info.video.height;
+        }
+        options.camera.jpeg_quality = video_info.video.jpeg_quality;
     }
     solar_os_stream_info_t audio_info = {0};
     if (options.audio[0]) {
@@ -1177,10 +1181,10 @@ static void rtspd_job_detail(solar_os_context_t *ctx)
     portEXIT_CRITICAL(&rtspd_lock);
     solar_os_shell_io_printf(io,
         "  RTSP: port=%u client=%s sessions=%" PRIu32 " rejected=%" PRIu32 "\n"
-        "  video: source=%s size=%s fps-cap=%u frames=%" PRIu32 " dropped=%" PRIu32 "\n",
+        "  video: source=%s size=%ux%u fps-cap=%u frames=%" PRIu32 " dropped=%" PRIu32 "\n",
         rtspd.options.port, connected ? "connected" : "none", clients, rejected,
         rtspd.options.video ? rtspd.options.video_source : "none",
-        rtspd.options.camera.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ? "vga" : "qvga",
+        (unsigned)rtspd.options.camera.width, (unsigned)rtspd.options.camera.height,
         rtspd.options.fps, frames, dropped);
     solar_os_shell_io_printf(io,
         "  audio: source=%s L16/%" PRIu32 "/%u blocks=%" PRIu32 "\n"

@@ -884,8 +884,8 @@ job start gestures
 job start httpd /www
 job start meshcore-ble 68:ee:8f:69:5f:35 public 123456
 job start displayd [display-target]   # display0 by default, web0 when headless
-job start cam-webd [qvga|vga] [fps] [auth=none|required]  # QVGA, 5 fps, no auth by default
-job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=qvga|vga] [fps=0..30] [port=<port>]
+job start cam-webd [<width>x<height>|qvga|vga] [fps] [auth=none|required]
+job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=<width>x<height>|qvga|vga] [fps=0..30] [port=<port>]
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200
@@ -1325,7 +1325,8 @@ available for the compiled board.
 | `say` | `say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] [--speed <20..500>] [--drop-if-busy] (--file <path> \| [--] <text...>)` | Queue text for offline speech, or stream a plain UTF-8 text file aloud with live progress. Pitch and speed default to 100. File mode submits bounded chunks through one continuous PicoTTS/audio session, completes paths with Tab, and remains responsive; press Esc or Ctrl+C to stop. Start `speechd` with a PicoTTS voice directory first. |
 | `led` | `led [status\|on\|off\|toggle]` | Inspect or control the built-in status LED when available. |
 | `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error. |
-| `camera` | `camera capture <path> [qvga\|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
+| `camera` | `camera resolutions` | Probe the camera and list its supported image dimensions. |
+| `camera` | `camera capture <path> [<width>x<height>\|qvga\|vga]` | Capture one JPEG into a caller-selected SolarOS path. The backend supplies the default dimensions. `qvga` and `vga` are shortcuts for 320x240 and 640x480; unsupported sizes are rejected. Changing size reinitializes the idle camera. Existing files are replaced. |
 | `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set sensor orientation: normal, horizontal mirror, vertical flip, or 180° rotation (both). Changes apply to future frames, including active RTSP/web streams, and survive camera stop/start and size changes until reboot or camera detach. No setting is saved. The JPEG path does not support 90°/270° rotation. |
 | `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. On ESP32-S3, disconnect the sensor clock and hold it low. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |

@@ -270,7 +270,11 @@ static mp_obj_t solaros_camera_status(void)
     python_dict_store_cstr(d, "owner", status.owner);
     python_dict_store_cstr(d, "driver", status.driver);
     python_dict_store_cstr(d, "sensor", status.sensor.name);
-    python_dict_store_cstr(d, "size", solar_os_camera_frame_size_name(status.config.frame_size));
+    char size[16];
+    snprintf(size, sizeof(size), "%ux%u", (unsigned)status.config.width, (unsigned)status.config.height);
+    python_dict_store_cstr(d, "size", size);
+    python_dict_store_uint(d, "width", status.config.width);
+    python_dict_store_uint(d, "height", status.config.height);
     python_dict_store_uint(d, "jpeg_quality", status.config.jpeg_quality);
     python_dict_store_uint(d, "capture_count", status.capture_count);
     python_dict_store_uint(d, "frame_buffer_count", status.sensor.frame_buffer_count);
@@ -282,15 +286,15 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_camera_status_obj, solaros_camera_status);
 
 static uint32_t python_camera_snapshot(size_t n, const mp_obj_t *args)
 {
-    const char *size = n > 0 ? mp_obj_str_get_str(args[0]) : "qvga";
-    bool vga = !strcmp(size, "vga");
-    if (!vga && strcmp(size, "qvga")) mp_raise_ValueError(MP_ERROR_TEXT("expected qvga or vga"));
-    uint32_t quality = n > 1 ? python_u32_from_obj(args[1]) : 12;
+    solar_os_camera_config_t config = solar_os_camera_default_config();
+    if (n > 0 && !solar_os_camera_parse_resolution(mp_obj_str_get_str(args[0]), &config.width, &config.height))
+        mp_raise_ValueError(MP_ERROR_TEXT("expected WIDTHxHEIGHT, qvga, or vga"));
+    uint32_t quality = n > 1 ? python_u32_from_obj(args[1]) : config.jpeg_quality;
     if (quality > 63) mp_raise_ValueError(MP_ERROR_TEXT("jpeg_quality must be 0..63"));
     const char *source = n > 2 ? mp_obj_str_get_str(args[2]) : "camera0";
     uint32_t frame;
     python_check_esp(solar_os_script_media_snapshot(python_media_get(), source,
-        vga ? 640 : 320, vga ? 480 : 240, quality, &frame));
+        config.width, config.height, quality, &frame));
     return frame;
 }
 

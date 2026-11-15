@@ -20,6 +20,7 @@
 static unsigned allocations;
 static bool fail_alloc, fail_start, fail_capture, fail_stop, cancel_requested;
 static unsigned starts, stops, releases;
+static uint16_t camera_width, camera_height;
 static const uint8_t jpeg[] = {0xff, 0xd8, 0xff, 0xd9};
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "test error"; }
 
@@ -43,9 +44,11 @@ uint64_t solar_os_time_uptime_ms(void) { return 42; }
 esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *ms) { *ms = 4242; return ESP_OK; }
 static bool cancel(void *user) { assert(user == &cancel_requested); return cancel_requested; }
 
-static esp_err_t start(void *user, const solar_os_camera_config_t *config, solar_os_camera_sensor_info_t *sensor)
+static esp_err_t start(void *user, const solar_os_camera_config_t *config,
+                        solar_os_camera_orientation_t orientation, solar_os_camera_sensor_info_t *sensor)
 {
-    (void)user; assert(config->frame_size <= SOLAR_OS_CAMERA_FRAME_SIZE_VGA);
+    (void)user; (void)orientation; assert(config->width && config->height);
+    camera_width = config->width; camera_height = config->height;
     if (fail_start) return ESP_FAIL;
     ++starts; strcpy(sensor->name, "fake"); return ESP_OK;
 }
@@ -54,7 +57,7 @@ static esp_err_t capture(void *user, solar_os_camera_backend_frame_t *frame)
 {
     (void)user; if (fail_capture) return ESP_ERR_TIMEOUT;
     *frame = (solar_os_camera_backend_frame_t){.data = jpeg, .length = sizeof(jpeg),
-        .width = 320, .height = 240, .timestamp_us = 123456789012ULL, .release_token = &releases};
+        .width = camera_width, .height = camera_height, .timestamp_us = 123456789012ULL, .release_token = &releases};
     return ESP_OK;
 }
 static void release(void *user, void *token) { (void)user; assert(token == &releases); ++releases; }

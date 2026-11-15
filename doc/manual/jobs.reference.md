@@ -550,13 +550,14 @@ HTTP access to the fitted camera as one-shot JPEG images or a single-client
 MJPEG stream.
 
 ```text
-job start cam-webd [qvga|vga] [fps] [auth=none|required]
+job start cam-webd [<width>x<height>|qvga|vga] [fps] [auth=none|required]
 job status cam-webd
 job stop cam-webd
 ```
 
-The defaults are QVGA JPEG at five frames per second with no authentication.
-The optional frame rate is `1..30`; JPEG quality is fixed at 12. Options can be
+The defaults are the camera backend's image dimensions and JPEG quality at five
+frames per second with no authentication. The optional frame rate is `1..30`.
+Use `camera resolutions` to list supported dimensions. Options can be
 given in any order. The job leases the camera as `job:cam-webd` until it stops.
 The shell `camera` command and other camera users report that owner while the
 lease is active.
@@ -604,7 +605,7 @@ RTP/RTCP UDP port pair, SSRC, and sender reports, with a shared RTCP CNAME and
 session start clock.
 
 ```text
-job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=qvga|vga] [fps=0..30] [port=<port>]
+job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=<width>x<height>|qvga|vga] [fps=0..30] [port=<port>]
 job start rtspd video=camera0 audio=none size=qvga fps=10
 job start rtspd video=none audio=audio0.capture
 job start rtspd video=camera0 audio=audio0.capture
@@ -612,13 +613,15 @@ job status rtspd
 job stop rtspd
 ```
 
-Defaults are `video=camera0 audio=none size=qvga fps=5 port=554`. `video=camera`
+Defaults are `video=camera0 audio=none fps=5 port=554`, using the source's
+advertised dimensions and JPEG quality. `video=camera`
 is a compatibility alias for `camera0`. Video selects a typed JPEG frame source
 from `stream list`; opening it holds the same exclusive hardware lease as the camera
 service. At least one source must be enabled. `fps=` is a maximum video
 publication rate, not a
 capture timer; `fps=0` removes the cap. `size=` and `fps=` are invalid with
-`video=none`. JPEG quality is fixed at 12.
+`video=none`. Image dimensions accept `WIDTHxHEIGHT`; `qvga` and `vga` remain
+shortcuts for 320x240 and 640x480. The camera backend rejects unsupported modes.
 
 The publisher keeps Wi-Fi awake while the job runs. Stopping it releases that
 request; other active low-latency services can continue to keep Wi-Fi awake.

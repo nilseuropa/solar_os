@@ -49,10 +49,8 @@ static esp_err_t fake_capture(void *ctx,
     *frame = (solar_os_camera_backend_frame_t) {
         .data = fake_jpeg,
         .length = sizeof(fake_jpeg),
-        .width = fake->config.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ?
-            640U : 320U,
-        .height = fake->config.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ?
-            480U : 240U,
+        .width = fake->config.width,
+        .height = fake->config.height,
         .timestamp_us = 1234U,
         .release_token = fake,
     };
@@ -75,6 +73,16 @@ static esp_err_t fake_orientation(void *ctx, solar_os_camera_orientation_t orien
     return ESP_OK;
 }
 
+static esp_err_t fake_resolutions(void *ctx, solar_os_camera_resolution_t *out,
+                                   size_t capacity, size_t *count)
+{
+    (void)ctx;
+    const solar_os_camera_resolution_t modes[] = {{320,240}, {416,416}, {640,480}};
+    *count = 3;
+    for (size_t i = 0; i < capacity && i < 3; i++) out[i] = modes[i];
+    return ESP_OK;
+}
+
 int main(void)
 {
     static const solar_os_camera_backend_ops_t operations = {
@@ -83,6 +91,7 @@ int main(void)
         .stop = fake_stop,
         .capture = fake_capture,
         .release = fake_release,
+        .get_resolutions = fake_resolutions,
     };
     fake_camera_t fake = {0};
     const solar_os_camera_backend_t backend = {
@@ -105,8 +114,21 @@ int main(void)
     assert(strcmp(status.driver, "fake-camera") == 0);
 
     solar_os_camera_config_t config = solar_os_camera_default_config();
-    assert(config.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_QVGA);
+    assert(config.width == 320U && config.height == 240U);
     assert(config.jpeg_quality == 12U);
+    uint16_t width = 9, height = 9;
+    assert(solar_os_camera_parse_resolution("416x416", &width, &height) && width == 416 && height == 416);
+    assert(solar_os_camera_parse_resolution("qvga", &width, &height) && width == 320 && height == 240);
+    assert(solar_os_camera_parse_resolution("vga", &width, &height) && width == 640 && height == 480);
+    const char *invalid_sizes[] = {"", "x480", "0x240", "320x0", "65536x1", "1x99999999999", "320x240junk", "-1x2", "1x2x3"};
+    for (size_t i = 0; i < sizeof(invalid_sizes) / sizeof(invalid_sizes[0]); i++)
+        assert(!solar_os_camera_parse_resolution(invalid_sizes[i], &width, &height));
+    solar_os_camera_resolution_t modes[1];
+    size_t mode_count = 0;
+    assert(solar_os_camera_get_resolutions(NULL, 0, &mode_count) == ESP_OK && mode_count == 3);
+    assert(solar_os_camera_get_resolutions(modes, 1, &mode_count) == ESP_OK && mode_count == 3);
+    assert(modes[0].width == 320 && modes[0].height == 240);
+    assert(solar_os_camera_get_resolutions(NULL, 1, &mode_count) == ESP_ERR_INVALID_ARG);
     solar_os_camera_owner_t owner = {0};
     solar_os_camera_owner_t other = {0};
     assert(solar_os_camera_acquire("test", &owner) == ESP_OK);
@@ -148,7 +170,7 @@ int main(void)
     assert(solar_os_camera_release_frame(&owner, leased_frame) == ESP_OK);
     assert(fake.releases == 1U);
 
-    config.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
+    config.width = 640U; config.height = 480U;
     assert(solar_os_camera_start(&owner, &config) == ESP_OK);
     assert(fake.stops == 1U);
     assert(fake.starts == 2U);
@@ -176,6 +198,24 @@ int main(void)
     assert(other.generation != first_generation);
     assert(solar_os_camera_release_owner(&other) == ESP_OK);
     assert(solar_os_camera_unregister_backend("fake-camera") == ESP_OK);
+    /* Defaults are copied, and arbitrary dimensions survive start/capture. */
+    solar_os_camera_config_t square = {.width = 416, .height = 416, .jpeg_quality = 0};
+    solar_os_camera_backend_t square_backend = backend;
+    square_backend.default_config = &square;
+    assert(solar_os_camera_register_backend(&square_backend) == ESP_OK);
+    square.width = 999;
+    config = solar_os_camera_default_config();
+    assert(config.width == 416 && config.height == 416 && config.jpeg_quality == 0);
+    fake.fail_capture = false;
+    assert(solar_os_camera_acquire("square", &owner) == ESP_OK);
+    assert(solar_os_camera_start(&owner, &config) == ESP_OK);
+    assert(solar_os_camera_capture(&owner, &frame) == ESP_OK && frame->width == 416 && frame->height == 416);
+    assert(solar_os_camera_release_frame(&owner, frame) == ESP_OK);
+    assert(solar_os_camera_stop(&owner) == ESP_OK);
+    assert(solar_os_camera_release_owner(&owner) == ESP_OK);
+    assert(solar_os_camera_unregister_backend("fake-camera") == ESP_OK);
+    config = solar_os_camera_default_config();
+    assert(config.width == 320 && config.height == 240 && config.jpeg_quality == 12);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.backend_registered);
     assert(status.orientation == SOLAR_OS_CAMERA_ORIENTATION_NORMAL);
