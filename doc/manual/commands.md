@@ -827,6 +827,9 @@ dimensions without probing. Character encoding is independent of that profile:
 port shells default to `--charset utf8`; use `--charset ascii` when a legacy
 terminal displays Unicode TUI glyphs as unrelated code-page characters.
 
+Closing a port shell releases its worker stack, including the worker reserved
+for a board's default boot console. Reopening a shell allocates a new worker.
+
 `jobs` prints a compact table that fits the built-in display terminal:
 
 ```text
