@@ -29,6 +29,8 @@ solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx) { 
 solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx) { return gfx->panel; }
 void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color) { (void)gfx;(void)color; }
 void solar_os_gfx_present(solar_os_gfx_t *gfx) { (void)gfx; }
+static bool view_present_color(solar_os_gfx_t *gfx,int x,int y,int w,int h)
+{ (void)gfx;(void)x;(void)y;(void)w;(void)h;return false; }
 esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx, const solar_os_gfx_raster_t *raster,
     int left,int top,int width,int height,const solar_os_gfx_clip_t *clip) {
     (void)gfx;(void)raster;(void)clip;x=left;y=top;w=width;h=height;return ESP_OK;
