@@ -151,6 +151,11 @@ int main(void) {
 #define pdTRUE 1
 typedef struct { int rendered, sent, published, awake, id; } u8g2_t;
 typedef struct { u8g2_t *u8g2; } solar_os_gfx_t;
+typedef struct {
+    u8g2_t *canvas;
+    bool native;
+    unsigned syncs, begins, ends;
+} solar_os_display_scale_t;
 typedef int SemaphoreHandle_t;
 typedef struct {
     bool ready, black_is_one;
@@ -164,20 +169,41 @@ typedef struct {
     size_t refs;
     SemaphoreHandle_t present_mutex;
     solar_os_display_target_t target;
+    solar_os_display_scale_t scale;
+    unsigned layer_clears;
 } display_target_slot_t;
 static display_target_slot_t display_targets[3];
 static int display_targets_lock, held;
 static esp_err_t hook_error;
 static int xSemaphoreTake(int mutex, int timeout) { assert(mutex && !held); (void)timeout; held = mutex; return pdTRUE; }
-static void xSemaphoreGive(int mutex) { assert(held == mutex); held = 0; }
+static void xSemaphoreGive(int mutex) {
+    assert(held == mutex);
+    for (unsigned i=0;i<3;i++) assert(!display_targets[i].scale.native);
+    held = 0;
+}
 static void display_release_slot_ref(size_t i, uint32_t gen) { assert(display_targets[i].generation == gen); display_targets[i].refs--; }
+static void display_clear_layer_locked(display_target_slot_t *slot) {
+    assert(held && !slot->scale.native);slot->layer_clears++;
+}
+static void solar_os_display_scale_sync_native(solar_os_display_scale_t *scale) {
+    assert(held && !scale->native && scale->canvas->rendered==scale->canvas->sent+1);
+    assert(display_targets[scale->canvas->id].layer_clears==scale->syncs+1);scale->syncs++;
+}
+static void solar_os_display_scale_begin_native(solar_os_display_scale_t *scale) {
+    assert(held && !scale->native && scale->syncs==scale->begins+1);
+    scale->native=true;scale->begins++;
+}
+static void solar_os_display_scale_end_native(solar_os_display_scale_t *scale) {
+    assert(held && scale->native && scale->begins==scale->ends+1);
+    scale->native=false;scale->ends++;
+}
 static void solar_os_gfx_init(solar_os_gfx_t *g, u8g2_t *u) { g->u8g2 = u; }
 static void solar_os_gfx_set_black_is_one(solar_os_gfx_t *g, bool black) { (void)g; (void)black; }
 static void solar_os_splash_render(solar_os_gfx_t *g, const char *status) { assert(status && held); g->u8g2->rendered++; }
-static void u8g2_SendBuffer(u8g2_t *u) { assert(held); u->sent++; }
+static void u8g2_SendBuffer(u8g2_t *u) { assert(held && display_targets[u->id].scale.native); u->sent++; }
 static void u8g2_SetPowerSave(u8g2_t *u, int state) { assert(held); assert(state == 0); u->awake++; }
-static void display_publish_frame(u8g2_t *u) { assert(held && display_targets[u->id].refs == 1); u->published++; }
-static esp_err_t synchronous_hook(void *context) { u8g2_t *u = context; assert(held && u->rendered); u->sent++; return hook_error; }
+static void display_publish_frame(u8g2_t *u) { assert(held && display_targets[u->id].refs == 1 && display_targets[u->id].scale.native); u->published++; }
+static esp_err_t synchronous_hook(void *context) { u8g2_t *u = context; assert(held && u->rendered && display_targets[u->id].scale.native); u->sent++; return hook_error; }
 '''
         for name in ("solar_os_display_show_power_state", "solar_os_display_clear_power_state"):
             source += function("src/services/solar_os_display.c", name) + "\n"
@@ -185,20 +211,30 @@ static esp_err_t synchronous_hook(void *context) { u8g2_t *u = context; assert(h
 int main(void) {
     u8g2_t primary = {.id = 0}, aux = {.id = 1}, unused = {.id = 2};
     display_targets[0] = (display_target_slot_t){.active = true, .generation = 1, .present_mutex = 1,
-        .target = {.ready = true, .u8g2 = &primary}};
+        .target = {.ready = true, .u8g2 = &primary}, .scale={.canvas=&primary}};
     display_targets[1] = (display_target_slot_t){.active = true, .generation = 1, .present_mutex = 2,
-        .target = {.ready = true, .u8g2 = &aux, .present_power_state = synchronous_hook, .power_state_context = &aux}};
+        .target = {.ready = true, .u8g2 = &aux, .present_power_state = synchronous_hook, .power_state_context = &aux},
+        .scale={.canvas=&aux}};
     display_targets[2].target.u8g2 = &unused;
     assert(solar_os_display_show_power_state("Sleeping") == ESP_OK);
     assert(primary.sent == 1 && aux.sent == 1 && unused.sent == 0);
     assert(primary.published == 1 && aux.published == 1);
     assert(display_targets[0].power_state_active && display_targets[1].power_state_active);
+    for (unsigned i=0;i<2;i++) {
+        assert(display_targets[i].layer_clears==1 && display_targets[i].scale.syncs==1);
+        assert(display_targets[i].scale.begins==1 && display_targets[i].scale.ends==1);
+    }
     solar_os_display_clear_power_state();
     assert(primary.awake == 1 && aux.awake == 1 && unused.awake == 0);
     assert(!display_targets[0].power_state_active && !display_targets[1].power_state_active);
     hook_error = ESP_FAIL;
     assert(solar_os_display_show_power_state("Powered off") == ESP_FAIL);
     assert(aux.published == 1 && display_targets[1].refs == 0 && held == 0);
+    for (unsigned i=0;i<2;i++) {
+        assert(display_targets[i].layer_clears==2 && display_targets[i].scale.syncs==2);
+        assert(display_targets[i].scale.begins==2 && display_targets[i].scale.ends==2);
+        assert(!display_targets[i].scale.native && !display_targets[i].refs);
+    }
 }
 ''')
 
