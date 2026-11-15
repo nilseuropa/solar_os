@@ -1732,6 +1732,7 @@ JPEG frames are limited to 2 megapixels and 512 KiB.
 
 ```text
 photo
+photo --fullscreen
 photo camera0 --size 640x480
 photo rtsp://192.168.1.238/media --dir /photos
 photo --key SPACE --dir /photos
@@ -1740,9 +1741,9 @@ photo --key SPACE --dir /photos
 Press **Enter** or tap the shutter button to save the currently displayed frame.
 `--key KEY` selects a different logical key, such as `SPACE` or `F1`; Escape,
 the app-exit key, and `f`/`F` are reserved. Press `f` to toggle between the canvas
-viewfinder and the full panel, including circular panels. Escape or the
-app-exit key closes the application. The status line reports successful saves
-and storage errors.
+viewfinder and the full panel, including circular panels. `--fullscreen` starts
+in full-panel mode. Escape or the app-exit key closes the application.
+The status line reports successful saves and storage errors.
 
 Files are named `photo-000001.jpg`, `photo-000002.jpg`, and so on in the launch
 directory, or in the existing directory selected by `--dir`. Existing files

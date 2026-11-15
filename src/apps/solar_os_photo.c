@@ -374,7 +374,9 @@ static esp_err_t parse(solar_os_context_t *ctx)
     photo.key = SOLAR_OS_KEY_ENTER; photo.sequence = 1;
     for (int i = 1; i < solar_os_context_argc(ctx); i++) {
         const char *arg = solar_os_context_argv(ctx, i);
-        if (!strcmp(arg, "--dir") && !have_dir) {
+        if (!strcmp(arg, "--fullscreen") && !photo.fullscreen) {
+            photo.fullscreen = true;
+        } else if (!strcmp(arg, "--dir") && !have_dir) {
             if (++i == solar_os_context_argc(ctx)) return ESP_ERR_INVALID_ARG;
             directory = solar_os_context_argv(ctx, i); have_dir = true;
         } else if (!strcmp(arg, "--key") && !have_key) {
@@ -549,9 +551,10 @@ void solar_os_photo_complete(const char *const *tokens, size_t count,
     void (*emit)(const char *candidate, void *user), void *user)
 {
     const char *source = "camera0";
-    bool have_source = false, dir = false, key = false, size = false;
+    bool have_source = false, dir = false, key = false, size = false, fullscreen = false;
     for (size_t i = 1; i < count; i++) {
         const char *arg = tokens[i];
+        if (!strcmp(arg, "--fullscreen")) { fullscreen = true; continue; }
         const bool option = !strcmp(arg, "--dir") || !strcmp(arg, "--key") || !strcmp(arg, "--size");
         if (!option) { if (have_source) return; source = arg; have_source = true; continue; }
         if (!strcmp(arg, "--dir")) dir = true;
@@ -586,6 +589,7 @@ void solar_os_photo_complete(const char *const *tokens, size_t count,
     if (!dir) emit("--dir", user);
     if (!key) emit("--key", user);
     if (!size && strncmp(source, "rtsp://", 7)) emit("--size", user);
+    if (!fullscreen) emit("--fullscreen", user);
 }
 
 const solar_os_app_t solar_os_photo_app = {

@@ -233,7 +233,9 @@ int main(void) {
     photo_state_t state;photo_state=&state;solar_os_gfx_t gfx={0};
     const char *args[]={"photo"};solar_os_context_t ctx={.gfx=&gfx};set_args(&ctx,1,args);
     candidate_count=0;solar_os_photo_complete(args,1,emit,NULL);
-    assert(offered("camera0") && !offered("mic0") && !offered("video-sink") && offered("--key"));
+    assert(offered("camera0") && !offered("mic0") && !offered("video-sink") && offered("--key") && offered("--fullscreen"));
+    const char *full[]={"photo","--fullscreen"};candidate_count=0;solar_os_photo_complete(full,2,emit,NULL);
+    assert(offered("camera0") && offered("--key") && !offered("--fullscreen"));
     const char *keys[]={"photo","camera0","--key"};candidate_count=0;solar_os_photo_complete(keys,3,emit,NULL);
     assert(offered("SPACE") && !offered("camera0"));
     const char *sizes[]={"photo","--size"};candidate_count=0;solar_os_photo_complete(sizes,2,emit,NULL);assert(offered("240x240"));
@@ -292,6 +294,12 @@ int main(void) {
         check_capture(&ctx,0);close_app(&ctx);
     }
     canvas_width=canvas_height=291;gfx.mono=false;
+    const char *full_options[]={"photo","--dir",directory,"--key","SPACE","--fullscreen","--size","640x480"};
+    set_args(&ctx,8,full_options);before=headers;
+    assert(start(&ctx)==ESP_OK && photo.fullscreen && photo.output_width==412 && photo.output_height==412);
+    await_preview(&ctx);assert(headers==before && viewport(&gfx).x==-60);
+    key(&ctx,'f');assert(!photo.fullscreen && headers>before);
+    key(&ctx,'f');assert(photo.fullscreen);close_app(&ctx);set_args(&ctx,1,args);
     assert(start(&ctx)==ESP_OK);await_preview(&ctx);block_write=true;
     const solar_os_event_t relative={.type=SOLAR_OS_EVENT_POINTER,.data.pointer={
         .mode=SOLAR_OS_INPUT_POINTER_RELATIVE,.action=SOLAR_OS_INPUT_POINTER_PRESS,
@@ -304,9 +312,13 @@ int main(void) {
     close_app(&ctx);busy_source=false;
     const char *bad[]={"photo","--key","ESCAPE"};set_args(&ctx,3,bad);
     assert(start(&ctx)==ESP_ERR_INVALID_ARG);close_app(&ctx);
-    const char *remote[]={"photo","rtsp://example/media"};set_args(&ctx,2,remote);
+    const char *duplicate[]={"photo","--fullscreen","--fullscreen"};set_args(&ctx,3,duplicate);
+    assert(start(&ctx)==ESP_ERR_INVALID_ARG);close_app(&ctx);
+    const char *remote[]={"photo","--fullscreen","rtsp://example/media"};set_args(&ctx,3,remote);
+    candidate_count=0;solar_os_photo_complete(remote,3,emit,NULL);
+    assert(offered("--dir") && !offered("--fullscreen") && !offered("--size"));
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
-    assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(photo.remote);
+    assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(photo.remote && photo.fullscreen);
     check_capture(&ctx,SOLAR_OS_KEY_ENTER);close_app(&ctx);
 #else
     assert(start(&ctx)==ESP_ERR_NOT_SUPPORTED);close_app(&ctx);
