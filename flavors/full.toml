@@ -11,6 +11,7 @@ bluetooth = true
 sd_storage = true
 audio_support = true
 camera = true
+photo = true
 vision = true
 inference = true
 inference_backend = false

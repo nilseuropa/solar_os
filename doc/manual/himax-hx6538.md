@@ -60,6 +60,9 @@ job stop rtspd
 
 Model upload, model selection, and inference are outside this driver interface.
 
+With the `photo` package selected, `photo` opens a live viewfinder. Press Enter
+to save the displayed frame, or use `photo camera0 --size 640x480` for VGA capture.
+
 ## Quick reference
 
 Driver: `himax-hx6538`. Required: `spi=<bus> cs=<cs>`. Optional:

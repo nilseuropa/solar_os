@@ -1721,6 +1721,44 @@ Controls:
 - `Left`/`Right` collapse/expand a category.
 - `q`, `Esc`, or app-exit key exits.
 
+## photo
+
+Live viewfinder and still capture from a registered JPEG video source or an
+RTSP JPEG camera. The default source is `camera0`; this application requires
+a graphical display and PSRAM. Select the `photo` package group. Local camera
+providers are supplied by the `camera` group; RTSP reception is included on
+Wi-Fi boards and uses the same UDP JPEG transport as the `rtsp` application.
+JPEG frames are limited to 2 megapixels and 512 KiB.
+
+```text
+photo
+photo camera0 --size 640x480
+photo rtsp://192.168.1.238/media --dir /photos
+photo --key SPACE --dir /photos
+```
+
+Press **Enter** to save the currently displayed frame. `--key KEY` selects a
+different logical key, such as `SPACE` or `F1`; Escape, the app-exit key, and
+`f`/`F` are reserved. Press `f` to toggle between the canvas viewfinder and the
+full panel, including circular panels. Escape or the app-exit key closes the
+application. The status line reports successful saves and storage errors.
+
+Files are named `photo-000001.jpg`, `photo-000002.jpg`, and so on in the launch
+directory, or in the existing directory selected by `--dir`. Existing files
+are skipped and never replaced. The saved JPEG retains the source resolution
+and encoded bytes; preview resizing does not reduce the captured image.
+
+`--size WIDTHxHEIGHT` requests a native mode from a registered stream and also
+accepts `qvga`/`vga` aliases. Use `camera resolutions` for built-in camera modes.
+RTSP URLs use the remote camera's resolution and do not accept `--size`.
+Autocomplete suggests video sources, options, capture keys, output directories,
+and the selected stream's advertised default dimensions without opening it.
+
+Preview acquisition, decoding, and saving run on a worker, with a preview rate
+limit of 10 frames per second. Actual speed depends on the source and display.
+Suspending releases the source; resuming opens it again. Exclusive sources
+cannot be shared with another camera owner such as `rtspd` or `cam-webd`.
+
 ## plot
 
 Graphical plotter for DAQ CSV files and live scalar streams. It is compatible

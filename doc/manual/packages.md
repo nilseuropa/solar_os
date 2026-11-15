@@ -127,6 +127,7 @@ output.
 | --- | --- |
 | `launcher` | Graphics. |
 | `image_viewer` | Graphics and PSRAM for decoded images. |
+| `photo` | Live JPEG viewfinder and still capture; graphics and PSRAM, with RTSP reception on Wi-Fi boards. |
 | `sketch` | Graphics; accepts absolute or relative pointers when available. |
 | `player` | A playback output for local WAV/MP3 files; supports saved playlists. |
 | `webradio` | Wi-Fi and a playback output for HTTP(S) MP3 streams. |

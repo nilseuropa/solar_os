@@ -527,6 +527,11 @@ label = "Image viewer"
 category = "Media"
 members = ["app_view"]
 
+[groups.photo]
+label = "Camera viewfinder"
+category = "Media"
+members = ["app_photo", "service_rtsp_client"]
+
 [groups.vplay]
 label = "MPEG-1 media player"
 category = "Media"
@@ -3262,6 +3267,12 @@ capabilities = ["psram"]
 label = "app.view"
 depends = ["service_image", "service_vector"]
 sources = ["apps/solar_os_view.c"]
+capabilities = ["psram", "gfx"]
+
+[packages.app_photo]
+label = "app.photo"
+depends = ["service_image", "service_script_media"]
+sources = ["apps/solar_os_photo.c"]
 capabilities = ["psram", "gfx"]
 
 [packages.app_vplay]

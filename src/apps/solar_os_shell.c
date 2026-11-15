@@ -27,6 +27,9 @@
 #include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_app_registry.h"
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+#include "solar_os_photo.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -6501,6 +6504,11 @@ static void shell_completion_emit(shell_completion_match_t *state, const char *v
     }
 }
 
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+static void shell_photo_candidate(const char *candidate, void *user)
+{ shell_completion_emit(user, candidate); }
+#endif
+
 static bool shell_completion_alias_emit_callback(const char *name,
                                                  int argc,
                                                  char **argv,
@@ -8990,6 +8998,13 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
     state->prefix = prefix;
     state->print = print;
 
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+    if (!strcmp(tokens[0], "photo")) {
+        solar_os_photo_complete(tokens, token_count, shell_photo_candidate, state);
+        return true;
+    }
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
     if (token_count >= 2 && !strcmp(tokens[0], "usb") && !strcmp(tokens[1], "serial")) {
         if (token_count == 2) {
@@ -9414,6 +9429,14 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
     if (!parse->trailing_space && current_index < parse->count) {
         prefix = parse->tokens[current_index];
     }
+
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+    if (!strcmp(effective_command, "photo") && completed_count > 1 &&
+        !strcmp(completed_tokens[completed_count - 1], "--dir")) {
+        shell_complete_path(ctx, token_start, prefix, true, show_matches);
+        return true;
+    }
+#endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_SSH || SOLAR_OS_PACKAGE_SERVICE_NET
     if (shell_complete_ssh_host_argument(ctx,

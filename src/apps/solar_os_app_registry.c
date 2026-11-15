@@ -156,6 +156,9 @@
 #if SOLAR_OS_PACKAGE_APP_VIEW
 #include "solar_os_view.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+#include "solar_os_photo.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 #include "solar_os_vplay.h"
 #endif
@@ -311,6 +314,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_VIEW
     APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+    APP_ENTRY("photo", "live viewfinder and JPEG capture", &solar_os_photo_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "photo [stream|rtsp://URL] [--dir DIR] [--key KEY] [--size WIDTHxHEIGHT]", 1, 8),
 #endif
 #if SOLAR_OS_PACKAGE_APP_VPLAY
     APP_FILE_ENTRY("vplay", "MPEG-1 media player", &solar_os_vplay_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "vplay [-fit|-actual] [file.mpg|playlist.m3u]", 1, 3, ".mpg .mpeg"),
