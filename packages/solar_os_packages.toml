@@ -3271,7 +3271,7 @@ capabilities = ["psram", "gfx"]
 
 [packages.app_photo]
 label = "app.photo"
-depends = ["service_image", "service_script_media"]
+depends = ["service_image", "service_script_media", "service_media_widgets"]
 sources = ["apps/solar_os_photo.c"]
 capabilities = ["psram", "gfx"]
 

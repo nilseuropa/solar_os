@@ -15,6 +15,7 @@
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
+#include "solar_os_media_widgets.h"
 #include "solar_os_memory.h"
 #include "solar_os_script_media.h"
 #include "solar_os_stb_image.h"
@@ -24,8 +25,6 @@
 #define PHOTO_STACK 24576U
 #define PHOTO_SAVE_STACK 8192U
 #define PHOTO_MAX_PIXELS (2U * 1024U * 1024U)
-#define PHOTO_HEADER 22
-#define PHOTO_FOOTER 32
 #define PHOTO_SOURCE_MAX 256U
 #if !CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(PHOTO_STACK);
@@ -47,6 +46,7 @@ typedef struct {
     bool remote, monochrome, direct, fullscreen, high_refresh;
     bool dirty, layout_dirty, capture_busy;
     uint8_t key;
+    int pointer_x, pointer_y;
     uint16_t requested_width, requested_height;
     uint32_t output_width, output_height, generation, sequence;
     photo_frame_t *pending, *current, *capture;
@@ -268,10 +268,10 @@ static void refresh(solar_os_context_t *ctx, bool enabled)
 
 static solar_os_display_rect_t viewport(solar_os_gfx_t *gfx)
 {
-    solar_os_display_rect_t rect = photo.fullscreen ?
-        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
-    if (!photo.fullscreen) { rect.y += PHOTO_HEADER; rect.height -= PHOTO_HEADER + PHOTO_FOOTER; }
-    return rect;
+    if (photo.fullscreen) return solar_os_gfx_panel_bounds(gfx);
+    solar_os_media_player_layout_t ui;
+    solar_os_media_player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), false, &ui);
+    return (solar_os_display_rect_t){ui.view_x, ui.view_y, ui.view_width, ui.view_height};
 }
 
 static void layout(solar_os_context_t *ctx)
@@ -285,11 +285,39 @@ static void layout(solar_os_context_t *ctx)
     xSemaphoreGive(photo.mutex);
 }
 
+static void draw_controls(solar_os_gfx_t *gfx)
+{
+    const int width = solar_os_gfx_width(gfx), height = solar_os_gfx_height(gfx);
+    solar_os_media_player_layout_t ui;
+    solar_os_media_player_layout(width, height, false, &ui);
+    solar_os_media_player_header_draw(gfx, width, "Photo", "F: full");
+    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_line(gfx, 0, ui.controls_y, width - 1, ui.controls_y);
+    if (ui.title_y >= 0) {
+        solar_os_gfx_set_font(gfx, ui.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD_16);
+        solar_os_media_text_draw(gfx, 3, ui.title_y, width - 6, photo.label);
+    }
+    solar_os_media_player_status_draw(gfx, width, height, photo.message[0] ? photo.message :
+        photo.current ? "Ready" : "Waiting for video...");
+    if (ui.volume_y >= 0) {
+        const char literal_key[2] = {(char)photo.key, '\0'};
+        const char *key_name = solar_os_key_name(photo.key);
+        char hint[64];
+        snprintf(hint, sizeof(hint), "%s: capture", key_name ? key_name : literal_key);
+        solar_os_gfx_set_font(gfx, ui.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
+        solar_os_media_text_draw(gfx, 3, ui.volume_y + (ui.compact ? 5 : 9), width - 6, hint);
+    }
+    solar_os_media_transport_button_draw(gfx, ui.button_gap * 2 + ui.button_width,
+        ui.button_y, ui.button_width, ui.button_height,
+        SOLAR_OS_MEDIA_TRANSPORT_RECORD, photo.capture_busy);
+}
+
 static void render(solar_os_context_t *ctx)
 {
     if (suspended() || xSemaphoreTake(photo.mutex, 0) != pdTRUE) return;
     bool changed = false;
     if (photo.pending) {
+        if (!photo.current) photo.dirty = true;
         frame_release(photo.current); photo.current = photo.pending; photo.pending = NULL;
         changed = true;
     }
@@ -301,18 +329,12 @@ static void render(solar_os_context_t *ctx)
         solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
         solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-        if (!photo.fullscreen) {
-            char text[96];
-            snprintf(text, sizeof(text), "Photo %.80s", photo.label);
-            while (text[0] && solar_os_gfx_text_width(gfx, text) > (size_t)(rect.width - 8)) text[strlen(text)-1] = '\0';
-            solar_os_gfx_text(gfx, 4, 15, text);
-            solar_os_gfx_text(gfx, 4, rect.y + rect.height + 12, photo.message);
-            const char literal_key[2] = {(char)photo.key, '\0'};
-            const char *key_name = solar_os_key_name(photo.key);
-            snprintf(text, sizeof(text), "%s: capture  F: fullscreen", key_name ? key_name : literal_key);
-            solar_os_gfx_text(gfx, 4, rect.y + rect.height + 27, text);
+        if (!photo.fullscreen) draw_controls(gfx);
+        if (!photo.current) {
+            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BITMAP_8);
+            solar_os_media_text_draw(gfx, rect.x + 2, rect.y + 8, rect.width - 4, "Waiting for video...");
         }
-        if (!photo.current) solar_os_gfx_text(gfx, rect.x + 4, rect.y + 16, "Waiting for video...");
     }
     photo_frame_t *frame = photo.current;
     if (frame) {
@@ -404,7 +426,8 @@ static esp_err_t start(solar_os_context_t *ctx)
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     photo.monochrome = solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_MONO1;
     photo.direct = !photo.monochrome && solar_os_gfx_supports_frame_format(gfx, SOLAR_OS_DISPLAY_FORMAT_RGB565);
-    if (solar_os_gfx_width(gfx) < 40 || solar_os_gfx_height(gfx) <= PHOTO_HEADER + PHOTO_FOOTER + 16)
+    const solar_os_display_rect_t rect = viewport(gfx);
+    if (solar_os_gfx_width(gfx) < 40 || rect.width < 1 || rect.height < 8)
         return ESP_ERR_NOT_SUPPORTED;
     layout(ctx); refresh(ctx, true);
     photo.done = false;
@@ -446,9 +469,58 @@ static void resume(solar_os_context_t *ctx)
     __atomic_store_n(&photo.suspended, false, __ATOMIC_RELAXED);
     render(ctx);
 }
+
+static void capture(solar_os_context_t *ctx)
+{
+    xSemaphoreTake(photo.mutex, portMAX_DELAY);
+    if (!photo.capture_busy && photo.current &&
+        __atomic_load_n(&photo.save_done, __ATOMIC_ACQUIRE)) {
+        if (photo.save_worker) {
+            solar_os_task_delete_internal(photo.save_worker); photo.save_worker = NULL;
+        }
+        photo.capture = photo.current;
+        __atomic_add_fetch(&photo.capture->refs, 1U, __ATOMIC_RELAXED);
+        photo.capture_busy = true;
+        photo.save_done = false;
+        strlcpy(photo.message, "Saving...", sizeof(photo.message));
+        /* Flash-backed VFS writes must run with an internal stack. Keep
+         * preview/decoding in PSRAM and allocate this stack only on capture. */
+        if (solar_os_task_create_pinned_internal(save_worker, "photo-save", PHOTO_SAVE_STACK,
+            NULL, tskIDLE_PRIORITY + 1, &photo.save_worker, tskNO_AFFINITY,
+            SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
+            photo.save_done = true; photo.capture_busy = false;
+            frame_release(photo.capture); photo.capture = NULL;
+            strlcpy(photo.message, "Not enough memory to save", sizeof(photo.message));
+        }
+    }
+    photo.dirty = true;
+    xSemaphoreGive(photo.mutex);
+    render(ctx);
+}
+
+static bool pointer(solar_os_context_t *ctx, const solar_os_input_pointer_event_t *event)
+{
+    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    const int width = solar_os_gfx_width(gfx), height = solar_os_gfx_height(gfx);
+    if (event->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE) {
+        photo.pointer_x = event->x; photo.pointer_y = event->y;
+    } else {
+        const int x = photo.pointer_x + event->delta_x, y = photo.pointer_y + event->delta_y;
+        photo.pointer_x = x < 0 ? 0 : x >= width ? width - 1 : x;
+        photo.pointer_y = y < 0 ? 0 : y >= height ? height - 1 : y;
+    }
+    if (photo.fullscreen || event->action != SOLAR_OS_INPUT_POINTER_PRESS ||
+        !(event->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY) ||
+        solar_os_media_player_button_at(width, height, false, photo.pointer_x, photo.pointer_y) != 1)
+        return false;
+    capture(ctx);
+    return true;
+}
+
 static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
     if (event->type == SOLAR_OS_EVENT_RESUME) { resume(ctx); return true; }
+    if (event->type == SOLAR_OS_EVENT_POINTER) return pointer(ctx, &event->data.pointer);
     if (event->type == SOLAR_OS_EVENT_TICK) {
         xSemaphoreTake(photo.mutex, portMAX_DELAY);
         const esp_err_t error = photo.error;
@@ -468,32 +540,7 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (key == 'f' || key == 'F') {
         photo.fullscreen = !photo.fullscreen; layout(ctx); render(ctx); return true;
     }
-    if (key == photo.key) {
-        xSemaphoreTake(photo.mutex, portMAX_DELAY);
-        if (!photo.capture_busy && photo.current &&
-            __atomic_load_n(&photo.save_done, __ATOMIC_ACQUIRE)) {
-            if (photo.save_worker) {
-                solar_os_task_delete_internal(photo.save_worker); photo.save_worker = NULL;
-            }
-            photo.capture = photo.current;
-            __atomic_add_fetch(&photo.capture->refs, 1U, __ATOMIC_RELAXED);
-            photo.capture_busy = true;
-            photo.save_done = false;
-            strlcpy(photo.message, "Saving...", sizeof(photo.message));
-            /* Flash-backed VFS writes must run with an internal stack. Keep
-             * preview/decoding in PSRAM and allocate this stack only on capture. */
-            if (solar_os_task_create_pinned_internal(save_worker, "photo-save", PHOTO_SAVE_STACK,
-                NULL, tskIDLE_PRIORITY + 1, &photo.save_worker, tskNO_AFFINITY,
-                SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
-                photo.save_done = true; photo.capture_busy = false;
-                frame_release(photo.capture); photo.capture = NULL;
-                strlcpy(photo.message, "Not enough memory to save", sizeof(photo.message));
-            }
-        } else if (!photo.current) strlcpy(photo.message, "Waiting for video...", sizeof(photo.message));
-        photo.dirty = true;
-        xSemaphoreGive(photo.mutex);
-        render(ctx);
-    }
+    if (key == photo.key) capture(ctx);
     return true;
 }
 static uint32_t tick_interval(void) { return 33; }
@@ -543,7 +590,8 @@ void solar_os_photo_complete(const char *const *tokens, size_t count,
 
 const solar_os_app_t solar_os_photo_app = {
     .name = "photo", .summary = "live viewfinder and JPEG capture",
-    .app_class = SOLAR_OS_APP_CLASS_GUI, .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .app_class = SOLAR_OS_APP_CLASS_GUI,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS,
     .start = start, .stop = stop, .suspend = suspend, .resume = resume, .event = event,
     .state_slot = &photo_state, .state_size = sizeof(photo_state_t),
     .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,

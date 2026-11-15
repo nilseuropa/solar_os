@@ -21,6 +21,10 @@ static atomic_uint allocations, opens, closes, acquired, released, direct_frames
 static atomic_bool block_capture, in_capture, block_write, fail_write, busy_source, deny_save;
 static unsigned finishes;
 static bool literal_key_hint;
+static int canvas_width=291,canvas_height=291;
+static unsigned headers,shutters;
+static solar_os_gfx_font_t font;
+static solar_os_gfx_color_t color;
 static char directory[160];
 static ssize_t photo_test_write(int fd,const void *data,size_t size);
 size_t strlcpy(char *to,const char *from,size_t size) {
@@ -145,10 +149,10 @@ const char *solar_os_context_argv(const solar_os_context_t *ctx,int i) { return 
 solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx) { return ctx->gfx; }
 void solar_os_context_set_graphics_active(solar_os_context_t *ctx,bool active) { (void)ctx;(void)active; }
 void solar_os_context_finish(solar_os_context_t *ctx,int code,const char *message) { (void)ctx;(void)code;(void)message;finishes++; }
-solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx) { (void)gfx;return (solar_os_display_rect_t){0,0,291,291}; }
+solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx) { (void)gfx;return (solar_os_display_rect_t){0,0,canvas_width,canvas_height}; }
 solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx) { (void)gfx;return (solar_os_display_rect_t){-60,-60,412,412}; }
-size_t solar_os_gfx_width(const solar_os_gfx_t *gfx) { (void)gfx;return 291; }
-size_t solar_os_gfx_height(const solar_os_gfx_t *gfx) { (void)gfx;return 291; }
+size_t solar_os_gfx_width(const solar_os_gfx_t *gfx) { (void)gfx;return canvas_width; }
+size_t solar_os_gfx_height(const solar_os_gfx_t *gfx) { (void)gfx;return canvas_height; }
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
 { return gfx->mono?SOLAR_OS_DISPLAY_FORMAT_MONO1:SOLAR_OS_DISPLAY_FORMAT_INDEX8; }
 bool solar_os_gfx_supports_frame_format(const solar_os_gfx_t *gfx,solar_os_display_format_t format)
@@ -158,11 +162,30 @@ bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx,char *out,size_t
 esp_err_t solar_os_display_set_high_refresh_override(const char *name,bool enabled,uint16_t hz)
 { (void)enabled;(void)hz;assert(!strcmp(name,"display0"));return ESP_OK; }
 void solar_os_gfx_clear(solar_os_gfx_t *gfx,solar_os_gfx_color_t c) { (void)gfx;(void)c; }
-void solar_os_gfx_set_font(solar_os_gfx_t *gfx,solar_os_gfx_font_t f) { (void)gfx;(void)f; }
-void solar_os_gfx_set_color(solar_os_gfx_t *gfx,solar_os_gfx_color_t c) { (void)gfx;(void)c; }
+void solar_os_gfx_set_font(solar_os_gfx_t *gfx,solar_os_gfx_font_t f) { (void)gfx;font=f; }
+void solar_os_gfx_set_color(solar_os_gfx_t *gfx,solar_os_gfx_color_t c) { (void)gfx;color=c; }
 size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx,const char *s) { (void)gfx;return strlen(s)*5; }
 void solar_os_gfx_text(solar_os_gfx_t *gfx,int x,int y,const char *text)
-{ (void)gfx;if(strstr(text,"z: capture")) literal_key_hint=true;assert(x>=-60 && x<352 && y>=-60 && y<352); }
+{
+    (void)gfx;if(strstr(text,"z: capture")) literal_key_hint=true;
+    assert(x>=-60 && x<352 && y>=-60 && y<352);
+    if (!photo.fullscreen) assert(x>=0 && x+(int)strlen(text)*5<=canvas_width && y<canvas_height);
+    if (!strcmp(text,"Photo")) {
+        assert(color==SOLAR_OS_GFX_COLOR_WHITE);
+        assert(font==(canvas_height<180 || canvas_width<240?SOLAR_OS_GFX_FONT_BITMAP_8:SOLAR_OS_GFX_FONT_BOLD_16));
+        headers++;
+    }
+}
+void solar_os_gfx_rect(solar_os_gfx_t *gfx,int x,int y,int w,int h)
+{ (void)gfx;assert(x>=0 && y>=0 && w>0 && h>0 && x+w<=canvas_width && y+h<=canvas_height); }
+void solar_os_gfx_fill_rect(solar_os_gfx_t *gfx,int x,int y,int w,int h)
+{ solar_os_gfx_rect(gfx,x,y,w,h); }
+void solar_os_gfx_line(solar_os_gfx_t *gfx,int x,int y,int right,int bottom)
+{ (void)gfx;assert(x>=0 && right<canvas_width && y>=0 && bottom<canvas_height); }
+void solar_os_gfx_fill_circle(solar_os_gfx_t *gfx,int x,int y,int radius)
+{ (void)gfx;assert(x-radius>=0 && x+radius<canvas_width && y-radius>=0 && y+radius<canvas_height);shutters++; }
+void solar_os_gfx_fill_polygon(solar_os_gfx_t *gfx,const solar_os_gfx_point_t *points,size_t count)
+{ (void)gfx;(void)points;(void)count;assert(false); }
 void solar_os_gfx_present(solar_os_gfx_t *gfx) { (void)gfx; }
 esp_err_t solar_os_gfx_present_frame_at(solar_os_gfx_t *gfx,const solar_os_display_raster_t *r,int x,int y) {
     (void)gfx;assert(r->format==SOLAR_OS_DISPLAY_FORMAT_RGB565 && r->source_stride==4);
@@ -174,6 +197,11 @@ const char *esp_err_to_name(esp_err_t error) { (void)error;return "test-error"; 
 
 static void tick(solar_os_context_t *ctx) { const solar_os_event_t e={.type=SOLAR_OS_EVENT_TICK};event(ctx,&e);usleep(3000); }
 static void key(solar_os_context_t *ctx,uint8_t ch) { const solar_os_event_t e={.type=SOLAR_OS_EVENT_CHAR,.data.ch=ch};event(ctx,&e); }
+static bool click(solar_os_context_t *ctx,int x,int y,solar_os_input_pointer_action_t action,uint8_t buttons) {
+    const solar_os_event_t e={.type=SOLAR_OS_EVENT_POINTER,.data.pointer={
+        .mode=SOLAR_OS_INPUT_POINTER_ABSOLUTE,.action=action,.buttons=buttons,.x=x,.y=y}};
+    return event(ctx,&e);
+}
 static void await_preview(solar_os_context_t *ctx) {
     for (unsigned i=0;i<1500 && !photo.current;i++) tick(ctx);assert(photo.current);
 }
@@ -193,7 +221,9 @@ static void set_args(solar_os_context_t *ctx,int argc,const char **argv) {
 }
 static void check_capture(solar_os_context_t *ctx,uint8_t shutter) {
     uint8_t expected[8],saved[8];memcpy(expected,photo.current->jpeg,8);
-    key(ctx,shutter);await_save(ctx);assert(strstr(photo.message,"Saved photo-000002.jpg"));
+    if (shutter) key(ctx,shutter);
+    else assert(click(ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    await_save(ctx);assert(strstr(photo.message,"Saved photo-000002.jpg"));
     char path[200];snprintf(path,sizeof(path),"%s/photo-000002.jpg",directory);
     FILE *f=fopen(path,"rb");assert(f && fread(saved,1,8,f)==8 && !memcmp(saved,expected,8));
     fclose(f);unlink(path);
@@ -210,17 +240,37 @@ int main(void) {
     char path[200];snprintf(path,sizeof(path),"%s/photo-000001.jpg",directory);
     FILE *f=fopen(path,"wb");assert(f);fputs("existing",f);fclose(f);
     assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(direct_frames && photo.key==SOLAR_OS_KEY_ENTER);
+    assert(headers && shutters && (solar_os_photo_app.flags & SOLAR_OS_APP_FLAG_POINTER_EVENTS));
+    solar_os_media_player_layout_t ui;
+    solar_os_media_player_layout(canvas_width,canvas_height,false,&ui);
+    solar_os_display_rect_t view=viewport(&gfx);
+    assert(view.x==ui.view_x && view.y==ui.view_y && view.width==ui.view_width && view.height==ui.view_height);
+    assert(!click(&ctx,0,0,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    assert(!click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_MOVE,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    assert(!click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_RELEASE,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    assert(!click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,0));
+    assert(!click(&ctx,ui.button_gap*2+ui.button_width-1,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    assert(!photo.capture_busy && photo.sequence==1);
+    memset(photo.label,'L',sizeof(photo.label)-1);photo.label[sizeof(photo.label)-1]=0;
+    memset(photo.message,'M',sizeof(photo.message)-1);photo.message[sizeof(photo.message)-1]=0;
+    photo.dirty=true;render(&ctx); /* Long source names and save errors are clipped. */
+    strcpy(photo.label,"camera0");photo.message[0]=0;
     uint8_t expected[8];memcpy(expected,photo.current->jpeg,8);
-    block_write=true;key(&ctx,SOLAR_OS_KEY_ENTER);assert(photo.capture_busy);key(&ctx,SOLAR_OS_KEY_ENTER);
+    block_write=true;assert(click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
+    assert(photo.capture_busy);key(&ctx,SOLAR_OS_KEY_ENTER);
+    assert(click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
     block_write=false;await_save(&ctx);assert(strstr(photo.message,"Saved photo-000002.jpg"));
     snprintf(path,sizeof(path),"%s/photo-000002.jpg",directory);f=fopen(path,"rb");assert(f);
     uint8_t saved[8];assert(fread(saved,1,8,f)==8 && !memcmp(saved,expected,8));fclose(f);unlink(path);
     fail_write=true;key(&ctx,SOLAR_OS_KEY_ENTER);await_save(&ctx);assert(strstr(photo.message,"Save failed"));fail_write=false;
     snprintf(path,sizeof(path),"%s/photo-000003.jpg",directory);assert(access(path,F_OK)!=0);
-    key(&ctx,'f');assert(photo.fullscreen);tick(&ctx);
+    unsigned before=headers;
+    key(&ctx,'f');assert(photo.fullscreen);tick(&ctx);assert(headers==before && viewport(&gfx).width==412);
+    assert(!click(&ctx,canvas_width/2,canvas_height-5,SOLAR_OS_INPUT_POINTER_PRESS,SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY));
     unsigned previous=opens;suspend(&ctx);
     for(unsigned i=0;i<1000 && closes<previous;i++) usleep(1000);assert(closes==previous);
     resume(&ctx);for(unsigned i=0;i<1000 && opens==previous;i++) tick(&ctx);assert(opens==previous+1);
+    before=finishes;key(&ctx,SOLAR_OS_KEY_ESCAPE);assert(finishes==before+1);
     close_app(&ctx);assert(acquired==released && opens==closes);
     gfx.mono=true;const char *custom[]={"photo","--key","SPACE"};set_args(&ctx,3,custom);
     assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(indexed_frames);
@@ -231,6 +281,24 @@ int main(void) {
     close_app(&ctx);gfx.mono=false;set_args(&ctx,1,args);
     const char *letter[]={"photo","--key","z"};set_args(&ctx,3,letter);
     assert(start(&ctx)==ESP_OK && literal_key_hint && photo.key=='z');close_app(&ctx);set_args(&ctx,1,args);
+    /* The same widgets and hit testing adapt to compact monochrome canvases. */
+    const int dimensions[][2]={{240,135},{128,64},{80,48}};
+    gfx.mono=true;
+    for (unsigned i=0;i<sizeof(dimensions)/sizeof(dimensions[0]);i++) {
+        canvas_width=dimensions[i][0];canvas_height=dimensions[i][1];before=shutters;
+        assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(shutters>before);
+        solar_os_media_player_layout(canvas_width,canvas_height,false,&ui);view=viewport(&gfx);
+        assert(view.y==ui.view_y && view.height==ui.view_height);
+        check_capture(&ctx,0);close_app(&ctx);
+    }
+    canvas_width=canvas_height=291;gfx.mono=false;
+    assert(start(&ctx)==ESP_OK);await_preview(&ctx);block_write=true;
+    const solar_os_event_t relative={.type=SOLAR_OS_EVENT_POINTER,.data.pointer={
+        .mode=SOLAR_OS_INPUT_POINTER_RELATIVE,.action=SOLAR_OS_INPUT_POINTER_PRESS,
+        .buttons=SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY,.delta_x=145,.delta_y=286}};
+    assert(event(&ctx,&relative) && photo.capture_busy);block_write=false;await_save(&ctx);
+    assert(strstr(photo.message,"Saved photo-000002.jpg"));
+    snprintf(path,sizeof(path),"%s/photo-000002.jpg",directory);unlink(path);close_app(&ctx);
     busy_source=true;assert(start(&ctx)==ESP_OK);
     for(unsigned i=0;i<1000 && !photo.done;i++) tick(&ctx);assert(photo.done && photo.error==ESP_ERR_INVALID_STATE);
     close_app(&ctx);busy_source=false;

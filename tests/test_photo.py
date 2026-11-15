@@ -22,6 +22,7 @@ class PhotoTest(unittest.TestCase):
                     "cc", "-std=c11", "-D_GNU_SOURCE", "-O1", "-g", "-Wall", "-Wextra",
                     "-Werror", "-Wno-misleading-indentation", "-pthread",
                     "-fsanitize=address,undefined", "-no-pie", "-DpdTRUE=1",
+                    "-ffunction-sections", "-fdata-sections", "-Wl,--gc-sections",
                     "-DCONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM=1",
                     f"-DSOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT={rtsp}",
                     "-include", str(ROOT / "tests/host/compat.h"),
@@ -33,7 +34,9 @@ class PhotoTest(unittest.TestCase):
                     "-I", str(ROOT / "components/stb_image/include"),
                     "-idirafter", str(ROOT / "include"),
                     str(ROOT / "tests/host/photo_app_test.c"),
-                    str(ROOT / "src/services/solar_os_keys.c"), "-o", str(binary),
+                    str(ROOT / "src/services/solar_os_keys.c"),
+                    str(ROOT / "src/services/solar_os_media_widgets.c"),
+                    "-o", str(binary),
                 ], check=True)
                 subprocess.run([str(binary)], check=True, timeout=20)
 
@@ -44,6 +47,7 @@ class PhotoTest(unittest.TestCase):
         self.assertNotIn("service_camera", app["depends"])
         self.assertNotIn("service_rtsp_client", app["depends"])
         self.assertIn("service_script_media", app["depends"])
+        self.assertIn("service_media_widgets", app["depends"])
         self.assertIn("app_photo", packages["groups"]["photo"]["members"])
         full = tomllib.loads((ROOT / "flavors/full.toml").read_text())
         self.assertTrue(full["groups"]["photo"])
