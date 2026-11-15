@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct {
+    int x, y, width, height;
+} solar_os_display_rect_t;
+
 typedef enum {
     SOLAR_OS_DISPLAY_ROTATION_0,
     SOLAR_OS_DISPLAY_ROTATION_90,

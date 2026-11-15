@@ -7160,6 +7160,17 @@ static int solua_gfx_size(lua_State *L)
     return 2;
 }
 
+static int solua_gfx_bounds(lua_State *L, bool panel)
+{
+    const solar_os_display_rect_t r = panel ? solar_os_gfx_panel_bounds(solua_current_gfx()) :
+        solar_os_gfx_canvas_bounds(solua_current_gfx());
+    lua_pushinteger(L, r.x); lua_pushinteger(L, r.y);
+    lua_pushinteger(L, r.width); lua_pushinteger(L, r.height);
+    return 4;
+}
+static int solua_gfx_canvas_bounds(lua_State *L) { return solua_gfx_bounds(L, false); }
+static int solua_gfx_panel_bounds(lua_State *L) { return solua_gfx_bounds(L, true); }
+
 static int solua_gfx_clear(lua_State *L)
 {
     const solar_os_gfx_color_t color =

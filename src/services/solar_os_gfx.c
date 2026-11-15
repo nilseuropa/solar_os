@@ -739,6 +739,10 @@ static void gfx_draw_hline_raw_clipped(solar_os_gfx_t *gfx, int x, int y, int wi
         return;
     }
 
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    y += canvas.y;
+
     const int display_width = (int)u8g2_GetDisplayWidth(gfx->u8g2);
     const int display_height = (int)u8g2_GetDisplayHeight(gfx->u8g2);
     if (y < 0 || y >= display_height) {
@@ -844,12 +848,29 @@ void solar_os_gfx_set_palette_inverted(solar_os_gfx_t *gfx, bool inverted)
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
 {
-    return gfx_ready(gfx) ? u8g2_GetDisplayWidth(gfx->u8g2) : 0;
+    return solar_os_gfx_canvas_bounds(gfx).width;
 }
 
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
 {
-    return gfx_ready(gfx) ? u8g2_GetDisplayHeight(gfx->u8g2) : 0;
+    return solar_os_gfx_canvas_bounds(gfx).height;
+}
+
+solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx)
+{
+    solar_os_display_rect_t bounds = solar_os_display_canvas_rect(gfx_ready(gfx) ? gfx->u8g2 : NULL);
+    bounds.x = bounds.y = 0;
+    return bounds;
+}
+
+solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx)
+{
+    if (!gfx_ready(gfx)) return (solar_os_display_rect_t){0};
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    const solar_os_display_geometry_t *g = solar_os_display_geometry_for(gfx->u8g2);
+    return (solar_os_display_rect_t){-canvas.x, -canvas.y,
+        g ? g->panel.width : u8g2_GetDisplayWidth(gfx->u8g2),
+        g ? g->panel.height : u8g2_GetDisplayHeight(gfx->u8g2)};
 }
 
 bool solar_os_gfx_dimensions(const solar_os_gfx_t *gfx, uint16_t *width, uint16_t *height)
@@ -857,16 +878,9 @@ bool solar_os_gfx_dimensions(const solar_os_gfx_t *gfx, uint16_t *width, uint16_
     if (width == NULL || height == NULL) return false;
     *width = *height = 0;
     if (!gfx_ready(gfx)) return false;
-    char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
-    solar_os_display_target_t target;
-    if (solar_os_gfx_display_target_name(gfx, name, sizeof(name)) &&
-        solar_os_display_find_target(name, &target)) {
-        *width = target.width;
-        *height = target.height;
-    } else {
-        *width = u8g2_GetDisplayWidth(gfx->u8g2);
-        *height = u8g2_GetDisplayHeight(gfx->u8g2);
-    }
+    const solar_os_display_rect_t canvas = solar_os_gfx_canvas_bounds(gfx);
+    *width = canvas.width;
+    *height = canvas.height;
     return *width != 0 && *height != 0;
 }
 
@@ -989,8 +1003,9 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color)
         gfx_mark_dirty(gfx);
         return;
     }
-    for (int y = 0; y < (int)u8g2_GetDisplayHeight(gfx->u8g2); y++) {
-        gfx_draw_hline_shade_clipped(gfx, 0, y, (int)u8g2_GetDisplayWidth(gfx->u8g2));
+    const solar_os_display_rect_t panel = solar_os_gfx_panel_bounds(gfx);
+    for (int y = panel.y; y < panel.y + panel.height; y++) {
+        gfx_draw_hline_shade_clipped(gfx, panel.x, y, panel.width);
     }
     gfx->color = previous_color;
     gfx_mark_dirty(gfx);
@@ -1072,9 +1087,10 @@ void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
         }
     } else {
         gfx_apply_draw_state(gfx);
+        const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
         u8g2_DrawFrame(gfx->u8g2,
-                       (u8g2_uint_t)x,
-                       (u8g2_uint_t)y,
+                       (u8g2_uint_t)(x + canvas.x),
+                       (u8g2_uint_t)(y + canvas.y),
                        (u8g2_uint_t)width,
                        (u8g2_uint_t)height);
     }
@@ -1217,6 +1233,9 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
     }
 
     gfx_apply_draw_state(gfx);
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    baseline_y += canvas.y;
     if (gfx_uses_index8(gfx)) {
         const int text_width = (int)u8g2_GetUTF8Width(gfx->u8g2, text);
         const int ascent = (int)u8g2_GetAscent(gfx->u8g2);
@@ -1268,6 +1287,10 @@ void solar_os_gfx_icon(solar_os_gfx_t *gfx,
     const int pixels = (int)size;
     const uint16_t encoding =
         (uint16_t)(GFX_OPEN_ICONIC_FIRST_ENCODING + (unsigned)icon);
+
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    y += canvas.y;
 
     gfx_apply_draw_state(gfx);
     u8g2_SetFont(gfx->u8g2, font);
@@ -1349,9 +1372,10 @@ void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
         }
     } else {
         gfx_apply_draw_state(gfx);
+        const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
         u8g2_DrawXBM(gfx->u8g2,
-                     (u8g2_uint_t)x,
-                     (u8g2_uint_t)y,
+                     (u8g2_uint_t)(x + canvas.x),
+                     (u8g2_uint_t)(y + canvas.y),
                      (u8g2_uint_t)width,
                      (u8g2_uint_t)height,
                      bitmap);
@@ -1387,6 +1411,9 @@ void solar_os_gfx_bitmap_2bpp_scaled(solar_os_gfx_t *gfx,
     }
 
     uint8_t indices[4] = {0};
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    y += canvas.y;
     if (gfx_uses_index8(gfx)) {
         for (size_t index = 0; index < 4; index++) {
             indices[index] = gfx_index8_for_color(palette[index]);
@@ -1394,12 +1421,12 @@ void solar_os_gfx_bitmap_2bpp_scaled(solar_os_gfx_t *gfx,
     }
     for (int row = 0; row < height; row++) {
         const int target_y = y + row;
-        if (target_y < 0 || target_y >= (int)solar_os_gfx_height(gfx)) {
+        if (target_y < 0 || target_y >= (int)u8g2_GetDisplayHeight(gfx->u8g2)) {
             continue;
         }
         for (int column = 0; column < width; column++) {
             const int target_x = x + column;
-            if (target_x < 0 || target_x >= (int)solar_os_gfx_width(gfx)) {
+            if (target_x < 0 || target_x >= (int)u8g2_GetDisplayWidth(gfx->u8g2)) {
                 continue;
             }
             const size_t pixel = ((size_t)row * source_height / height) * source_width +
@@ -1550,6 +1577,9 @@ esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx,
         return ESP_ERR_INVALID_ARG;
     }
 
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    y += canvas.y;
     int64_t x0 = x;
     int64_t y0 = y;
     int64_t x1 = (int64_t)x + width;
@@ -1558,16 +1588,18 @@ esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx,
         if (clip->width <= 0 || clip->height <= 0) {
             return ESP_ERR_INVALID_ARG;
         }
-        const int64_t clip_x1 = (int64_t)clip->x + clip->width;
-        const int64_t clip_y1 = (int64_t)clip->y + clip->height;
-        if (x0 < clip->x) x0 = clip->x;
-        if (y0 < clip->y) y0 = clip->y;
+        const int64_t clip_x = (int64_t)clip->x + canvas.x;
+        const int64_t clip_y = (int64_t)clip->y + canvas.y;
+        const int64_t clip_x1 = clip_x + clip->width;
+        const int64_t clip_y1 = clip_y + clip->height;
+        if (x0 < clip_x) x0 = clip_x;
+        if (y0 < clip_y) y0 = clip_y;
         if (x1 > clip_x1) x1 = clip_x1;
         if (y1 > clip_y1) y1 = clip_y1;
     }
 
-    const int display_width = (int)solar_os_gfx_width(gfx);
-    const int display_height = (int)solar_os_gfx_height(gfx);
+    const int display_width = (int)u8g2_GetDisplayWidth(gfx->u8g2);
+    const int display_height = (int)u8g2_GetDisplayHeight(gfx->u8g2);
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
     if (x1 > display_width) x1 = display_width;
@@ -1638,7 +1670,11 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
                                         int height,
                                         size_t stride)
 {
-    if (!gfx_ready(gfx) ||
+    if (!gfx_ready(gfx)) return ESP_ERR_INVALID_ARG;
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    x += canvas.x;
+    y += canvas.y;
+    if (
         bitmap == NULL ||
         x < 0 ||
         y < 0 ||
@@ -1682,10 +1718,16 @@ esp_err_t solar_os_gfx_present_frame(
     solar_os_gfx_t *gfx,
     const solar_os_display_raster_t *frame)
 {
-    if (!gfx_ready(gfx)) {
+    if (!gfx_ready(gfx) || !frame) {
         return ESP_ERR_INVALID_STATE;
     }
-    const esp_err_t ret = solar_os_display_present_frame(gfx->u8g2, frame);
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
+    solar_os_display_raster_t physical = *frame;
+    if ((uint32_t)frame->x + canvas.x > UINT16_MAX ||
+        (uint32_t)frame->y + canvas.y > UINT16_MAX) return ESP_ERR_INVALID_ARG;
+    physical.x += canvas.x;
+    physical.y += canvas.y;
+    const esp_err_t ret = solar_os_display_present_frame(gfx->u8g2, &physical);
     if (ret == ESP_OK) {
         gfx->dirty = false;
     }

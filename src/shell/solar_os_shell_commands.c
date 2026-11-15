@@ -272,6 +272,7 @@ static void display_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  display [list]");
     solar_os_shell_io_writeln(term, "  display orientation <target> [0|90|180|270]");
     solar_os_shell_io_writeln(term, "  display scale <target> [1..4]");
+    solar_os_shell_io_writeln(term, "  display canvas <target> [default|full|x y width height]");
     solar_os_shell_io_writeln(term, "  display layouts");
     solar_os_shell_io_writeln(term, "  display test <target>");
     solar_os_shell_io_writeln(term, "  display mode <target> [mode]");
@@ -781,6 +782,69 @@ static void display_cmd_relax(solar_os_context_t *ctx, solar_os_shell_io_t *term
                              result.cancelled ? "stopped" : "done", (unsigned)result.cycles);
 }
 
+typedef struct {
+    const char *name;
+    solar_os_display_rect_t canvas;
+    bool reset;
+} display_canvas_request_t;
+
+static esp_err_t display_apply_canvas(void *context)
+{
+    const display_canvas_request_t *request = context;
+    solar_os_display_target_t previous;
+    solar_os_terminal_profile_t profile;
+    if (!solar_os_display_find_target(request->name, &previous)) return ESP_ERR_NOT_FOUND;
+    esp_err_t err = solar_os_display_get_terminal_profile(request->name, &profile);
+    if (err != ESP_OK) return err;
+    err = solar_os_display_set_canvas(request->name, request->reset ? NULL : &request->canvas);
+    if (err != ESP_OK) return err;
+    err = solar_os_sessions_set_display_terminal_profile(request->name, &profile);
+    if (err != ESP_OK) (void)solar_os_display_set_canvas(request->name, &previous.canvas);
+    return err;
+}
+
+static void display_cmd_canvas(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    const char *usage = "display canvas <target> [default|full|x y width height]";
+    if (argc != 3 && argc != 4 && argc != 7) {
+        solar_os_shell_io_printf(term, "usage: %s\n", usage);
+        return;
+    }
+    solar_os_display_target_t target;
+    if (!solar_os_display_find_target(argv[2], &target)) {
+        solar_os_shell_diag_esp(term, "display canvas", ESP_ERR_NOT_FOUND, NULL, NULL);
+        return;
+    }
+    if (argc > 3) {
+        display_canvas_request_t request = {.name = argv[2], .canvas = target.panel};
+        if (argc == 4) {
+            request.reset = strcmp(argv[3], "default") == 0;
+            if (!request.reset && strcmp(argv[3], "full") != 0) {
+                solar_os_shell_io_printf(term, "usage: %s\n", usage);
+                return;
+            }
+        } else {
+            size_t values[4];
+            for (size_t i = 0; i < 4; i++) {
+                if (!parse_size_arg(argv[i+3], i < 2 ? 0 : 1, UINT16_MAX, &values[i])) {
+                    solar_os_shell_io_printf(term, "usage: %s\n", usage);
+                    return;
+                }
+            }
+            request.canvas = (solar_os_display_rect_t){values[0], values[1], values[2], values[3]};
+        }
+        const esp_err_t err = solar_os_sessions_run_on_owner(display_apply_canvas, &request);
+        if (err != ESP_OK) {
+            solar_os_shell_diag_esp(term, "display canvas", err, NULL, NULL);
+            return;
+        }
+        (void)solar_os_display_find_target(argv[2], &target);
+    }
+    solar_os_shell_io_printf(term, "%s panel: %dx%d\ncanvas: x=%d y=%d width=%d height=%d (temporary)\n",
+        target.name, target.panel.width, target.panel.height,
+        target.canvas.x, target.canvas.y, target.canvas.width, target.canvas.height);
+}
+
 static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **argv, bool save)
 {
     const bool orientation = strcmp(argv[1], "orientation") == 0;
@@ -822,6 +886,11 @@ static void display_cmd_geometry(solar_os_shell_io_t *term, int argc, char **arg
 void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
+
+    if (argc >= 2 && strcmp(argv[1], "canvas") == 0) {
+        display_cmd_canvas(term, argc, argv);
+        return;
+    }
 
     if (argc >= 2 && (strcmp(argv[1], "orientation") == 0 || strcmp(argv[1], "scale") == 0)) {
         display_cmd_geometry(term, argc, argv, false);

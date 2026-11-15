@@ -1222,6 +1222,8 @@ SOLAR_OS_SCRIPT_API_FUNCTION(gfx, end, end);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, width, width);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, height, height);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, size, size);
+SOLAR_OS_SCRIPT_API_FUNCTION(gfx, canvas_bounds, canvas_bounds);
+SOLAR_OS_SCRIPT_API_FUNCTION(gfx, panel_bounds, panel_bounds);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, clear, clear);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, gray, gray);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, rgb, rgb);

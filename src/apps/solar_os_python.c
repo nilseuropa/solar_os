@@ -8072,6 +8072,19 @@ static mp_obj_t solaros_gfx_size(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_size_obj, solaros_gfx_size);
 
+static mp_obj_t python_gfx_bounds(bool panel)
+{
+    const solar_os_display_rect_t r = panel ? solar_os_gfx_panel_bounds(python_current_gfx()) :
+        solar_os_gfx_canvas_bounds(python_current_gfx());
+    mp_obj_t items[] = {mp_obj_new_int(r.x), mp_obj_new_int(r.y),
+        mp_obj_new_int(r.width), mp_obj_new_int(r.height)};
+    return mp_obj_new_tuple(4, items);
+}
+static mp_obj_t solaros_gfx_canvas_bounds(void) { return python_gfx_bounds(false); }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_canvas_bounds_obj, solaros_gfx_canvas_bounds);
+static mp_obj_t solaros_gfx_panel_bounds(void) { return python_gfx_bounds(true); }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_panel_bounds_obj, solaros_gfx_panel_bounds);
+
 static mp_obj_t solaros_gfx_clear(size_t n_args, const mp_obj_t *args)
 {
     const solar_os_gfx_color_t color =

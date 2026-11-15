@@ -129,7 +129,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     if (!error) {
         d->display = (solar_os_board_display_t){.ops = &ops, .driver = d->driver,
             .u8g2 = solar_os_spd2010_u8g2(d->driver), .driver_name = "spd2010", .controller = "SPD2010",
-            .width = 412, .height = 412, .ready = true,
+            .width = 412, .height = 412, .round = true, .ready = true,
             .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
             .frame_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT | SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT,
             .preferred_stream_fps = 20, .max_stream_pixels_per_second = 3400000};
@@ -137,7 +137,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         if (d->primary) error = solar_os_board_display_register_primary(&d->display);
         else {
             solar_os_display_target_t t = {.width = 412, .height = 412, .native_width = 412, .native_height = 412,
-                .ready = true, .u8g2 = d->display.u8g2, .surface_formats = d->display.surface_formats,
+                .ready = true, .round = true, .u8g2 = d->display.u8g2, .surface_formats = d->display.surface_formats,
                 .frame_formats = d->display.frame_formats, .surface_context = d->driver, .frame_context = d->driver,
                 .present_surface = solar_os_spd2010_surface, .present_frame = solar_os_spd2010_frame,
                 .preferred_stream_fps = 20, .max_stream_pixels_per_second = 3400000,

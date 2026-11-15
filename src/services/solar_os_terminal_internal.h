@@ -2,6 +2,7 @@
 
 #include "solar_os_terminal.h"
 #include "u8g2.h"
+#include "solar_os_display_canvas_draw.h"
 
 #define SOLAR_OS_TERMINAL_SCROLLBACK_ROWS 256
 #define SOLAR_OS_TERMINAL_ATTR_WORDS ((SOLAR_OS_TERMINAL_MAX_COLS + 31) / 32)

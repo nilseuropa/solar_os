@@ -19,6 +19,12 @@ port; use the ESP32 port at 115200 baud. A SolarOS shell starts automatically
 on `uart0`. GPIO19/20 are available on the expansion header rather than being
 used for native USB CDC.
 
+The panel is circular, with 412x412 addressable pixels. The default layout
+canvas is a centered 291x291 rectangle. Terminal and TUI content fits this
+rectangle; graphics may draw into the surrounding panel pixels using canvas
+coordinates. `display canvas display0` reports both bounds, and
+`display canvas display0 full` temporarily uses a 412x412 layout canvas.
+
 Identify the ESP32 port by its `ESP-ROM:esp32s3` startup message. Serial-port
 numbering varies; the other interface belongs to Himax and runs at 921600 baud.
 

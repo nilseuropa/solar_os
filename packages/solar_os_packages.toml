@@ -1005,6 +1005,7 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_geometry.c",
   "services/solar_os_display_layer.c",
   "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",

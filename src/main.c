@@ -1862,6 +1862,15 @@ static void dispatch_input_pointer(const solar_os_input_pointer_event_t *pointer
         return;
     }
 
+    if (oriented_pointer.mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE &&
+        oriented_pointer.target[0] != '\0') {
+        solar_os_display_target_t target;
+        if (solar_os_display_find_target(oriented_pointer.target, &target)) {
+            oriented_pointer.x -= target.canvas.x;
+            oriented_pointer.y -= target.canvas.y;
+        }
+    }
+
     const solar_os_event_t event = {
         .type = SOLAR_OS_EVENT_POINTER,
         .data.pointer = oriented_pointer,

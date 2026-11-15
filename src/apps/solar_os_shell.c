@@ -834,6 +834,7 @@ static const char * const setterm_display_settings[] = {
 };
 
 static const char * const display_orientation_values[] = {"0", "90", "180", "270"};
+static const char * const display_canvas_values[] = {"default", "full"};
 static const char * const display_scale_values[] = {"1", "2", "3", "4"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
 static const char * const setterm_textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
@@ -2034,6 +2035,8 @@ static const char * const path_display_test[] = {"display", "test"};
 static const char * const path_display_mode[] = {"display", "mode"};
 static const char * const path_display_orientation[] = {"display", "orientation"};
 static const char * const path_display_scale[] = {"display", "scale"};
+static const char * const path_display_canvas[] = {"display", "canvas"};
+static const char * const path_display_canvas_target[] = {"display", "canvas", SHELL_COMPLETION_ANY};
 static const char * const path_display_orientation_target[] = {"display", "orientation", SHELL_COMPLETION_ANY};
 static const char * const path_display_scale_target[] = {"display", "scale", SHELL_COMPLETION_ANY};
 static const char * const path_display_relax[] = {"display", "relax"};
@@ -3593,6 +3596,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_mode),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_orientation),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_scale),
+    SHELL_COMPLETION_DISPLAY_TARGETS(path_display_canvas),
+    SHELL_COMPLETION_STATIC(path_display_canvas_target, display_canvas_values),
     SHELL_COMPLETION_STATIC(path_display_orientation_target, display_orientation_values),
     SHELL_COMPLETION_STATIC(path_display_scale_target, display_scale_values),
     SHELL_COMPLETION_DISPLAY_TARGETS(path_display_relax),

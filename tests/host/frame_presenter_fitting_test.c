@@ -23,6 +23,7 @@ typedef int BaseType_t;
 #define SOLAR_OS_LOGW(...) ((void)0)
 
 static size_t display_width, display_height;
+static size_t panel_width, panel_height;
 static uint32_t display_formats;
 static uint16_t display_stack_bytes;
 static bool fail_allocation;
@@ -32,16 +33,17 @@ static bool native_view;
 static solar_os_display_raster_t captured;
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
-{ assert(gfx); return native_view ? display_width * 2 : display_width; }
+{ assert(gfx); return display_width; }
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
-{ assert(gfx); return native_view ? display_height * 2 : display_height; }
+{ assert(gfx); return display_height; }
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx, char *name, size_t size)
 { assert(gfx && size >= sizeof("display0")); strcpy(name, "display0"); return true; }
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target)
 {
     assert(!strcmp(name, "display0"));
     *target = (solar_os_display_target_t){
-        .width = display_width, .height = display_height,
+        .width = panel_width ? panel_width : display_width,
+        .height = panel_height ? panel_height : display_height,
         .frame_formats = display_formats, .preferred_stream_fps = 25,
         .presentation_stack_bytes = display_stack_bytes,
     };
@@ -130,7 +132,8 @@ static void check_fit(uint16_t width, uint16_t height, uint16_t output_width,
         for (uint16_t y = 0; y < output_height; ++y)
             for (uint16_t x = 0; x < output_width; ++x) {
                 unsigned bit = (p->mono[(size_t)y * p->output_stride + x / 8] >> (x % 8)) & 1;
-                assert(bit == ((x < output_width / 2) == (y < output_height / 2)));
+                assert(bit == (((uint32_t)x * width / output_width < width / 2) ==
+                               ((uint32_t)y * height / output_height < height / 2)));
             }
     } else {
         assert(captured.source_width == width && captured.source_height == height);
@@ -204,6 +207,12 @@ int main(void)
     display_stack_bytes = 0;
     display_width = 400; display_height = 300;
     check_fit(320, 240, 400, 300, true, SOLAR_OS_FRAME_FIT_HEIGHT); /* SolarTerm */
+
+    /* Fit to the app canvas, even though the panel is larger. */
+    panel_width=panel_height=412; display_width=display_height=291;
+    check_fit(320,240,291,218,false,SOLAR_OS_FRAME_FIT_DEFAULT);
+    check_fit(320,240,291,218,true,SOLAR_OS_FRAME_FIT_DEFAULT);
+    panel_width=panel_height=0; display_width=400; display_height=300;
 
     uint16_t palette[256] = {0};
     solar_os_frame_presenter_config_t config = {

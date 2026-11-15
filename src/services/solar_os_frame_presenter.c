@@ -537,7 +537,8 @@ static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
 {
     solar_os_display_target_t target;
     if (!solar_os_display_find_target(presenter->target_name, &target)) return ESP_ERR_NOT_FOUND;
-    const uint16_t width = target.width, height = target.height;
+    const uint16_t width = solar_os_gfx_width(presenter->config.gfx);
+    const uint16_t height = solar_os_gfx_height(presenter->config.gfx);
     if (width == presenter->viewport_width && height == presenter->viewport_height)
         return ESP_OK;
     frame_choose_output(presenter, width, height);
@@ -561,8 +562,8 @@ static esp_err_t frame_present_current_output(solar_os_frame_presenter_t *presen
         if (err == ESP_OK) return err;
         solar_os_display_target_t target;
         if (!solar_os_display_find_target(presenter->target_name, &target) ||
-            (presenter->viewport_width == target.width &&
-             presenter->viewport_height == target.height)) return err;
+            (presenter->viewport_width == solar_os_gfx_width(presenter->config.gfx) &&
+             presenter->viewport_height == solar_os_gfx_height(presenter->config.gfx))) return err;
     }
 }
 
@@ -611,10 +612,10 @@ esp_err_t solar_os_frame_presenter_init(
     if (presenter->present_fps == 0U) presenter->present_fps = 25U;
     if (presenter->present_fps > 30U) presenter->present_fps = 30U;
     /* Fit the source before checking whether its output fits the display. */
-    frame_choose_output(presenter, presenter->target.width, presenter->target.height);
+    frame_choose_output(presenter, solar_os_gfx_width(config->gfx), solar_os_gfx_height(config->gfx));
     if (presenter->output_width == 0U || presenter->output_height == 0U ||
-        presenter->output_width > presenter->target.width ||
-        presenter->output_height > presenter->target.height) {
+        presenter->output_width > solar_os_gfx_width(config->gfx) ||
+        presenter->output_height > solar_os_gfx_height(config->gfx)) {
         solar_os_memory_free(presenter);
         return ESP_ERR_NOT_SUPPORTED;
     }

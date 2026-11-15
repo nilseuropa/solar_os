@@ -284,6 +284,7 @@ job for periodic polling.
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
 | `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
 | `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
+| `display` | `display canvas <target> [default\|full\|x y width height]` | Query panel/canvas bounds or change the runtime layout rectangle. No persistence. |
 | `display` | `display relax [<target> [seconds]]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. Without arguments, use the first supported display for 1 second. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -730,6 +731,19 @@ and touch coordinates together. Shell output, history and unfinished input are
 preserved. Both `display orientation` and `display scale` are runtime-only,
 including changes made by gesture bindings. `setterm orientation`, `setterm scale`
 and the settings TUI use the same display operations and save their values in NVS.
+
+Every display has panel bounds and a canvas rectangle. Apps and terminal/TUI
+layouts use the canvas size and an origin of `(0, 0)` at its top-left corner.
+Drawing may extend beyond the canvas into the rest of the panel. Rectangular
+panels default to a full-panel canvas; circular panels default to a centered
+inscribed square.
+
+`display canvas display0` reports both bounds. Set a rectangle with
+`display canvas display0 60 60 291 291`; its position and size are measured in
+the current oriented/scaled panel coordinates. `display canvas display0 full`
+uses the entire panel, and `display canvas display0 default` restores the panel
+default. Changes are rejected while graphics or an overlay claims the target.
+Canvas settings disappear at reboot or display removal and never write NVS.
 
 `display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
