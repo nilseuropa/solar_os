@@ -32,6 +32,8 @@ typedef struct {
                            solar_os_gpio_line_pull_t pull);
     esp_err_t (*read)(void *ctx, uint8_t line, bool *level);
     esp_err_t (*write)(void *ctx, uint8_t line, bool level);
+    /* Optional: acknowledge pending input changes on the whole controller. */
+    esp_err_t (*acknowledge_interrupt)(void *ctx);
 } solar_os_gpio_controller_ops_t;
 
 typedef struct {
@@ -62,3 +64,5 @@ esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
                                        solar_os_gpio_line_pull_t pull);
 esp_err_t solar_os_gpio_line_read(const solar_os_gpio_line_ref_t *line, bool *level);
 esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool level);
+/* May acknowledge other inputs sharing this controller's interrupt output. */
+esp_err_t solar_os_gpio_line_acknowledge_interrupt(const solar_os_gpio_line_ref_t *line);

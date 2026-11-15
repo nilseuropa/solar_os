@@ -12,6 +12,7 @@ typedef struct {
     uint8_t rotation;
     bool bgr, invert, backlight_pwm, backlight_active_high, power_active_high;
     bool have_power, have_reset;
+    bool keep_power_on_shutdown;
     solar_os_gpio_line_ref_t power, reset;
 } solar_os_spd2010_config_t;
 

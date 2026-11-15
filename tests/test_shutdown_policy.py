@@ -315,7 +315,8 @@ int main(void) {
 #define ESP_PD_OPTION_ON 1
 #define SOLAR_OS_BOARD_CAP_KEY 1
 #define SOLAR_OS_BOARD_PIN_KEY 4
-#define KEY_WAKE_MASK (1ULL << 4)
+#define KEY_WAKE_GPIO 2
+#define KEY_WAKE_MASK (1ULL << 2)
 #define KEY_WAKE_MODE 1
 #define KEY_RELEASE_STABLE_MS 50
 #define KEY_RELEASE_STABLE_TIMEOUT_MS 1000
@@ -324,12 +325,13 @@ static int disabled, enabled, slept, cutoff, delays;
 static bool key, rtc_valid, released = true;
 static esp_err_t key_result, off_result;
 static bool board_has(int cap) { assert(cap == 1); return key; }
-static bool rtc_gpio_is_valid_gpio(int pin) { assert(pin == 4); return rtc_valid; }
+static bool rtc_gpio_is_valid_gpio(int pin) { assert(pin == 2); return rtc_valid; }
 static esp_err_t esp_sleep_disable_wakeup_source(int src) { assert(src == 99); disabled++; return ESP_OK; }
 static esp_err_t key_prepare_rtc_wakeup(void) { return key_result; }
 static bool wait_key_rtc_released_stable(int stable, int timeout) { assert(stable == 50 && timeout == 1000); return released; }
 static esp_err_t esp_sleep_pd_config(int domain, int option) { assert(domain == 1 && option == 1); return ESP_OK; }
 static esp_err_t esp_sleep_enable_ext1_wakeup_io(uint64_t mask, int mode) { assert(mask == KEY_WAKE_MASK && mode == 1); enabled++; return ESP_OK; }
+static esp_err_t configure_rtc_wakeup(uint64_t mask, int mode) { return esp_sleep_enable_ext1_wakeup_io(mask,mode); }
 static esp_err_t solar_os_power_off(void) { cutoff++; return off_result; }
 static void vTaskDelay(int delay) { assert(delay == 100); delays++; }
 static void esp_deep_sleep_start(void) { slept++; }

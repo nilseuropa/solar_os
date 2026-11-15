@@ -13,12 +13,12 @@ class Pca9535Test(unittest.TestCase):
 #include <string.h>
 #include "pca9535.h"
 static uint8_t regs[8], writes[32];
-static unsigned count, fail_at;
+static unsigned count, fail_at, acknowledged;
 static bool read_fails;
 static esp_err_t read_reg(void *ctx, uint8_t reg, uint8_t *data, size_t size) {
-    (void)ctx; assert(reg < 2 && size == 1);
+    (void)ctx; assert(reg < 2 && (size == 1 || (reg == 0 && size == 2)));
     if (read_fails) return ESP_FAIL;
-    *data = regs[reg]; return ESP_OK;
+    memcpy(data, regs+reg, size);if (size==2) acknowledged++;return ESP_OK;
 }
 static esp_err_t write_reg(void *ctx, uint8_t reg, const uint8_t *data, size_t size) {
     (void)ctx; assert(reg >= 2 && reg < 8 && size == 1 && count < 32);
@@ -31,6 +31,7 @@ int main(void) {
     solar_os_pca9535_t d = {0};
     bool level = false;
     assert(solar_os_pca9535_read(&d, 0, &level) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_pca9535_acknowledge_interrupt(&d) == ESP_ERR_INVALID_STATE);
     assert(solar_os_pca9535_init(NULL, &io, 0, 0) == ESP_ERR_INVALID_ARG);
     for (unsigned failed = 1; failed <= 6; ++failed) {
         count = 0; fail_at = failed;
@@ -51,7 +52,10 @@ int main(void) {
     assert(solar_os_pca9535_read(&d, 0, NULL) == ESP_ERR_INVALID_ARG);
     level = true; read_fails = true;
     assert(solar_os_pca9535_read(&d, 0, &level) == ESP_FAIL && level);
+    assert(solar_os_pca9535_acknowledge_interrupt(&d) == ESP_FAIL && !acknowledged);
     read_fails = false;
+    assert(solar_os_pca9535_acknowledge_interrupt(&d) == ESP_OK && acknowledged==1);
+    assert(d.output==0x1234 && d.direction==0xfff0); /* IRQ acknowledgement cannot drive pins. */
     /* A failed latch write must not enable an output or alter the other bank. */
     count = 0; fail_at = 1;
     assert(solar_os_pca9535_write(&d, 15, true) == ESP_FAIL);

@@ -87,6 +87,7 @@ static esp_err_t parse(const solar_os_expansion_binding_t *bindings, size_t coun
                 else if (!strcmp(b->role, "pwm")) c->backlight_pwm = b->value;
                 else if (!strcmp(b->role, "active")) c->backlight_active_high = b->value;
                 else if (!strcmp(b->role, "power_active")) c->power_active_high = b->value;
+                else if (!strcmp(b->role, "keep_power")) c->keep_power_on_shutdown = b->value;
                 else return ESP_ERR_INVALID_ARG;
             }
         } else return ESP_ERR_INVALID_ARG;
@@ -184,6 +185,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
     {.key = "reset", .value_hint = "gpio|controller:line", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "reset"},
     PARAM("clock", 100, 40000), PARAM("rotation", 0, 3), PARAM("bgr", 0, 1), PARAM("invert", 0, 1),
     PARAM("pwm", 0, 1), PARAM("active", 0, 1), PARAM("power_active", 0, 1),
+    PARAM("keep_power", 0, 1),
 };
 #undef PIN
 #undef PARAM

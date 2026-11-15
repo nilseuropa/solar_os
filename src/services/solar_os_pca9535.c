@@ -95,10 +95,21 @@ static esp_err_t controller_write(void *ctx, uint8_t line, bool level)
     return ret;
 }
 
+static esp_err_t controller_acknowledge_interrupt(void *ctx)
+{
+    solar_os_pca9535_device_t *device = ctx;
+    if (!device || !device->active) return ESP_ERR_INVALID_STATE;
+    xSemaphoreTake(device->mutex, portMAX_DELAY);
+    const esp_err_t error = solar_os_pca9535_acknowledge_interrupt(&device->chip);
+    xSemaphoreGive(device->mutex);
+    return error;
+}
+
 static const solar_os_gpio_controller_ops_t controller_ops = {
     .configure = controller_configure,
     .read = controller_read,
     .write = controller_write,
+    .acknowledge_interrupt = controller_acknowledge_interrupt,
 };
 
 static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,

@@ -78,3 +78,10 @@ esp_err_t solar_os_pca9535_write(solar_os_pca9535_t *device, uint8_t line, bool 
     }
     return solar_os_pca9535_configure(device, line, true);
 }
+
+esp_err_t solar_os_pca9535_acknowledge_interrupt(solar_os_pca9535_t *device)
+{
+    if (!valid(device)) return ESP_ERR_INVALID_STATE;
+    uint8_t inputs[2];
+    return device->io.read(device->io.ctx, INPUT, inputs, sizeof(inputs));
+}

@@ -25,4 +25,6 @@ esp_err_t solar_os_pca9535_init(solar_os_pca9535_t *device,
     const solar_os_pca9535_io_t *io, uint16_t output, uint16_t direction);
 esp_err_t solar_os_pca9535_configure(solar_os_pca9535_t *device, uint8_t line, bool output);
 esp_err_t solar_os_pca9535_read(solar_os_pca9535_t *device, uint8_t line, bool *level);
+/* Read both input banks to acknowledge their shared active-low INT output. */
+esp_err_t solar_os_pca9535_acknowledge_interrupt(solar_os_pca9535_t *device);
 esp_err_t solar_os_pca9535_write(solar_os_pca9535_t *device, uint8_t line, bool level);

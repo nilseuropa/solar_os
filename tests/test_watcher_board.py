@@ -52,6 +52,9 @@ class WatcherBoardTest(unittest.TestCase):
         for key in (("J2", 6), ("J5", 1)):
             self.assertEqual(connectors[key]["gpio"], 48)
         self.assertIn('#define SOLAR_OS_BOARD_KEY_GPIO_LINE "gpiox0:3"', header)
+        self.assertIn('#define SOLAR_OS_BOARD_PIN_KEY_WAKE GPIO_NUM_2', header)
+        self.assertIn('#define SOLAR_OS_BOARD_KEY_WAKE_PULL_UP 1', header)
+        self.assertIn('#define SOLAR_OS_BOARD_SLEEP_SUSPEND_DISPLAY 1', header)
         self.assertIn("key", self.board["build"]["capabilities"])
         main = (ROOT / "src/main.c").read_text().split("void app_main(void)", 1)[1]
         self.assertLess(main.index("solar_os_expansion_init_early()"), main.index("key_button_init()"))
@@ -231,6 +234,11 @@ int main(void) {
 #define SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL 0
 #define SOLAR_OS_BOARD_KEY_PULL_UP 0
 #define SOLAR_OS_BOARD_KEY_PULL_DOWN 0
+#define KEY_WAKE_AVAILABLE 1
+#define KEY_WAKE_GPIO 2
+#define SOLAR_OS_BOARD_KEY_WAKE_ACTIVE_LEVEL 0
+#define SOLAR_OS_BOARD_KEY_WAKE_PULL_UP 1
+#define SOLAR_OS_BOARD_KEY_WAKE_PULL_DOWN 0
 #define KEY_LINE_POLL_MS 10U
 #define KEY_LINE_DEBOUNCE_MS 25U
 #define KEY_SHORT_PRESS_MIN_MS 30U
@@ -252,6 +260,9 @@ static solar_os_power_key_action_t key_release_action;
 static solar_os_power_status_t status;
 static esp_err_t read_error;
 static uint32_t millis_u32(void) { return now; }
+static int rtc_gpio_get_level(int pin) { assert(pin==2);return 1; }
+static esp_err_t prepare_rtc_wake_gpio(int pin,bool pull_up,bool pull_down)
+{ assert(pin==2 && pull_up && !pull_down);return ESP_OK; }
 static bool board_has(int cap) { (void)cap; return true; }
 bool solar_os_gpio_line_parse(const char *name, solar_os_gpio_line_ref_t *line) {
     assert(!strcmp(name, "gpiox0:3")); strcpy(line->controller, "gpiox0"); line->line = 3; return true;
@@ -298,7 +309,7 @@ int main(void) {
     poll(true, 5); assert(reads == 1);  /* Bound I2C polling frequency. */
     poll(true, 5000); assert(!pairs && !chars);
     release(); assert(!key_ignore_until_released && !chars);
-    assert(!key_rtc_is_pressed() && key_prepare_rtc_wakeup() == ESP_ERR_NOT_SUPPORTED);
+    assert(!key_rtc_is_pressed() && key_prepare_rtc_wakeup() == ESP_OK);
     /* Contact bounce cannot send Enter. */
     poll(true, 10); poll(false, 10); poll(true, 10);
     poll(true, 20); assert(!key_pressed && !chars);

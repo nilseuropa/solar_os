@@ -2541,6 +2541,13 @@ hint = "0|1"
 min = 0
 max = 1
 
+[[drivers.spd2010.bindings]]
+key = "keep_power"
+kind = "parameter"
+hint = "keep supply enabled at shutdown: 0|1"
+min = 0
+max = 1
+
 [drivers.spd2010-touch]
 summary = "SPD2010 capacitive touch over I2C"
 package = "driver_spd2010_touch"

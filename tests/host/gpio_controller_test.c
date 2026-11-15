@@ -43,6 +43,8 @@ typedef struct {
     solar_os_gpio_line_mode_t mode[4];
     solar_os_gpio_line_pull_t pull[4];
     bool level[4];
+    unsigned acknowledgements;
+    esp_err_t ack_error;
 } fake_controller_t;
 
 static esp_err_t fake_configure(void *ctx,
@@ -70,12 +72,21 @@ static esp_err_t fake_write(void *ctx, uint8_t line, bool level)
     return ESP_OK;
 }
 
+static esp_err_t fake_acknowledge_interrupt(void *ctx)
+{
+    fake_controller_t *fake=ctx;
+    assert(solar_os_gpio_controller_unregister("gpiox0")==ESP_ERR_INVALID_STATE);
+    fake->acknowledgements++;
+    return fake->ack_error;
+}
+
 int main(void)
 {
     static const solar_os_gpio_controller_ops_t ops = {
         .configure = fake_configure,
         .read = fake_read,
         .write = fake_write,
+        .acknowledge_interrupt = fake_acknowledge_interrupt,
     };
     fake_controller_t fake = {0};
     const solar_os_gpio_controller_registration_t registration = {
@@ -109,9 +120,16 @@ int main(void)
     bool level = false;
     assert(solar_os_gpio_line_read(&line, &level) == ESP_OK);
     assert(level);
+    assert(solar_os_gpio_line_acknowledge_interrupt(&line)==ESP_OK && fake.acknowledgements==1);
+    fake.ack_error=ESP_FAIL;
+    assert(solar_os_gpio_line_acknowledge_interrupt(&line)==ESP_FAIL && fake.acknowledgements==2);
+    assert(solar_os_gpio_line_acknowledge_interrupt(NULL)==ESP_ERR_INVALID_ARG);
+    solar_os_gpio_line_ref_t invalid=line;invalid.line=4;
+    assert(solar_os_gpio_line_acknowledge_interrupt(&invalid)==ESP_ERR_INVALID_ARG);
 
     assert(solar_os_gpio_line_parse("gpio12", &line));
     assert(solar_os_gpio_line_is_native(&line));
+    assert(solar_os_gpio_line_acknowledge_interrupt(&line)==ESP_OK && fake.acknowledgements==2);
     assert(line.controller[0] == '\0');
     assert(line.line == 12U);
     assert(solar_os_gpio_line_write(&line, true) == ESP_OK);
@@ -133,6 +151,12 @@ int main(void)
     assert(solar_os_resource_release_owner("consumer0") == 1U);
     assert(solar_os_gpio_controller_unregister("gpiox0") == ESP_OK);
     assert(solar_os_gpio_line_write(&line, false) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_gpio_line_acknowledge_interrupt(&line)==ESP_ERR_NOT_FOUND);
+    solar_os_gpio_controller_ops_t no_ack=ops;no_ack.acknowledge_interrupt=NULL;
+    solar_os_gpio_controller_registration_t without_irq=registration;without_irq.ops=&no_ack;
+    assert(solar_os_gpio_controller_register(&without_irq)==ESP_OK);
+    assert(solar_os_gpio_line_acknowledge_interrupt(&line)==ESP_ERR_NOT_SUPPORTED);
+    assert(solar_os_gpio_controller_unregister("gpiox0")==ESP_OK);
 
     puts("GPIO controller tests passed");
     return 0;

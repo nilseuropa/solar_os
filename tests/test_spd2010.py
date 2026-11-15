@@ -10,6 +10,41 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Spd2010RasterTest(unittest.TestCase):
+    def test_shutdown_preserves_shared_wake_supply_and_retries_failures(self):
+        source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
+                                      ("solar_os_spd2010_shutdown",))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include "esp_err.h"
+typedef struct {
+    struct { bool have_power, power_active_high, keep_power_on_shutdown; int power; } config;
+    bool ready;
+} solar_os_spd2010_t;
+static unsigned sleeps, cutoffs;
+static esp_err_t sleep_error, power_error;
+static esp_err_t solar_os_spd2010_power_save(solar_os_spd2010_t *d, bool enabled) {
+    assert(d && d->ready && enabled); sleeps++; return sleep_error;
+}
+static esp_err_t control(const int *line, bool level) {
+    assert(*line == 9 && !level && sleeps > 0); cutoffs++; return power_error;
+}
+''' + source + r'''
+int main(void) {
+    solar_os_spd2010_t d = {.ready = true,
+        .config = {.have_power = true, .power_active_high = true, .power = 9}};
+    assert(solar_os_spd2010_shutdown(&d) == ESP_OK && !d.ready && cutoffs == 1);
+    d.ready = true; d.config.keep_power_on_shutdown = true;
+    assert(solar_os_spd2010_shutdown(&d) == ESP_OK && !d.ready && cutoffs == 1);
+    d.ready = true; d.config.keep_power_on_shutdown = false; sleep_error = ESP_FAIL;
+    assert(solar_os_spd2010_shutdown(&d) == ESP_FAIL && d.ready && cutoffs == 1);
+    sleep_error = ESP_OK; power_error = ESP_FAIL;
+    assert(solar_os_spd2010_shutdown(&d) == ESP_FAIL && d.ready && cutoffs == 2);
+    power_error = ESP_OK;
+    assert(solar_os_spd2010_shutdown(&d) == ESP_OK && !d.ready && cutoffs == 3);
+}
+''')
+
     def test_unscaled_rgb_rows_preserve_padding_and_track_only_changed_rows(self):
         run_c(r'''
 #include <assert.h>

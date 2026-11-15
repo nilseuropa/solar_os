@@ -237,7 +237,8 @@ esp_err_t solar_os_spd2010_power_save(solar_os_spd2010_t *d, bool enabled)
 esp_err_t solar_os_spd2010_shutdown(solar_os_spd2010_t *d)
 {
     esp_err_t error = solar_os_spd2010_power_save(d, true);
-    if (!error && d->config.have_power) error = control(&d->config.power, !d->config.power_active_high);
+    if (!error && d->config.have_power && !d->config.keep_power_on_shutdown)
+        error = control(&d->config.power, !d->config.power_active_high);
     if (!error) d->ready = false;
     return error;
 }

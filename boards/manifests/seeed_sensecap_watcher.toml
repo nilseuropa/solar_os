@@ -30,6 +30,11 @@ psram_bytes = 8388608
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_21, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_8, .level = 0}}'
 SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
 SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_KEY_WAKE = "GPIO_NUM_2"
+SOLAR_OS_BOARD_KEY_WAKE_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_WAKE_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_WAKE_EXT0 = "1"
+SOLAR_OS_BOARD_SLEEP_SUSPEND_DISPLAY = "1"
 SOLAR_OS_BOARD_KEY_GPIO_LINE = '"gpiox0:3"'
 SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_ENTER"
 SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR"
@@ -117,7 +122,8 @@ bindings = { spi = "spi0", cs = 46, power = "gpiox0:8" }
 [[devices]]
 driver = "spd2010"
 name = "display0"
-bindings = { host = 2, sclk = 7, d0 = 9, d1 = 1, d2 = 14, d3 = 13, cs = 45, bl = 8, pwm = 1, clock = 40000, power = "gpiox0:9" }
+# Preserve the touch supply so its shared wake IRQ stays stable at shutdown.
+bindings = { host = 2, sclk = 7, d0 = 9, d1 = 1, d2 = 14, d3 = 13, cs = 45, bl = 8, pwm = 1, clock = 40000, power = "gpiox0:9", keep_power = 1 }
 
 [[devices]]
 driver = "spd2010-touch"

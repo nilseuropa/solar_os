@@ -66,8 +66,14 @@ amplifier disabled until audio output starts. Touch uses its own I2C bus.
 The wheel push button uses the system KEY policy. Its default long-press
 threshold is 1.2 seconds; releasing a long press does not also send Enter.
 Change either action with `power key short <action>` or `power key long <action>`.
-The expander-backed button can resume software suspension; it is not an RTC
-wake GPIO for light or deep sleep.
+The button also wakes software suspension, light sleep, deep sleep, and
+shutdown. The PCA9535's shared active-low interrupt output connects to ESP32
+GPIO2, an RTC-capable wake input. Light sleep resumes the running session;
+deep sleep and shutdown wake into a fresh boot. Holding the wheel during wake
+does not also send Enter or start pairing. Other input changes on the same
+expander can also assert this shared wake line.
+The panel output and backlight turn off before sleep. Its shared touch supply
+stays enabled at shutdown to preserve a stable wake interrupt.
 
 Some Watcher revisions fit **ES7243 at `0x13`** rather than ES7243E at `0x14`.
 For those boards, change `audio0` to `driver = "es8311-es7243"`, `addr = 0x13`,
