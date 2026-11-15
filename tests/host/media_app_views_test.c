@@ -220,8 +220,9 @@ static void webradio_progress_text(webradio_playback_state_t s, const char *msg,
     snprintf(out, n, "PLAYING 00:12");
 }
 typedef struct {
-    uint32_t screen_width, screen_height, viewport_x, viewport_y,
-        viewport_width, viewport_height;
+    uint32_t screen_width, screen_height, viewport_width, viewport_height;
+    int32_t viewport_x, viewport_y;
+    solar_os_display_rect_t panel;
     bool fullscreen;
 } mpeg_player_t;
 #include "media_app_views.inc"
@@ -328,7 +329,7 @@ int main(void) {
             webradio.dialog = dialog;
             webradio_draw_dialog(&g, w, h);
         }
-        mpeg_player_t p = {.screen_width = w, .screen_height = h};
+        mpeg_player_t p = {.screen_width = w, .screen_height = h, .panel={0,0,w,h}};
         viewport(&p);
         assert(p.viewport_width > 0 && p.viewport_height > 0 &&
                p.viewport_y + p.viewport_height < (uint32_t)h);
@@ -337,6 +338,16 @@ int main(void) {
         assert(p.viewport_width == (uint32_t)w &&
                p.viewport_height == (uint32_t)h && !p.viewport_y);
     }
+    mpeg_player_t circular = {.screen_width=291,.screen_height=291,.panel={-60,-60,412,412}};
+    viewport(&circular);
+    assert(circular.viewport_x>=0 && circular.viewport_width<=291 && circular.viewport_height<291);
+    const uint32_t normal_width=circular.viewport_width, normal_height=circular.viewport_height;
+    circular.fullscreen=true; viewport(&circular);
+    assert(circular.viewport_x==-60 && circular.viewport_y==-60 &&
+           circular.viewport_width==412 && circular.viewport_height==412);
+    circular.fullscreen=false; viewport(&circular);
+    assert(circular.viewport_x>=0 && circular.viewport_y>=0 &&
+           circular.viewport_width==normal_width && circular.viewport_height==normal_height);
     solar_os_gfx_t tiny = {.width = 84, .height = 48};
     dialog_cursor_test(&tiny, "", 0);
     dialog_cursor_test(&tiny, "Long stream name", 0);

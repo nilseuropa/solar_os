@@ -259,8 +259,9 @@ Bare `rtsp` opens the playlist view, including an empty list, without connecting
 Direct URLs also work without mounted
 storage, with a list kept only for that session. M3U files are plain text;
 use `rtsp-auth` accounts to keep passwords out of saved URLs.
-`F` toggles fullscreen, hiding the header and controls while retaining aspect-fit
-video or expanding the audio-only oscilloscope to the whole screen. `D` toggles
+`F` toggles fullscreen, using the entire display panel and hiding the header and
+controls while retaining aspect-fit video or expanding the audio-only oscilloscope
+to the whole panel. `D` toggles
 the separate frame diagnostic overlay: received, displayed, network/app drops,
 and displayed frames per second. `Q`, Escape, or the normal application-exit key
 closes playback.
@@ -2158,9 +2159,9 @@ view [-fit|-actual] <image>
 Controls:
 
 - Arrows pan.
-- `f` toggles fit/actual mode. Fit mode scales the image up or down to the screen.
+- `f` toggles fullscreen, using the entire display panel instead of the canvas.
 - `0` selects actual size.
-- `1` selects fit-to-screen.
+- `1` selects fit-to-screen, scaling the image up or down to the current viewport.
 - `Esc` or app-exit key exits.
 
 ## vplay
@@ -2202,7 +2203,8 @@ Controls:
   Changes save to M3U immediately.
 - The shared Previous, Rewind, Stop/Play, Forward, and Next buttons provide
   the same actions when clicked or tapped.
-- `f` toggles full screen, hiding the header, volume strip, and transport buttons.
+- `f` toggles full screen, using the entire display panel and hiding the header,
+  volume strip, and transport buttons.
 - `0` selects actual size and `1` selects fit.
   Actual-size video larger than the viewport is cropped centrally.
 - `d` toggles frame/timing log diagnostics.

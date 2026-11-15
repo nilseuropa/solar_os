@@ -1,10 +1,14 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include "../../src/services/solar_os_gfx.c"
 #include "solar_os_display_canvas_draw.h"
 
 static unsigned allocations;
+static solar_os_display_raster_t presented;
+esp_err_t solar_os_display_present_frame(u8g2_t *u, const solar_os_display_raster_t *frame)
+{ (void)u; presented = *frame; return ESP_OK; }
 void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
 { (void)kind; (void)tag; allocations++; return calloc(count, size); }
 void solar_os_memory_free(void *p) { free(p); }
@@ -78,6 +82,15 @@ static void pixels(void)
     assert(solar_os_gfx_width(&gfx)==291 && solar_os_gfx_height(&gfx)==291);
     solar_os_display_rect_t panel=solar_os_gfx_panel_bounds(&gfx);
     assert(panel.x==-60 && panel.y==-60 && panel.width==412 && panel.height==412);
+    const uint8_t rgb[]={0x12,0x34};
+    solar_os_display_raster_t frame={.data=rgb,.data_size=2,.source_width=1,.source_height=1,
+        .source_stride=2,.width=1,.height=1,.format=SOLAR_OS_DISPLAY_FORMAT_RGB565};
+    assert(solar_os_gfx_present_frame_at(&gfx,&frame,panel.x,panel.y)==ESP_OK);
+    assert(!presented.x && !presented.y && presented.data==rgb);
+    assert(solar_os_gfx_present_frame(&gfx,&frame)==ESP_OK && presented.x==60 && presented.y==60);
+    assert(solar_os_gfx_present_frame_at(&gfx,&frame,351,351)==ESP_OK && presented.x==411 && presented.y==411);
+    assert(solar_os_gfx_present_frame_at(&gfx,&frame,-61,0)==ESP_ERR_INVALID_ARG);
+    assert(solar_os_gfx_present_frame_at(&gfx,&frame,INT_MAX,INT_MIN)==ESP_ERR_INVALID_ARG);
     for(unsigned indexed=0;indexed<2;indexed++) {
         if(indexed) assert(solar_os_gfx_enable_index8(&gfx)==ESP_OK);
         solar_os_gfx_clear(&gfx,SOLAR_OS_GFX_COLOR_WHITE);

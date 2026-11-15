@@ -55,6 +55,7 @@ typedef struct {
     view_mode_t mode;
     bool loaded;
     bool suspended;
+    bool fullscreen;
     int pan_x;
     int pan_y;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -878,8 +879,9 @@ static void view_reset_pan(solar_os_gfx_t *gfx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     const int image_width = (int)view_state.image.width;
     const int image_height = (int)view_state.image.height;
     view_state.pan_x = image_width > screen_width ? (screen_width - image_width) / 2 : 0;
@@ -892,8 +894,9 @@ static void view_clamp_pan(solar_os_gfx_t *gfx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     const int image_width = (int)view_state.image.width;
     const int image_height = (int)view_state.image.height;
 
@@ -987,8 +990,9 @@ static void view_render(solar_os_context_t *ctx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     int draw_width = (int)view_state.image.width;
     int draw_height = (int)view_state.image.height;
     int origin_x = 0;
@@ -1013,7 +1017,7 @@ static void view_render(solar_os_context_t *ctx)
     }
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    view_draw_scaled(gfx, origin_x, origin_y, draw_width, draw_height);
+    view_draw_scaled(gfx, bounds.x + origin_x, bounds.y + origin_y, draw_width, draw_height);
     solar_os_gfx_present(gfx);
 }
 
@@ -1206,7 +1210,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case 'f':
     case 'F':
-        view_state.mode = view_state.mode == VIEW_MODE_FIT ? VIEW_MODE_ACTUAL : VIEW_MODE_FIT;
+        view_state.fullscreen = !view_state.fullscreen;
         view_reset_pan(solar_os_context_gfx(ctx));
         redraw = true;
         break;

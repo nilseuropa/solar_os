@@ -1718,15 +1718,25 @@ esp_err_t solar_os_gfx_present_frame(
     solar_os_gfx_t *gfx,
     const solar_os_display_raster_t *frame)
 {
+    if (!frame) return ESP_ERR_INVALID_STATE;
+    return solar_os_gfx_present_frame_at(gfx, frame, frame->x, frame->y);
+}
+
+esp_err_t solar_os_gfx_present_frame_at(
+    solar_os_gfx_t *gfx,
+    const solar_os_display_raster_t *frame,
+    int x, int y)
+{
     if (!gfx_ready(gfx) || !frame) {
         return ESP_ERR_INVALID_STATE;
     }
     const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
     solar_os_display_raster_t physical = *frame;
-    if ((uint32_t)frame->x + canvas.x > UINT16_MAX ||
-        (uint32_t)frame->y + canvas.y > UINT16_MAX) return ESP_ERR_INVALID_ARG;
-    physical.x += canvas.x;
-    physical.y += canvas.y;
+    const int64_t panel_x = (int64_t)x + canvas.x, panel_y = (int64_t)y + canvas.y;
+    if (panel_x < 0 || panel_y < 0 || panel_x > UINT16_MAX || panel_y > UINT16_MAX)
+        return ESP_ERR_INVALID_ARG;
+    physical.x = panel_x;
+    physical.y = panel_y;
     const esp_err_t ret = solar_os_display_present_frame(gfx->u8g2, &physical);
     if (ret == ESP_OK) {
         gfx->dirty = false;

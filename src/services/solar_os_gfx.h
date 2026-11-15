@@ -167,6 +167,11 @@ esp_err_t solar_os_gfx_present_mono_xbm(solar_os_gfx_t *gfx,
 esp_err_t solar_os_gfx_present_frame(
     solar_os_gfx_t *gfx,
     const solar_os_display_raster_t *frame);
+/* Canvas-relative placement, including negative coordinates inside the panel. */
+esp_err_t solar_os_gfx_present_frame_at(
+    solar_os_gfx_t *gfx,
+    const solar_os_display_raster_t *frame,
+    int x, int y);
 bool solar_os_gfx_supports_frame_format(const solar_os_gfx_t *gfx,
                                       solar_os_display_format_t format);
 bool solar_os_gfx_needs_present(const solar_os_gfx_t *gfx);

@@ -38,7 +38,9 @@ struct mpeg_player {
     bool fit, fullscreen, stopped, playlist_visible, color, pending, dirty, layout_dirty, audio_running, audio_eof, diagnostics,
         high_refresh, simd;
     char display_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
-    uint32_t screen_width, screen_height, viewport_x, viewport_y, viewport_width, viewport_height, layout;
+    uint32_t screen_width, screen_height, viewport_width, viewport_height, layout;
+    int32_t viewport_x, viewport_y;
+    solar_os_display_rect_t panel;
     uint8_t *current, *next;
     uint32_t current_w, current_h, next_w, next_h;
     size_t current_capacity, next_capacity;
@@ -414,10 +416,10 @@ static void viewport(mpeg_player_t *p)
 {
     solar_os_media_player_layout_t layout;
     solar_os_media_player_layout(p->screen_width, p->screen_height, true, &layout);
-    p->viewport_x = p->fullscreen ? 0U : (uint32_t)layout.view_x;
-    p->viewport_y = p->fullscreen ? 0U : (uint32_t)layout.view_y;
-    p->viewport_width = p->fullscreen ? p->screen_width : (uint32_t)layout.view_width;
-    p->viewport_height = p->fullscreen ? p->screen_height : (uint32_t)layout.view_height;
+    p->viewport_x = p->fullscreen ? p->panel.x : layout.view_x;
+    p->viewport_y = p->fullscreen ? p->panel.y : layout.view_y;
+    p->viewport_width = p->fullscreen ? (uint32_t)p->panel.width : (uint32_t)layout.view_width;
+    p->viewport_height = p->fullscreen ? (uint32_t)p->panel.height : (uint32_t)layout.view_height;
 }
 static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
                                    bool fullscreen, double start_time, bool paused,
@@ -449,6 +451,7 @@ static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bo
     p->color = solar_os_gfx_format(gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8;
     p->screen_width = solar_os_gfx_width(gfx);
     p->screen_height = solar_os_gfx_height(gfx);
+    p->panel = solar_os_gfx_panel_bounds(gfx);
     viewport(p);
     p->layout_dirty = true;
     p->last_stats = esp_timer_get_time();
@@ -638,8 +641,8 @@ static void mpeg_player_event(solar_os_context_t *ctx, mpeg_player_t *p,
     if ((dirty || chrome) && p->current && p->current_w <= p->viewport_width &&
         p->current_h <= p->viewport_height) {
         int64_t started = esp_timer_get_time();
-        int x = p->viewport_x + (p->viewport_width - p->current_w) / 2;
-        int y = p->viewport_y + (p->viewport_height - p->current_h) / 2;
+        int x = p->viewport_x + (int)(p->viewport_width - p->current_w) / 2;
+        int y = p->viewport_y + (int)(p->viewport_height - p->current_h) / 2;
         esp_err_t err;
         if (p->color) {
             solar_os_display_raster_t raster = {.data = p->current,
@@ -648,12 +651,10 @@ static void mpeg_player_event(solar_os_context_t *ctx, mpeg_player_t *p,
                                                 .source_width = p->current_w,
                                                 .source_height = p->current_h,
                                                 .source_stride = p->current_w * 2,
-                                                .x = x,
-                                                .y = y,
                                                 .width = p->current_w,
                                                 .height = p->current_h,
                                                 .format = SOLAR_OS_DISPLAY_FORMAT_RGB565};
-            err = solar_os_gfx_present_frame(gfx, &raster);
+            err = solar_os_gfx_present_frame_at(gfx, &raster, x, y);
         } else {
             solar_os_gfx_raster_t raster = {.pixels = p->current,
                                             .pixels_size = (size_t)p->current_w * p->current_h,
