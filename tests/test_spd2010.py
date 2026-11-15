@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class Spd2010RasterTest(unittest.TestCase):
     def test_monochrome_white_bit_matches_shared_palette_contract(self):
         source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
-                                      ("from_u8x8", "display_callback"))
+                                      ("from_u8x8", "hash_bytes", "display_callback"))
         run_c(r'''
 #include <assert.h>
 #include <stdbool.h>
@@ -22,13 +22,18 @@ class Spd2010RasterTest(unittest.TestCase):
 #include <string.h>
 #include "esp_err.h"
 #include "u8g2.h"
+#include "solar_os_rgb_panel_buffer.h"
 #define WIDTH 412U
 #define HEIGHT 412U
 #define portMAX_DELAY 0
 typedef struct {
     u8g2_t u8g2;
     u8x8_display_info_t info;
-    struct { uint8_t *pixels; } image;
+    solar_os_rgb_panel_buffer_t image;
+    uint32_t mono_hashes[52];
+    uint64_t mono_valid_rows;
+    const uint8_t *surface_data;
+    bool frame_cached;
     void *mutex;
     uint16_t foreground, background;
     bool ready;
@@ -39,12 +44,13 @@ static void xSemaphoreTake(void *m, int delay) { (void)m; (void)delay; assert(!l
 static void xSemaphoreGive(void *m) { (void)m; assert(locked-- == 1); }
 void u8x8_d_helper_display_setup_memory(u8x8_t *u, const u8x8_display_info_t *info) { u->display_info=info; }
 static esp_err_t solar_os_spd2010_power_save(solar_os_spd2010_t *d, bool enabled) { (void)d; (void)enabled; return ESP_OK; }
-static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end) {
-    assert(d && locked && first==40 && end==48); transfers++; return ESP_OK;
+static esp_err_t flush_changed_rows(solar_os_spd2010_t *d) {
+    assert(d && locked); transfers++; return ESP_OK;
 }
 ''' + source + r'''
 int main(void) {
-    solar_os_spd2010_t d={.ready=true,.foreground=0x1234,.background=0xfedc};
+    solar_os_spd2010_t d={.ready=true,.foreground=0x1234,.background=0xfedc,
+        .image={.width=WIDTH,.height=HEIGHT}};
     d.image.pixels=malloc(WIDTH*HEIGHT*2U); assert(d.image.pixels);
     memset(d.image.pixels,0xa5,WIDTH*HEIGHT*2U);
     uint8_t columns[8]={1,2,4,8,16,32,64,128};
@@ -55,10 +61,23 @@ int main(void) {
         /* The OS emits one for white/background, zero for black/foreground. */
         assert((((uint16_t)p[0]<<8)|p[1])==(x==y ? d.background : d.foreground));
     }
+    assert(!transfers && !locked);
+    assert(display_callback(&d.u8g2.u8x8,U8X8_MSG_DISPLAY_REFRESH,0,NULL));
     assert(transfers==1 && !locked);
     free(d.image.pixels);
 }
-''', "-I", str(ROOT / "components/u8g2/src/clib"),
+''', "-I", str(ROOT / "components/u8g2/src/clib"), "-I", str(ROOT / "src/drivers"),
+              "-I", str(ROOT / "src/services"),
+              "-fsanitize=address,undefined", "-no-pie")
+
+    def test_changed_rows_dma_completion_and_failed_transfer_retry(self):
+        source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
+            ("flush_rows", "rows_dirty", "flush_changed_rows", "from_u8x8", "hash_bytes", "display_callback",
+             "solar_os_spd2010_frame", "solar_os_spd2010_surface", "solar_os_spd2010_colors"))
+        fixture = (ROOT / "tests/host/spd2010_refresh_test.c").read_text()
+        run_c(fixture.replace("/* PRODUCTION_CALLBACKS */", source),
+              "-I", str(ROOT / "components/u8g2/src/clib"), "-I", str(ROOT / "src/drivers"),
+              "-I", str(ROOT / "src/services"), str(ROOT / "src/drivers/solar_os_rgb_panel_buffer.c"),
               "-fsanitize=address,undefined", "-no-pie")
 
     def test_supplier_startup_order_and_failure_keeps_backlight_off(self):
@@ -69,6 +88,7 @@ int main(void) {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include "esp_err.h"
 #define HEIGHT 412
 #define portMAX_DELAY 0
@@ -78,6 +98,10 @@ typedef struct {
     void *panel, *mutex;
     bool ready, sleeping;
     esp_err_t last_error;
+    uint8_t dirty_rows[52];
+    uint64_t mono_valid_rows;
+    const uint8_t *surface_data;
+    bool frame_cached;
 } solar_os_spd2010_t;
 static int stage, locked, lights;
 static bool inversion;

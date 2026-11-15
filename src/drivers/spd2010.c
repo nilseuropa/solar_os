@@ -17,7 +17,8 @@
 
 #define WIDTH 412U
 #define HEIGHT 412U
-#define BAND_ROWS 4U
+#define BAND_ROWS 16U
+#define ROW_ALIGNMENT 4U
 
 struct solar_os_spd2010 {
     solar_os_spd2010_config_t config;
@@ -25,6 +26,19 @@ struct solar_os_spd2010 {
     u8g2_t u8g2;
     u8x8_display_info_t info;
     uint8_t *mono, *dma;
+    uint8_t dirty_rows[(HEIGHT + 7U) / 8U];
+    uint32_t mono_hashes[(HEIGHT + 7U) / 8U];
+    uint64_t mono_valid_rows;
+    const uint8_t *surface_data;
+    uint32_t surface_palette_hash;
+    uint16_t surface_stride;
+    solar_os_display_rotation_t surface_rotation;
+    uint32_t frame_hashes[(HEIGHT + 7U) / 8U];
+    uint64_t frame_valid_rows;
+    uint32_t frame_palette_hash;
+    uint16_t frame_width, frame_height;
+    solar_os_display_rotation_t frame_rotation;
+    bool frame_cached, frame_inverted;
     esp_lcd_panel_io_handle_t io;
     esp_lcd_panel_handle_t panel;
     SemaphoreHandle_t done, mutex;
@@ -70,7 +84,8 @@ static esp_err_t backlight(solar_os_spd2010_t *d, bool enabled)
 static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end)
 {
     for (uint16_t y = first; y < end; y += BAND_ROWS) {
-        uint16_t rows = end - y < BAND_ROWS ? end - y : BAND_ROWS;
+        const unsigned remaining = end - y;
+        const uint16_t rows = remaining < BAND_ROWS ? remaining : BAND_ROWS;
         memcpy(d->dma, d->image.pixels + (size_t)y * WIDTH * 2U, (size_t)rows * WIDTH * 2U);
         (void)xSemaphoreTake(d->done, 0);
         esp_err_t error = esp_lcd_panel_draw_bitmap(d->panel, 0, y, WIDTH, y + rows, d->dma);
@@ -82,9 +97,35 @@ static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end)
     return ESP_OK;
 }
 
+static bool rows_dirty(const solar_os_spd2010_t *d, uint16_t y)
+{
+    return (d->dirty_rows[y / 8U] & (0x0fU << (y & 7U))) != 0;
+}
+
+static esp_err_t flush_changed_rows(solar_os_spd2010_t *d)
+{
+    for (uint16_t y = 0; y < HEIGHT;) {
+        if (!rows_dirty(d, y)) { y += ROW_ALIGNMENT; continue; }
+        const uint16_t first = y;
+        do { y += ROW_ALIGNMENT; } while (y < HEIGHT && rows_dirty(d, y));
+        const esp_err_t error = flush_rows(d, first, y);
+        if (error) return error; /* Retain dirty rows so the next presentation retries. */
+        for (uint16_t row = first; row < y; row += ROW_ALIGNMENT)
+            d->dirty_rows[row / 8U] &= ~(0x0fU << (row & 7U));
+    }
+    return ESP_OK;
+}
+
 static solar_os_spd2010_t *from_u8x8(u8x8_t *u)
 {
     return (solar_os_spd2010_t *)((uint8_t *)u - offsetof(solar_os_spd2010_t, u8g2) - offsetof(u8g2_t, u8x8));
+}
+
+static uint32_t hash_bytes(const uint8_t *data, size_t size)
+{
+    uint32_t hash = UINT32_C(2166136261);
+    for (size_t i = 0; i < size; i++) hash = (hash ^ data[i]) * UINT32_C(16777619);
+    return hash;
 }
 
 static uint8_t display_callback(u8x8_t *u, uint8_t message, uint8_t count, void *arg)
@@ -98,6 +139,12 @@ static uint8_t display_callback(u8x8_t *u, uint8_t message, uint8_t count, void 
         d->last_error = solar_os_spd2010_power_save(d, count != 0);
         return d->last_error == ESP_OK;
     }
+    if (message == U8X8_MSG_DISPLAY_REFRESH && d->ready) {
+        xSemaphoreTake(d->mutex, portMAX_DELAY);
+        d->last_error = flush_changed_rows(d);
+        xSemaphoreGive(d->mutex);
+        return d->last_error == ESP_OK;
+    }
     if (message != U8X8_MSG_DISPLAY_DRAW_TILE || !arg || !d->ready) return 0;
     const u8x8_tile_t *tile = arg;
     if (!tile->tile_ptr || !tile->cnt || tile->x_pos * 8U >= WIDTH || tile->y_pos * 8U >= HEIGHT)
@@ -108,16 +155,26 @@ static uint8_t display_callback(u8x8_t *u, uint8_t message, uint8_t count, void 
     uint16_t y1 = y0 + 8U < HEIGHT ? y0 + 8U : HEIGHT;
     uint16_t x1 = x0 + (uint16_t)tile->cnt * 8U;
     if (x1 > WIDTH) x1 = WIDTH;
+    const uint64_t row_bit = UINT64_C(1) << tile->y_pos;
+    const bool full_row = x0 == 0 && x1 == WIDTH;
+    const uint32_t hash = full_row ? hash_bytes(tile->tile_ptr, WIDTH) : 0;
+    if (full_row && (d->mono_valid_rows & row_bit) && d->mono_hashes[tile->y_pos] == hash) {
+        xSemaphoreGive(d->mutex);
+        return 1;
+    }
+    d->surface_data = NULL;
+    d->frame_cached = false;
     for (uint16_t y = y0; y < y1; ++y) {
         for (uint16_t x = x0; x < x1; ++x) {
             uint16_t color = tile->tile_ptr[x - x0] & (1U << (y - y0)) ? d->background : d->foreground;
-            size_t offset = ((size_t)y * WIDTH + x) * 2U;
-            d->image.pixels[offset] = (uint8_t)(color >> 8);
-            d->image.pixels[offset + 1U] = (uint8_t)color;
+            solar_os_rgb_panel_put(&d->image, x, y, color);
         }
     }
-    d->last_error = y0 < HEIGHT && x0 < WIDTH && tile->cnt && tile->tile_ptr ?
-        flush_rows(d, y0, y1) : ESP_ERR_INVALID_ARG;
+    if (full_row) {
+        d->mono_hashes[tile->y_pos] = hash;
+        d->mono_valid_rows |= row_bit;
+    } else d->mono_valid_rows &= ~row_bit;
+    d->last_error = ESP_OK;
     xSemaphoreGive(d->mutex);
     return d->last_error == ESP_OK;
 }
@@ -127,6 +184,9 @@ esp_err_t solar_os_spd2010_resume(solar_os_spd2010_t *d)
     if (!d || !d->panel) return ESP_ERR_INVALID_STATE;
     xSemaphoreTake(d->mutex, portMAX_DELAY);
     d->ready = false;
+    d->mono_valid_rows = 0;
+    d->surface_data = NULL;
+    d->frame_cached = false;
     esp_err_t error = backlight(d, false);
     if (!error && d->config.have_power) error = control(&d->config.power, d->config.power_active_high);
     if (!error) vTaskDelay(pdMS_TO_TICKS(20) + 1);
@@ -143,6 +203,7 @@ esp_err_t solar_os_spd2010_resume(solar_os_spd2010_t *d)
     if (!error) error = esp_lcd_panel_mirror(d->panel, false, false);
     if (!error && d->config.invert) error = esp_lcd_panel_invert_color(d->panel, true);
     if (!error) error = flush_rows(d, 0, HEIGHT);
+    if (!error) memset(d->dirty_rows, 0, sizeof(d->dirty_rows));
     if (!error) error = esp_lcd_panel_disp_on_off(d->panel, true);
     if (!error) error = backlight(d, true);
     d->ready = error == ESP_OK;
@@ -222,7 +283,8 @@ esp_err_t solar_os_spd2010_create(const solar_os_spd2010_config_t *c, solar_os_s
     d->background = 0xffff; d->brightness = 100;
     d->done = xSemaphoreCreateBinaryStatic(&d->done_storage);
     d->mutex = xSemaphoreCreateMutexStatic(&d->mutex_storage);
-    d->image = (solar_os_rgb_panel_buffer_t){.width = WIDTH, .height = HEIGHT};
+    d->image = (solar_os_rgb_panel_buffer_t){.width = WIDTH, .height = HEIGHT,
+        .dirty_rows = d->dirty_rows};
     d->image.pixels = solar_os_memory_alloc(WIDTH * HEIGHT * 2U, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "spd2010.frame");
     d->mono = solar_os_memory_calloc(((WIDTH + 7U) / 8U) * ((HEIGHT + 7U) / 8U), 8U,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "spd2010.text");
@@ -276,8 +338,50 @@ esp_err_t solar_os_spd2010_frame(void *ctx, const solar_os_display_raster_t *f)
     solar_os_spd2010_t *d = ctx;
     if (!d || !d->ready) return ESP_ERR_INVALID_STATE;
     xSemaphoreTake(d->mutex, portMAX_DELAY);
-    esp_err_t error = solar_os_rgb_panel_frame(&d->image, f, rotation(d));
-    if (!error) error = flush_rows(d, 0, HEIGHT);
+    d->mono_valid_rows = 0;
+    d->surface_data = NULL;
+    const solar_os_display_rotation_t r = rotation(d);
+    /* Scaled indexed canvases arrive as full-panel rasters without a change
+     * map. Hash eight source rows at a time instead of reconverting the panel. */
+    const bool indexed_canvas = f && f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 &&
+        f->data && f->palette_rgb565 && f->palette_size >= 256U &&
+        !f->x && !f->y && f->width == WIDTH && f->height == HEIGHT &&
+        f->source_width && f->source_height && f->source_stride == f->source_width &&
+        WIDTH % f->source_width == 0 && HEIGHT % f->source_height == 0 &&
+        f->data_size >= (size_t)f->source_stride * f->source_height;
+    esp_err_t error = ESP_OK;
+    if (indexed_canvas) {
+        const uint32_t palette_hash = hash_bytes((const uint8_t *)f->palette_rgb565,
+            256U * sizeof(uint16_t));
+        if (!d->frame_cached || d->frame_width != f->source_width ||
+            d->frame_height != f->source_height || d->frame_rotation != r ||
+            d->frame_inverted != f->palette_inverted || d->frame_palette_hash != palette_hash)
+            d->frame_valid_rows = 0;
+        d->frame_cached = true;
+        d->frame_width = f->source_width; d->frame_height = f->source_height;
+        d->frame_rotation = r; d->frame_inverted = f->palette_inverted;
+        d->frame_palette_hash = palette_hash;
+        const unsigned scale_y = HEIGHT / f->source_height;
+        for (unsigned y = 0; y < f->source_height; y += 8U) {
+            const unsigned rows = f->source_height - y < 8U ? f->source_height - y : 8U;
+            const size_t offset = (size_t)y * f->source_stride;
+            const uint32_t hash = hash_bytes(f->data + offset, rows * f->source_stride);
+            const uint64_t bit = UINT64_C(1) << (y / 8U);
+            if ((d->frame_valid_rows & bit) && d->frame_hashes[y / 8U] == hash) continue;
+            solar_os_display_raster_t band = *f;
+            band.data += offset; band.data_size -= offset;
+            band.source_height = rows; band.y = y * scale_y; band.height = rows * scale_y;
+            band.clear_background = false; /* These bands cover the entire panel. */
+            error = solar_os_rgb_panel_frame(&d->image, &band, r);
+            if (error) break;
+            d->frame_hashes[y / 8U] = hash;
+            d->frame_valid_rows |= bit;
+        }
+    } else {
+        d->frame_cached = false;
+        error = solar_os_rgb_panel_frame(&d->image, f, r);
+    }
+    if (!error) error = flush_changed_rows(d);
     xSemaphoreGive(d->mutex);
     return error;
 }
@@ -286,9 +390,41 @@ esp_err_t solar_os_spd2010_surface(void *ctx, const solar_os_display_surface_t *
 {
     solar_os_spd2010_t *d = ctx;
     if (!d || !d->ready) return ESP_ERR_INVALID_STATE;
+    if (!s) return ESP_ERR_INVALID_ARG;
+    /* Full-redraw apps mark every tile dirty. Reuse the raster row cache so
+     * unchanged areas need only a linear source-byte hash, not tile gathering. */
+    if (s->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 && s->width == WIDTH && s->height == HEIGHT &&
+        s->native_width == WIDTH && s->native_height == HEIGHT && s->stride == WIDTH &&
+        s->rotation == rotation(d) && s->dirty_tiles && s->tile_size == 8U &&
+        s->dirty_stride >= 7U && s->dirty_size >= (size_t)s->dirty_stride * 52U) {
+        bool full = true;
+        for (unsigned y = 0; y < 52U && full; y++) for (unsigned x = 0; x < 7U; x++) {
+            const uint8_t mask = x == 6U ? 0x0fU : 0xffU;
+            if ((s->dirty_tiles[(size_t)y * s->dirty_stride + x] & mask) != mask) { full = false; break; }
+        }
+        if (full) {
+            const solar_os_display_raster_t f = {.data=s->data,.data_size=s->data_size,
+                .palette_rgb565=s->palette_rgb565,.palette_size=s->palette_size,
+                .source_width=WIDTH,.source_height=HEIGHT,.source_stride=WIDTH,
+                .width=WIDTH,.height=HEIGHT,.format=SOLAR_OS_DISPLAY_FORMAT_INDEX8};
+            return solar_os_spd2010_frame(d, &f);
+        }
+    }
     xSemaphoreTake(d->mutex, portMAX_DELAY);
-    esp_err_t error = solar_os_rgb_panel_surface(&d->image, s);
-    if (!error) error = flush_rows(d, 0, HEIGHT);
+    d->mono_valid_rows = 0;
+    d->frame_cached = false;
+    const uint32_t palette_hash = s->palette_rgb565 && s->palette_size >= 256U ?
+        hash_bytes((const uint8_t *)s->palette_rgb565, 256U * sizeof(uint16_t)) : 0;
+    const bool changed_only = d->surface_data == s->data && d->surface_stride == s->stride &&
+        d->surface_rotation == s->rotation && d->surface_palette_hash == palette_hash;
+    esp_err_t error = solar_os_rgb_panel_surface_update(&d->image, s, changed_only);
+    if (!error) {
+        d->surface_data = s->data;
+        d->surface_stride = s->stride;
+        d->surface_rotation = s->rotation;
+        d->surface_palette_hash = palette_hash;
+    }
+    if (!error) error = flush_changed_rows(d);
     xSemaphoreGive(d->mutex);
     return error;
 }
@@ -297,6 +433,7 @@ esp_err_t solar_os_spd2010_colors(solar_os_spd2010_t *d, uint32_t foreground, ui
 {
     if (!d || foreground > 0xffffff || background > 0xffffff) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(d->mutex, portMAX_DELAY);
+    d->mono_valid_rows = 0;
     d->foreground = ((foreground >> 8) & 0xf800) | ((foreground >> 5) & 0x7e0) | ((foreground >> 3) & 0x1f);
     d->background = ((background >> 8) & 0xf800) | ((background >> 5) & 0x7e0) | ((background >> 3) & 0x1f);
     xSemaphoreGive(d->mutex);
