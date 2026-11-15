@@ -48,8 +48,20 @@ maintained source. Do not edit them by hand; fix the generator or XKB instead.
 
 ## Regenerating and adding layouts
 
-Install libxkbcommon and xkeyboard-config (Debian/Ubuntu:
-`libxkbcommon0 xkb-data`; Homebrew: `libxkbcommon xkeyboard-config`), then:
+The output depends on both packages, not only on the XKB data: libxkbcommon
+applies Caps Lock through Unicode case mappings that change between releases
+(for example, 1.8.0 added ß → ẞ). The generator therefore requires the exact
+versions pinned in `REQUIRED_VERSIONS` in `scripts/generate_keyboard_layouts.py`
+(currently libxkbcommon 1.13.2 and xkeyboard-config 2.48), records them in
+each file, and refuses to run with others. The firmware build rejects a file
+that records other versions.
+
+The generator finds both through their pkg-config files (`xkbcommon.pc`,
+`xkeyboard-config.pc`; no `pkg-config` binary needed) in the usual system and
+Homebrew directories or `PKG_CONFIG_PATH`, and loads the library from that
+`libdir`. Homebrew `libxkbcommon xkeyboard-config` currently matches the pins;
+distribution packages are often older, in which case build both from source
+(meson) into a prefix and point `PKG_CONFIG_PATH` at it. Then:
 
 ```sh
 scripts/generate_keyboard_layouts.py --all        # refresh every file
@@ -57,8 +69,10 @@ scripts/generate_keyboard_layouts.py fr           # XKB layout "fr"
 scripts/generate_keyboard_layouts.py ch-fr --xkb ch --variant fr
 ```
 
-`--xkb-root` selects another XKB data directory. The XKB data version is
-recorded in each file. The model is always `pc105`.
+The model is always `pc105`. To move to newer versions, change both pins and
+regenerate every layout in the same commit. `tests/test_keyboard_layouts.py`
+checks that the committed files match a fresh generation when the pinned
+versions are installed, and says why it is skipped otherwise.
 
 A new file is not built in until its name is appended to `BUILTIN_LAYOUTS` in
 `scripts/compile_keyboard_layouts.py` and to the input service's layout list.

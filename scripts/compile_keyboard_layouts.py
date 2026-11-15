@@ -13,7 +13,7 @@ import re
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from generate_keyboard_layouts import HID_TO_EVDEV, LAYOUT_DIR  # noqa: E402
+from generate_keyboard_layouts import HID_TO_EVDEV, LAYOUT_DIR, REQUIRED_VERSIONS  # noqa: E402
 
 # Built-in layouts in firmware order. The index of a layout is stored in NVS,
 # so append new layouts at the end and never reorder or remove one.
@@ -56,6 +56,12 @@ def load(directory: Path, name: str) -> dict:
         raise LayoutError(f"{path}: {error}") from error
     if data.get("name") != name:
         raise LayoutError(f"{path}: name must be {name!r}")
+    source = data.get("source", {})
+    for package, version in REQUIRED_VERSIONS.items():
+        if source.get(package) != version:
+            raise LayoutError(f"{path}: generated with {package} {source.get(package)}, "
+                              f"expected {version}; regenerate with "
+                              "scripts/generate_keyboard_layouts.py --all")
     keys = []
     for usage_text, entry in data.get("keys", {}).items():
         where = f"{path.name} {usage_text}"

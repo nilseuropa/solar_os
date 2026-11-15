@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate keymaps/layouts/<name>.json from xkeyboard-config.
 
-Host tool, not part of the firmware build. It needs libxkbcommon and the
-xkeyboard-config data (Debian: libxkbcommon0 xkb-data, Homebrew: libxkbcommon
-xkeyboard-config). See keymaps/layouts/README.md.
+Host tool, not part of the firmware build. It needs the exact libxkbcommon
+and xkeyboard-config versions in REQUIRED_VERSIONS, found through their
+pkg-config files. See keymaps/layouts/README.md.
 
     scripts/generate_keyboard_layouts.py de                 # layout "de"
     scripts/generate_keyboard_layouts.py fr --xkb fr        # explicit XKB name
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
-import ctypes.util
+import glob
 import json
 import os
 from pathlib import Path
@@ -51,57 +51,90 @@ class RuleNames(ctypes.Structure):
                 for name in ("rules", "model", "layout", "variant", "options")]
 
 
-def load_xkbcommon():
-    candidates = [os.environ.get("XKBCOMMON_LIBRARY"),
-                  ctypes.util.find_library("xkbcommon"),
-                  "/opt/homebrew/lib/libxkbcommon.dylib",
-                  "/usr/local/lib/libxkbcommon.dylib",
-                  "libxkbcommon.so.0"]
-    for candidate in candidates:
-        if not candidate:
+# The generated files depend on both packages: xkeyboard-config supplies the
+# layouts, and libxkbcommon's Caps Lock case mappings follow the Unicode
+# version it was built with. Regenerating with other versions is refused, so
+# every file comes from the same toolchain. To move to newer versions, change
+# both pins and regenerate all layouts in one commit.
+REQUIRED_VERSIONS = {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2"}
+
+PKG_CONFIG_DIRS = ("/opt/homebrew/lib/pkgconfig", "/opt/homebrew/share/pkgconfig",
+                   "/usr/local/lib/pkgconfig", "/usr/local/share/pkgconfig",
+                   "/usr/lib/pkgconfig", "/usr/lib64/pkgconfig",
+                   "/usr/lib/*/pkgconfig", "/usr/share/pkgconfig")
+
+
+class ToolchainError(RuntimeError):
+    pass
+
+
+def read_pkg_config(name: str) -> dict:
+    """Variables and fields of <name>.pc, found like pkg-config would."""
+    directories = [d for d in os.environ.get("PKG_CONFIG_PATH", "").split(os.pathsep) if d]
+    for pattern in PKG_CONFIG_DIRS:
+        directories += sorted(glob.glob(pattern))
+    for directory in directories:
+        path = Path(directory, f"{name}.pc")
+        if not path.is_file():
             continue
-        try:
-            lib = ctypes.CDLL(candidate)
-        except OSError:
-            continue
-        lib.xkb_context_new.restype = ctypes.c_void_p
-        lib.xkb_context_new.argtypes = [ctypes.c_int]
-        lib.xkb_context_include_path_clear.argtypes = [ctypes.c_void_p]
-        lib.xkb_context_include_path_append.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-        lib.xkb_context_unref.argtypes = [ctypes.c_void_p]
-        lib.xkb_keymap_new_from_names.restype = ctypes.c_void_p
-        lib.xkb_keymap_new_from_names.argtypes = [ctypes.c_void_p,
-                                                  ctypes.POINTER(RuleNames), ctypes.c_int]
-        lib.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
-        lib.xkb_state_new.restype = ctypes.c_void_p
-        lib.xkb_state_new.argtypes = [ctypes.c_void_p]
-        lib.xkb_state_unref.argtypes = [ctypes.c_void_p]
-        lib.xkb_state_update_key.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int]
-        lib.xkb_state_key_get_one_sym.restype = ctypes.c_uint32
-        lib.xkb_state_key_get_one_sym.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
-        lib.xkb_keysym_to_utf32.restype = ctypes.c_uint32
-        lib.xkb_keysym_to_utf32.argtypes = [ctypes.c_uint32]
-        lib.xkb_keysym_get_name.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
-        return lib
-    sys.exit("libxkbcommon not found (set XKBCOMMON_LIBRARY)")
+        values = {}
+        for line in path.read_text(encoding="utf-8").splitlines():
+            match = re.match(r"\s*([A-Za-z0-9_.]+)\s*([=:])\s*(.*?)\s*$", line)
+            if not match:
+                continue
+            key, _, value = match.groups()
+            values[key] = re.sub(r"\$\{([^}]+)\}", lambda m: values.get(m.group(1), ""), value)
+        values["path"] = str(path)
+        return values
+    raise ToolchainError(f"{name}.pc not found; install the {name} development files "
+                         "or set PKG_CONFIG_PATH")
 
 
-def default_xkb_root() -> Path | None:
-    for candidate in (os.environ.get("XKB_CONFIG_ROOT"), "/usr/share/X11/xkb",
-                      "/opt/homebrew/share/X11/xkb", "/usr/local/share/X11/xkb"):
-        if candidate and Path(candidate, "symbols").is_dir():
-            return Path(candidate)
-    return None
+def check_version(name: str, found: str) -> None:
+    required = REQUIRED_VERSIONS[name]
+    if found != required:
+        raise ToolchainError(f"{name} {found} found, but the layouts are generated with "
+                             f"{name} {required} (see keymaps/layouts/README.md)")
 
 
-def xkb_version(root: Path) -> str:
-    for pc in (root.parent.parent / "pkgconfig" / "xkeyboard-config.pc",
-               root.parent.parent.parent / "lib" / "pkgconfig" / "xkeyboard-config.pc"):
-        if pc.is_file():
-            match = re.search(r"^Version:\s*(\S+)", pc.read_text(), re.M)
-            if match:
-                return match.group(1)
-    return "unknown"
+def find_toolchain() -> tuple[Path, Path]:
+    """(libxkbcommon library, XKB data root) at the pinned versions."""
+    xkbcommon = read_pkg_config("xkbcommon")
+    check_version("libxkbcommon", xkbcommon.get("Version", "unknown"))
+    libdir = Path(xkbcommon.get("libdir", ""))
+    library = next((libdir / name for name in
+                    ("libxkbcommon.dylib", "libxkbcommon.so", "libxkbcommon.so.0")
+                    if (libdir / name).exists()), None)
+    if library is None:
+        raise ToolchainError(f"libxkbcommon not found in {libdir}")
+    xkb_data = read_pkg_config("xkeyboard-config")
+    check_version("xkeyboard-config", xkb_data.get("Version", "unknown"))
+    root = Path(xkb_data.get("xkb_base", ""))
+    if not (root / "symbols").is_dir():
+        raise ToolchainError(f"XKB data not found in {root}")
+    return library, root
+
+
+def load_xkbcommon(library: Path):
+    lib = ctypes.CDLL(str(library))
+    lib.xkb_context_new.restype = ctypes.c_void_p
+    lib.xkb_context_new.argtypes = [ctypes.c_int]
+    lib.xkb_context_include_path_append.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    lib.xkb_context_unref.argtypes = [ctypes.c_void_p]
+    lib.xkb_keymap_new_from_names.restype = ctypes.c_void_p
+    lib.xkb_keymap_new_from_names.argtypes = [ctypes.c_void_p,
+                                              ctypes.POINTER(RuleNames), ctypes.c_int]
+    lib.xkb_keymap_unref.argtypes = [ctypes.c_void_p]
+    lib.xkb_state_new.restype = ctypes.c_void_p
+    lib.xkb_state_new.argtypes = [ctypes.c_void_p]
+    lib.xkb_state_unref.argtypes = [ctypes.c_void_p]
+    lib.xkb_state_update_key.argtypes = [ctypes.c_void_p, ctypes.c_uint32, ctypes.c_int]
+    lib.xkb_state_key_get_one_sym.restype = ctypes.c_uint32
+    lib.xkb_state_key_get_one_sym.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
+    lib.xkb_keysym_to_utf32.restype = ctypes.c_uint32
+    lib.xkb_keysym_to_utf32.argtypes = [ctypes.c_uint32]
+    lib.xkb_keysym_get_name.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
+    return lib
 
 
 class Keymap:
@@ -187,8 +220,7 @@ def generate(name: str, layout: str, variant: str, description: str,
     return {
         "name": name,
         "description": description,
-        "source": {"xkeyboard-config": xkb_version(root), "layout": layout,
-                   "variant": variant},
+        "source": {**REQUIRED_VERSIONS, "layout": layout, "variant": variant},
         "keys": keys,
     }
 
@@ -235,12 +267,8 @@ def main(argv=None) -> int:
     parser.add_argument("--description", help="override the XKB description")
     parser.add_argument("--all", action="store_true",
                         help="regenerate every keymaps/layouts/*.json from its source")
-    parser.add_argument("--xkb-root", type=Path, default=default_xkb_root(),
-                        help="xkeyboard-config data directory")
     parser.add_argument("--output-dir", type=Path, default=LAYOUT_DIR)
     args = parser.parse_args(argv)
-    if args.xkb_root is None:
-        parser.error("xkeyboard-config not found; pass --xkb-root")
     if bool(args.all) == bool(args.name):
         parser.error("give one layout name or --all")
 
@@ -256,11 +284,16 @@ def main(argv=None) -> int:
             parser.error("name must be 1-16 lowercase letters, digits or '-'")
         jobs.append((args.name, args.xkb or args.name, args.variant, args.description))
 
-    lib = load_xkbcommon()
+    try:
+        library, xkb_root = find_toolchain()
+    except ToolchainError as error:
+        print(f"generate_keyboard_layouts: {error}", file=sys.stderr)
+        return 1
+    lib = load_xkbcommon(library)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, layout, variant, description in jobs:
-        description = description or xkb_description(args.xkb_root, layout, variant)
-        data = generate(name, layout, variant, description, args.xkb_root, lib)
+        description = description or xkb_description(xkb_root, layout, variant)
+        data = generate(name, layout, variant, description, xkb_root, lib)
         path = args.output_dir / f"{name}.json"
         path.write_text(dump(data), encoding="utf-8")
         print(f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}: "
