@@ -1,5 +1,6 @@
 #include "solar_os_rgb_panel_buffer.h"
 #include "solar_os_indexed_raster.h"
+#include <string.h>
 
 static bool valid(const solar_os_rgb_panel_buffer_t *buffer)
 {
@@ -49,6 +50,20 @@ esp_err_t solar_os_rgb_panel_frame(solar_os_rgb_panel_buffer_t *b,
     if (!rgb) solar_os_indexed_palette(f->palette_rgb565, f->format, f->palette_inverted, colors);
     if (f->clear_background) solar_os_rgb_panel_clear(b,
         rgb ? f->background_rgb565 : colors[f->background_index]);
+    /* Video decoders already provide a sized RGB565 raster in wire order. */
+    if (rgb && rotation == SOLAR_OS_DISPLAY_ROTATION_0 &&
+        f->source_width == f->width && f->source_height == f->height) {
+        const size_t bytes = (size_t)f->width * 2U;
+        for (uint16_t y = 0; y < f->height; y++) {
+            const uint8_t *source = f->data + (size_t)y * f->source_stride;
+            const unsigned row = f->y + y;
+            uint8_t *destination = b->pixels + ((size_t)row * b->width + f->x) * 2U;
+            if (memcmp(destination, source, bytes) == 0) continue;
+            memcpy(destination, source, bytes);
+            if (b->dirty_rows) b->dirty_rows[row / 8U] |= 1U << (row & 7U);
+        }
+        return ESP_OK;
+    }
     for (uint16_t y = 0; y < f->height; ++y) {
         uint16_t sy = (uint32_t)y * f->source_height / f->height;
         const uint8_t *row = f->data + (size_t)sy * f->source_stride;

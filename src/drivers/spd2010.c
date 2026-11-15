@@ -17,15 +17,15 @@
 
 #define WIDTH 412U
 #define HEIGHT 412U
-#define BAND_ROWS 16U
 #define ROW_ALIGNMENT 4U
+#define TRANSFER_BYTES (WIDTH * ROW_ALIGNMENT * 2U)
 
 struct solar_os_spd2010 {
     solar_os_spd2010_config_t config;
     solar_os_rgb_panel_buffer_t image;
     u8g2_t u8g2;
     u8x8_display_info_t info;
-    uint8_t *mono, *dma;
+    uint8_t *mono;
     uint8_t dirty_rows[(HEIGHT + 7U) / 8U];
     uint32_t mono_hashes[(HEIGHT + 7U) / 8U];
     uint64_t mono_valid_rows;
@@ -45,7 +45,7 @@ struct solar_os_spd2010 {
     StaticSemaphore_t done_storage, mutex_storage;
     uint16_t foreground, background;
     uint8_t brightness;
-    bool spi_started, ready, sleeping;
+    bool spi_started, ready, sleeping, io_failed;
     esp_err_t last_error;
 };
 
@@ -79,22 +79,31 @@ static esp_err_t backlight(solar_os_spd2010_t *d, bool enabled)
         percent ? d->config.backlight_active_high : !d->config.backlight_active_high);
 }
 
-/* The staging allocation stays pinned until the SPI completion callback. Every
- * rectangle spans full rows, satisfying the controller's four-pixel alignment. */
+/* Keep the existing PSRAM image locked until the final queued DMA chunk ends.
+ * The SDK pipelines bounded internal bounce buffers within one LCD window. */
 static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end)
 {
-    for (uint16_t y = first; y < end; y += BAND_ROWS) {
-        const unsigned remaining = end - y;
-        const uint16_t rows = remaining < BAND_ROWS ? remaining : BAND_ROWS;
-        memcpy(d->dma, d->image.pixels + (size_t)y * WIDTH * 2U, (size_t)rows * WIDTH * 2U);
-        (void)xSemaphoreTake(d->done, 0);
-        esp_err_t error = esp_lcd_panel_draw_bitmap(d->panel, 0, y, WIDTH, y + rows, d->dma);
-        if (error) return error;
-        /* SPI has no peripheral acknowledgement; completion depends on the
-         * bounded DMA transfer, even when the display is disconnected. */
-        xSemaphoreTake(d->done, portMAX_DELAY);
+    (void)xSemaphoreTake(d->done, 0);
+    esp_err_t error = esp_lcd_panel_draw_bitmap(d->panel, 0, first, WIDTH, end,
+        d->image.pixels + (size_t)first * WIDTH * 2U);
+    if (error) {
+        /* A later chunk can fail after earlier chunks were queued. Drain them
+         * before the backing image can be modified or freed. No command is sent. */
+        if (error != ESP_ERR_NO_MEM || esp_lcd_panel_io_tx_param(d->io, -1, NULL, 0) != ESP_OK) {
+            /* Failed SPI completions can leave the SDK's pending count stale.
+             * Do not wait for a completion already removed from its queue, or
+             * reuse/free the retained image. A controller fault needs reboot. */
+            d->io_failed = true;
+            d->ready = false;
+        }
+        return error;
     }
-    return ESP_OK;
+    xSemaphoreTake(d->done, portMAX_DELAY);
+    /* Reap completed descriptors now, releasing the SDK's temporary DMA
+     * buffers instead of retaining them while the display is idle. */
+    error = esp_lcd_panel_io_tx_param(d->io, -1, NULL, 0);
+    if (error) { d->io_failed = true; d->ready = false; }
+    return error;
 }
 
 static bool rows_dirty(const solar_os_spd2010_t *d, uint16_t y)
@@ -181,7 +190,7 @@ static uint8_t display_callback(u8x8_t *u, uint8_t message, uint8_t count, void 
 
 esp_err_t solar_os_spd2010_resume(solar_os_spd2010_t *d)
 {
-    if (!d || !d->panel) return ESP_ERR_INVALID_STATE;
+    if (!d || !d->panel || d->io_failed) return ESP_ERR_INVALID_STATE;
     xSemaphoreTake(d->mutex, portMAX_DELAY);
     d->ready = false;
     d->mono_valid_rows = 0;
@@ -236,6 +245,7 @@ esp_err_t solar_os_spd2010_shutdown(solar_os_spd2010_t *d)
 esp_err_t solar_os_spd2010_destroy(solar_os_spd2010_t *d)
 {
     if (!d) return ESP_OK;
+    if (d->io_failed) return ESP_ERR_INVALID_STATE;
     (void)backlight(d, false);
     if (d->panel) {
         esp_err_t error = esp_lcd_panel_del(d->panel);
@@ -257,7 +267,6 @@ esp_err_t solar_os_spd2010_destroy(solar_os_spd2010_t *d)
         (void)gpio_reset_pin(d->config.backlight);
     }
     if (d->config.have_power) (void)control(&d->config.power, !d->config.power_active_high);
-    solar_os_memory_free(d->dma);
     solar_os_memory_free(d->mono);
     solar_os_memory_free(d->image.pixels);
     if (d->done) vSemaphoreDelete(d->done);
@@ -285,22 +294,22 @@ esp_err_t solar_os_spd2010_create(const solar_os_spd2010_config_t *c, solar_os_s
     d->mutex = xSemaphoreCreateMutexStatic(&d->mutex_storage);
     d->image = (solar_os_rgb_panel_buffer_t){.width = WIDTH, .height = HEIGHT,
         .dirty_rows = d->dirty_rows};
-    d->image.pixels = solar_os_memory_alloc(WIDTH * HEIGHT * 2U, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "spd2010.frame");
+    d->image.pixels = solar_os_memory_alloc(WIDTH * HEIGHT * 2U,
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "spd2010.frame");
     d->mono = solar_os_memory_calloc(((WIDTH + 7U) / 8U) * ((HEIGHT + 7U) / 8U), 8U,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "spd2010.text");
-    d->dma = solar_os_memory_alloc(WIDTH * BAND_ROWS * 2U, SOLAR_OS_MEMORY_DMA, "spd2010.dma");
-    esp_err_t error = d->image.pixels && d->mono && d->dma && d->done && d->mutex ? ESP_OK : ESP_ERR_NO_MEM;
+    esp_err_t error = d->image.pixels && d->mono && d->done && d->mutex ? ESP_OK : ESP_ERR_NO_MEM;
     if (!error && c->backlight >= 0) {
         gpio_config_t gpio = {.pin_bit_mask = 1ULL << c->backlight, .mode = GPIO_MODE_OUTPUT};
         error = gpio_set_level(c->backlight, !c->backlight_active_high);
         if (!error) error = gpio_config(&gpio);
     }
     spi_bus_config_t bus = SPD2010_PANEL_BUS_QSPI_CONFIG(c->sclk,
-        c->data[0], c->data[1], c->data[2], c->data[3], WIDTH * BAND_ROWS * 2U);
+        c->data[0], c->data[1], c->data[2], c->data[3], TRANSFER_BYTES);
     if (!error) error = spi_bus_initialize(c->host, &bus, SPI_DMA_CH_AUTO);
     if (!error) d->spi_started = true;
     esp_lcd_panel_io_spi_config_t io = SPD2010_PANEL_IO_QSPI_CONFIG(c->cs, color_done, d);
-    io.pclk_hz = c->clock_hz; io.trans_queue_depth = 1;
+    io.pclk_hz = c->clock_hz; io.trans_queue_depth = 2;
     if (!error) error = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)c->host, &io, &d->io);
     spd2010_vendor_config_t vendor = {.flags.use_qspi_interface = true};
     esp_lcd_panel_dev_config_t panel = {.reset_gpio_num = -1,
@@ -417,7 +426,13 @@ esp_err_t solar_os_spd2010_surface(void *ctx, const solar_os_display_surface_t *
         hash_bytes((const uint8_t *)s->palette_rgb565, 256U * sizeof(uint16_t)) : 0;
     const bool changed_only = d->surface_data == s->data && d->surface_stride == s->stride &&
         d->surface_rotation == s->rotation && d->surface_palette_hash == palette_hash;
-    esp_err_t error = solar_os_rgb_panel_surface_update(&d->image, s, changed_only);
+    if (!changed_only && s->presented_hashes && s->hash_stride >= 52U &&
+        s->presented_hash_count >= (size_t)s->hash_stride * 52U)
+        for (unsigned y = 0; y < 52U; y++)
+            memset(s->presented_hashes + (size_t)y * s->hash_stride, 0, 52U * sizeof(uint32_t));
+    /* Dirty tiles are patches, including UI over a directly presented video.
+     * Invalidating hashes must not repaint unmarked video pixels. */
+    esp_err_t error = solar_os_rgb_panel_surface_update(&d->image, s, true);
     if (!error) {
         d->surface_data = s->data;
         d->surface_stride = s->stride;

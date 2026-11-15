@@ -10,6 +10,37 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Spd2010RasterTest(unittest.TestCase):
+    def test_unscaled_rgb_rows_preserve_padding_and_track_only_changed_rows(self):
+        run_c(r'''
+#include <assert.h>
+#include <string.h>
+#include "solar_os_rgb_panel_buffer.h"
+int main(void) {
+    uint8_t storage[16+10*6*2+16]; memset(storage,0xa5,sizeof(storage));
+    uint8_t dirty=0;
+    solar_os_rgb_panel_buffer_t b={.pixels=storage+16,.width=10,.height=6,.dirty_rows=&dirty};
+    solar_os_rgb_panel_clear(&b,0xffff); dirty=0;
+    uint8_t source[16]={0x12,0x34,0xab,0xcd,0x45,0x67,0xa5,0xa5,
+                        0x89,0xab,0x23,0x45,0x67,0x89,0xa5,0xa5};
+    solar_os_display_raster_t f={.data=source,.data_size=sizeof(source),
+        .source_width=3,.source_height=2,.source_stride=8,.x=2,.y=2,.width=3,.height=2,
+        .format=SOLAR_OS_DISPLAY_FORMAT_RGB565};
+    assert(solar_os_rgb_panel_frame(&b,&f,0)==ESP_OK && dirty==0x0c);
+    for (unsigned y=0;y<6;y++) for (unsigned x=0;x<10;x++) {
+        const uint8_t *expected=y>=2 && y<4 && x>=2 && x<5 ? source+(y-2)*8+(x-2)*2 : NULL;
+        const uint8_t *p=b.pixels+(y*10+x)*2;
+        assert(p[0]==(expected ? expected[0] : 0xff) && p[1]==(expected ? expected[1] : 0xff));
+    }
+    dirty=0;
+    assert(solar_os_rgb_panel_frame(&b,&f,0)==ESP_OK && !dirty);
+    source[8]=0x90;
+    assert(solar_os_rgb_panel_frame(&b,&f,0)==ESP_OK && dirty==0x08);
+    for (unsigned i=0;i<16;i++) assert(storage[i]==0xa5 && storage[16+10*6*2+i]==0xa5);
+}
+''', "-I", str(ROOT / "src/drivers"), "-I", str(ROOT / "src/services"),
+              str(ROOT / "src/drivers/solar_os_rgb_panel_buffer.c"),
+              "-fsanitize=address,undefined", "-no-pie")
+
     def test_monochrome_white_bit_matches_shared_palette_contract(self):
         source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
                                       ("from_u8x8", "hash_bytes", "display_callback"))
@@ -96,7 +127,7 @@ int main(void) {
 typedef struct {
     struct { bool have_power, power_active_high, have_reset, invert; int power, reset; } config;
     void *panel, *mutex;
-    bool ready, sleeping;
+    bool ready, sleeping, io_failed;
     esp_err_t last_error;
     uint8_t dirty_rows[52];
     uint64_t mono_valid_rows;

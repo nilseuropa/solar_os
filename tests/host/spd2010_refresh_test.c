@@ -10,14 +10,12 @@
 
 #define WIDTH 412U
 #define HEIGHT 412U
-#define BAND_ROWS 16U
 #define ROW_ALIGNMENT 4U
 #define portMAX_DELAY 1
 typedef struct {
     u8g2_t u8g2;
     u8x8_display_info_t info;
     solar_os_rgb_panel_buffer_t image;
-    uint8_t *dma;
     uint8_t dirty_rows[(HEIGHT+7)/8];
     uint32_t mono_hashes[(HEIGHT+7)/8];
     uint64_t mono_valid_rows;
@@ -31,14 +29,15 @@ typedef struct {
     uint16_t frame_width, frame_height;
     solar_os_display_rotation_t frame_rotation;
     bool frame_cached, frame_inverted;
-    void *mutex, *done, *panel;
+    void *mutex, *done, *panel, *io;
     uint16_t foreground, background;
-    bool ready;
+    bool ready, io_failed;
     esp_err_t last_error;
 } solar_os_spd2010_t;
 
 static solar_os_spd2010_t *active;
-static unsigned transfers, bytes, last_first, last_end, fail_at;
+static unsigned transfers, bytes, last_first, last_end, fail_at, drains;
+static esp_err_t transfer_error=ESP_ERR_NO_MEM;
 static bool locked, pending;
 static int xSemaphoreTake(void *s, int wait)
 {
@@ -56,11 +55,16 @@ static esp_err_t esp_lcd_panel_draw_bitmap(void *panel, int x, int y, int end_x,
 {
     assert(panel==active->panel && !pending && x==0 && end_x==WIDTH);
     assert(y>=0 && (unsigned)end_y<=HEIGHT && end_y>y && !(y%4) && !(end_y%4));
-    assert((unsigned)(end_y-y)<=BAND_ROWS && data==active->dma);
-    assert(!memcmp(data,active->image.pixels+(size_t)y*WIDTH*2,(end_y-y)*WIDTH*2));
+    assert(data==active->image.pixels+(size_t)y*WIDTH*2);
     transfers++; last_first=y; last_end=end_y;
-    if (fail_at==transfers) return ESP_FAIL;
+    if (fail_at==transfers) { pending=true; return transfer_error; }
     bytes+=(end_y-y)*WIDTH*2; pending=true; return ESP_OK;
+}
+static esp_err_t esp_lcd_panel_io_tx_param(void *io, int command, const void *data, size_t size)
+{
+    assert(io==active->io && command==-1 && !data && !size && locked);
+    if (pending) { pending=false; drains++; }
+    return ESP_OK;
 }
 
 /* PRODUCTION_CALLBACKS */
@@ -74,13 +78,12 @@ static void refresh(solar_os_spd2010_t *d)
 int main(void)
 {
     solar_os_spd2010_t d={.ready=true,.foreground=0,.background=0xffff,
-        .mutex=(void *)1,.done=(void *)2,.panel=(void *)3};
+        .mutex=(void *)1,.done=(void *)2,.panel=(void *)3,.io=(void *)4};
     active=&d;
     uint8_t *storage=malloc(WIDTH*HEIGHT*2+32); assert(storage);
     memset(storage,0xa5,WIDTH*HEIGHT*2+32);
     d.image=(solar_os_rgb_panel_buffer_t){.pixels=storage+16,.width=WIDTH,.height=HEIGHT,.dirty_rows=d.dirty_rows};
     memset(d.image.pixels,0,WIDTH*HEIGHT*2);
-    d.dma=malloc(WIDTH*BAND_ROWS*2); assert(d.dma);
     uint8_t columns[8]; memset(columns,0xff,sizeof(columns));
     u8x8_tile_t tile={.cnt=1,.tile_ptr=columns};
     assert(display_callback(&d.u8g2.u8x8,U8X8_MSG_DISPLAY_DRAW_TILE,1,&tile));
@@ -91,8 +94,8 @@ int main(void)
 
     transfers=bytes=0;
     solar_os_rgb_panel_clear(&d.image,0xffff); refresh(&d);
-    assert(transfers==26 && bytes==WIDTH*HEIGHT*2);
-    solar_os_rgb_panel_clear(&d.image,0xffff); refresh(&d); assert(transfers==26);
+    assert(transfers==1 && bytes==WIDTH*HEIGHT*2);
+    solar_os_rgb_panel_clear(&d.image,0xffff); refresh(&d); assert(transfers==1);
     transfers=bytes=0;
     const uint8_t pixel[]={0x12,0x34};
     solar_os_display_raster_t f={.data=pixel,.data_size=2,.source_width=1,.source_height=1,
@@ -109,7 +112,7 @@ int main(void)
     solar_os_rgb_panel_put(&d.image,0,2,0);
     solar_os_rgb_panel_put(&d.image,0,410,0);
     assert(!display_callback(&d.u8g2.u8x8,U8X8_MSG_DISPLAY_REFRESH,0,NULL));
-    assert(d.last_error==ESP_FAIL && transfers==2 && !locked && !pending);
+    assert(d.last_error==ESP_ERR_NO_MEM && transfers==2 && drains==1 && !locked && !pending);
     fail_at=0; refresh(&d); assert(transfers==3 && last_first==408 && last_end==412);
     refresh(&d); assert(transfers==3);
 
@@ -142,12 +145,13 @@ int main(void)
 
     /* Only dirty native tiles are converted after the first indexed surface. */
     indices=calloc(WIDTH*HEIGHT,1); assert(indices);
-    uint8_t dirty[52*7]={0};
+    uint8_t dirty[52*7]; memset(dirty,0xff,sizeof(dirty));
     uint32_t *hashes=calloc(52*52,sizeof(uint32_t)); assert(hashes);
     s.data=indices; s.rotation=0; s.dirty_tiles=dirty; s.dirty_stride=7;
     s.dirty_size=sizeof(dirty); s.tile_size=8;
     s.presented_hashes=hashes; s.hash_stride=52; s.presented_hash_count=52*52;
     assert(solar_os_spd2010_surface(&d,&s)==ESP_OK); /* First surface always converts all pixels. */
+    assert(solar_os_rgb_panel_surface_update(&d.image,&s,false)==ESP_OK);
     /* A full-redraw app marks every tile dirty, but unchanged final pixels
      * still skip RGB conversion using the surface's existing hash storage. */
     memset(dirty,0xff,sizeof(dirty)); d.image.pixels[0]=0x12;
@@ -171,15 +175,22 @@ int main(void)
     assert(solar_os_spd2010_surface(&d,&s)==ESP_OK); assert(transfers==before);
     /* Palette edits and another presentation invalidate the cached surface. */
     palette[1]=0x4567;
+    memset(dirty,0xff,sizeof(dirty));
     assert(solar_os_spd2010_surface(&d,&s)==ESP_OK);
     assert(d.image.pixels[(100*WIDTH+100)*2]==0x45);
     f=(solar_os_display_raster_t){.data=pixel,.data_size=2,.source_width=1,.source_height=1,
         .source_stride=2,.width=1,.height=1,.format=SOLAR_OS_DISPLAY_FORMAT_RGB565};
     assert(solar_os_spd2010_frame(&d,&f)==ESP_OK && !d.surface_data);
+    /* A status-row patch after a direct RGB565 frame preserves the video. */
+    memset(dirty,0,sizeof(dirty)); dirty[20*7]=1;
+    assert(solar_os_spd2010_surface(&d,&s)==ESP_OK && d.image.pixels[0]==0x12);
+    /* Clearing the whole graphics canvas must still erase the old video. */
+    memset(dirty,0xff,sizeof(dirty));
     assert(solar_os_spd2010_surface(&d,&s)==ESP_OK && d.image.pixels[0]==0xff);
     /* Native dirty tiles map correctly for all four rotations, including edge tiles. */
     for (unsigned r=0;r<4;r++) {
         s.rotation=r;
+        memset(dirty,0xff,sizeof(dirty));
         assert(solar_os_spd2010_surface(&d,&s)==ESP_OK);
         indices[410*WIDTH+410]=indices[410*WIDTH+410] ? 0 : 1;
         unsigned nx=(r==0 || r==3) ? 410 : 1;
@@ -251,5 +262,13 @@ int main(void)
     assert(solar_os_spd2010_frame(&d,&f)==ESP_OK && transfers==before);
     for (unsigned i=0;i<16;i++) assert(storage[i]==0xa5 && storage[16+WIDTH*HEIGHT*2+i]==0xa5);
     free(alternate); free(scaled);
-    free(d.dma); free(storage);
+    /* A failed SPI completion must not block draining a stale SDK count, nor
+     * allow the still-retained image to be overwritten by another frame. */
+    solar_os_rgb_panel_put(&d.image,0,0,0);
+    fail_at=transfers+1; transfer_error=ESP_FAIL;
+    assert(!display_callback(&d.u8g2.u8x8,U8X8_MSG_DISPLAY_REFRESH,0,NULL));
+    assert(d.io_failed && !d.ready && !locked && pending && drains==1);
+    assert(solar_os_spd2010_frame(&d,&f)==ESP_ERR_INVALID_STATE);
+    pending=false; /* Simulated hardware completion before fixture teardown. */
+    free(storage);
 }
