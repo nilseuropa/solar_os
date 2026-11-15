@@ -6,6 +6,7 @@ import tomllib
 import unittest
 
 from tests.test_foreground_presenter import production_functions
+from tests.test_keyboard_layouts import write_keyboard_layouts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -146,6 +147,7 @@ int main(void) {
                 '#define SOLAR_OS_BOARD_PIN_APP_EXIT 6\n#define SOLAR_OS_BOARD_BUTTONS ' + definitions + '\n')
             path, binary = Path(tmp, "buttons.c"), Path(tmp, "buttons")
             path.write_text(source)
+            write_keyboard_layouts(tmp)
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-include", str(ROOT / "tests/host/compat.h"), "-I", tmp,
                 "-I", str(ROOT / "tests/host/gpio_controller_stubs"), "-I", str(ROOT / "tests/host"),

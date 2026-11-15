@@ -18,7 +18,8 @@ its own modifier, Caps, and layer state.
 Source mapping and keyboard language layout are separate settings.
 `setterm keyboard us|de` selects how HID usages become characters. Its
 `setterm keymap` alias selects the same language layout; it does not load a
-source mapping file.
+source mapping file. Language layouts are generated from xkeyboard-config;
+see `keymaps/layouts/README.md`.
 
 ## Discover and control mappings
 
