@@ -110,7 +110,7 @@ static uint8_t display_callback(u8x8_t *u, uint8_t message, uint8_t count, void 
     if (x1 > WIDTH) x1 = WIDTH;
     for (uint16_t y = y0; y < y1; ++y) {
         for (uint16_t x = x0; x < x1; ++x) {
-            uint16_t color = tile->tile_ptr[x - x0] & (1U << (y - y0)) ? d->foreground : d->background;
+            uint16_t color = tile->tile_ptr[x - x0] & (1U << (y - y0)) ? d->background : d->foreground;
             size_t offset = ((size_t)y * WIDTH + x) * 2U;
             d->image.pixels[offset] = (uint8_t)(color >> 8);
             d->image.pixels[offset + 1U] = (uint8_t)color;

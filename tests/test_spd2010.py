@@ -10,6 +10,57 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class Spd2010RasterTest(unittest.TestCase):
+    def test_monochrome_white_bit_matches_shared_palette_contract(self):
+        source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
+                                      ("from_u8x8", "display_callback"))
+        run_c(r'''
+#include <assert.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include "esp_err.h"
+#include "u8g2.h"
+#define WIDTH 412U
+#define HEIGHT 412U
+#define portMAX_DELAY 0
+typedef struct {
+    u8g2_t u8g2;
+    u8x8_display_info_t info;
+    struct { uint8_t *pixels; } image;
+    void *mutex;
+    uint16_t foreground, background;
+    bool ready;
+    esp_err_t last_error;
+} solar_os_spd2010_t;
+static int locked, transfers;
+static void xSemaphoreTake(void *m, int delay) { (void)m; (void)delay; assert(!locked++); }
+static void xSemaphoreGive(void *m) { (void)m; assert(locked-- == 1); }
+void u8x8_d_helper_display_setup_memory(u8x8_t *u, const u8x8_display_info_t *info) { u->display_info=info; }
+static esp_err_t solar_os_spd2010_power_save(solar_os_spd2010_t *d, bool enabled) { (void)d; (void)enabled; return ESP_OK; }
+static esp_err_t flush_rows(solar_os_spd2010_t *d, uint16_t first, uint16_t end) {
+    assert(d && locked && first==40 && end==48); transfers++; return ESP_OK;
+}
+''' + source + r'''
+int main(void) {
+    solar_os_spd2010_t d={.ready=true,.foreground=0x1234,.background=0xfedc};
+    d.image.pixels=malloc(WIDTH*HEIGHT*2U); assert(d.image.pixels);
+    memset(d.image.pixels,0xa5,WIDTH*HEIGHT*2U);
+    uint8_t columns[8]={1,2,4,8,16,32,64,128};
+    u8x8_tile_t tile={.x_pos=3,.y_pos=5,.cnt=1,.tile_ptr=columns};
+    assert(display_callback(&d.u8g2.u8x8,U8X8_MSG_DISPLAY_DRAW_TILE,1,&tile));
+    for (unsigned y=0;y<8;y++) for (unsigned x=0;x<8;x++) {
+        uint8_t *p=d.image.pixels+((40+y)*WIDTH+24+x)*2U;
+        /* The OS emits one for white/background, zero for black/foreground. */
+        assert((((uint16_t)p[0]<<8)|p[1])==(x==y ? d.background : d.foreground));
+    }
+    assert(transfers==1 && !locked);
+    free(d.image.pixels);
+}
+''', "-I", str(ROOT / "components/u8g2/src/clib"),
+              "-fsanitize=address,undefined", "-no-pie")
+
     def test_supplier_startup_order_and_failure_keeps_backlight_off(self):
         source = production_functions((ROOT / "src/drivers/spd2010.c").read_text(),
                                       ("solar_os_spd2010_resume",))
