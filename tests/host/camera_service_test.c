@@ -111,6 +111,15 @@ int main(void)
     };
 
     assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_180) == ESP_ERR_NOT_SUPPORTED);
+    solar_os_camera_backend_t bad_processor = backend;
+    bad_processor.processor = "../bad";
+    assert(solar_os_camera_register_backend(&bad_processor) == ESP_ERR_INVALID_ARG);
+    bad_processor.processor = "processor-name-too-long";
+    assert(solar_os_camera_register_backend(&bad_processor) == ESP_ERR_INVALID_ARG);
+    bad_processor.processor = "test-ai";
+    assert(solar_os_camera_register_backend(&bad_processor) == ESP_ERR_INVALID_ARG);
+    bad_processor.processor_source = "bad/source";
+    assert(solar_os_camera_register_backend(&bad_processor) == ESP_ERR_INVALID_ARG);
     assert(solar_os_camera_register_backend(&backend) == ESP_OK);
     assert(solar_os_camera_register_backend(&backend) == ESP_ERR_INVALID_STATE);
     assert(solar_os_camera_set_orientation((solar_os_camera_orientation_t)4) == ESP_ERR_INVALID_ARG);
@@ -122,6 +131,7 @@ int main(void)
     assert(status.backend_registered);
     assert(!status.initialized);
     assert(strcmp(status.driver, "fake-camera") == 0);
+    assert(!*status.processor);
 
     solar_os_camera_config_t config = solar_os_camera_default_config();
     assert(config.width == 320U && config.height == 240U);
@@ -218,8 +228,17 @@ int main(void)
     /* Defaults are copied, and arbitrary dimensions survive start/capture. */
     solar_os_camera_config_t square = {.width = 416, .height = 416, .jpeg_quality = 0};
     solar_os_camera_backend_t square_backend = backend;
+    char processor[] = "test-ai";
+    char processor_source[] = "camera-test";
+    square_backend.processor = processor;
+    square_backend.processor_source = processor_source;
     square_backend.default_config = &square;
     assert(solar_os_camera_register_backend(&square_backend) == ESP_OK);
+    processor[0] = 'x';
+    processor_source[0] = 'x';
+    assert(solar_os_camera_get_status(&status) == ESP_OK);
+    assert(!strcmp(status.processor, "test-ai"));
+    assert(!strcmp(status.processor_source, "camera-test"));
     square.width = 999;
     config = solar_os_camera_default_config();
     assert(config.width == 416 && config.height == 416 && config.jpeg_quality == 0);
@@ -239,6 +258,8 @@ int main(void)
     assert(config.width == 320 && config.height == 240 && config.jpeg_quality == 12);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
     assert(!status.backend_registered);
+    assert(!*status.processor);
+    assert(!*status.processor_source);
     assert(status.orientation == SOLAR_OS_CAMERA_ORIENTATION_NORMAL);
     solar_os_camera_backend_ops_t unsupported_ops = operations;
     unsupported_ops.set_orientation = NULL;

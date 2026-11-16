@@ -335,7 +335,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
             .publish = publish, .unpublish = unpublish, .get_resolutions = camera_resolutions,
             .control = camera_control, .invalidate = camera_invalidate};
         const solar_os_camera_backend_t backend = {.driver = "himax-hx6538", .ctx = d,
-            .ops = &operations, .default_config = &default_config};
+            .ops = &operations, .default_config = &default_config, .processor = "himax", .processor_source = d->name};
         error = solar_os_camera_register_backend(&backend);
     }
     if (error != ESP_OK) {

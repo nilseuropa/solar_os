@@ -17,6 +17,7 @@ packages_any = ["job_model_upload"]
 - `model select himax camera0 4` selects a programmed slot; select slot 1 to return
   to the recovery model. Slot 1 and the active slot cannot be uploaded over.
 - `model slots himax camera0` lists live slot selection and recorded model identities.
+- `model list` shows ESP-DL residents and the attached camera processor's slot overview.
 - `pipeline start himax camera0 1` runs one inference with the current selection.
 
 The optional `processor-himax` module programs and selects HX6538 models. Watcher
@@ -115,6 +116,13 @@ The inventory is a record of SolarOS uploads, not a flash readback: programming
 with another tool can make it stale. Missing, invalid or unavailable inventory
 is reported explicitly; invalid files prevent new uploads until repaired.
 An interrupted atomic replacement can recover its last published backup.
+
+`model list` combines ESP-DL resident handles with a separate overview of slots
+reported by the attached camera's processor provider. Slot rows use `slot=N`,
+so they cannot be mistaken for resident handles. The camera advertises its
+provider and source as registration metadata; ordinary cameras add no accelerator section.
+A busy camera or missing provider reports its inventory unavailable and leaves
+the ESP-DL listing available. Listing does not interrupt capture or change selection.
 
 Inventory survives removal of Zoo bundles or the SD card and is keyed by chip
 ID rather than the `camera0` registration name. Older provider versions stored

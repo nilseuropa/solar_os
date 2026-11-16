@@ -7,11 +7,16 @@
 #include "solar_os_keys.h"
 #include "solar_os_module_packages.h"
 #include "solar_os_storage.h"
-#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD || (SOLAR_OS_PACKAGE_SERVICE_PIPELINE && SOLAR_OS_PACKAGE_SERVICE_CAMERA)
 #include "solar_os_processor.h"
 #include "solar_os_memory.h"
-#include "solar_os_jobs.h"
 #include "solar_os_json.h"
+#endif
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+#include "solar_os_jobs.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE && SOLAR_OS_PACKAGE_SERVICE_CAMERA
+#include "solar_os_camera.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
@@ -51,8 +56,8 @@ static void print_ports(solar_os_shell_io_t *io, const char *side,
         solar_os_shell_io_table_writeln(io, "]");
     }
 }
-#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
-static esp_err_t print_slots(solar_os_shell_io_t *io, const char *json)
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD || (SOLAR_OS_PACKAGE_SERVICE_PIPELINE && SOLAR_OS_PACKAGE_SERVICE_CAMERA)
+static esp_err_t print_slots(solar_os_shell_io_t *io, const char *json, bool overview)
 {
     solar_os_json_doc_t *doc = NULL;
     esp_err_t error = solar_os_json_parse_cstr(json, &doc);
@@ -65,7 +70,7 @@ static esp_err_t print_slots(solar_os_shell_io_t *io, const char *json)
         solar_os_json_get_path_string(root, "inventory_state", inventory, sizeof(inventory)))) error = ESP_ERR_INVALID_RESPONSE;
     if (!error) {
         solar_os_shell_io_printf(io, "Device %s; inventory %s\n", device, inventory);
-        solar_os_shell_io_table_writeln(io, "SLOT ACTIVE STATE       MODEL VERSION");
+        if (!overview) solar_os_shell_io_table_writeln(io, "SLOT ACTIVE STATE       MODEL VERSION");
         for (size_t i = 0; i < solar_os_json_array_size(slots); ++i) {
             const solar_os_json_value_t *slot = solar_os_json_array_get(slots, i);
             const solar_os_json_value_t *record = solar_os_json_object_get(slot, "record");
@@ -77,12 +82,51 @@ static esp_err_t print_slots(solar_os_shell_io_t *io, const char *json)
                 (solar_os_json_get_path_string(record, "state", state, sizeof(state)) ||
                  solar_os_json_get_path_string(record, "id", id, sizeof(id)) ||
                  solar_os_json_get_path_string(record, "version", version, sizeof(version)))) { error = ESP_ERR_INVALID_RESPONSE; break; }
-            solar_os_shell_io_table_printf(io, "%lu    %-6s %-11s %s %s\n", (unsigned long)number, active ? "*" : "", state, id, version);
+            if (overview) solar_os_shell_io_table_printf(io, "slot=%lu %-6s %-11s %s %s\n", (unsigned long)number, active ? "active" : "", state, id, version);
+            else solar_os_shell_io_table_printf(io, "%lu    %-6s %-11s %s %s\n", (unsigned long)number, active ? "*" : "", state, id, version);
         }
         if (*path) solar_os_shell_io_printf(io, "%s\n", path);
         solar_os_shell_io_writeln(io, "Model identities are last recorded uploads; active selection is live.");
     }
     solar_os_json_free(doc); return error;
+}
+#endif
+static esp_err_t list_resident_models(model_client_t *state)
+{
+    solar_os_shell_io_t *io = state->io;
+    solar_os_inference_t *client = NULL;
+    uint32_t handles[SOLAR_OS_INFERENCE_MODELS_MAX]; size_t count;
+    solar_os_shell_io_table_writeln(io, "ESP-DL resident models");
+    esp_err_t error = solar_os_inference_list(handles, SOLAR_OS_INFERENCE_MODELS_MAX, &count);
+    if (!error && !count) solar_os_shell_io_writeln(io, "No resident models");
+    if (!error && count) error = solar_os_inference_create(cancelled, state, &client);
+    for (size_t i = 0; !error && i < count; ++i) {
+        const solar_os_inference_model_info_t *info;
+        error = solar_os_inference_info(client, handles[i], &info);
+        if (error) break;
+        solar_os_shell_io_table_printf(io, "%lu %s %s refs=%lu\n", (unsigned long)handles[i],
+            info->bundle ? info->bundle_id : "espdl", solar_os_inference_mode_name(info->mode),
+            (unsigned long)info->references);
+        solar_os_shell_io_write(io, "  "); solar_os_shell_io_writeln(io, info->path);
+    }
+    solar_os_inference_destroy(client); return error;
+}
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE && SOLAR_OS_PACKAGE_SERVICE_CAMERA
+static void list_camera_models(solar_os_shell_io_t *io)
+{
+    solar_os_camera_status_t camera;
+    esp_err_t error = solar_os_camera_get_status(&camera);
+    if (error) { solar_os_shell_diag_esp(io, "model list: camera", error, NULL, NULL); return; }
+    if (!camera.backend_registered || !*camera.processor) return;
+    solar_os_shell_io_table_printf(io, "%s %s model slots\n", camera.processor, camera.processor_source);
+    if (camera.owner_leased) {
+        solar_os_shell_io_writeln(io, "Inventory unavailable: camera is in use"); return;
+    }
+    char *json = NULL;
+    error = solar_os_processor_query(camera.processor, camera.processor_source, "slots", &json);
+    if (!error) error = print_slots(io, json, true);
+    solar_os_memory_free(json);
+    if (error) solar_os_shell_diag_esp(io, "model list: inventory unavailable", error, NULL, NULL);
 }
 #endif
 void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
@@ -109,11 +153,19 @@ void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     model_client_t state = {.ctx = ctx, .io = io}; solar_os_inference_t *client = NULL;
+    if (!strcmp(argv[1], "list") && argc == 2) {
+        esp_err_t error = list_resident_models(&state);
+        if (error) solar_os_shell_diag_esp(io, "model list: ESP-DL", error, NULL, NULL);
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE && SOLAR_OS_PACKAGE_SERVICE_CAMERA
+        if (!cancelled(&state)) list_camera_models(io);
+#endif
+        return;
+    }
 #if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
     if (!strcmp(argv[1], "slots")) {
         char *json = NULL;
         esp_err_t error = argc == 4 ? solar_os_processor_query(argv[2], argv[3], "slots", &json) : ESP_ERR_INVALID_ARG;
-        if (!error) error = print_slots(io, json);
+        if (!error) error = print_slots(io, json, false);
         solar_os_memory_free(json);
         if (error) solar_os_shell_diag_esp(io, "model slots", error, NULL, "model slots <processor> <source>");
         return;
@@ -149,20 +201,7 @@ management_done:
     esp_err_t error = solar_os_inference_create(cancelled, &state, &client);
     uint32_t handle = 0;
     if (error) goto done;
-    if (!strcmp(argv[1], "list") && argc == 2) {
-        uint32_t handles[SOLAR_OS_INFERENCE_MODELS_MAX]; size_t count;
-        error = solar_os_inference_list(handles, SOLAR_OS_INFERENCE_MODELS_MAX, &count);
-        if (error) goto done;
-        if (!count) solar_os_shell_io_writeln(io, "No resident models");
-        for (size_t i = 0; i < count; ++i) {
-            const solar_os_inference_model_info_t *info;
-            error = solar_os_inference_info(client, handles[i], &info); if (error) break;
-            solar_os_shell_io_table_printf(io, "%lu %s %s refs=%lu\n", (unsigned long)handles[i],
-                info->bundle ? info->bundle_id : "espdl", solar_os_inference_mode_name(info->mode),
-                (unsigned long)info->references);
-            solar_os_shell_io_write(io, "  "); solar_os_shell_io_writeln(io, info->path);
-        }
-    } else if ((!strcmp(argv[1], "load") || !strcmp(argv[1], "bundle")) && (argc == 3 || argc == 4)) {
+    if ((!strcmp(argv[1], "load") || !strcmp(argv[1], "bundle")) && (argc == 3 || argc == 4)) {
         char path[256];
         uint32_t timeout = !strcmp(argv[1], "bundle") ? 60000 : 10000;
         if (argc == 4) {

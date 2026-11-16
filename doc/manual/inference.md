@@ -25,6 +25,10 @@ agent_reference_sections = true
 - `list()` discovers resident handles; `find(path)` locates a loaded model or bundle.
 - `load_bundle` and `run_bundle` provide native manifest validation and built-in adapters.
 
+The shell's `model list` shows ESP-DL residents and, when the attached camera
+advertises a processor provider, a separate accelerator slot overview. This does
+not change the inference API's `list()` result: it contains ESP-DL handles only.
+
 ## Availability and ownership
 
 `solaros.inference` requires `service.inference`, provided by the `inference`

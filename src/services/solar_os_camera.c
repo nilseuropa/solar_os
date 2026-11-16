@@ -14,6 +14,8 @@ typedef struct {
     bool frame_leased;
     solar_os_camera_backend_t backend;
     char driver[SOLAR_OS_CAMERA_DRIVER_NAME_MAX];
+    char processor[SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX];
+    char processor_source[SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX];
     char owner[SOLAR_OS_CAMERA_OWNER_NAME_MAX];
     uint32_t owner_generation;
     solar_os_camera_sensor_info_t sensor;
@@ -125,6 +127,19 @@ esp_err_t solar_os_camera_register_backend(
         (backend->default_config != NULL && !config_valid(backend->default_config))) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (backend->processor != NULL) {
+        const char *p = backend->processor;
+        if (*p < 'a' || *p > 'z' || strnlen(p, SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX) >=
+            SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX) return ESP_ERR_INVALID_ARG;
+        for (; *p; ++p)
+            if (!((*p >= 'a' && *p <= 'z') || (*p >= '0' && *p <= '9') || *p == '-')) return ESP_ERR_INVALID_ARG;
+        p = backend->processor_source;
+        if (!p || !*p || strnlen(p, SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX) >=
+            SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX) return ESP_ERR_INVALID_ARG;
+        for (; *p; ++p)
+            if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+                (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) return ESP_ERR_INVALID_ARG;
+    }
     const esp_err_t mutex_error = ensure_mutex();
     if (mutex_error != ESP_OK) {
         return mutex_error;
@@ -140,6 +155,10 @@ esp_err_t solar_os_camera_register_backend(
         (solar_os_camera_config_t){.width = 320U, .height = 240U, .jpeg_quality = 12U};
     camera_state.backend_registered = true;
     strlcpy(camera_state.driver, backend->driver, sizeof(camera_state.driver));
+    strlcpy(camera_state.processor, backend->processor ? backend->processor : "", sizeof(camera_state.processor));
+    camera_state.backend.processor = camera_state.processor;
+    strlcpy(camera_state.processor_source, backend->processor ? backend->processor_source : "", sizeof(camera_state.processor_source));
+    camera_state.backend.processor_source = camera_state.processor_source;
     camera_state.last_error = ESP_OK;
     if (backend->ops->publish != NULL) {
         const esp_err_t error = backend->ops->publish(backend->ctx);
@@ -437,6 +456,8 @@ esp_err_t solar_os_camera_get_status(solar_os_camera_status_t *status)
         .last_error = camera_state.last_error,
     };
     strlcpy(status->driver, camera_state.driver, sizeof(status->driver));
+    strlcpy(status->processor, camera_state.processor, sizeof(status->processor));
+    strlcpy(status->processor_source, camera_state.processor_source, sizeof(status->processor_source));
     strlcpy(status->owner, camera_state.owner, sizeof(status->owner));
     xSemaphoreGive(camera_mutex);
     return ESP_OK;

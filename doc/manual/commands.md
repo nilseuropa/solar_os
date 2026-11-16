@@ -961,7 +961,7 @@ policy.
 | `stream` | `stream ble connect <name> <address> <public\|random\|rpa_public\|rpa_random>` | Register an outbound CoC stream. Connects when claimed. Use the address and type reported by `ble scan`. |
 | `stream` | `stream ble status <name>` | Show connection state, negotiated SDU sizes, queued bytes, and connection interval. |
 | `stream` | `stream ble remove <name>` | Remove an unclaimed BLE stream. |
-| `model` | `model backend`; `model list`; `model info <handle>` | Check engine availability and inspect resident models, interfaces, memory, mode, and references. |
+| `model` | `model backend`; `model list`; `model info <handle>` | Inspect engine, model inventories across backends, or a resident handle. |
 | `model` | `model load <file.espdl> [timeout_ms]`; `model bundle <bundle.json> [timeout_ms]` | Load a resident raw model or a checked model bundle from storage. |
 | `model` | `model mode <handle> <single\|auto\|dual>` | Select execution mode without reloading the model. |
 | `model` | `model unload <handle\|all>` | Explicitly unload models; active operations and retained model references report busy. |

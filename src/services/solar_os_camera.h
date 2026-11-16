@@ -10,6 +10,8 @@
 #define SOLAR_OS_CAMERA_SENSOR_NAME_MAX 16U
 #define SOLAR_OS_CAMERA_DRIVER_NAME_MAX 24U
 #define SOLAR_OS_CAMERA_OWNER_NAME_MAX 24U
+#define SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX 12U
+#define SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX 32U
 #define SOLAR_OS_CAMERA_CAPTURE_TIMEOUT_MS 4000U
 
 typedef struct {
@@ -81,6 +83,11 @@ typedef struct {
     void *ctx;
     /* Optional driver default, copied at registration. */
     const solar_os_camera_config_t *default_config;
+    /* Optional compatible camera-bound processor provider, e.g. "himax",
+     * and its source identifier. Both strings are copied at registration.
+     * Discovery metadata only; inference and model policy stay in the provider. */
+    const char *processor;
+    const char *processor_source;
 } solar_os_camera_backend_t;
 
 typedef struct {
@@ -102,6 +109,8 @@ typedef struct {
     bool frame_leased;
     char driver[SOLAR_OS_CAMERA_DRIVER_NAME_MAX];
     char owner[SOLAR_OS_CAMERA_OWNER_NAME_MAX];
+    char processor[SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX];
+    char processor_source[SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX];
     solar_os_camera_sensor_info_t sensor;
     solar_os_camera_config_t config;
     solar_os_camera_orientation_t orientation;
