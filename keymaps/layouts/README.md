@@ -24,7 +24,7 @@ maintained source. Do not edit them by hand; fix the generator or XKB instead.
 {
   "name": "de",
   "description": "German",
-  "source": {"xkeyboard-config": "2.48", "layout": "de", "variant": ""},
+  "source": {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2", "layout": "de", "variant": ""},
   "keys": {
     "0x04": {"levels": ["a", "A", "æ", "Æ"], "caps": ["A", "a", "Æ", "æ"]},
     "0x35": {"levels": [{"dead": "circumflex"}, "°", "′", "″"]}
