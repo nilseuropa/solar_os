@@ -34,5 +34,5 @@ upload can leave its inactive destination partly written. Receipts are written
 atomically on storage and never used as authority for future programming.
 
 `INFO?` is queried without rewriting its global model metadata. Bundles retain
-their own checked labels and provenance, and receipts bind a programmed slot to
+their own checked labels and provenance, and inventory records bind a programmed slot to
 the chip ID and model hash.

@@ -77,6 +77,21 @@ static int file_replace(const char *path, const void *data, size_t length)
     if (error) unlink(temp);
     return error ? SOLAR_OS_NATIVE_ERROR_FAILED : 0;
 }
+static int state_directory(const char *name, char *path, size_t capacity)
+{
+    if (!name || !*name || strlen(name) > 32 || !path || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *path = 0;
+    for (const char *p = name; *p; ++p)
+        if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') || *p == '-' || *p == '_')) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (!solar_os_storage_flash_is_mounted()) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    const char *mount = solar_os_storage_flash_mount_point();
+    if (!mount || !*mount) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    int n = snprintf(path, capacity, "%s/.%s", mount, name);
+    if (n < 0 || (size_t)n >= capacity || !path_valid(path)) { *path = 0; return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE; }
+    if (solar_os_storage_makedirs(path, true)) { *path = 0; return SOLAR_OS_NATIVE_ERROR_FAILED; }
+    return 0;
+}
 static bool unique_keys(const cJSON *root, unsigned depth)
 {
     if (depth > 32) return false;
@@ -133,7 +148,7 @@ static const char *json_key(const solar_os_native_json_value_t *v) { return v ? 
 static void json_free(solar_os_native_json_value_t *v) { cJSON_Delete((cJSON *)v); }
 static uint32_t json_kind(const solar_os_native_json_value_t *v)
 { return cJSON_IsObject((const cJSON *)v) ? SOLAR_OS_NATIVE_JSON_OBJECT : cJSON_IsArray((const cJSON *)v) ? SOLAR_OS_NATIVE_JSON_ARRAY : 0; }
-static const solar_os_native_files_api_v1_t files_api = {1, sizeof(files_api), file_open, file_read, file_seek, file_close, file_hash, file_replace};
+static const solar_os_native_files_api_v1_t files_api = {1, sizeof(files_api), file_open, file_read, file_seek, file_close, file_hash, file_replace, state_directory};
 static const solar_os_native_json_api_v1_t json_api = {1, sizeof(json_api), json_parse, json_get, json_at, json_string, json_uint, json_count, json_key, json_free, json_kind};
 const void *solar_os_native_data_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {

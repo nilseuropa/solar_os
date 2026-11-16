@@ -6,7 +6,9 @@ static bool admit_write(const char *path);
 #define SOLAR_OS_TEST_MEMORY_ADMIT admit_memory
 #define SOLAR_OS_TEST_WRITE_ADMIT admit_write
 #define main zoo_fixture_main
+#define solar_os_storage_flash_is_mounted zoo_fixture_flash_is_mounted
 #include "zoo_test.c"
+#undef solar_os_storage_flash_is_mounted
 #undef main
 #include "solar_os_native_data.h"
 #include "solar_os_native_data_abi.h"
@@ -23,6 +25,7 @@ static uint8_t programmed[2*1024*1024];
 static size_t programmed_size;
 static uint64_t clock_us;
 static int no_memory_after = -1;
+bool solar_os_storage_flash_is_mounted(void) { return strcmp(mode,"no-flash") != 0 && strcmp(mode,"slots-no-flash") != 0; }
 static bool admit_memory(void)
 {
     if (no_memory_after == 0) return false;
@@ -31,7 +34,7 @@ static bool admit_memory(void)
 }
 static void *provider_alloc(size_t size) { return solar_os_memory_alloc(size,0,"model.test"); }
 static bool admit_write(const char *path)
-{return !strstr(path,"/.himax-") || (strcmp(mode,"record-failure") && (strcmp(mode,"final-record-failure") || !pages));}
+{return !strstr(path,"/.himax/") || (strcmp(mode,"record-failure") && (strcmp(mode,"final-record-failure") || !pages));}
 esp_err_t solar_os_crypto_bytes_to_hex(const uint8_t *data,size_t n,char *out,size_t size)
 {
     if(size < 2*n+1)return ESP_ERR_INVALID_SIZE;
@@ -45,7 +48,7 @@ static void set32(uint8_t *p,uint32_t n)
 static int open_camera(const char *source,const char *who,uint32_t *token)
 {
     assert(who&&*who);*token=0;
-    if(strcmp(source,"camera0"))return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    if(strcmp(source,"camera0")&&strcmp(source,"camera1"))return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     if(owner||!strcmp(mode,"busy"))return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     owner=1;*token=77;return 0;
 }
@@ -54,7 +57,7 @@ static int close_camera(uint32_t token) {assert(token==77&&owner);owner=0;sensor
 static int exchange_camera(uint32_t token,const char *source,const char *command,const char *name,bool event,
     uint32_t timeout,solar_os_native_cancel_fn stop,void *user,char **reply)
 {
-    assert(token==77&&owner&&!strcmp(source,"camera0")&&timeout&&!ota);
+    assert(token==77&&owner&&(!strcmp(source,"camera0")||!strcmp(source,"camera1"))&&timeout&&!ota);
     *reply=NULL;if(stop&&stop(user))return SOLAR_OS_NATIVE_ERROR_TIMEOUT;
     char data[1024];
     if(!strcmp(name,"MODEL?"))snprintf(data,sizeof(data),"{\"data\":{\"id\":%u}}",selected);
@@ -63,7 +66,7 @@ static int exchange_camera(uint32_t token,const char *source,const char *command
         if(!strcmp(mode,"select-failure")&&slot==4)return SOLAR_OS_NATIVE_ERROR_FAILED;
         selected=slot;snprintf(data,sizeof(data),"{\"data\":{\"id\":%u}}",selected);
     } else if(!strcmp(name,"VER?"))snprintf(data,sizeof(data),"{\"data\":{\"software\":\"%s\",\"at_api\":\"v0\"}}",!strcmp(mode,"old-firmware")?"2024.05.01":"2024.08.16");
-    else if(!strcmp(name,"ID?"))strcpy(data,"{\"data\":\"0123456789abcdef\"}");
+    else if(!strcmp(name,"ID?"))snprintf(data,sizeof(data),"{\"data\":\"%s\"}",!strcmp(mode,"slots-other-device")?"fedcba9876543210":"0123456789abcdef");
     else if(!strcmp(name,"MODELS?"))snprintf(data,sizeof(data),"{\"data\":[{\"id\":4,\"address\":%u,\"size\":0},{\"id\":3,\"address\":8388608,\"size\":0},{\"id\":2,\"address\":6291456,\"size\":0},{\"id\":1,\"address\":4194304,\"size\":0}]}",!strcmp(mode,"bad-layout")?10485504:10485760);
     else if(!strcmp(name,"BREAK"))strcpy(data,"{\"data\":{}}");
     else if(!strcmp(name,"INVOKE")) {
@@ -132,14 +135,33 @@ static const void *services(const char *name,uint32_t abi,uint32_t size)
     if(!strcmp(name,"libc")){assert(size<=sizeof(libc_api));return &libc_api;}
     if(!strcmp(name,"time")){assert(size<=sizeof(time_api));return &time_api;}
     if(!strcmp(name,"camera.sscma")){assert(size<=sizeof(camera_api));return &camera_api;}
+    if(!strcmp(name,SOLAR_OS_NATIVE_FILES_SERVICE)&&!strcmp(mode,"slots-old-host")) {
+        static solar_os_native_files_api_v1_t legacy;
+        legacy=*(const solar_os_native_files_api_v1_t *)solar_os_native_data_get_service(name,abi,SOLAR_OS_NATIVE_FILES_BASE_SIZE);
+        legacy.struct_size=SOLAR_OS_NATIVE_FILES_BASE_SIZE;legacy.state_directory=NULL;
+        return size<=legacy.struct_size?&legacy:NULL;
+    }
     return solar_os_native_data_get_service(name,abi,size);
 }
 int main(int argc,char **argv)
 {
     assert(argc==4);mount_root=argv[1];mode=argv[3];char *reply=NULL;
+    const solar_os_native_files_api_v1_t *files=solar_os_native_data_get_service(SOLAR_OS_NATIVE_FILES_SERVICE,1,SOLAR_OS_NATIVE_FILES_BASE_SIZE);
+    assert(files&&files->struct_size>=sizeof(*files));
+    char directory[160];
+    assert(files->state_directory("../bad",directory,sizeof(directory))==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(files->state_directory("himax",directory,2)==(!solar_os_storage_flash_is_mounted()?SOLAR_OS_NATIVE_ERROR_NOT_FOUND:SOLAR_OS_NATIVE_ERROR_INVALID_SIZE));
     if(!strncmp(mode,"oom-",4))no_memory_after=atoi(mode+4);
+    if(!strncmp(mode,"slots-oom-",10))no_memory_after=atoi(mode+10);
     int error;
-    if(!strcmp(mode,"select")) {
+    if(!strncmp(mode,"slots",5)) {
+        if(!strcmp(mode,"slots-active"))selected=2;
+        error=solar_os_himax_model_slots(services,!strcmp(mode,"slots-alias")?"camera1":"camera0",1000,&reply);
+        assert(!raw_calls);
+        if(!strncmp(mode,"slots-oom-",10)&&error)printf("{\"error\":%d}\n",error);
+        else {assert(!error&&reply);puts(reply);}
+        solar_os_memory_free(reply);assert(!owner&&!allocations);return 0;
+    } else if(!strcmp(mode,"select")) {
         error=solar_os_himax_model_select(services,"camera0",4,1000,stop_callback,NULL,&reply);
         assert(!error&&selected==4&&!raw_calls&&reply);
         solar_os_memory_free(reply);reply=NULL;

@@ -19,7 +19,12 @@ typedef struct {
     void (*close)(solar_os_native_file_t *file);
     int (*sha256)(solar_os_native_file_t *file, char hex[65], solar_os_native_cancel_fn cancel, void *user);
     int (*replace)(const char *path, const void *data, size_t length);
+    /* Optional persistent namespace on mounted internal flash. Creates the
+     * hidden directory and returns its absolute path; never falls back to SD.
+     * Names contain 1..32 ASCII letters, digits, hyphens or underscores. */
+    int (*state_directory)(const char *name, char *path, size_t capacity);
 } solar_os_native_files_api_v1_t;
+#define SOLAR_OS_NATIVE_FILES_BASE_SIZE offsetof(solar_os_native_files_api_v1_t, state_directory)
 
 typedef struct solar_os_native_json_value solar_os_native_json_value_t;
 /* Strict bounded JSON objects/arrays. parse rejects duplicate keys, embedded

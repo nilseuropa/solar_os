@@ -11,6 +11,7 @@
 #include "solar_os_processor.h"
 #include "solar_os_memory.h"
 #include "solar_os_jobs.h"
+#include "solar_os_json.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
@@ -50,13 +51,47 @@ static void print_ports(solar_os_shell_io_t *io, const char *side,
         solar_os_shell_io_table_writeln(io, "]");
     }
 }
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+static esp_err_t print_slots(solar_os_shell_io_t *io, const char *json)
+{
+    solar_os_json_doc_t *doc = NULL;
+    esp_err_t error = solar_os_json_parse_cstr(json, &doc);
+    const solar_os_json_value_t *root = solar_os_json_root(doc);
+    const solar_os_json_value_t *slots = solar_os_json_object_get(root, "slots");
+    char device[129], path[SOLAR_OS_STORAGE_PATH_MAX], inventory[24];
+    if (!error && (!solar_os_json_is_array(slots) ||
+        solar_os_json_get_path_string(root, "device", device, sizeof(device)) ||
+        solar_os_json_get_path_string(root, "inventory_path", path, sizeof(path)) ||
+        solar_os_json_get_path_string(root, "inventory_state", inventory, sizeof(inventory)))) error = ESP_ERR_INVALID_RESPONSE;
+    if (!error) {
+        solar_os_shell_io_printf(io, "Device %s; inventory %s\n", device, inventory);
+        solar_os_shell_io_table_writeln(io, "SLOT ACTIVE STATE       MODEL VERSION");
+        for (size_t i = 0; i < solar_os_json_array_size(slots); ++i) {
+            const solar_os_json_value_t *slot = solar_os_json_array_get(slots, i);
+            const solar_os_json_value_t *record = solar_os_json_object_get(slot, "record");
+            uint32_t number; bool active;
+            char state[24] = "unknown", id[101] = "-", version[101] = "-";
+            if (solar_os_json_get_path_uint32(slot, "slot", &number) ||
+                solar_os_json_get_bool(solar_os_json_object_get(slot, "active"), &active)) { error = ESP_ERR_INVALID_RESPONSE; break; }
+            if (solar_os_json_is_object(record) &&
+                (solar_os_json_get_path_string(record, "state", state, sizeof(state)) ||
+                 solar_os_json_get_path_string(record, "id", id, sizeof(id)) ||
+                 solar_os_json_get_path_string(record, "version", version, sizeof(version)))) { error = ESP_ERR_INVALID_RESPONSE; break; }
+            solar_os_shell_io_table_printf(io, "%lu    %-6s %-11s %s %s\n", (unsigned long)number, active ? "*" : "", state, id, version);
+        }
+        if (*path) solar_os_shell_io_printf(io, "%s\n", path);
+        solar_os_shell_io_writeln(io, "Model identities are last recorded uploads; active selection is live.");
+    }
+    solar_os_json_free(doc); return error;
+}
+#endif
 void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     if (argc < 2) {
         solar_os_shell_io_writeln(io, "model backend | list | load <file.espdl> | bundle <bundle.json> [timeout_ms] | info <handle> | mode <handle> <single|auto|dual> | unload <handle|all>");
 #if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
-        solar_os_shell_io_writeln(io, "model select <processor> <source> <slot> | upload <processor> <source> <bundle.json> <slot> [--replace]");
+        solar_os_shell_io_writeln(io, "model slots <processor> <source> | select <processor> <source> <slot> | upload <processor> <source> <bundle.json> <slot> [--replace]");
 #endif
         return;
     }
@@ -75,6 +110,14 @@ void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
     }
     model_client_t state = {.ctx = ctx, .io = io}; solar_os_inference_t *client = NULL;
 #if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+    if (!strcmp(argv[1], "slots")) {
+        char *json = NULL;
+        esp_err_t error = argc == 4 ? solar_os_processor_query(argv[2], argv[3], "slots", &json) : ESP_ERR_INVALID_ARG;
+        if (!error) error = print_slots(io, json);
+        solar_os_memory_free(json);
+        if (error) solar_os_shell_diag_esp(io, "model slots", error, NULL, "model slots <processor> <source>");
+        return;
+    }
     if ((!strcmp(argv[1], "select") && argc == 5) || (!strcmp(argv[1], "upload") && (argc == 6 || argc == 7))) {
         int slot_arg = !strcmp(argv[1], "select") ? 4 : 5;
         uint64_t slot = 0; esp_err_t error = ESP_ERR_INVALID_ARG;

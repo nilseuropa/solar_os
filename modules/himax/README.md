@@ -39,7 +39,7 @@ results, and performs no ESP32 pixel decoding. The module preserves SSCMA's
 `sscma`; no unverified coordinate conversion or class labels are applied.
 `perf` contains preprocessing, inference and postprocessing milliseconds.
 
-Queries are `info`, `version`, `models`, `model`, `algorithms`, `identity`, and `metadata`. Slot metadata
+Queries are `info`, `version`, `models`, `model`, `algorithms`, `identity`, `metadata`, and `slots`. Slot metadata
 is reported as received: some factory firmware reports zero type/size values
 even while inference works. No readiness decision is based on these fields.
 
@@ -51,12 +51,16 @@ validates schema-two bundles and implements the SSCMA/WE2 SPI programmer:
 model upload himax camera0 /path/to/bundle.json 4 --replace
 job status model-upload
 model select himax camera0 4
+model slots himax camera0
 ```
 
 Upload protects slot 1 and the active slot, requires the reported four-slot
 layout, and checks hashes, labels, model interfaces and firmware requirements
 before writing. It checks page/CRC status, tests inference, restores the old
-selection and writes a device-bound receipt. No atomic rollback of flash contents
+selection and atomically updates `/flash/.himax/<chip-id>.json`. `model slots
+himax camera0` joins live selection with recorded slot identities. Missing records
+remain unknown; removing a Zoo bundle does not remove this inventory. Uploads
+require mounted, writable internal flash. No atomic rollback of flash contents
 or full-image flash readback is claimed. See [the user manual](../../doc/manual/himax-models.md)
 for cancellation, recovery, programming limits and the separate download step.
 Threshold changes, firmware updates and ESP-DL resident handles are unsupported.

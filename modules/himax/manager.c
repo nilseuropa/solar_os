@@ -13,6 +13,7 @@
 #define CANCELLED SOLAR_OS_NATIVE_ERROR_TIMEOUT
 #define SLOT_BYTES 0x200000U
 #define PATH_MAXIMUM 160U
+#define INVENTORY_MAXIMUM 4096U
 typedef const solar_os_native_json_value_t value_t;
 typedef struct {
     const solar_os_native_memory_api_v1_t *memory;
@@ -29,7 +30,8 @@ typedef struct {
     char folder[PATH_MAXIMUM], record[PATH_MAXIMUM], sha[65];
     char result[16], packet[264];
     solar_os_native_file_t *model;
-    solar_os_native_json_value_t *manifest;
+    solar_os_native_json_value_t *manifest, *inventory;
+    char *inventory_text;
     bool maintenance, recorded;
 } manager_t;
 static bool stopped(manager_t *c) { return c->cancel && c->cancel(c->user); }
@@ -171,17 +173,26 @@ static bool date(const char *s)
     static const unsigned days[] = {0,31,28,31,30,31,30,31,31,30,31,30,31};
     return y && m >= 1 && m <= 12 && d >= 1 && d <= days[m] + (m == 2 && y%4 == 0 && (y%100 != 0 || y%400 == 0));
 }
-static int read_json(manager_t *c, const char *name, solar_os_native_json_value_t **out)
+static int read_document(manager_t *c, const char *name, uint32_t maximum,
+    char **text, solar_os_native_json_value_t **out)
 {
+    *text = NULL; *out = NULL;
     solar_os_native_file_t *file = NULL; uint32_t size = 0; size_t read = 0;
     int error = c->files->open(name, &file, &size);
-    if (!error && (!size || size > 65536)) error = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    if (!error && (!size || size > maximum)) error = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     char *data = !error ? c->memory->alloc(size + 1) : NULL;
     if (!error && !data) error = SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
     if (!error) error = c->files->read(file, data, size, &read);
     if (!error && read != size) error = FAILED;
     if (!error) { data[size] = 0; error = c->json->parse(data, size, out); }
+    if (!error) { *text = data; data = NULL; }
     c->memory->free(data); c->files->close(file); return error;
+}
+static int read_json(manager_t *c, const char *name, solar_os_native_json_value_t **out)
+{
+    char *text = NULL;
+    int error = read_document(c, name, 65536, &text, out);
+    c->memory->free(text); return error;
 }
 static int check_file(manager_t *c, const char *name, const char *expected, solar_os_native_file_t **keep, uint32_t *bytes)
 {
@@ -387,7 +398,6 @@ static int bundle(manager_t *c, const char *file)
     if (!error) error = check_file(c, model_file, sha, &c->model, &c->bytes);
     if (!error && (c->bytes < 16 || c->bytes > SLOT_BYTES)) error = SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     if (!error) error = model_interface(c, width, height, classes);
-    if (!error) error = format(c, c->record, sizeof(c->record), "%s/.himax-%s-%lu.json", c->folder, c->source, (unsigned long)c->slot);
     return error;
 }
 static int request_json(manager_t *c, const char *command, const char *name, solar_os_native_json_value_t **out)
@@ -431,6 +441,125 @@ static int device_layout(manager_t *c)
     c->json->free(root);
     if (!error) error = active(c, &c->previous);
     if (!error && c->previous == c->slot) error = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    return error;
+}
+static void inventory_close(manager_t *c)
+{
+    if (c->json) c->json->free(c->inventory);
+    if (c->memory) c->memory->free(c->inventory_text);
+    c->inventory = NULL; c->inventory_text = NULL;
+}
+static bool inventory_valid(manager_t *c)
+{
+    value_t *root = c->inventory, *slots = get(c, root, "slots"); unsigned seen = 0;
+    if (!keys(c, root, "schema,kind,device,slots") || !uint_range(c, get(c, root, "schema"), 1, 1, NULL) ||
+        !eq(c, get(c, root, "kind"), "himax") || !eq(c, get(c, root, "device"), c->device) ||
+        c->json->kind(slots) != SOLAR_OS_NATIVE_JSON_ARRAY || c->json->count(slots) > 4) return false;
+    for (size_t i = 0; i < c->json->count(slots); ++i) {
+        value_t *r = c->json->at(slots, i); uint32_t slot, bytes, written;
+        const char *provider = string(c, get(c, r, "provider_version")), *source = string(c, get(c, r, "source"));
+        if (!keys(c, r, "schema,kind,provider_version,device,source,firmware,id,version,sha256,slot,previous_slot,bytes,written_bytes,state,error") ||
+            !uint_range(c, get(c, r, "schema"), 1, 1, NULL) || !eq(c, get(c, r, "kind"), "himax") ||
+            !eq(c, get(c, r, "device"), c->device) || !identity(provider) || strlen(provider) > 32 ||
+            !identity(source) || strlen(source) >= 32 || !date(string(c, get(c, r, "firmware"))) ||
+            !identity(string(c, get(c, r, "id"))) || !identity(string(c, get(c, r, "version"))) ||
+            !hash(string(c, get(c, r, "sha256"))) || !uint_range(c, get(c, r, "slot"), 1, 4, &slot) ||
+            (seen & (1U << slot)) || !uint_range(c, get(c, r, "previous_slot"), 1, 4, NULL) ||
+            !uint_range(c, get(c, r, "bytes"), 16, SLOT_BYTES, &bytes) ||
+            !uint_range(c, get(c, r, "written_bytes"), 0, bytes, &written) ||
+            !(eq(c, get(c, r, "state"), "uploading") || eq(c, get(c, r, "state"), "failed") ||
+              eq(c, get(c, r, "state"), "programmed"))) return false;
+        if (eq(c, get(c, r, "state"), "programmed") &&
+            (written != bytes || !uint_range(c, get(c, r, "error"), 0, 0, NULL))) return false;
+        seen |= 1U << slot;
+    }
+    return true;
+}
+static int inventory_open(manager_t *c)
+{
+    if (c->files->struct_size < sizeof(*c->files) || !c->files->state_directory) return UNSUPPORTED;
+    /* A chip identity is a filename component, never a path supplied by a model. */
+    if (!identity(c->device)) return UNSUPPORTED;
+    char directory[PATH_MAXIMUM];
+    int error = c->files->state_directory("himax", directory, sizeof(directory));
+    if (!error) error = format(c, c->record, sizeof(c->record), "%s/%s.json", directory, c->device);
+    if (!error) error = read_document(c, c->record, INVENTORY_MAXIMUM, &c->inventory_text, &c->inventory);
+    if (error == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && *c->record) {
+        /* The backup is the last published state if power failed between the
+         * two renames of a replacement. Never use it over a malformed main file. */
+        char backup[PATH_MAXIMUM];
+        error = format(c, backup, sizeof(backup), "%s.native.old", c->record);
+        if (!error) error = read_document(c, backup, INVENTORY_MAXIMUM, &c->inventory_text, &c->inventory);
+    }
+    if (!error && !inventory_valid(c)) error = BAD;
+    return error;
+}
+static bool inventory_entry(manager_t *c, uint32_t slot, const char **text, size_t *size)
+{
+    value_t *slots = get(c, c->inventory, "slots");
+    for (size_t i = 0; i < c->json->count(slots); ++i) {
+        uint32_t id;
+        if (!uint_range(c, get(c, c->json->at(slots, i), "slot"), slot, slot, &id)) continue;
+        const char *array; size_t n;
+        return solar_os_json_scan_object_value(c->inventory_text, "slots", &array, &n) &&
+            solar_os_json_scan_array_value(array, i, text, size);
+    }
+    return false;
+}
+static int inventory_replace(manager_t *c, const char *record)
+{
+    char *text = c->memory->alloc(INVENTORY_MAXIMUM);
+    if (!text) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    int error = format(c, text, INVENTORY_MAXIMUM,
+        "{\"schema\":1,\"kind\":\"himax\",\"device\":\"%s\",\"slots\":[%s", c->device, record);
+    size_t used = error ? 0 : strlen(text);
+    for (uint32_t slot = 1; !error && slot <= 4; ++slot) {
+        const char *old; size_t n;
+        if (slot != c->slot && inventory_entry(c, slot, &old, &n)) {
+            error = format(c, text+used, INVENTORY_MAXIMUM-used, ",%.*s", (int)n, old);
+            if (!error) used += strlen(text+used);
+        }
+    }
+    if (!error) error = format(c, text+used, INVENTORY_MAXIMUM-used, "]}");
+    if (!error) error = c->files->replace(c->record, text, strlen(text));
+    c->memory->free(text); return error;
+}
+int solar_os_himax_model_slots(solar_os_processor_service_fn services, const char *source, uint32_t timeout, char **out)
+{
+    if (!out) return BAD;
+    *out = NULL; manager_t c = {0};
+    int error = bind(&c, services, source, timeout);
+    if (!error) {
+        c.files = services(SOLAR_OS_NATIVE_FILES_SERVICE, 1, SOLAR_OS_NATIVE_FILES_BASE_SIZE);
+        c.json = services(SOLAR_OS_NATIVE_JSON_SERVICE, 1, sizeof(*c.json));
+        if (!c.files || !c.json) error = UNSUPPORTED;
+    }
+    if (!error) error = c.camera->open(source, "himax-slots", &c.token);
+    if (!error) error = device_layout(&c);
+    int stored = error ? error : inventory_open(&c);
+    if (!error && stored == SOLAR_OS_NATIVE_ERROR_NO_MEMORY) error = stored;
+    const char *state = !stored ? "recorded" : !*c.record ? "unavailable" :
+        stored == SOLAR_OS_NATIVE_ERROR_NOT_FOUND ? "missing" : "invalid";
+    if (stored) inventory_close(&c);
+    if (!error) { *out = c.memory->alloc(8192); if (!*out) error = SOLAR_OS_NATIVE_ERROR_NO_MEMORY; }
+    if (!error) error = format(&c, *out, 8192,
+        "{\"kind\":\"himax\",\"source\":\"%s\",\"device\":\"%s\",\"firmware\":\"%s\","
+        "\"active_slot\":%lu,\"inventory_path\":\"%s\",\"inventory_state\":\"%s\",\"slots\":[",
+        c.source,c.device,c.firmware,(unsigned long)c.previous,c.record,state);
+    size_t used = error ? 0 : strlen(*out);
+    for (uint32_t slot = 1; !error && slot <= 4; ++slot) {
+        const char *record = NULL; size_t n = 0;
+        bool known = inventory_entry(&c, slot, &record, &n);
+        error = format(&c, *out+used, 8192-used,
+            "%s{\"slot\":%lu,\"active\":%s,\"address\":%lu,\"capacity_bytes\":%lu,\"record\":%.*s}",
+            slot == 1 ? "" : ",",(unsigned long)slot,slot == c.previous ? "true" : "false",
+            (unsigned long)(0x400000U+(slot-1)*SLOT_BYTES),(unsigned long)SLOT_BYTES,
+            known ? (int)n : 4,known ? record : "null");
+        if (!error) used += strlen(*out+used);
+    }
+    if (!error) error = format(&c, *out+used, 8192-used, "]}");
+    inventory_close(&c); close_owner(&c);
+    if (error && *out) { c.memory->free(*out); *out = NULL; }
     return error;
 }
 static int spi(manager_t *c, const void *tx, void *rx, size_t size)
@@ -524,7 +653,7 @@ static int receipt(manager_t *c, const char *state, int error, char **out)
         "\"bytes\":%lu,\"written_bytes\":%lu,\"state\":\"%s\",\"error\":%d}",
         c->device,c->source,c->firmware,c->id,c->version,c->sha,(unsigned long)c->slot,
         (unsigned long)c->previous,(unsigned long)c->bytes,(unsigned long)c->written,state,error);
-    if (!result) result = c->files->replace(c->record, text, strlen(text));
+    if (!result) result = inventory_replace(c, text);
     if (!result && out) { *out = text; text = NULL; }
     c->memory->free(text); return result;
 }
@@ -551,6 +680,10 @@ int solar_os_himax_model_upload(solar_os_processor_service_fn services, const ch
     if (!error) error = c->camera->open(source, "himax-upload", &c->token);
     if (!error) error = c->camera->spi(c->token, NULL, NULL, 0);
     if (!error) error = device_layout(c);
+    if (!error) {
+        error = inventory_open(c);
+        if (error == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && *c->record) error = 0;
+    }
     if (!error && stopped(c)) error = CANCELLED;
     if (!error) { error = receipt(c, "uploading", 0, NULL); c->recorded = !error; }
     if (!error) error = program(c);
@@ -579,6 +712,7 @@ int solar_os_himax_model_upload(solar_os_processor_service_fn services, const ch
         if (!error) error = saved;
     }
     close_owner(c);
+    inventory_close(c);
     if (c->files) c->files->close(c->model);
     if (c->json) c->json->free(c->manifest);
     if (!error) progress(c, "programmed", c->bytes, c->bytes);

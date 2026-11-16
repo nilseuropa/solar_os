@@ -30,6 +30,13 @@ int main(int argc, char **argv)
         if (!error) error = parser->parse(json, __builtin_strlen(json), &root);
         if (!error && !parser->uint_value(parser->get(parser->get(root, "model"), "id"), &slot)) error = -1;
         parser->free(root); memory->free(json); json = NULL;
+        root = NULL;
+        if (!error) error = api->query(host->get_service, "camera0", "slots", 4000, &json);
+        if (!error) error = parser->parse(json, __builtin_strlen(json), &root);
+        uint64_t live = 0;
+        if (!error && (!parser->uint_value(parser->get(root, "active_slot"), &live) || live != slot ||
+            parser->count(parser->get(root, "slots")) != 4)) error = -1;
+        parser->free(root); memory->free(json); json = NULL;
         /* Select the existing slot: exercise the external management entry
          * point without modifying a model or changing the active selection. */
         if (!error) error = api->select(host->get_service, "camera0", slot, 4000, NULL, NULL, &json);

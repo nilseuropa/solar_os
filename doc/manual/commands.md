@@ -965,7 +965,7 @@ policy.
 | `model` | `model load <file.espdl> [timeout_ms]`; `model bundle <bundle.json> [timeout_ms]` | Load a resident raw model or a checked model bundle from storage. |
 | `model` | `model mode <handle> <single\|auto\|dual>` | Select execution mode without reloading the model. |
 | `model` | `model unload <handle\|all>` | Explicitly unload models; active operations and retained model references report busy. |
-| `model` | `model select <processor> <source> <slot>` | Select and verify an accelerator model slot through its optional provider. |
+| `model` | `model slots <processor> <source>`; `model select <processor> <source> <slot>` | List accelerator inventory or select a slot. |
 | `model` | `model upload <processor> <source> <bundle.json> <slot> [--replace]` | Start the model-upload background job; inspect or cancel with job status/stop model-upload. |
 | `pipeline` | `pipeline list`; `pipeline status <id>` | Inspect native processing jobs, errors and timings. |
 | `pipeline` | `pipeline info <processor> [source] [query]` | Query processor capabilities and models; source defaults to camera0. |

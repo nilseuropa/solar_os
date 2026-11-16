@@ -16,6 +16,7 @@ packages_any = ["job_model_upload"]
 - `job stop model-upload` cancels and attempts to restore the previous selection.
 - `model select himax camera0 4` selects a programmed slot; select slot 1 to return
   to the recovery model. Slot 1 and the active slot cannot be uploaded over.
+- `model slots himax camera0` lists live slot selection and recorded model identities.
 - `pipeline start himax camera0 1` runs one inference with the current selection.
 
 The optional `processor-himax` module programs and selects HX6538 models. Watcher
@@ -33,6 +34,7 @@ change the accelerator. Inspect the current firmware, slots and selected model:
 pipeline info himax camera0 version
 pipeline info himax camera0 models
 pipeline info himax camera0 model
+model slots himax camera0
 ```
 
 Program an explicit inactive slot with a schema-two Himax bundle:
@@ -97,12 +99,27 @@ selects the new slot, and runs one inference. It then restores and verifies the
 previous selection. Success requires every step. This is a runtime smoke test;
 it does not verify accuracy or read back the entire flash image for SHA-256.
 
-An atomic `.himax-SOURCE-SLOT.json` receipt is stored beside `bundle.json`. It
-records the chip ID, source, firmware and provider versions, model identity/hash,
-slot, byte counts and state. `uploading` replaces any previous success before
-programming starts. Only a completed programming, inference and restoration
-sequence records `programmed`; ordinary failures record `failed`. A storage error
-can leave `uploading`. Receipts are diagnostic records and never authorize a write.
+The module stores one atomic inventory file per physical chip under internal
+flash, for example `/flash/.himax/360779f5.json`. Each slot record contains the
+chip ID, source, firmware and provider versions, model identity/hash, byte counts
+and state. Updates preserve the other slots. `uploading` replaces any previous
+success before programming starts. Only a completed programming, inference and
+restoration sequence records `programmed`; ordinary failures record `failed`.
+A storage error can leave `uploading`. Mounted, writable internal flash is
+required before an upload can write the accelerator.
+
+`model slots himax camera0` queries the chip ID, slot layout and active selection
+live, then joins that information with this inventory. The JSON equivalent is
+`pipeline info himax camera0 slots`. Missing records show `unknown`, never empty.
+The inventory is a record of SolarOS uploads, not a flash readback: programming
+with another tool can make it stale. Missing, invalid or unavailable inventory
+is reported explicitly; invalid files prevent new uploads until repaired.
+An interrupted atomic replacement can recover its last published backup.
+
+Inventory survives removal of Zoo bundles or the SD card and is keyed by chip
+ID rather than the `camera0` registration name. Older provider versions stored
+`.himax-SOURCE-SLOT.json` receipts beside bundles; those remain historical records
+and are not automatically imported or updated. No inventory record authorizes a write.
 
 Programming is not a transaction on accelerator flash. Cancellation, transport
 failure or power loss can leave the destination slot partly written. Recovery
@@ -116,5 +133,5 @@ Removing a Zoo storage bundle does not erase accelerator flash.
 `pipeline info himax camera0 identity` returns the chip ID. Query `metadata`
 returns the factory `INFO?` response without assigning it to every slot. Some
 firmware stores that information globally. Uploading does not overwrite it with
-labels from an unrelated model; the checked bundle and receipt identify the
+labels from an unrelated model; the checked bundle and inventory identify the
 programmed model. Pipeline results retain SSCMA coordinates, scores and class IDs.

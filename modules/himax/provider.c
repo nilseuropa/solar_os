@@ -65,6 +65,7 @@ static int query(solar_os_processor_service_fn services, const char *source,
     *out = NULL;
     if (!source || !*source || strlen(source) >= 256 || !what || !timeout || timeout > 60000)
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (!strcmp(what, "slots")) return solar_os_himax_model_slots(services, source, timeout, out);
     static const char *const names[] = {"VER?", "MODELS?", "MODEL?", "ALGOS?", "ID?", "INFO?"};
     static const char *const keys[] = {"version", "models", "model", "algorithms", "identity", "metadata"};
     size_t first = 0, last = 4;

@@ -111,7 +111,7 @@ Pass the size of the public table and check for NULL before use:
 | `controllers` | `solar_os_native_controllers_abi.h` | Owned PID instances in the OS registry; caller supplies timestamped samples and handles its actuator |
 | `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float parsing and math helpers |
 | `camera.sscma` | `solar_os_native_sscma_abi.h` | Exclusive shared-camera control, bounded SSCMA exchanges and JPEG reply decoding for the HX6538 driver |
-| `storage.files` | `solar_os_native_data_abi.h` | Read-only file leases, bounded reads, streaming SHA-256 and atomic small-file replacement |
+| `storage.files` | `solar_os_native_data_abi.h` | Read-only file leases, bounded reads, streaming SHA-256, atomic small-file replacement and optional persistent namespaces on internal flash |
 | `json` | `solar_os_native_data_abi.h` | Strict bounded JSON parsing, borrowed object/array values and owned root lifetime |
 
 Thread operations return POSIX error numbers. Destroy synchronization objects

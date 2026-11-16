@@ -51,13 +51,17 @@ class HimaxModelsTest(unittest.TestCase):
 
     @property
     def receipt(self):
-        return self.folder / ".himax-camera0-4.json"
+        return self.root / ".himax/0123456789abcdef.json"
+
+    @property
+    def record(self):
+        return next(r for r in json.loads(self.receipt.read_bytes())["slots"] if r["slot"] == 4)
 
     def test_upload_crc_inference_restore_and_atomic_receipt(self):
         result = self.run_native()
         self.assertEqual(result["error"], 0)
         self.assertEqual(result["selected"], 1)
-        record = json.loads(self.receipt.read_bytes())
+        record = self.record
         self.assertEqual(record["state"], "programmed")
         self.assertEqual(record["device"], "0123456789abcdef")
         self.assertEqual(record["sha256"], self.manifest["model"]["sha256"])
@@ -80,7 +84,7 @@ class HimaxModelsTest(unittest.TestCase):
         result = self.run_native("reset-default")
         self.assertEqual(result["error"], 0)
         self.assertEqual(result["selected"], 1)
-        self.assertEqual(json.loads(self.receipt.read_bytes())["state"], "programmed")
+        self.assertEqual(self.record["state"], "programmed")
 
     def test_protocol_failures_and_cancellation_restore_and_never_record_success(self):
         for mode in ("crc-error", "crc-state3", "timeout", "spi-error", "cancel", "reset-failure", "inference-failure", "wrong-result", "malformed-result", "select-failure"):
@@ -88,7 +92,7 @@ class HimaxModelsTest(unittest.TestCase):
                 result = self.run_native(mode)
                 self.assertNotEqual(result["error"], 0)
                 self.assertEqual(result["selected"], 1)
-                self.assertEqual(json.loads(self.receipt.read_bytes())["state"], "failed")
+                self.assertEqual(self.record["state"], "failed")
 
     def test_corrupt_model_asset_labels_and_dimensions_reject_before_hardware(self):
         mutations = (lambda b: b["inputs"]["camera"].update(width=96),
@@ -173,12 +177,12 @@ class HimaxModelsTest(unittest.TestCase):
         result = self.run_native("final-record-failure")
         self.assertNotEqual(result["error"], 0)
         self.assertEqual(result["selected"], 1)
-        self.assertEqual(json.loads(self.receipt.read_bytes())["state"], "uploading")
+        self.assertEqual(self.record["state"], "uploading")
 
     def test_unrecoverable_selection_is_reported_without_a_success_receipt(self):
         result = self.run_native("restore-failure")
         self.assertNotEqual(result["error"], 0)
-        self.assertEqual(json.loads(self.receipt.read_bytes())["state"], "failed")
+        self.assertEqual(self.record["state"], "failed")
 
     def test_allocation_failures_release_files_json_and_camera(self):
         for n in range(180):
@@ -188,7 +192,70 @@ class HimaxModelsTest(unittest.TestCase):
                 result = self.run_native("oom-" + str(n))
                 self.assertEqual(result["selected"], 1)
                 if result["error"] and self.receipt.exists():
-                    self.assertNotEqual(json.loads(self.receipt.read_bytes())["state"], "programmed")
+                    self.assertNotEqual(self.record["state"], "programmed")
+
+    def test_live_slot_listing_and_inventory_survive_bundle_removal(self):
+        empty = self.run_native("slots")
+        self.assertEqual(empty["inventory_state"], "missing")
+        self.assertTrue(all(r["record"] is None for r in empty["slots"]))
+        self.assertEqual(self.run_native()["error"], 0)
+        shutil.rmtree(self.folder)
+        listed = self.run_native("slots-alias")
+        self.assertEqual(listed["source"], "camera1")
+        self.assertEqual(listed["slots"][3]["record"]["id"], "fixture")
+        self.assertEqual(listed["active_slot"], 1)
+        changed = self.run_native("slots-active")
+        self.assertEqual(changed["active_slot"], 2)
+        self.assertTrue(changed["slots"][1]["active"])
+        self.assertTrue(all(r["record"] is None for r in self.run_native("slots-other-device")["slots"]))
+
+    def test_updates_preserve_other_slots_and_recover_backup(self):
+        self.assertEqual(self.run_native()["error"], 0)
+        record = copy.deepcopy(self.record)
+        record.update(slot=3, id="another-model")
+        inventory = json.loads(self.receipt.read_bytes())
+        inventory["slots"].append(record)
+        self.receipt.write_text(json.dumps(inventory))
+        backup = self.receipt.with_name(self.receipt.name + ".native.old")
+        self.receipt.rename(backup)
+        listed = self.run_native("slots")
+        self.assertEqual(listed["slots"][2]["record"]["id"], "another-model")
+        self.assertEqual(self.run_native()["error"], 0)
+        self.assertEqual(self.run_native("slots")["slots"][2]["record"]["id"], "another-model")
+        self.assertFalse(backup.exists())
+
+    def test_invalid_inventory_cannot_authorize_programming_or_claim_known_models(self):
+        self.assertEqual(self.run_native()["error"], 0)
+        original = json.loads(self.receipt.read_bytes())
+        for mutate in (lambda v: v.update(device="another-device"),
+                       lambda v: v["slots"].append(copy.deepcopy(v["slots"][0])),
+                       lambda v: v["slots"][0].update(sha256="bad"),
+                       lambda v: v["slots"][0].update(written_bytes=1)):
+            broken = copy.deepcopy(original)
+            mutate(broken)
+            self.receipt.write_text(json.dumps(broken))
+            listed = self.run_native("slots")
+            self.assertEqual(listed["inventory_state"], "invalid")
+            self.assertTrue(all(r["record"] is None for r in listed["slots"]))
+            failed = self.run_native()
+            self.assertNotEqual(failed["error"], 0)
+            self.assertEqual(failed["pages"], 0)
+            self.assertEqual(json.loads(self.receipt.read_bytes()), broken)
+
+    def test_unavailable_flash_is_explicit_and_prevents_chip_writes(self):
+        self.assertEqual(self.run_native("slots-no-flash")["inventory_state"], "unavailable")
+        self.assertEqual(self.run_native("slots-old-host")["inventory_state"], "unavailable")
+        result = self.run_native("no-flash")
+        self.assertNotEqual(result["error"], 0)
+        self.assertEqual(result["pages"], 0)
+
+    def test_inventory_query_allocation_failures_release_camera_and_json(self):
+        self.assertEqual(self.run_native()["error"], 0)
+        for n in range(100):
+            with self.subTest(allocation=n):
+                result = self.run_native("slots-oom-" + str(n))
+                if "error" not in result:
+                    self.assertEqual(result["slots"][3]["record"]["state"], "programmed")
 
 
 if __name__ == "__main__":
