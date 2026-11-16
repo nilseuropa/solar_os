@@ -54,6 +54,9 @@ static uint16_t rgb565(uint32_t rgb888)
 
 /* shortcut: no lock between the u8g2 and the frame path; both redraw the
  * whole frame, so a race shows one mixed frame. Add a mutex if that is seen. */
+/* shortcut: every refresh converts all 480,000 pixels to RGB565 on the
+ * emulated CPU, however little changed. Convert only the changed tile rows if
+ * refresh speed matters. */
 static esp_err_t present_draw_buffer(void)
 {
     if (device.panel == NULL) {
