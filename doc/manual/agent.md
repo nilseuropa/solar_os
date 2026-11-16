@@ -4,7 +4,7 @@ title = "Native SolarOS agent"
 section = "app"
 summary = "Configure and use the resumable LLM agent and its typed tools"
 aliases = ["llm"]
-keywords = "agent llm model openai responses reasoning tools policy prompt chat"
+keywords = "agent llm model openai responses reasoning tools policy prompt chat image camera multimodal"
 packages_any = ["app_agent"]
 +++
 # Native SolarOS agent
@@ -69,6 +69,44 @@ message window. Bare `agent` always starts a new conversation.
 Use `agent ask PROMPT` for one request. It leaves the answer visible until you
 press `Esc` or the app-exit key; one-request answers are not added to the
 conversation store.
+
+## Ask about an image
+
+Select a vision-capable model, then attach a saved picture, a single camera or
+RTSP frame, or the image matching a pipeline's latest result:
+
+```text
+agent ask --image /pictures/sample.jpg What is in this picture?
+agent ask --image stream:camera0 Describe what the camera sees.
+agent ask --image rtsp://192.168.1.20/media What is happening?
+agent ask --image pipeline:1 Describe this processed frame.
+agent ask --image /pictures/before.png --image /pictures/after.png What changed?
+```
+
+In an interactive conversation, use `/image SOURCE QUESTION`, or the same
+leading `--image SOURCE` options. Quote paths containing spaces. Options must
+precede the question; `--` ends the image options when the question itself
+begins with `--image`. Image paths complete in the shell.
+
+Up to two JPEG, PNG, GIF, or WebP attachments may total 512 KiB of encoded
+data. Bytes are sent unchanged as data URLs; the device does not decode or
+resize them. The configured provider/model must support images, including the
+image format supplied. Provider errors are shown without a text-only retry.
+Image uploads work with Responses and compatible Chat Completions endpoints.
+
+`stream:` captures once using the source's default mode. `rtsp://` selects one
+JPEG video frame, with a five-second receive deadline and no audio playback.
+The source and its hardware lease are released before upload. A camera already
+owned by Photo, `rtspd`, or another job reports busy. `pipeline:` requires the
+pipeline service and an existing completed result; it uses that result's
+retained encoded image without opening its camera again. Pipeline observations
+remain available through `pipeline result`; they are not attached automatically.
+
+Images belong to the current request, including its tool continuations.
+Saved conversation transcripts record an attachment notice and omit image
+bytes. Chat Completions resumes therefore include the notice without the old
+images; attach them again for another visual comparison. Responses resumes
+use the saved provider response ID and the provider's retained context.
 
 ## Inspect background workloads
 

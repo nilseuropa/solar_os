@@ -46,6 +46,7 @@ static void agent_usage(solar_os_shell_io_t *io)
     solar_os_shell_io_writeln(io, "  agent config max-tools 1..32");
     solar_os_shell_io_writeln(io, "  agent forget");
     solar_os_shell_io_writeln(io, "  agent ask PROMPT...");
+    solar_os_shell_io_writeln(io, "  agent ask --image SOURCE [--image SOURCE] PROMPT...");
     solar_os_shell_io_writeln(io, "  agent --tts ask PROMPT...");
     solar_os_shell_io_writeln(
         io,

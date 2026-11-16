@@ -170,9 +170,19 @@ interval and timing-envelope serialization.
 These timings describe one request and do not assert sustained camera FPS.
 
 The RTSP receiver keeps the latest JPEG, dropping incoming frames while a frame
-is leased. The pipeline releases the compressed lease immediately after decoding,
-before processing. Each pipeline owns at most one decoded frame and one latest
-serialized result. Results are bounded to 64 KiB plus the timing envelope.
+is leased. The pipeline copies the encoded sample and releases the source lease
+before decoding or processing. Each pipeline retains the original encoded image
+matching its latest successful result, plus the image currently being processed.
+Encoded samples require PSRAM and are limited to 4 MiB each; stream providers
+may impose a smaller limit. Results are bounded to 64 KiB plus the timing envelope.
+
+Native consumers can call `solar_os_pipeline_result_sample()` to atomically
+obtain the latest JSON result and a retained encoded sample. Release that sample
+with `solar_os_media_sample_release()` after use. Its immutable bytes and source
+metadata survive result replacement, pipeline stop, and destruction. Existing
+shell, Python, and Lua result calls continue to return JSON without image bytes.
+Only processors requiring pixels decode the sample; encoded consumers can use
+its original JPEG, PNG, GIF, or WebP bytes directly.
 
 QR results include original-image corners, `payload_hex`, payload `length`, ECI,
 QR version, ECC level, data type, candidate/failure counts, processed dimensions,

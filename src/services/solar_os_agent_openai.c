@@ -10,6 +10,7 @@
 
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
+#include "solar_os_agent_images.h"
 
 #define AGENT_OPENAI_BODY_MAX (32U * 1024U)
 #define AGENT_OPENAI_HISTORY_MAX (16U * 1024U)
@@ -768,7 +769,9 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
         agent_openai_is_responses_endpoint(config->endpoint) ?
             AGENT_OPENAI_API_RESPONSES :
             AGENT_OPENAI_API_CHAT_COMPLETIONS;
-    esp_err_t err = agent_openai_escape(turn->prompt, &prompt, "agent.prompt");
+    const bool include_images = api != AGENT_OPENAI_API_RESPONSES || !turn->continuation;
+    esp_err_t err = solar_os_agent_image_content(turn->prompt, turn->images,
+        include_images ? turn->image_count : 0, api == AGENT_OPENAI_API_RESPONSES, &prompt);
     if (err == ESP_OK) {
         err = agent_openai_escape(config->model, &model, "agent.model");
     }
@@ -821,8 +824,10 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
         goto cleanup;
     }
 
-    char *body = solar_os_memory_alloc(AGENT_OPENAI_BODY_MAX,
-                                        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+    const size_t body_capacity = AGENT_OPENAI_BODY_MAX +
+        (include_images && turn->image_count ? strlen(prompt) : 0);
+    char *body = solar_os_memory_alloc(body_capacity,
+                                        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,
                                         "agent.http-body");
     if (body == NULL) {
         err = ESP_ERR_NO_MEM;
@@ -837,11 +842,11 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
         previous_response_id == NULL) {
         written = snprintf(
             body,
-            AGENT_OPENAI_BODY_MAX,
+            body_capacity,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
             "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
-            "\"input\":[{\"role\":\"user\",\"content\":\"%s\"}],"
+            "\"input\":[{\"role\":\"user\",\"content\":%s}],"
             "\"tools\":%s,\"tool_choice\":\"auto\","
             "\"parallel_tool_calls\":false}",
             model,
@@ -852,12 +857,12 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
                !turn->continuation) {
         written = snprintf(
             body,
-            AGENT_OPENAI_BODY_MAX,
+            body_capacity,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
             "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
             "\"previous_response_id\":\"%s\","
-            "\"input\":[{\"role\":\"user\",\"content\":\"%s\"}],"
+            "\"input\":[{\"role\":\"user\",\"content\":%s}],"
             "\"tools\":%s,\"tool_choice\":\"auto\","
             "\"parallel_tool_calls\":false}",
             model,
@@ -868,7 +873,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     } else if (api == AGENT_OPENAI_API_RESPONSES) {
         written = snprintf(
             body,
-            AGENT_OPENAI_BODY_MAX,
+            body_capacity,
             "{\"model\":\"%s\",\"stream\":true,\"store\":true,"
             "\"instructions\":\"" AGENT_OPENAI_INSTRUCTIONS "\","
             "\"reasoning\":{\"effort\":\"%s\"},"
@@ -886,13 +891,13 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     } else if (!turn->continuation) {
         written = snprintf(
             body,
-            AGENT_OPENAI_BODY_MAX,
+            body_capacity,
             "{\"model\":\"%s\",\"stream\":true,%s"
             "\"stream_options\":{\"include_usage\":true},"
             "\"messages\":["
             "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"}"
             "%s,"
-            "{\"role\":\"user\",\"content\":\"%s\"}],"
+            "{\"role\":\"user\",\"content\":%s}],"
             "\"tools\":%s,\"tool_choice\":\"auto\","
             "\"parallel_tool_calls\":false}",
             model,
@@ -903,13 +908,13 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
     } else {
         written = snprintf(
             body,
-            AGENT_OPENAI_BODY_MAX,
+            body_capacity,
             "{\"model\":\"%s\",\"stream\":true,%s"
             "\"stream_options\":{\"include_usage\":true},"
             "\"messages\":["
             "{\"role\":\"system\",\"content\":\"" AGENT_OPENAI_INSTRUCTIONS "\"}"
             "%s,"
-            "{\"role\":\"user\",\"content\":\"%s\"},"
+            "{\"role\":\"user\",\"content\":%s},"
             "{\"role\":\"system\",\"content\":\"Earlier tool results in this "
             "request:\\n%s\"},"
             "{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"%s\","
@@ -930,7 +935,7 @@ static esp_err_t agent_openai_build_body(const solar_os_agent_provider_config_t 
             tool_result,
             tools);
     }
-    if (written < 0 || (size_t)written >= AGENT_OPENAI_BODY_MAX) {
+    if (written < 0 || (size_t)written >= body_capacity) {
         solar_os_memory_free(body);
         err = ESP_ERR_INVALID_SIZE;
         goto cleanup;
@@ -1132,7 +1137,8 @@ const solar_os_agent_provider_t solar_os_agent_openai_provider = {
     .name = "openai-compatible",
     .capabilities = SOLAR_OS_AGENT_PROVIDER_CAP_STREAMING |
                     SOLAR_OS_AGENT_PROVIDER_CAP_TOOLS |
-                    SOLAR_OS_AGENT_PROVIDER_CAP_USAGE,
+                    SOLAR_OS_AGENT_PROVIDER_CAP_USAGE |
+                    SOLAR_OS_AGENT_PROVIDER_CAP_IMAGES,
     .resume_mode = agent_openai_resume_mode,
     .run_turn = agent_openai_run_turn,
 };

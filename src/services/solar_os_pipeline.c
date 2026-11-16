@@ -19,6 +19,7 @@ typedef struct {
     bool cancel, done;
     unsigned mailbox;
     char *latest;
+    solar_os_media_sample_t *latest_sample;
 } pipeline_t;
 /* Cold state and buffers are in PSRAM. Only pointers/admission occupy SRAM. */
 static pipeline_t **pipelines;
@@ -81,10 +82,10 @@ static void worker(void *user)
         }
     }
     while (!error && !cancelled(p)) {
-        solar_os_raster_image_t *image = NULL;
+        solar_os_media_sample_t *sample = NULL;
         uint32_t frame = 0;
-        uint64_t timestamp = 0, begin = esp_timer_get_time(), decode_begin = begin;
-        if (file) error = solar_os_raster_image_open(p->config.source, &image);
+        uint64_t timestamp = 0, begin = esp_timer_get_time(), decode_us = 0;
+        if (file) error = solar_os_media_sample_open_image(p->config.source, &sample);
         else {
             if (rtsp) {
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
@@ -100,27 +101,30 @@ static void worker(void *user)
             if (error == ESP_ERR_TIMEOUT) { error = ESP_OK; vTaskDelay(1); continue; }
             solar_os_script_media_frame_t info;
             if (!error) error = solar_os_script_media_frame(media, frame, &info);
-            decode_begin = esp_timer_get_time();
             if (!error) {
                 timestamp = info.jpeg.timestamp_us;
-                error = solar_os_raster_image_decode(info.jpeg.data, info.jpeg.length, &image);
+                const solar_os_media_sample_metadata_t metadata = {.source = p->config.source,
+                    .sequence = p->status.sequence + 1, .timestamp_us = timestamp,
+                    .width = info.jpeg.width, .height = info.jpeg.height};
+                error = solar_os_media_sample_copy_image(info.jpeg.data, info.jpeg.length, &metadata, &sample);
             }
-            /* The compressed lease is released before recognition/inference. */
+            /* Release the hardware lease before decoding or processing. */
             if (frame) {
                 esp_err_t released = solar_os_script_media_release(media, frame);
                 if (!error) error = released;
             }
         }
-        uint64_t decoded = esp_timer_get_time();
+        uint64_t process_begin = esp_timer_get_time();
         char *json = NULL;
         bool processor_busy = false;
         if (!error && !cancelled(p)) {
-            error = solar_os_processor_run(p->processor, image, &json);
+            error = solar_os_processor_run_sample(p->processor, sample, &json, &decode_us);
             processor_busy = error == ESP_ERR_INVALID_STATE;
         }
-        solar_os_raster_image_release(image);
         uint64_t end = esp_timer_get_time();
+        const uint64_t process_us = end - process_begin - decode_us;
         if (processor_busy && !cancelled(p)) {
+            solar_os_media_sample_release(sample);
             lock(p); ++p->status.busy_frames; unlock(p);
             error = ESP_OK; wait_interval(p); continue;
         }
@@ -135,19 +139,22 @@ static void worker(void *user)
                     "{\"pipeline\":%lu,\"sequence\":%llu,\"source_timestamp_us\":%llu,"
                     "\"decode_us\":%llu,\"process_us\":%llu,\"frame_us\":%llu,\"result\":%s}",
                     (unsigned long)p->status.id, (unsigned long long)sequence,
-                    (unsigned long long)timestamp, (unsigned long long)(decoded - decode_begin),
-                    (unsigned long long)(end - decoded), (unsigned long long)(end - begin), json);
+                    (unsigned long long)timestamp, (unsigned long long)decode_us,
+                    (unsigned long long)process_us, (unsigned long long)(end - begin), json);
                 if (n < 0 || (size_t)n >= SOLAR_OS_PROCESSOR_JSON_MAX + 512) error = ESP_ERR_INVALID_SIZE;
                 else {
                     solar_os_memory_free(p->latest); p->latest = record; record = NULL;
+                    solar_os_media_sample_release(p->latest_sample);
+                    p->latest_sample = sample; sample = NULL;
                     p->status.sequence = sequence; ++p->status.frames;
-                    p->status.source_timestamp_us = timestamp; p->status.decode_us = decoded - decode_begin;
-                    p->status.process_us = end - decoded; p->status.frame_us = end - begin;
+                    p->status.source_timestamp_us = timestamp; p->status.decode_us = decode_us;
+                    p->status.process_us = process_us; p->status.frame_us = end - begin;
                 }
                 unlock(p); solar_os_memory_free(record);
             }
         }
         solar_os_memory_free(json);
+        solar_os_media_sample_release(sample);
         lock(p); bool finished = p->config.limit && p->status.frames >= p->config.limit; unlock(p);
         if (finished || (file && !p->config.limit)) break;
         if (!error) wait_interval(p);
@@ -242,7 +249,9 @@ esp_err_t solar_os_pipeline_start(const solar_os_pipeline_config_t *c, uint32_t 
          * retained after such contention remains discoverable through list. */
         esp_err_t stopped = solar_os_jobs_stop(NULL, p->status.job);
         if (!stopped && !solar_os_jobs_unregister_dynamic(p->status.job, &p->job)) {
-            pipelines[slot] = NULL; solar_os_memory_free(p);
+            pipelines[slot] = NULL;
+            solar_os_media_sample_release(p->latest_sample); solar_os_memory_free(p->latest);
+            solar_os_memory_free(p);
         }
     } else *id = p->status.id;
 done:
@@ -282,16 +291,27 @@ esp_err_t solar_os_pipeline_status(uint32_t id, solar_os_pipeline_status_t *stat
     leave(); return error;
 }
 esp_err_t solar_os_pipeline_result(uint32_t id, uint64_t after, char **json)
+{ return solar_os_pipeline_result_sample(id, after, json, NULL); }
+esp_err_t solar_os_pipeline_result_sample(uint32_t id, uint64_t after, char **json,
+    solar_os_media_sample_t **sample)
 {
-    if (!json) return ESP_ERR_INVALID_ARG;
-    *json = NULL; if (!admit()) return ESP_ERR_INVALID_STATE;
+    if (!json && !sample) return ESP_ERR_INVALID_ARG;
+    if (sample) *sample = NULL;
+    if (json) *json = NULL;
+    if (!admit()) return ESP_ERR_INVALID_STATE;
     pipeline_t *p = find(id); esp_err_t error = p ? ESP_OK : ESP_ERR_NOT_FOUND;
     if (p) {
         lock(p);
         if (p->latest && p->status.sequence > after) {
-            size_t length = strlen(p->latest) + 1;
-            *json = solar_os_memory_alloc(length, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "pipeline.snapshot");
-            if (*json) memcpy(*json, p->latest, length); else error = ESP_ERR_NO_MEM;
+            if (json) {
+                size_t length = strlen(p->latest) + 1;
+                *json = solar_os_memory_alloc(length, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "pipeline.snapshot");
+                if (*json) memcpy(*json,p->latest,length); else error=ESP_ERR_NO_MEM;
+            }
+            if (!error && sample) {
+                solar_os_media_sample_retain(p->latest_sample);
+                *sample=p->latest_sample;
+            }
         }
         unlock(p);
     }
@@ -318,6 +338,7 @@ esp_err_t solar_os_pipeline_destroy(uint32_t id)
         }
         if (!error) {
             for (size_t i = 0; i < SOLAR_OS_PIPELINES_MAX; ++i) if (pipelines[i] == p) pipelines[i] = NULL;
+            solar_os_media_sample_release(p->latest_sample);
             solar_os_memory_free(p->latest); solar_os_memory_free(p);
             bool empty = true;
             for (size_t i = 0; i < SOLAR_OS_PIPELINES_MAX; ++i) if (pipelines[i]) empty = false;

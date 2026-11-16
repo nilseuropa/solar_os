@@ -1384,8 +1384,9 @@ capabilities = ["wifi"]
 
 [packages.service_agent]
 label = "service.agent"
-depends = ["service_crypto", "service_http_client", "service_json"]
+depends = ["service_crypto", "service_http_client", "service_json", "service_media_sample"]
 sources = [
+  "services/solar_os_agent_images.c",
   "services/solar_os_agent.c",
   "services/solar_os_agent_conversation.c",
   "services/solar_os_agent_reference.c",
@@ -1409,6 +1410,17 @@ sources = [
   "services/solar_os_raster_image.c",
 ]
 requires = ["stb_image", "webp_decoder"]
+
+[packages.service_media_sample]
+label = "service.media-sample"
+sources = ["services/solar_os_media_sample.c"]
+capabilities = ["psram"]
+
+[packages.service_media_sample_source]
+label = "service.media-sample-source"
+depends = ["service_media_sample", "service_script_media"]
+sources = ["services/solar_os_media_sample_source.c"]
+requires = ["esp_timer"]
 
 [packages.service_media]
 label = "service.media"
@@ -1451,7 +1463,7 @@ capabilities = ["psram"]
 
 [packages.service_pipeline]
 label = "service.pipeline"
-depends = ["service_image", "service_json", "service_script_media"]
+depends = ["service_image", "service_json", "service_script_media", "service_media_sample"]
 sources = ["services/solar_os_processor.c", "services/solar_os_pipeline.c", "shell/solar_os_shell_pipeline.c"]
 requires = ["esp_timer"]
 capabilities = ["psram"]
@@ -3230,7 +3242,7 @@ capabilities = ["psram"]
 
 [packages.app_agent]
 label = "app.agent"
-depends = ["service_agent"]
+depends = ["service_agent", "service_media_sample_source"]
 sources = [
   "apps/solar_os_agent_app.c",
   "shell/solar_os_shell_agent.c",

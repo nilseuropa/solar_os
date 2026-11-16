@@ -5,6 +5,7 @@
 #include "cJSON.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_timer.h"
 #include <string.h>
 #if SOLAR_OS_PACKAGE_SERVICE_VISION
 #include "solar_os_vision.h"
@@ -199,5 +200,21 @@ esp_err_t solar_os_processor_run(solar_os_processor_t *p, solar_os_raster_image_
     else if (!cJSON_PrintPreallocated(root, json, SOLAR_OS_PROCESSOR_JSON_MAX, false)) error = ESP_ERR_INVALID_SIZE;
     cJSON_Delete(root);
     if (error) solar_os_memory_free(json); else *out = json;
+    return error;
+}
+
+esp_err_t solar_os_processor_run_sample(solar_os_processor_t *p,
+    const solar_os_media_sample_t *sample, char **out, uint64_t *decode_us)
+{
+    if (!out || !decode_us) return ESP_ERR_INVALID_ARG;
+    *out = NULL; *decode_us = 0;
+    const solar_os_media_sample_image_t *encoded = solar_os_media_sample_image(sample);
+    if (!p || !encoded) return ESP_ERR_INVALID_ARG;
+    solar_os_raster_image_t *image = NULL;
+    const int64_t begin = esp_timer_get_time();
+    esp_err_t error = solar_os_raster_image_decode(encoded->data, encoded->length, &image);
+    *decode_us = esp_timer_get_time() - begin;
+    if (!error) error = solar_os_processor_run(p, image, out);
+    solar_os_raster_image_release(image);
     return error;
 }

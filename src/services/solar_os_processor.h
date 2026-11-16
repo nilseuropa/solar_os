@@ -1,6 +1,7 @@
 #pragma once
 #include <stdbool.h>
 #include "solar_os_raster_image.h"
+#include "solar_os_media_sample.h"
 
 #define SOLAR_OS_PROCESSOR_JSON_MAX 65536U
 typedef struct solar_os_processor solar_os_processor_t;
@@ -18,3 +19,7 @@ void solar_os_processor_destroy(solar_os_processor_t *processor);
  * QR binary payloads and raw tensors use lossless lowercase hexadecimal. */
 esp_err_t solar_os_processor_run(solar_os_processor_t *processor,
     solar_os_raster_image_t *image, char **json);
+/* Encoded input stays unchanged. Current image processors decode on demand;
+ * consumers that accept encoded images need not allocate a raster. */
+esp_err_t solar_os_processor_run_sample(solar_os_processor_t *processor,
+    const solar_os_media_sample_t *sample, char **json, uint64_t *decode_us);

@@ -330,6 +330,7 @@ static void conversation_make_title(const char *prompt,
     for (const unsigned char *p = (const unsigned char *)prompt;
          *p != '\0' && used + 1U < title_len;
          p++) {
+        if (used && (*p == '\r' || *p == '\n')) break;
         if (*p == '\r' || *p == '\n' || *p == '\t' || *p == ' ') {
             space = used > 0;
             continue;

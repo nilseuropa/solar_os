@@ -344,12 +344,12 @@ LUA_TEST_SOURCES := $(filter-out $(LUA_DIR)/lua.c $(LUA_DIR)/luac.c \
 	$(LUA_DIR)/linit.c $(LUA_DIR)/liolib.c $(LUA_DIR)/loadlib.c $(LUA_DIR)/loslib.c, \
 	$(wildcard $(LUA_DIR)/*.c))
 
-pipeline_test: pipeline_test.c $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c
+pipeline_test: pipeline_test.c $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(ROOT)/src/services/solar_os_media_sample.c
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) $^ $(CJSON_DIR)/cJSON.c -lm -o $@
 
 pipeline_lua_test: pipeline_lua_test.c pipeline_test.c $(ROOT)/src/apps/solar_os_lua_pipeline.inc \
-        $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(LUA_TEST_SOURCES)
+        $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(ROOT)/src/services/solar_os_media_sample.c $(LUA_TEST_SOURCES)
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(LUA_DIR) -I$(CJSON_DIR) \
 		$(filter-out pipeline_test.c %.inc,$^) $(CJSON_DIR)/cJSON.c -lm -o $@

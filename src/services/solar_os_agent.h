@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_script_runner.h"
+#include "solar_os_media_sample.h"
 
 #define SOLAR_OS_AGENT_ENDPOINT_MAX 256
 #define SOLAR_OS_AGENT_MODEL_MAX 96
@@ -20,6 +21,8 @@
 #define SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS 16U
 #define SOLAR_OS_AGENT_MAX_TOOLS_MIN 1U
 #define SOLAR_OS_AGENT_MAX_TOOLS_MAX 32U
+#define SOLAR_OS_AGENT_IMAGES_MAX 2U
+#define SOLAR_OS_AGENT_IMAGE_BYTES_MAX (512U * 1024U)
 
 typedef enum {
     SOLAR_OS_AGENT_TOOL_POLICY_OFF = 0,
@@ -77,6 +80,10 @@ typedef esp_err_t (*solar_os_agent_script_run_fn)(
 
 typedef struct {
     const char *prompt;
+    /* Borrowed immutable encoded samples, valid until run returns. Total image
+     * bytes are bounded independently of text. No decoding or transcoding. */
+    solar_os_media_sample_t *const *images;
+    size_t image_count;
     /* SolarOS-local durable conversation ID, not a provider response ID. */
     const char *conversation_id;
     /* Shell directory used to resolve relative storage-tool paths. */

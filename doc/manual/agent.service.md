@@ -238,10 +238,23 @@ the model.
 
 ## Resource bounds
 
+Native requests accept `images` and `image_count` alongside `prompt`. Each
+entry is an immutable `solar_os_media_sample_t` reference that the caller keeps
+alive until `solar_os_agent_run()` returns. Up to two JPEG, PNG, GIF, or WebP
+images may total 512 KiB. The service validates this before network admission.
+Encoded consumers require no raster decoder or display service. Image-capable
+provider adapters advertise `SOLAR_OS_AGENT_PROVIDER_CAP_IMAGES`; model support
+still depends on provider configuration.
+
+Image requests reserve PSRAM for bounded base64 content and a JSON body in
+addition to the encoded samples. Text-only request bounds are unchanged.
+Responses tool continuations reuse the provider response ID; Chat Completions
+continuations retain the original images through the final answer. Local
+conversation files contain attachment notices rather than image bytes.
+
 - Foreground worker stack: 16 KiB internal RAM.
 - Stream-line buffer: 24 KiB, PSRAM preferred. Responses completion events
   contain the assembled output as one event.
-- Request body: 16 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
 - Tool discovery query: 159 bytes.
 - Tool descriptor buffer: 6 KiB, allocated in PSRAM. At most three bootstrap
@@ -267,7 +280,7 @@ the model.
 - Manual script output: 4095 bytes, allocated in PSRAM.
 - Manual script deadline: 30 seconds.
 - Model output: 16 KiB per provider turn.
-- Provider request body: 32 KiB in PSRAM, including at most 8 KiB of raw local
+- Text-only provider request body: 32 KiB in PSRAM, including at most 8 KiB of raw local
   history serialized into a 16 KiB history fragment for Chat Completions.
 - Assistant capture for a completed turn: 16 KiB in PSRAM.
 - Conversation file: 10 KiB on internal flash or 48 KiB on SD; three flash

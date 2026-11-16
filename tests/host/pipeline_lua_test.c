@@ -38,8 +38,10 @@ static void run(lua_State *L, const char *script)
 { int status = luaL_dostring(L, script); if (status) fprintf(stderr, "%s\n", lua_tostring(L,-1)); assert(status == LUA_OK); lua_settop(L,0); }
 int main(void)
 {
+    create_sample_file();
     lua_State *L = state();
-    run(L,"p=pipeline.start('/test.png'); assert(type(p)=='number')");
+    lua_pushstring(L,sample_file); lua_setglobal(L,"sample_file");
+    run(L,"p=pipeline.start(sample_file); assert(type(p)=='number')");
     lua_getglobal(L,"p"); uint32_t id = lua_tointeger(L,-1); lua_settop(L,0);
     finish(id); lua_close(L);
     /* A new interpreter discovers and reads the still-owned native record. */
@@ -60,5 +62,6 @@ int main(void)
         "assert(not pcall(pipeline.status,p)); assert(not pcall(pipeline.start,'/test.png','qr',-1)); "
         "assert(not pcall(pipeline.start,'/test.png','qr\\0invalid'))");
     lua_close(L); assert(!allocations && !workers && !references);
+    assert(!unlink(sample_file));
     puts("native pipeline Lua lifetime/OOM tests passed");
 }

@@ -2133,6 +2133,9 @@ static const char * const path_email[] = {"email"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
 static const char * const path_agent[] = {"agent"};
+static const char * const path_agent_ask[] = {"agent", "ask"};
+static const char * const path_agent_tts_ask[] = {"agent", "--tts", "ask"};
+static const char * const agent_ask_options[] = {"--image"};
 static const char * const path_agent_resume[] = {"agent", "resume"};
 static const char * const path_agent_delete[] = {"agent", "delete"};
 static const char * const path_agent_config[] = {"agent", "config"};
@@ -3951,6 +3954,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
     SHELL_COMPLETION_STATIC(path_agent, agent_subcommands),
+    SHELL_COMPLETION_OPTIONS(path_agent_ask, agent_ask_options),
+    SHELL_COMPLETION_OPTIONS(path_agent_tts_ask, agent_ask_options),
     SHELL_COMPLETION_AGENT_CONVERSATIONS(path_agent_resume),
     SHELL_COMPLETION_AGENT_CONVERSATIONS(path_agent_delete),
     SHELL_COMPLETION_STATIC(path_agent_config, agent_config_fields),
@@ -9430,6 +9435,14 @@ static bool shell_complete_argument(solar_os_context_t *ctx,
         prefix = parse->tokens[current_index];
     }
 
+#if SOLAR_OS_PACKAGE_APP_AGENT
+    if (!strcmp(effective_command, "agent") && completed_count > 2 &&
+        !strcmp(completed_tokens[completed_count - 1], "--image") &&
+        strncmp(prefix,"stream:",7) && strncmp(prefix,"rtsp:",5) && strncmp(prefix,"pipeline:",9)) {
+        shell_complete_path(ctx, token_start, prefix, false, show_matches);
+        return true;
+    }
+#endif
 #if SOLAR_OS_PACKAGE_APP_PHOTO
     if (!strcmp(effective_command, "photo") && completed_count > 1 &&
         !strcmp(completed_tokens[completed_count - 1], "--dir")) {
