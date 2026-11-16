@@ -54,7 +54,7 @@ the `pio run` and `cd` lines.
 ## Launch
 
 Start QEMU from the build folder above (`.pio/build/<env>`), where
-`flash_image.bin` lies. Every run takes these options:
+`flash_image.bin` lies. Both boards take these options:
 
 ```
 qemu-system-xtensa -machine esp32s3 -m 8M -global driver=ssi_psram,property=is_octal,value=true -drive file=flash_image.bin,if=mtd,format=raw
