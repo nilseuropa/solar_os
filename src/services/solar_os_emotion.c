@@ -213,7 +213,8 @@ static esp_err_t start_worker(solar_os_emotion_t *s)
     if (s->software && solar_os_display_find_target(s->target, &target) &&
         target.presentation_stack_bytes > stack) stack = target.presentation_stack_bytes;
     if (solar_os_task_create_pinned_internal(worker, "emotion", stack, s,
-        tskIDLE_PRIORITY + 1, &s->worker, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+        tskIDLE_PRIORITY + 1, &s->worker, tskNO_AFFINITY,
+        s->foreground ? SOLAR_OS_TASK_ROLE_FOREGROUND : SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
         s->worker = NULL; return ESP_ERR_NO_MEM;
     }
     return ESP_OK;

@@ -24,6 +24,7 @@ typedef int esp_err_t;
 #define SOLAR_OS_MEMORY_INTERNAL_CRITICAL 0
 #define SOLAR_OS_MEMORY_EXTERNAL_REQUIRED 1
 #define SOLAR_OS_TASK_ROLE_BACKGROUND 0
+#define SOLAR_OS_TASK_ROLE_FOREGROUND 1
 #define SOLAR_OS_TASK_STOP_WAIT_MS 2000
 #define tskIDLE_PRIORITY 0
 #define tskNO_AFFINITY 0
@@ -60,6 +61,8 @@ static uint32_t terminal_foreground, terminal_background = 0xffffff;
 static uint32_t expected_canvas_background, expected_canvas_foreground = 0xffffff;
 static uint64_t clock_ms = 1000;
 static unsigned delay_count;
+static int worker_role;
+static bool background_admitted=true;
 static solar_os_gfx_t gfx = {"oled0"};
 static void (*saved_worker)(void *);
 static void *saved_arg;
@@ -130,7 +133,9 @@ static void solar_os_frame_presenter_take_stats(solar_os_frame_presenter_t *p,so
 {(void)p;stats->last_error=0;}
 static int solar_os_task_create_pinned_internal(void (*fn)(void *),const char *name,unsigned size,void *arg,
     unsigned priority,void **task,int core,int role)
-{(void)name;(void)size;(void)priority;(void)core;(void)role;saved_worker=fn;saved_arg=arg;*task=(void *)1;return pdPASS;}
+{(void)name;(void)size;(void)priority;(void)core;worker_role=role;
+ if(role==SOLAR_OS_TASK_ROLE_BACKGROUND&&!background_admitted)return 0;
+ saved_worker=fn;saved_arg=arg;*task=(void *)1;return pdPASS;}
 static bool solar_os_task_wait_done(void *task,volatile bool *done,unsigned timeout)
 {(void)task;(void)done;(void)timeout;return join_ok;}
 static void solar_os_task_delete_internal(void *task) {(void)task;}
@@ -206,6 +211,7 @@ int main(void)
     solar_os_emotion_options_t full={.display="oled0",.motion=1,.fullscreen=true};
     solar_os_emotion_t *full_face=NULL;
     assert(!solar_os_emotion_open(&full,NULL,&full_face,NULL,0));
+    assert(worker_role==SOLAR_OS_TASK_ROLE_BACKGROUND);
     assert(full_face->width==160&&full_face->height==80&&full_face->x==-16&&full_face->y==-8);
     assert(!solar_os_emotion_close(&full_face));
     /* A software OLED target can advertise animation rates without a
@@ -250,16 +256,22 @@ int main(void)
     assert(!solar_os_emotion_close(&s)&&!s&&!claims&&!leases&&!allocations);
     presenter_start_ok=true;
     /* Foreground borrowers also retain the display until their workers stop. */
+    background_admitted=false;
+    assert(solar_os_emotion_open(&o,NULL,&s,detail,sizeof(detail))==ESP_ERR_NO_MEM);
+    assert(!s&&!claims&&!leases&&!allocations);
     o.display=NULL;
     assert(!solar_os_emotion_open(&o,&gfx,&s,detail,sizeof(detail))&&claims==1);
+    assert(worker_role==SOLAR_OS_TASK_ROLE_FOREGROUND);
     assert(!solar_os_emotion_suspend(s));
     assert(!claims);
     assert(!solar_os_emotion_set(s,"happy",200)); /* bounded commands survive suspension */
     uint64_t paused=clock_ms;clock_ms+=5000;
     assert(!solar_os_emotion_resume(s)&&s->clock_offset==clock_ms-paused);
+    assert(worker_role==SOLAR_OS_TASK_ROLE_FOREGROUND);
     assert(!solar_os_emotion_react(s,"surprised",700,120,"chirp"));
     delay_count=0;saved_worker(saved_arg);
     assert(!solar_os_emotion_close(&s)&&!leases&&!allocations);
+    background_admitted=true;
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
     assert(audio_opened==1&&audio_closed==1);
     output_busy=true;o.display="oled0";
