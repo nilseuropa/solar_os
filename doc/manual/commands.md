@@ -334,7 +334,7 @@ job for periodic polling.
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
 | `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Show or save the global local-terminal cursor style. Defaults to `block blink`. |
+| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Save the global cursor style. Default: `block steady` on e-paper, `block blink` otherwise. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
@@ -607,8 +607,9 @@ setterm startup [auto|flash|sd]
 setterm otaurl [url]
 ```
 
-`setterm cursor` saves the global local CLI/TUI style across reboots. Default:
-`block blink`, 500 ms per phase. Omitting the mode preserves it. Typing or moving
+`setterm cursor` saves the global local CLI/TUI style across reboots, overriding
+each display's default: `block steady` on e-paper, `block blink` otherwise
+(500 ms per phase). Omitting the mode preserves it. Typing or moving
 makes the cursor visible. Blocks invert the cell to keep text readable. Apps can
 hide the cursor. Graphical apps and external terminal clients keep their own
 cursors.

@@ -1358,6 +1358,7 @@ app_exit_result_test: app_exit_result_test.c $(ROOT)/src/solar_os.c $(ROOT)/src/
 terminal_preferences_sticky_test: override CFLAGS += -DSOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE=2
 terminal_preferences_test terminal_preferences_sticky_test: terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c $(ROOT)/src/services/solar_os_terminal_preferences.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		-I$(ROOT)/components/u8g2/src/clib \
 		terminal_preferences_test.c $(ROOT)/src/services/solar_os_terminal_preferences.c -o $@
 
 EXPANSION_PROFILES_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_expansion_profiles_generated.h

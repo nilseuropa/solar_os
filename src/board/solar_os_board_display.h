@@ -22,6 +22,7 @@ typedef struct solar_os_board_display {
     uint16_t preferred_stream_fps;
     uint32_t max_stream_pixels_per_second;
     bool ready;
+    bool epaper;
 } solar_os_board_display_t;
 
 typedef struct solar_os_board_display_ops {

@@ -23,6 +23,12 @@ void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *s
     if (shape) *shape = preference_shape;
     if (blink) *blink = preference_blink;
 }
+void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
+    (void)u8g2;
+    solar_os_terminal_get_cursor_preference(shape, blink);
+}
 static bool solar_os_display_terminal_draw_state(u8g2_t *u, uint32_t *epoch)
 { (void)u; *epoch = display_epoch; return display_available; }
 static int solar_os_display_request_present_mode(u8g2_t *u, int mode)

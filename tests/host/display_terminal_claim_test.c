@@ -6,6 +6,8 @@
 #include <string.h>
 #include "esp_err.h"
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
+#define SOLAR_OS_DISPLAY_TARGET_MAX 2
+#define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
 #define SOLAR_OS_DISPLAY_PRESENT_TEXT 0
 #define portENTER_CRITICAL(lock) ((void)(lock))
 #define portEXIT_CRITICAL(lock) ((void)(lock))
@@ -17,7 +19,7 @@ typedef struct {
     struct {unsigned orientation_degrees;} terminal_profile;
     uint32_t terminal_epoch;
     unsigned claim_refs;
-    struct { char owner[32]; u8g2_t *u8g2; } target;
+    struct { char name[16],owner[32]; u8g2_t *u8g2; bool epaper; } target;
     int gfx;
 } display_target_slot_t;
 typedef struct {unsigned orientation_degrees;} solar_os_terminal_profile_t;
@@ -25,15 +27,6 @@ static display_target_slot_t display_targets[2];
 static int display_targets_lock;
 static bool display_target_name_valid(const char *name,size_t max) {return name&&*name&&strlen(name)<max;}
 static bool display_owner_valid(const char *owner) {return owner&&*owner&&strlen(owner)<32;}
-static int display_find_slot_locked(const char *name) {
-    if(!strcmp(name,"display0"))return 0;
-    if(!strcmp(name,"display1"))return 1;
-    return -1;
-}
-static int display_find_slot_by_u8g2_locked(const u8g2_t *u8g2) {
-    for(int i=0;i<2;++i)if(display_targets[i].target.u8g2==u8g2)return i;
-    return -1;
-}
 static void *solar_os_gfx_detach_surface_storage(int *gfx) {(void)gfx;return NULL;}
 static void display_init_slot_gfx(display_target_slot_t *slot) {(void)slot;}
 static void solar_os_memory_free(void *data) {assert(!data);}
@@ -82,12 +75,27 @@ static void u8g2_ClearBuffer(u8g2_t *u) {(void)u;++clears;}
 static void terminal_draw_status_bar(solar_os_terminal_t *t,u8g2_t *u) {(void)t;(void)u;++status_paints;}
 static void solar_os_display_present(u8g2_t *u,int mode) {(void)u;(void)mode;++presents;}
 static int solar_os_display_request_present_mode(u8g2_t *u,int mode) {(void)u;(void)mode;return 0;}
-static void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *shape,bool *blink)
-{ *shape=SOLAR_OS_TERMINAL_CURSOR_BLOCK; *blink=false; }
+static void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape,bool *blink)
+{ (void)u8g2; *shape=SOLAR_OS_TERMINAL_CURSOR_BLOCK; *blink=false; }
 #include "terminal_draw_policy.inc"
 int main(void) {
     u8g2_t screens[3]={{0},{1},{2}};
     for(unsigned i=0;i<2;++i)display_targets[i].target.u8g2=&screens[i];
+    strcpy(display_targets[0].target.name,"display0");
+    strcpy(display_targets[1].target.name,"display1");
+    display_targets[0].target.epaper=true;
+    assert(!solar_os_display_is_epaper(NULL));
+    assert(!solar_os_display_is_epaper(&screens[0]));
+    for(unsigned i=0;i<2;++i)display_targets[i].active=true;
+    assert(solar_os_display_is_epaper(NULL));
+    assert(solar_os_display_is_epaper(&screens[0]));
+    assert(!solar_os_display_is_epaper(&screens[1]));
+    assert(!solar_os_display_is_epaper(&screens[2]));
+    display_targets[0].active=false;
+    assert(!solar_os_display_is_epaper(NULL));
+    assert(!solar_os_display_is_epaper(&screens[0]));
+    display_targets[0].active=true;
     solar_os_terminal_t terminal={.u8g2=&screens[0],.dirty=true,.status_bar_visible=true};
     assert(solar_os_terminal_needs_draw(&terminal));solar_os_terminal_draw(&terminal);
     assert(clears==1&&status_paints==1&&presents==1&&!solar_os_terminal_needs_draw(&terminal));

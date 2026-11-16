@@ -1890,7 +1890,8 @@ bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
     uint32_t epoch;
     solar_os_terminal_cursor_shape_t shape;
     bool blink;
-    solar_os_terminal_get_cursor_preference(&shape, &blink);
+    solar_os_terminal_get_cursor_preference_for_display(terminal != NULL ? terminal->u8g2 : NULL,
+                                                       &shape, &blink);
     return terminal != NULL &&
         solar_os_display_terminal_draw_state(terminal->u8g2, &epoch) &&
         (terminal->dirty || terminal->rendered_display_epoch != epoch ||
@@ -3000,7 +3001,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     const uint8_t text_scale = terminal_text_scale(terminal);
     solar_os_terminal_cursor_shape_t cursor_shape;
     bool cursor_blink;
-    solar_os_terminal_get_cursor_preference(&cursor_shape, &cursor_blink);
+    solar_os_terminal_get_cursor_preference_for_display(u8g2, &cursor_shape, &cursor_blink);
     if (terminal->rendered_cursor_shape != cursor_shape ||
         terminal->rendered_cursor_blink != cursor_blink) terminal_wake_cursor(terminal);
     const bool cursor_on = terminal_cursor_is_drawn(terminal, cursor_blink);

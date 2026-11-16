@@ -114,7 +114,9 @@ void solar_os_terminal_set_cursor(solar_os_terminal_t *terminal, size_t row, siz
 void solar_os_terminal_set_cursor_visible(solar_os_terminal_t *terminal, bool visible);
 bool solar_os_terminal_cursor_visible(const solar_os_terminal_t *terminal);
 /* Shared, persistent preference for all local terminal sessions. Visibility
- * remains app-owned; blinking never changes the requested visibility. */
+ * remains app-owned; blinking never changes the requested visibility.
+ * Without a saved choice, query the primary display's default: block/steady
+ * on e-paper, block/blink otherwise. */
 void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *shape,
                                               bool *blink);
 esp_err_t solar_os_terminal_set_cursor_preference(solar_os_terminal_cursor_shape_t shape,
