@@ -76,7 +76,7 @@ static esp_err_t acquire_provider(const char *kind, solar_os_processor_t *p)
         char library[32]; snprintf(library, sizeof(library), "processor-%s", kind);
         const void *api = NULL;
         esp_err_t error = provider_error(solar_os_native_library_acquire(library,
-            SOLAR_OS_PROCESSOR_PROVIDER_ABI, sizeof(*p->provider), &p->provider_lease, &api));
+            SOLAR_OS_PROCESSOR_PROVIDER_ABI, SOLAR_OS_PROCESSOR_PROVIDER_BASE_SIZE, &p->provider_lease, &api));
         if (error) return error;
         p->provider = api;
     }
@@ -84,8 +84,8 @@ static esp_err_t acquire_provider(const char *kind, solar_os_processor_t *p)
     (void)kind;
 #endif
     const solar_os_processor_provider_api_v1_t *api = p->provider;
-    if (!api || api->abi_version != 1 || api->struct_size < sizeof(*api) ||
-        !api->kind || strcmp(api->kind, kind) || api->capabilities != SOLAR_OS_PROCESSOR_PROVIDER_CAPTURE ||
+    if (!api || api->abi_version != 1 || api->struct_size < SOLAR_OS_PROCESSOR_PROVIDER_BASE_SIZE ||
+        !api->kind || strcmp(api->kind, kind) || !(api->capabilities & SOLAR_OS_PROCESSOR_PROVIDER_CAPTURE) ||
         !api->query || !api->open || !api->capture || !api->release_frame || !api->close)
         return ESP_ERR_NOT_SUPPORTED;
     return ESP_OK;
@@ -147,6 +147,41 @@ esp_err_t solar_os_processor_query(const char *kind, const char *source, const c
     solar_os_processor_t *p = NULL;
     esp_err_t error = solar_os_processor_create(kind, 0, 4000, NULL, NULL, &p);
     if (!error) error = provider_error(p->provider->query(provider_services(), source, query, 4000, out));
+    if (!error) error = check_json(*out);
+    solar_os_processor_destroy(p);
+    if (error) { solar_os_memory_free(*out); *out = NULL; }
+    return error;
+}
+esp_err_t solar_os_processor_select(const char *kind, const char *source, uint32_t slot,
+    solar_os_processor_cancel_fn cancel, void *user, char **out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    *out = NULL;
+    if (!solar_os_processor_kind_valid(kind) || !source || !*source || !slot) return ESP_ERR_INVALID_ARG;
+    solar_os_processor_t *p = NULL;
+    esp_err_t error = solar_os_processor_create(kind, 0, 10000, cancel, user, &p);
+    if (!error && (!p->provider || p->provider->struct_size <
+        offsetof(solar_os_processor_provider_api_v1_t, select) + sizeof(p->provider->select) ||
+        !(p->provider->capabilities & SOLAR_OS_PROCESSOR_PROVIDER_MODEL_SELECT) || !p->provider->select)) error = ESP_ERR_NOT_SUPPORTED;
+    if (!error) error = provider_error(p->provider->select(provider_services(), source, slot, 10000, cancel, user, out));
+    if (!error) error = check_json(*out);
+    solar_os_processor_destroy(p);
+    if (error) { solar_os_memory_free(*out); *out = NULL; }
+    return error;
+}
+esp_err_t solar_os_processor_upload(const char *kind, const char *source, const char *bundle,
+    uint32_t slot, uint32_t flags, solar_os_processor_cancel_fn cancel,
+    solar_os_processor_progress_fn progress, void *user, char **out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    *out = NULL;
+    if (!solar_os_processor_kind_valid(kind) || !source || !*source || !bundle || *bundle != '/' || !slot) return ESP_ERR_INVALID_ARG;
+    solar_os_processor_t *p = NULL;
+    esp_err_t error = solar_os_processor_create(kind, 0, 10000, cancel, user, &p);
+    if (!error && (!p->provider || p->provider->struct_size < sizeof(*p->provider) ||
+        !(p->provider->capabilities & SOLAR_OS_PROCESSOR_PROVIDER_MODEL_UPLOAD) || !p->provider->upload)) error = ESP_ERR_NOT_SUPPORTED;
+    if (!error) error = provider_error(p->provider->upload(provider_services(), source, bundle, slot, flags,
+        10000, cancel, progress, user, out));
     if (!error) error = check_json(*out);
     solar_os_processor_destroy(p);
     if (error) { solar_os_memory_free(*out); *out = NULL; }

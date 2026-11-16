@@ -3,6 +3,7 @@
 #include "solar_os_native_libc_abi.h"
 #include "solar_os_native_time_abi.h"
 #include "solar_os_json_scan.h"
+#include "manager.h"
 #include <stdarg.h>
 #include <string.h>
 
@@ -22,7 +23,7 @@ static int bind(solar_os_processor_service_fn services, himax_t *c)
 {
     if (!services) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     c->memory = services(SOLAR_OS_NATIVE_MEMORY_SERVICE, 1, sizeof(*c->memory));
-    c->camera = services(SOLAR_OS_NATIVE_SSCMA_SERVICE, 1, sizeof(*c->camera));
+    c->camera = services(SOLAR_OS_NATIVE_SSCMA_SERVICE, 1, SOLAR_OS_NATIVE_SSCMA_BASE_SIZE);
     c->libc = services(SOLAR_OS_NATIVE_LIBC_SERVICE, 1, sizeof(*c->libc));
     c->time = services(SOLAR_OS_NATIVE_TIME_SERVICE, 1, sizeof(*c->time));
     return c->memory && c->camera && c->libc && c->time ? 0 : SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
@@ -64,12 +65,12 @@ static int query(solar_os_processor_service_fn services, const char *source,
     *out = NULL;
     if (!source || !*source || strlen(source) >= 256 || !what || !timeout || timeout > 60000)
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    static const char *const names[] = {"VER?", "MODELS?", "MODEL?", "ALGOS?"};
-    static const char *const keys[] = {"version", "models", "model", "algorithms"};
+    static const char *const names[] = {"VER?", "MODELS?", "MODEL?", "ALGOS?", "ID?", "INFO?"};
+    static const char *const keys[] = {"version", "models", "model", "algorithms", "identity", "metadata"};
     size_t first = 0, last = 4;
     if (strcmp(what, "info")) {
-        for (first = 0; first < 4 && strcmp(what, keys[first]); ++first) {}
-        if (first == 4) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+        for (first = 0; first < 6 && strcmp(what, keys[first]); ++first) {}
+        if (first == 6) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
         last = first + 1;
     }
     himax_t c = {.timeout = timeout};
@@ -82,7 +83,8 @@ static int query(solar_os_processor_service_fn services, const char *source,
     if (!json) error = SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
     size_t used = 0;
     if (!error) used = (size_t)format(&c, json, SOLAR_OS_PROCESSOR_PROVIDER_JSON_MAX,
-        "{\"kind\":\"himax\",\"input\":\"camera\",\"external_frames\":false");
+        "{\"kind\":\"himax\",\"input\":\"camera\",\"external_frames\":false,"
+        "\"provider_version\":\"" SOLAR_OS_HIMAX_PROVIDER_VERSION "\",\"capabilities\":[\"capture\",\"model-select\",\"model-upload\"]");
     for (size_t i = first; !error && i < last; ++i) {
         char command[32], *reply = NULL;
         format(&c, command, sizeof(command), "AT+%s\r\n", names[i]);
@@ -113,9 +115,8 @@ static int open_client(solar_os_processor_service_fn services, const char *sourc
     *out = NULL;
     if (!source || !*source || strlen(source) >= 256 || !timeout || timeout > 60000)
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    /* Slot provisioning/selection is separate from processing. Zero means the
-     * currently configured Himax model, never an ESP-DL resident handle. */
-    if (model) return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    /* Zero means current; a nonzero number is an SSCMA slot, never ESP-DL. */
+    if (model > 4) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     if (cancel && cancel(user)) return SOLAR_OS_NATIVE_ERROR_TIMEOUT;
     himax_t services_only = {0};
     int error = bind(services, &services_only);
@@ -126,11 +127,17 @@ static int open_client(solar_os_processor_service_fn services, const char *sourc
     memcpy(c->source, source, strlen(source) + 1);
     error = c->camera->open(source, "processor-himax", &c->token);
     char *reply = NULL;
+    if (!error && model) {
+        char command[32]; format(c, command, sizeof(command), "AT+MODEL=%lu\r\n", (unsigned long)model);
+        error = exchange(c, command, "MODEL", false, &reply);
+        c->memory->free(reply); reply = NULL;
+    }
     if (!error) error = exchange(c, "AT+MODEL?\r\n", "MODEL?", false, &reply);
     const char *data; size_t length; uint64_t id;
     if (!error && (!solar_os_json_scan_object_value(reply, "data", &data, &length) ||
         !solar_os_json_scan_object_uint64(data, "id", &id) || id > UINT32_MAX))
         error = SOLAR_OS_NATIVE_ERROR_FAILED;
+    if (!error && model && id != model) error = SOLAR_OS_NATIVE_ERROR_FAILED;
     if (!error) { c->model = (uint32_t)id; error = c->camera->start(c->token); }
     c->memory->free(reply);
     if (error) {
@@ -185,9 +192,11 @@ const solar_os_processor_provider_api_v1_t *solar_os_himax_processor_api(void)
 {
     static const solar_os_processor_provider_api_v1_t api = {
         .abi_version = SOLAR_OS_PROCESSOR_PROVIDER_ABI, .struct_size = sizeof(api),
-        .kind = "himax", .capabilities = SOLAR_OS_PROCESSOR_PROVIDER_CAPTURE,
+        .kind = "himax", .capabilities = SOLAR_OS_PROCESSOR_PROVIDER_CAPTURE |
+            SOLAR_OS_PROCESSOR_PROVIDER_MODEL_SELECT | SOLAR_OS_PROCESSOR_PROVIDER_MODEL_UPLOAD,
         .query = query, .open = open_client, .capture = capture,
         .release_frame = release_frame, .close = close_client,
+        .select = solar_os_himax_model_select, .upload = solar_os_himax_model_upload,
     };
     return &api;
 }

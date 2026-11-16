@@ -36,7 +36,7 @@ def build(root, sdk, output):
                  "-I" + str(HERE / "compat")]
         subprocess.run(args, cwd=template["directory"], check=True)
         return target
-    objects = [compile_source(source) for source in (HERE / "provider.c", HERE / "library.c",
+    objects = [compile_source(source) for source in (HERE / "provider.c", HERE / "manager.c", HERE / "library.c",
                HERE / "port.c", root / "src/services/solar_os_json_scan.c")]
     libgcc = subprocess.check_output([compiler, "-print-libgcc-file-name"], text=True).strip()
     subprocess.run([compiler, "-r", "-nostdlib", *map(str, objects), libgcc,

@@ -2734,7 +2734,11 @@ static const char * const path_charger[] = {"charger"};
 static const char * const path_charger_enable[] = {"charger", "enable"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
-static const char * const model_subcommands[] = {"backend", "list", "load", "bundle", "info", "mode", "unload"};
+static const char * const model_subcommands[] = {"backend", "list", "load", "bundle", "info", "mode", "unload",
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+    "select", "upload",
+#endif
+};
 static const char * const model_modes[] = {"single", "auto", "dual"};
 static const char * const model_unload_values[] = {"all"};
 static const char * const path_model[] = {"model"};
@@ -2742,6 +2746,14 @@ static const char * const path_model_load[] = {"model", "load"};
 static const char * const path_model_bundle[] = {"model", "bundle"};
 static const char * const path_model_mode_handle[] = {"model", "mode", SHELL_COMPLETION_ANY};
 static const char * const path_model_unload[] = {"model", "unload"};
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+static const char * const model_processors[] = {"himax"};
+static const char * const path_model_select[] = {"model", "select"};
+static const char * const path_model_upload[] = {"model", "upload"};
+static const char * const path_model_upload_bundle[] = {"model", "upload", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
+static const char * const path_model_upload_options[] = {"model", "upload", SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY, SHELL_COMPLETION_ANY};
+static const char * const model_upload_options[] = {"--replace"};
+#endif
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
 static const char * const pipeline_subcommands[] = {"list", "info", "start", "status", "result", "stop", "destroy"};
@@ -3627,6 +3639,12 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_PATH(path_model_bundle, false),
     SHELL_COMPLETION_STATIC(path_model_mode_handle, model_modes),
     SHELL_COMPLETION_STATIC(path_model_unload, model_unload_values),
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+    SHELL_COMPLETION_STATIC(path_model_select, model_processors),
+    SHELL_COMPLETION_STATIC(path_model_upload, model_processors),
+    SHELL_COMPLETION_PATH(path_model_upload_bundle, false),
+    SHELL_COMPLETION_STATIC(path_model_upload_options, model_upload_options),
+#endif
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
     SHELL_COMPLETION_STATIC(path_pipeline, pipeline_subcommands),

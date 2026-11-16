@@ -7,6 +7,11 @@
 #include "solar_os_keys.h"
 #include "solar_os_module_packages.h"
 #include "solar_os_storage.h"
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+#include "solar_os_processor.h"
+#include "solar_os_memory.h"
+#include "solar_os_jobs.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
 #endif
@@ -50,6 +55,9 @@ void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     if (argc < 2) {
         solar_os_shell_io_writeln(io, "model backend | list | load <file.espdl> | bundle <bundle.json> [timeout_ms] | info <handle> | mode <handle> <single|auto|dual> | unload <handle|all>");
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+        solar_os_shell_io_writeln(io, "model select <processor> <source> <slot> | upload <processor> <source> <bundle.json> <slot> [--replace]");
+#endif
         return;
     }
     if (!strcmp(argv[1], "backend") && argc == 2) {
@@ -66,6 +74,35 @@ void solar_os_shell_cmd_model(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     model_client_t state = {.ctx = ctx, .io = io}; solar_os_inference_t *client = NULL;
+#if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
+    if ((!strcmp(argv[1], "select") && argc == 5) || (!strcmp(argv[1], "upload") && (argc == 6 || argc == 7))) {
+        int slot_arg = !strcmp(argv[1], "select") ? 4 : 5;
+        uint64_t slot = 0; esp_err_t error = ESP_ERR_INVALID_ARG;
+        for (const char *p = argv[slot_arg]; *p; ++p) {
+            if (*p < '0' || *p > '9' || slot > UINT32_MAX/10U) goto management_done;
+            slot = slot*10 + *p-'0'; if (slot > UINT32_MAX) goto management_done;
+        }
+        if (!slot) goto management_done;
+        if (slot_arg == 4) {
+            char *json = NULL;
+            error = solar_os_processor_select(argv[2], argv[3], slot, cancelled, &state, &json);
+            if (!error) solar_os_shell_io_writeln(io, json);
+            solar_os_memory_free(json);
+        } else {
+            char path[SOLAR_OS_STORAGE_PATH_MAX];
+            error = solar_os_shell_resolve_path(ctx, argv[4], path, sizeof(path));
+            if (!error) {
+                char *args[] = {"model-upload", argv[2], argv[3], path, argv[5], argc == 7 ? argv[6] : NULL};
+                error = solar_os_jobs_start(ctx, "model-upload", argc-1, args);
+                if (!error) solar_os_shell_io_writeln(io, "Upload started; job status model-upload / job stop model-upload");
+            }
+        }
+management_done:
+        if (error) solar_os_shell_diag_esp(io, "model", error, NULL, slot_arg == 5 ?
+            "Upload requires an explicit inactive slot; --replace authorizes replacing its contents" : "Select a supported device model slot");
+        return;
+    }
+#endif
     esp_err_t error = solar_os_inference_create(cancelled, &state, &client);
     uint32_t handle = 0;
     if (error) goto done;

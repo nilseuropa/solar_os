@@ -27,7 +27,12 @@ static size_t allocations;
 esp_err_t solar_os_inference_find(const char *path, uint32_t *handle)
 { (void)path; (void)handle; return !strcmp(mode, "remove-loaded") ? ESP_OK : ESP_ERR_NOT_FOUND; }
 void *solar_os_memory_alloc(size_t n, solar_os_memory_class_t c, const char *tag)
-{ (void)c; (void)tag; void *p = malloc(n); if (p) ++allocations; return p; }
+{
+#ifdef SOLAR_OS_TEST_MEMORY_ADMIT
+    if (!SOLAR_OS_TEST_MEMORY_ADMIT()) return NULL;
+#endif
+    (void)c; (void)tag; void *p = malloc(n); if (p) ++allocations; return p;
+}
 void *solar_os_memory_calloc(size_t n, size_t size, solar_os_memory_class_t c, const char *tag)
 { void *p = solar_os_memory_alloc(n*size, c, tag); if (p) memset(p, 0, n*size); return p; }
 void *solar_os_memory_realloc(void *p, size_t n, solar_os_memory_class_t c, const char *tag)
@@ -59,7 +64,13 @@ esp_err_t solar_os_storage_makedirs(const char *path,bool ok)
 { (void)ok; char copy[160]; strlcpy(copy,path,sizeof(copy)); for(char *s=copy+1;*s;s++)if(*s=='/'){*s=0;if(mkdir(copy,0755)&&errno!=EEXIST)return ESP_FAIL;*s='/';} return mkdir(copy,0755)&&errno!=EEXIST?ESP_FAIL:0; }
 esp_err_t solar_os_storage_sync_file(FILE *f) { return fflush(f)||fsync(fileno(f))?ESP_FAIL:0; }
 esp_err_t solar_os_storage_write_file(const char *path,const void *data,size_t n,bool append)
-{ if(n>65536)return ESP_ERR_INVALID_SIZE; FILE *f=fopen(path,append?"ab":"wb");if(!f)return ESP_FAIL;esp_err_t e=fwrite(data,1,n,f)==n?solar_os_storage_sync_file(f):ESP_FAIL;fclose(f);return e; }
+{
+#ifdef SOLAR_OS_TEST_WRITE_ADMIT
+    if (!SOLAR_OS_TEST_WRITE_ADMIT(path)) return ESP_FAIL;
+#endif
+    if(n>65536)return ESP_ERR_INVALID_SIZE;
+    FILE *f=fopen(path,append?"ab":"wb");if(!f)return ESP_FAIL;esp_err_t e=fwrite(data,1,n,f)==n?solar_os_storage_sync_file(f):ESP_FAIL;fclose(f);return e;
+}
 esp_err_t solar_os_storage_get_usage_for_path(const char *p,solar_os_storage_usage_t *usage)
 { (void)p;usage->free_bytes=!strcmp(mode,"no-space")?1:128*1024*1024;return 0; }
 esp_err_t solar_os_storage_replace_file(const char *new_path,const char *active,const char *backup)
@@ -115,7 +126,9 @@ esp_err_t solar_os_http_request_create(const solar_os_http_request_options_t *o,
 esp_err_t solar_os_http_request_destroy(solar_os_http_request_t *r) {free(r);return 0;}
 esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http_response_t *out)
 {
-    const char *name=strrchr(r->options.url,'/');assert(name);char path[512];snprintf(path,sizeof(path),"%s/%s",server,name+1);
+    const char *name=strrchr(r->options.url,'/');assert(name);char path[512];
+    const char *fixture = !strcmp(name+1,"catalog-v2.json") ? "catalog.json" : name+1;
+    snprintf(path,sizeof(path),"%s/%s",server,fixture);
     FILE *f=fopen(path,"rb");if(!f)return ESP_ERR_NOT_FOUND;
     out->status_code=!strcmp(mode,"http-error")?404:200;esp_err_t error=0;uint8_t buffer[1024];size_t n;
     /* Match ESP-IDF: header callbacks precede final status assignment. */

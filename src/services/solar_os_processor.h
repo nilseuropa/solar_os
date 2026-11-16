@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include "solar_os_raster_image.h"
 #include "solar_os_media_sample.h"
+#include "solar_os_processor_provider_abi.h"
 
 #define SOLAR_OS_PROCESSOR_JSON_MAX 65536U
 typedef struct solar_os_processor solar_os_processor_t;
@@ -10,6 +11,11 @@ bool solar_os_processor_kind_valid(const char *kind);
 /* Owned capability/model metadata from a built-in or installed provider. */
 esp_err_t solar_os_processor_query(const char *kind, const char *source,
     const char *query, char **json);
+esp_err_t solar_os_processor_select(const char *kind, const char *source, uint32_t slot,
+    solar_os_processor_cancel_fn cancel, void *user, char **json);
+esp_err_t solar_os_processor_upload(const char *kind, const char *source, const char *bundle,
+    uint32_t slot, uint32_t flags, solar_os_processor_cancel_fn cancel,
+    solar_os_processor_progress_fn progress, void *user, char **json);
 
 /* An OS-owned native processor. Model processors retain a resident bundle;
  * destruction releases the reference, never unloads the model. The first image

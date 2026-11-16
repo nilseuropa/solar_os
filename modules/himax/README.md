@@ -1,8 +1,8 @@
 # Himax HX6538 processor
 
 `processor-himax` is an optional native library for SSCMA model discovery and
-camera-bound inference. The expansion driver owns SPI and camera sampling;
-this module owns inference commands and result interpretation. It uses the
+camera-bound inference, model programming and slot selection. The expansion driver owns SPI and camera sampling;
+this module owns programming policy, inference commands and result interpretation. It uses the
 versioned `camera.sscma` host service and shares exclusive camera ownership with
 Photo, camera captures and stream publishers.
 
@@ -31,21 +31,35 @@ The source must be the attached HX6538 camera's stream ID. Files, other camera
 drivers and RTSP sources are unsupported by this provider. They can still use
 the existing QR or ESP-DL processors.
 
-Inference uses the Himax's currently configured model (`model=0` in the pipeline
-configuration). It sends `AT+INVOKE=1,0,0`, retains the event's JPEG alongside its
+Inference uses the Himax's currently configured model when `model=0` in the pipeline
+configuration. A nonzero value selects that device slot, retaining the selection
+after the pipeline closes. It sends `AT+INVOKE=1,0,0`, retains the event's JPEG alongside its
 results, and performs no ESP32 pixel decoding. The module preserves SSCMA's
 `boxes`, `classes`, `points`, `count` and `perf` fields. `coordinate_space` is
 `sscma`; no unverified coordinate conversion or class labels are applied.
 `perf` contains preprocessing, inference and postprocessing milliseconds.
 
-Queries are `info`, `version`, `models`, `model`, and `algorithms`. Slot metadata
+Queries are `info`, `version`, `models`, `model`, `algorithms`, `identity`, and `metadata`. Slot metadata
 is reported as received: some factory firmware reports zero type/size values
 even while inference works. No readiness decision is based on these fields.
 
-This version does not upload or select models, set thresholds, change firmware,
-or accept ESP-DL bundle handles. A nonzero model argument is rejected. Those
-controls belong in the module. Provisioning is a separate step; the generic
-pipeline interface does not select or install models.
+Model management uses the provider's optional management callbacks. The generic
+host owns dispatch and the `model-upload` background job, while this module
+validates schema-two bundles and implements the SSCMA/WE2 SPI programmer:
+
+```text
+model upload himax camera0 /path/to/bundle.json 4 --replace
+job status model-upload
+model select himax camera0 4
+```
+
+Upload protects slot 1 and the active slot, requires the reported four-slot
+layout, and checks hashes, labels, model interfaces and firmware requirements
+before writing. It checks page/CRC status, tests inference, restores the old
+selection and writes a device-bound receipt. No atomic rollback of flash contents
+or full-image flash readback is claimed. See [the user manual](../../doc/manual/himax-models.md)
+for cancellation, recovery, programming limits and the separate download step.
+Threshold changes, firmware updates and ESP-DL resident handles are unsupported.
 
 ## Build
 
@@ -70,4 +84,8 @@ checks the external provider on firmware containing the built-in provider.
 The provider ABI is `include/solar_os_processor_provider_abi.h`. Consumers must
 hold a native-library lease through every call and client close. Copy borrowed
 frames before `release_frame`; JSON uses host memory and can outlive the module.
-This module has no global clients, background tasks or persistent allocations.
+The module has no global clients, background tasks or persistent allocations.
+Management also uses the host's `storage.files` and strict `json` tables. Close
+file leases and JSON roots before releasing the provider lease. Older providers
+retain the capture ABI prefix; callers check size and capability bits before
+accessing appended management methods.

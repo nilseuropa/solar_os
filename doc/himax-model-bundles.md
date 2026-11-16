@@ -10,8 +10,9 @@ accelerator firmware's dated build version. Optional `runtime.firmware` bounds
 declare minimum/maximum builds. Missing bounds leave firmware compatibility
 unknown. The provider descriptor applies equally to built-in and external
 `processor-himax` implementations and requires capture, model selection and
-upload capabilities. The current capture-only provider does not implement this
-bundle's model-management operations yet.
+upload capabilities. The optional Himax provider implements model management;
+the driver retains transport and camera ownership. See
+[Himax models](manual/himax-models.md) for programming and selection.
 
 Input width/height describe the neural network's RGB input, not a sensor capture
 mode. The accelerator firmware supplies image preparation and model-specific
@@ -27,5 +28,6 @@ bundle fields. Storage installation, device programming and model selection
 remain separate operations.
 
 Bundle/catalog validation and distribution tooling live in `solar_os_zoo`.
-The schema is published here for the runtime-owned provider contract; execution
-and provisioning support must be implemented and validated separately.
+The schema is published here for the runtime-owned provider contract. Host
+validation does not replace a successful upload and inference test on the
+specific device, firmware and provider version.

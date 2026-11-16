@@ -14,6 +14,7 @@ const solar_os_processor_provider_api_v1_t *solar_os_himax_processor_api(void);
 static unsigned provider_leases, hardware_owners, acquired, invoked;
 static bool missing_library, wrong_abi, fail_invoke, corrupt_image, block_invoke, corrupt_result, big_result;
 static unsigned close_refusals;
+static unsigned selected_slot = 1;
 static bool provider_owns_camera;
 static atomic_bool invoke_entered;
 static solar_os_processor_provider_api_v1_t provider_table;
@@ -73,7 +74,8 @@ static int camera_exchange(uint32_t token, const char *source, const char *comma
             corrupt_image ? "bad!" : (char *)encoded);
     } else if (!strcmp(name, "MODELS?"))
         strcpy(response, "{\"data\":[{\"id\":1,\"type\":0,\"size\":0}]}");
-    else if (!strcmp(name, "MODEL?")) strcpy(response, "{\"data\":{\"id\":1,\"type\":0,\"size\":0}}");
+    else if (!strcmp(name, "MODEL?")) snprintf(response,sizeof(response),"{\"data\":{\"id\":%u,\"type\":0,\"size\":0}}",selected_slot);
+    else if (!strcmp(name, "MODEL")) { assert(sscanf(command,"AT+MODEL=%u",&selected_slot)==1); strcpy(response,"{\"data\":{}}"); }
     else if (!strcmp(name, "ALGOS?")) strcpy(response, "{\"data\":[{\"type\":1,\"input_from\":1}]}");
     else { assert(!strcmp(name, "VER?")); strcpy(response, "{\"data\":{\"software\":\"2024.08.16\"}}"); }
     *reply = solar_os_memory_alloc(strlen(response) + 1, 0, "test.sscma");
@@ -87,7 +89,7 @@ static int camera_image(char *reply, size_t capacity, const uint8_t **data,
         SOLAR_OS_NATIVE_ERROR_FAILED : 0;
 }
 static const solar_os_native_sscma_api_v1_t camera_api = {1,sizeof(camera_api),
-    camera_open,camera_start,camera_exchange,camera_image,camera_close};
+    camera_open,camera_start,camera_exchange,camera_image,camera_close,NULL,NULL,NULL};
 static void *memory_alloc(size_t bytes) { return solar_os_memory_alloc(bytes,0,"test.provider"); }
 static const solar_os_native_memory_api_v1_t memory_api = {
     .abi_version=1,.struct_size=sizeof(memory_api),.alloc=memory_alloc,.free=solar_os_memory_free};
@@ -98,7 +100,7 @@ static const solar_os_native_time_api_v1_t time_api = {1,sizeof(time_api),sample
 static const void *get_service(const char *name,uint32_t abi,uint32_t size)
 {
     assert(abi==1);
-    if (!strcmp(name,"camera.sscma")) { assert(size==sizeof(camera_api));return &camera_api; }
+    if (!strcmp(name,"camera.sscma")) { assert(size==SOLAR_OS_NATIVE_SSCMA_BASE_SIZE);return &camera_api; }
     if (!strcmp(name,"memory")) { assert(size==sizeof(memory_api));return &memory_api; }
     if (!strcmp(name,"libc")) { assert(size==sizeof(libc_api));return &libc_api; }
     if (!strcmp(name,"time")) { assert(size==sizeof(time_api));return &time_api; }
@@ -111,7 +113,7 @@ const solar_os_native_library_host_api_v1_t *solar_os_native_library_host_v1(voi
 }
 int solar_os_native_library_acquire(const char *id,uint32_t abi,uint32_t size,uint32_t *lease,const void **api)
 {
-    assert(abi==1 && size==sizeof(provider_table));*lease=0;*api=NULL;
+    assert(abi==1 && size==SOLAR_OS_PROCESSOR_PROVIDER_BASE_SIZE);*lease=0;*api=NULL;
     if (strcmp(id,"processor-himax") || missing_library) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     assert(!provider_leases);provider_leases++;acquired++;*lease=1;
     provider_table=*solar_os_himax_processor_api();
@@ -170,7 +172,10 @@ int main(void)
     big_result=true;
     assert(!solar_os_pipeline_start(&c,&id));s=finish(id);assert(!s.frames && s.last_error==ESP_ERR_INVALID_SIZE);
     assert(!solar_os_pipeline_destroy(id));clean();big_result=false;
-    c.model=1;assert(solar_os_pipeline_start(&c,&id)==ESP_ERR_NOT_SUPPORTED);clean();c.model=0;
+    c.model=2;assert(!solar_os_pipeline_start(&c,&id));s=finish(id);assert(s.frames==2 && !s.last_error);
+    assert(!solar_os_pipeline_result(id,0,&json) && strstr(json,"\"model\":2"));solar_os_memory_free(json);
+    assert(!solar_os_pipeline_destroy(id));clean();c.model=5;
+    assert(solar_os_pipeline_start(&c,&id)==ESP_ERR_INVALID_ARG);clean();c.model=0;selected_slot=1;
     close_refusals=2;
     assert(!solar_os_pipeline_start(&c,&id));finish(id);assert(!solar_os_pipeline_destroy(id));clean();
     deny_worker=true;assert(solar_os_pipeline_start(&c,&id)==ESP_ERR_NO_MEM);clean();deny_worker=false;

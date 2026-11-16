@@ -26,6 +26,7 @@ typedef struct {
     solar_os_gpio_line_ref_t ready_line, reset, power;
     solar_os_himax_t camera;
     uint8_t packet[256];
+    uint8_t *maintenance;
 } himax_device_t;
 
 static himax_device_t *device;
@@ -117,6 +118,7 @@ static esp_err_t read_bytes(void *ctx, uint8_t *data, size_t capacity, size_t *l
 static esp_err_t prepare(himax_device_t *d)
 {
     if (d->ready) return ESP_OK;
+    solar_os_memory_free(d->maintenance); d->maintenance = NULL;
     solar_os_himax_clear(&d->camera);
     esp_err_t error = d->have_power ? control(&d->power, true) : ESP_OK;
     if (error == ESP_OK && d->have_ready)
@@ -172,6 +174,7 @@ static esp_err_t camera_start(void *ctx, const solar_os_camera_config_t *config,
 static esp_err_t camera_stop(void *ctx)
 {
     himax_device_t *d = ctx;
+    solar_os_memory_free(d->maintenance); d->maintenance = NULL;
     if (!d->started) return ESP_OK;
     esp_err_t error = solar_os_himax_command(&d->camera, "AT+BREAK\r\n", "BREAK", SOLAR_OS_CAMERA_CAPTURE_TIMEOUT_MS);
     char command[48];
@@ -200,19 +203,49 @@ static void camera_release(void *ctx, void *token)
 static void camera_invalidate(void *ctx)
 {
     himax_device_t *d = ctx;
+    solar_os_memory_free(d->maintenance); d->maintenance = NULL;
     d->ready = d->started = false;
     solar_os_himax_clear(&d->camera);
+}
+
+static esp_err_t maintenance_control(himax_device_t *d, const solar_os_sscma_spi_t *r)
+{
+    if (!d->have_reset || d->transfer_max < 262) return ESP_ERR_NOT_SUPPORTED;
+    if (r->reset) { camera_invalidate(d); return prepare(d); }
+    if (r->length > 262 || (r->length && !r->tx && !r->rx)) return ESP_ERR_INVALID_ARG;
+    if (!r->length) return ESP_OK;
+    if (d->started) return ESP_ERR_INVALID_STATE;
+    if (!d->maintenance) d->maintenance = solar_os_memory_alloc(528,
+        SOLAR_OS_MEMORY_DMA, "himax.spi");
+    if (!d->maintenance) return ESP_ERR_NO_MEM;
+    if (r->tx) memcpy(d->maintenance, r->tx, r->length);
+    d->ready = false; /* Any later JSON operation must reset/probe first. */
+    esp_err_t error = spi_device_acquire_bus(d->spi, portMAX_DELAY);
+    if (!error) {
+        spi_transaction_t transaction = {.length = r->length * 8,
+            .tx_buffer = r->tx ? d->maintenance : NULL,
+            .rx_buffer = r->rx ? d->maintenance + 264 : NULL};
+        error = spi_device_polling_transmit(d->spi, &transaction);
+        spi_device_release_bus(d->spi);
+    }
+    if (!error && r->rx) memcpy(r->rx, d->maintenance + 264, r->length);
+    return error;
 }
 
 static esp_err_t camera_control(void *ctx, const char *protocol, const void *request)
 {
     himax_device_t *d = ctx;
+    if (!strcmp(protocol, SOLAR_OS_SSCMA_SPI_PROTOCOL)) return maintenance_control(d, request);
     const solar_os_sscma_exchange_t *r = request;
     if (strcmp(protocol, SOLAR_OS_NATIVE_SSCMA_SERVICE)) return ESP_ERR_NOT_SUPPORTED;
     if (!r->source || strcmp(r->source, d->name)) return ESP_ERR_NOT_FOUND;
     if (!r->command) return ESP_OK; /* Ownership/name probe; no hardware access. */
-    if (!r->reply || !r->response_name || !r->timeout_ms || r->timeout_ms > 60000 ||
-        strlen(r->command) > 4095 || strlen(r->response_name) >= 32) return ESP_ERR_INVALID_ARG;
+    if (strlen(r->command) > 4095) return ESP_ERR_INVALID_ARG;
+    if (!r->response_name) {
+        esp_err_t error = prepare(d);
+        return error ? error : write_bytes(d, (const uint8_t *)r->command, strlen(r->command));
+    }
+    if (!r->reply || !r->timeout_ms || r->timeout_ms > 60000 || strlen(r->response_name) >= 32) return ESP_ERR_INVALID_ARG;
     *r->reply = NULL;
     if (r->cancel && r->cancel(r->user)) return ESP_ERR_TIMEOUT;
     esp_err_t error = prepare(d);

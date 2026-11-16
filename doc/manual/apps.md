@@ -2432,7 +2432,7 @@ catalogs up to 512 KiB and 256 entries; larger catalogs fail without replacing t
 cache. Installation also needs enough storage for the ZIP and extracted files.
 
 Installation downloads a bundle to storage. Himax downloads do not program or
-select an accelerator model; the accelerator model-management path is separate.
+select an accelerator model; use [Himax model management](himax-models.md) for that separate step.
 Removing a bundle never erases a model from accelerator flash.
 For ESP-DL, use the displayed `bundle.json` path with
 `model bundle PATH` or the native, Python, or Lua inference APIs. Loaded models

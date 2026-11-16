@@ -10,3 +10,11 @@ typedef struct {
     void *user;
     char **reply;
 } solar_os_sscma_exchange_t;
+
+#define SOLAR_OS_SSCMA_SPI_PROTOCOL "camera.sscma.spi"
+typedef struct {
+    const void *tx;
+    void *rx;
+    size_t length;
+    bool reset;
+} solar_os_sscma_spi_t;

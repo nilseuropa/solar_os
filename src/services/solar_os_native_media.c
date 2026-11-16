@@ -1,4 +1,5 @@
 #include "solar_os_native_media.h"
+#include "solar_os_native_data.h"
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_config.h"
@@ -117,10 +118,32 @@ static int native_sscma_close(uint32_t generation)
     if (!error) error = solar_os_camera_release_owner(&token);
     return native_result(error);
 }
+static int native_sscma_spi(uint32_t generation, const void *tx, void *rx, size_t length)
+{
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_sscma_spi_t request = {.tx = tx, .rx = rx, .length = length};
+    return native_result(solar_os_camera_control(&token, SOLAR_OS_SSCMA_SPI_PROTOCOL, &request));
+}
+static int native_sscma_send(uint32_t generation, const char *source, const char *command)
+{
+    if (!source || !command || !*command) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_sscma_exchange_t request = {.source = source, .command = command};
+    return native_result(solar_os_camera_control(&token, SOLAR_OS_NATIVE_SSCMA_SERVICE, &request));
+}
+static int native_sscma_reset(uint32_t generation)
+{
+    const solar_os_camera_owner_t token = {generation};
+    esp_err_t error = solar_os_camera_invalidate(&token);
+    const solar_os_sscma_spi_t request = {.reset = true};
+    if (!error) error = solar_os_camera_control(&token, SOLAR_OS_SSCMA_SPI_PROTOCOL, &request);
+    return native_result(error);
+}
 static const solar_os_native_sscma_api_v1_t sscma_api = {
     .abi_version = SOLAR_OS_NATIVE_SSCMA_ABI, .struct_size = sizeof(sscma_api),
     .open = native_sscma_open, .start = native_sscma_start, .exchange = native_sscma_exchange,
     .image = native_sscma_image, .close = native_sscma_close,
+    .spi = native_sscma_spi, .send = native_sscma_send, .reset = native_sscma_reset,
 };
 #endif
 
@@ -341,6 +364,10 @@ static const solar_os_native_tensor_image_api_v1_t tensor_image_api = {
 const void *solar_os_native_media_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
     if (!name) return NULL;
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+    const void *data = solar_os_native_data_get_service(name, abi, minimum);
+    if (data) return data;
+#endif
 #define OFFER(table, service, version) \
     if (!strcmp(name, service) && abi == version && minimum <= sizeof(table)) return &table
     OFFER(memory_api, SOLAR_OS_NATIVE_MEMORY_SERVICE, SOLAR_OS_NATIVE_MEMORY_ABI);

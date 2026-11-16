@@ -84,7 +84,7 @@ members = ["app_zoo"]
 [groups.pipelines]
 label = "Native image pipelines"
 category = "Media"
-members = ["service_pipeline"]
+members = ["service_pipeline", "job_model_upload"]
 
 [groups.himax_backend]
 label = "Built-in Himax processor"
@@ -1092,6 +1092,7 @@ sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
   "services/solar_os_native_media.c",
+  "services/solar_os_native_data.c",
   "services/solar_os_native_motion.c",
   "services/solar_os_native_foreground.c",
   "services/solar_os_native_elf.c",
@@ -1461,8 +1462,8 @@ targets = ["esp32s3"]
 
 [packages.backend_processor_himax]
 label = "backend.processor-himax"
-depends = ["service_pipeline", "service_native_modules", "driver_himax_hx6538"]
-sources = ["../modules/himax/provider.c"]
+depends = ["service_pipeline", "service_native_modules", "driver_himax_hx6538", "job_model_upload"]
+sources = ["../modules/himax/provider.c", "../modules/himax/manager.c"]
 capabilities = ["psram", "expansion_spi"]
 targets = ["esp32s3"]
 
@@ -3495,6 +3496,13 @@ capabilities = ["gfx"]
 [packages.app_sheet]
 label = "app.sheet"
 sources = ["apps/solar_os_sheet.c"]
+
+[packages.job_model_upload]
+label = "job.model-upload"
+depends = ["service_pipeline", "service_native_modules"]
+sources = ["jobs/solar_os_model_upload_job.c"]
+capabilities = ["psram"]
+targets = ["esp32s3"]
 
 [packages.job_httpd]
 label = "job.httpd"

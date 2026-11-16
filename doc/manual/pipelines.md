@@ -47,15 +47,17 @@ pipeline destroy 1
 ```
 
 `info` defaults to source `camera0` and query `info`. Other queries are `version`,
-`models`, `model`, and `algorithms`. Queries briefly acquire the camera and fail
+`models`, `model`, `algorithms`, `identity`, and `metadata`. Queries briefly acquire the camera and fail
 if another consumer owns it. Zero type/size values in factory model metadata do
 not necessarily mean inference is unavailable.
 
 The Himax processor accepts its attached camera only. It captures and processes
 one image on the chip, returning the matching JPEG and result together. It
 cannot process image files, RTSP frames or another camera's images. Use `qr` or
-`model` for those inputs. The current Himax model is used; the pipeline model
-argument must be zero. No model selection, upload or firmware changes occur.
+`model` for those inputs. Model zero uses the current Himax selection. A nonzero
+model in native/Python/Lua configurations selects that HX6538 slot before capture;
+the selection remains afterward. Upload is separate; see
+[Himax model management](himax-models.md). Pipelines do not program models or firmware.
 
 Results preserve SSCMA `boxes`, `classes`, `points`, `count` and `perf` fields
 when provided. Coordinates are marked `coordinate_space: "sscma"`; `perf`

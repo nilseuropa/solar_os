@@ -503,7 +503,7 @@ bool solar_os_zoo_get(const solar_os_zoo_t *z, size_t index, solar_os_zoo_model_
     model->memory_known = number(get(requirements, "min_free_internal_bytes"), UINT32_MAX, &model->min_internal_bytes) &&
         number(get(requirements, "min_free_psram_bytes"), UINT32_MAX, &model->min_psram_bytes);
     if (model->compatible) strlcpy(model->reason, model->memory_known ? "memory requirements declared" : "memory requirements unmeasured", sizeof(model->reason));
-    else if (model->downloadable) strlcpy(model->reason, "download only; accelerator model upload is not available", sizeof(model->reason));
+    else if (model->downloadable) strlcpy(model->reason, "requires explicit accelerator slot upload", sizeof(model->reason));
     if (strlen(z->root) + strlen(model->id) + strlen(model->version) + 26 >= SOLAR_OS_STORAGE_PATH_MAX) {
         model->compatible = model->downloadable = false; strlcpy(model->reason, "installation path exceeds device limit", sizeof(model->reason));
     }

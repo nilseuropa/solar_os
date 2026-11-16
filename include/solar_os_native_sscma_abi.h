@@ -24,4 +24,16 @@ typedef struct {
     int (*image)(char *reply, size_t capacity, const uint8_t **jpeg,
         size_t *length, uint16_t *width, uint16_t *height);
     int (*close)(uint32_t token);
+    /* Optional owned maintenance transport. Probe with length=0 and NULL
+     * buffers before changing device state. Actual transfers are limited to
+     * 262 bytes and require a reset line. send writes an SSCMA command without
+     * waiting for an acknowledgement (e.g. OTA). reset returns to normal SSCMA
+     * operation, invalidates sensor state and releases temporary DMA storage.
+     * Serialize these calls with exchange/start/close on the same token.
+     * The module owns the register protocol, slot layout and write policy. */
+    int (*spi)(uint32_t token, const void *tx, void *rx, size_t length);
+    int (*send)(uint32_t token, const char *source, const char *command);
+    int (*reset)(uint32_t token);
 } solar_os_native_sscma_api_v1_t;
+
+#define SOLAR_OS_NATIVE_SSCMA_BASE_SIZE offsetof(solar_os_native_sscma_api_v1_t, spi)
