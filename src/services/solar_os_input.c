@@ -497,6 +497,9 @@ static void input_increment_counter(uint32_t *counter)
     }
 }
 
+static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
+                                                      solar_os_input_keyboard_layout_t layout);
+
 static void input_record_key_locked(const solar_os_input_key_event_t *event)
 {
     input_source_diagnostics_state_t *diagnostics =
@@ -504,6 +507,7 @@ static void input_record_key_locked(const solar_os_input_key_event_t *event)
     input_increment_counter(&diagnostics->key_events);
     diagnostics->has_key = true;
     diagnostics->last_key = *event;
+    (void)input_resolve_layout_key(&diagnostics->last_key, input_keyboard_layout);
 }
 
 static bool input_repeat_config_valid(uint16_t rate_cps, uint16_t delay_ms)
@@ -2753,8 +2757,12 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
     size_t count = 0;
     for (size_t i = 0; i < input_queue_count; i++) {
         const size_t read_index = (input_queue_head + i) % INPUT_QUEUE_MAX;
-        const solar_os_input_key_event_t event = input_queue[read_index];
-        const bool selected = !filter_source || event.source == source;
+        const solar_os_input_key_event_t queued = input_queue[read_index];
+        const bool selected = !filter_source || queued.source == source;
+        /* Character readers get the byte key, like every other consumer; a
+         * retained event keeps its layout code for the next reader. */
+        solar_os_input_key_event_t event = queued;
+        (void)input_resolve_layout_key(&event, input_keyboard_layout);
         const bool emits_char =
             (event.action == SOLAR_OS_INPUT_KEY_PRESS ||
              event.action == SOLAR_OS_INPUT_KEY_REPEAT) &&
@@ -2769,7 +2777,7 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
              tui_fullscreen_altgr);
         const size_t needed = emits_char ? (emits_alt_prefix ? 2U : 1U) : 0U;
         if (!selected || count + needed > buffer_len) {
-            retained[kept++] = event;
+            retained[kept++] = queued;
             continue;
         }
         if (emits_alt_prefix) {
@@ -3093,6 +3101,26 @@ solar_os_input_text_t solar_os_input_key_text(uint8_t key)
 
 solar_os_input_text_t solar_os_input_resolve_layout_key(solar_os_input_key_event_t *event)
 {
+    return input_resolve_layout_key(event, solar_os_input_keyboard_layout());
+}
+
+uint8_t solar_os_input_translate_hid_usage_byte(uint16_t usage,
+                                                uint8_t modifiers,
+                                                bool caps_lock)
+{
+    solar_os_input_key_event_t event = {
+        .usage = usage,
+        .key = solar_os_input_translate_hid_usage(usage, modifiers, caps_lock),
+        .modifiers = modifiers,
+    };
+    (void)solar_os_input_resolve_layout_key(&event);
+    return event.key;
+}
+
+/* Callers holding input_lock pass the layout they read under it. */
+static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
+                                                      solar_os_input_keyboard_layout_t layout)
+{
     if (event == NULL) {
         return (solar_os_input_text_t){0};
     }
@@ -3103,7 +3131,7 @@ solar_os_input_text_t solar_os_input_resolve_layout_key(solar_os_input_key_event
     uint8_t byte = 0;
     if (!input_layout_lookup(event->usage, event->modifiers,
                              event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS,
-                             solar_os_input_keyboard_layout(), &text, &byte)) {
+                             layout, &text, &byte)) {
         text = (solar_os_input_text_t){0};
     }
     event->key = byte;

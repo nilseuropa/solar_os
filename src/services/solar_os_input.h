@@ -434,6 +434,10 @@ solar_os_input_text_t solar_os_input_key_text(uint8_t key);
  * falls back to the character without Caps Lock, else 0). Returns the text;
  * other keys return solar_os_input_key_text(event->key). */
 solar_os_input_text_t solar_os_input_resolve_layout_key(solar_os_input_key_event_t *event);
+/* solar_os_input_translate_hid_usage() resolved to the byte key consumers get. */
+uint8_t solar_os_input_translate_hid_usage_byte(uint16_t usage,
+                                                uint8_t modifiers,
+                                                bool caps_lock);
 
 /* Dead key composition for text input. Zero-initialise. */
 typedef struct {

@@ -28,14 +28,23 @@ class TextEventsTest(unittest.TestCase):
     def test_local_text_reaches_text_event_apps_as_utf8(self):
         source = r'''
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 #include "solar_os.h"
+#define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16U
 #include "solar_os_key_codes.h"
 
 static bool alt_prefix_pending;
 static solar_os_app_t input_app;
 static solar_os_input_compose_t text_compose;
-static const solar_os_app_t *text_compose_app;
+typedef struct {
+    const solar_os_app_t *app;
+    uint8_t session_id;
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+} text_compose_focus_t;
+static text_compose_focus_t text_compose_focus;
+static const char *focus_target;
+static uint8_t focus_session;
 static solar_os_event_t dispatched;
 static int dispatch_count;
 static int request_count;
@@ -45,6 +54,22 @@ static const solar_os_app_t *focused_app = &input_app;
 static const solar_os_app_t *solar_os_sessions_input_app(void)
 {
     return focused_app;
+}
+
+static bool solar_os_sessions_input_focus(char *target, size_t target_len)
+{
+    if (focus_target == NULL) {
+        return false;
+    }
+    snprintf(target, target_len, "%s", focus_target);
+    return true;
+}
+
+static bool solar_os_sessions_active_for_display(const char *target, uint8_t *session_id)
+{
+    assert(focus_target != NULL && strcmp(target, focus_target) == 0);
+    *session_id = focus_session;
+    return true;
 }
 
 static bool solar_os_sessions_dispatch_input_event(const solar_os_event_t *event)
@@ -86,7 +111,8 @@ size_t solar_os_input_compose_feed(solar_os_input_compose_t *state,
 }
 '''
         source += production_functions((ROOT / "src/main.c").read_text(),
-                                        ("input_focus_accepts_text_events",
+                                        ("clear_text_compose",
+                                         "input_focus_accepts_text_events",
                                          "dispatch_codepoint_to_input_focus",
                                          "dispatch_layout_text_to_input_focus",
                                          "dispatch_text_to_input_focus"))
@@ -164,6 +190,18 @@ int main(void)
     focused_app = &other_app;
     expect_text('e', "e");
     focused_app = &input_app;
+    /* ... nor to another session of the same app, or another display. */
+    focus_target = "main";
+    focus_session = 1;
+    assert(dispatch_layout_text_to_input_focus((solar_os_input_text_t){.codepoint = '^', .dead = 1}));
+    focus_session = 2;
+    expect_text('e', "e");
+    assert(dispatch_layout_text_to_input_focus((solar_os_input_text_t){.codepoint = '^', .dead = 1}));
+    focus_target = "tab5";
+    expect_text('e', "e");
+    assert(dispatch_layout_text_to_input_focus((solar_os_input_text_t){.codepoint = '^', .dead = 1}));
+    expect_text('e', "\xc3\xaa");
+    focus_target = NULL;
 
     input_app.flags = SOLAR_OS_APP_FLAG_RESUMABLE;
     expect_legacy('a');

@@ -1582,9 +1582,9 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
     if (keys != NULL) {
         for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
             next.keycodes[i] = keys[i];
-            next.chars[i] = solar_os_input_translate_hid_usage(keys[i],
-                                                               modifiers,
-                                                               caps_lock);
+            next.chars[i] = solar_os_input_translate_hid_usage_byte(keys[i],
+                                                                    modifiers,
+                                                                    caps_lock);
         }
     }
 

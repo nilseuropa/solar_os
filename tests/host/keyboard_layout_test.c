@@ -348,6 +348,56 @@ static void check_invariants(void)
     }
 }
 
+/* Press and release one key from a keyboard source, as a driver does. */
+static void press(solar_os_input_source_t keyboard, uint16_t usage, uint8_t modifiers, bool caps)
+{
+    const uint8_t key = solar_os_input_translate_hid_usage(usage, modifiers, caps);
+    assert(solar_os_input_write_key(keyboard, usage, usage, key, modifiers,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_write_key(keyboard, usage, usage, key, modifiers,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+}
+
+/* Byte readers (shell, scripts, BLE) never see the layout codes. */
+static void check_byte_readers(void)
+{
+    solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-bytes", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    char chars[8];
+    while (solar_os_input_read_chars(chars, sizeof(chars)) != 0) {
+    }
+
+    press(keyboard, 0x35, 0, false);   /* dead ^ */
+    press(keyboard, 0x2d, 0, true);    /* Caps Lock + ß */
+    press(keyboard, 0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false);  /* ², no byte */
+    press(keyboard, 0x04, 0, false);
+    assert(solar_os_input_read_source_chars(keyboard, chars, sizeof(chars)) == 3);
+    assert((uint8_t)chars[0] == '^' && (uint8_t)chars[1] == INPUT_LATIN1_SHARP_S &&
+           chars[2] == 'a');
+
+    solar_os_input_source_diagnostics_t diagnostics;
+    assert(solar_os_input_source_get_diagnostics(keyboard, &diagnostics));
+    assert(diagnostics.has_key && diagnostics.last_key.key == 'a');
+    press(keyboard, 0x35, 0, false);
+    assert(solar_os_input_source_get_diagnostics(keyboard, &diagnostics));
+    assert(diagnostics.last_key.key == '^');
+
+    /* A reader of another source leaves the key for the next reader intact. */
+    solar_os_input_source_t other = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-other", true, &other) == ESP_OK);
+    assert(solar_os_input_read_source_chars(other, chars, sizeof(chars)) == 0);
+    solar_os_input_source_close(other);
+    solar_os_input_key_event_t events[4];
+    const size_t count = solar_os_input_read_events(events, 4);
+    assert(count == 2 && events[0].key == SOLAR_OS_KEY_LAYOUT_TEXT);
+
+    assert(solar_os_input_translate_hid_usage_byte(0x35, 0, false) == '^');
+    assert(solar_os_input_translate_hid_usage_byte(0x2d, 0, true) == INPUT_LATIN1_SHARP_S);
+    assert(solar_os_input_translate_hid_usage_byte(0x04, 0, false) == 'a');
+    solar_os_input_source_close(keyboard);
+}
+
 static void check_ukrainian(void)
 {
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA) == ESP_OK);
@@ -455,6 +505,7 @@ int main(void)
     assert(solar_os_input_resolve_layout_key(&nav).codepoint == 0 && nav.key == SOLAR_OS_KEY_UP);
 
     check_invariants();
+    check_byte_readers();
     check_dead_keys();
     check_ukrainian();
     check_shortcut_letters();

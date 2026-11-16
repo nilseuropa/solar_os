@@ -179,6 +179,20 @@ static u8g2_t *display_u8g2;
 static solar_os_gfx_t gfx;
 static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx;
 static bool alt_prefix_pending;
+/* Dead key typed into the current input focus, waiting for its character. */
+static solar_os_input_compose_t text_compose;
+typedef struct {
+    const solar_os_app_t *app;
+    uint8_t session_id;
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+} text_compose_focus_t;
+static text_compose_focus_t text_compose_focus;
+
+/* A pending dead key belongs to the focus it was typed in. */
+static void clear_text_compose(void)
+{
+    text_compose = (solar_os_input_compose_t){0};
+}
 static uint32_t session_overlay_until_ms;
 static char session_overlay_title[SESSION_OVERLAY_TITLE_MAX];
 static u8g2_t *session_overlay_u8g2;
@@ -1552,6 +1566,7 @@ static void dispatch_input_chars(const char *chars, size_t count)
             alt_prefix_pending = false;
             if (ch == '\t') {
                 (void)solar_os_sessions_cycle_input_focus();
+                clear_text_compose();
                 process_app_requests();
                 continue;
             }
@@ -1590,10 +1605,6 @@ static bool input_focus_accepts_text_events(void)
         (input_app->flags & SOLAR_OS_APP_FLAG_TEXT_EVENTS) != 0;
 }
 
-/* Dead key typed into the current input focus, waiting for its character. */
-static solar_os_input_compose_t text_compose;
-static const solar_os_app_t *text_compose_app;
-
 static void dispatch_codepoint_to_input_focus(uint16_t codepoint)
 {
     solar_os_event_t event = {
@@ -1619,10 +1630,17 @@ static bool dispatch_layout_text_to_input_focus(solar_os_input_text_t text)
         (text.codepoint >= 0xd800U && text.codepoint <= 0xdfffU)) {
         return false;
     }
-    const solar_os_app_t *input_app = solar_os_sessions_input_app();
-    if (input_app != text_compose_app) {
-        text_compose = (solar_os_input_compose_t){0};
-        text_compose_app = input_app;
+    /* Another app, display or session drops a pending dead key; so do the
+     * focus shortcuts in dispatch_input_key(), which can return to the same one. */
+    text_compose_focus_t focus = {.app = solar_os_sessions_input_app()};
+    if (solar_os_sessions_input_focus(focus.target, sizeof(focus.target))) {
+        (void)solar_os_sessions_active_for_display(focus.target, &focus.session_id);
+    }
+    if (focus.app != text_compose_focus.app ||
+        focus.session_id != text_compose_focus.session_id ||
+        strcmp(focus.target, text_compose_focus.target) != 0) {
+        clear_text_compose();
+        text_compose_focus = focus;
     }
     uint16_t typed[2];
     const size_t count = solar_os_input_compose_feed(&text_compose, text, typed);
@@ -1735,6 +1753,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
                 changed = solar_os_sessions_cycle_display_focus_up();
             }
             if (changed) {
+                clear_text_compose();
                 session_switch_nav_held |= navigation_bit;
                 solar_os_sessions_show_input_focus_overlay();
                 process_app_requests();
@@ -1754,6 +1773,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
             } else {
                 (void)solar_os_sessions_cycle_input_focus_previous();
             }
+            clear_text_compose();
             process_app_requests();
         }
         return;
@@ -1772,7 +1792,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
     }
     if (layout_text.codepoint == 0U && layout_text.dead == 0U) {
         /* Enter, Backspace, navigation and other keys end a pending dead key. */
-        text_compose.dead = 0;
+        clear_text_compose();
     }
 
     const char ch = (char)event->key;
@@ -1796,6 +1816,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
         session_switch_alt_held = true;
         session_switch_nav_held |= navigation_bit;
         (void)solar_os_sessions_cycle_input_focus();
+        clear_text_compose();
         process_app_requests();
         return;
     }
