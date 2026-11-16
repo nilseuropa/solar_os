@@ -78,6 +78,9 @@ typedef struct {
 typedef enum {
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE,
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA,
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR,
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO,
 } solar_os_input_keyboard_layout_t;
 
 typedef enum {
@@ -416,6 +419,33 @@ uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
 /* Encode Ctrl characters and modified navigation for text consumers.
  * Already-translated keys remain unchanged. */
 uint8_t solar_os_input_translate_char_key(uint8_t key, uint8_t modifiers);
+
+/* What a key types as text: one character, or a dead key. */
+typedef struct {
+    uint16_t codepoint; /* Unicode BMP code point, 0 = none */
+    uint8_t dead;       /* dead key index + 1, 0 = not a dead key */
+} solar_os_input_text_t;
+
+/* Text for a key byte: printable ASCII and Latin-1 letters from U+00C0. */
+solar_os_input_text_t solar_os_input_key_text(uint8_t key);
+/* Resolve SOLAR_OS_KEY_LAYOUT_TEXT(_CAPS) from the event's usage and
+ * modifiers. event->key becomes the byte key consumers get (the character if
+ * a key byte can carry it, a dead key's spacing character, a Caps Lock result
+ * falls back to the character without Caps Lock, else 0). Returns the text;
+ * other keys return solar_os_input_key_text(event->key). */
+solar_os_input_text_t solar_os_input_resolve_layout_key(solar_os_input_key_event_t *event);
+
+/* Dead key composition for text input. Zero-initialise. */
+typedef struct {
+    uint8_t dead; /* pending dead key index + 1 */
+} solar_os_input_compose_t;
+
+/* Feed one typed text value; writes the 0-2 code points to type to out. A
+ * dead key waits for the next character; without a composition, its spacing
+ * character is typed before that character. */
+size_t solar_os_input_compose_feed(solar_os_input_compose_t *state,
+                                   solar_os_input_text_t text,
+                                   uint16_t out[2]);
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms);
 esp_err_t solar_os_input_set_repeat(uint16_t rate_cps, uint16_t delay_ms);

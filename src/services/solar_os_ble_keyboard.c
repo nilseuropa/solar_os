@@ -429,6 +429,9 @@ static esp_err_t stop_scanning(void)
 static const char *keyboard_layout_names[] = {
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE] = "de",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_UA] = "ua",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_FR] = "fr",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO] = "ro",
 };
 
 static const char *addr_type_name(uint8_t addr_type);

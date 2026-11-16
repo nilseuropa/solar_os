@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generate keymaps/layouts/<name>.json from xkeyboard-config.
 
-Host tool, not part of the firmware build. It needs the exact libxkbcommon
-and xkeyboard-config versions in REQUIRED_VERSIONS, found through their
-pkg-config files. See keymaps/layouts/README.md.
+Host tool, not part of the firmware build. It needs the exact libxkbcommon,
+xkeyboard-config and libX11 versions in REQUIRED_VERSIONS, found through
+their pkg-config files. See keymaps/layouts/README.md.
 
     scripts/generate_keyboard_layouts.py de                 # layout "de"
     scripts/generate_keyboard_layouts.py fr --xkb fr        # explicit XKB name
@@ -51,12 +51,15 @@ class RuleNames(ctypes.Structure):
                 for name in ("rules", "model", "layout", "variant", "options")]
 
 
-# The generated files depend on both packages: xkeyboard-config supplies the
-# layouts, and libxkbcommon's Caps Lock case mappings follow the Unicode
-# version it was built with. Regenerating with other versions is refused, so
-# every file comes from the same toolchain. To move to newer versions, change
-# both pins and regenerate all layouts in one commit.
-REQUIRED_VERSIONS = {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2"}
+# The generated files depend on three packages: xkeyboard-config supplies the
+# layouts, libxkbcommon's Caps Lock case mappings follow the Unicode version
+# it was built with, and libX11's en_US.UTF-8 Compose table supplies the dead
+# key compositions. Regenerating with other versions is refused, so every
+# file comes from the same toolchain. To move to newer versions, change the
+# pins and regenerate all layouts in one commit.
+REQUIRED_VERSIONS = {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2",
+                     "libx11": "1.8.14"}
+COMPOSE_LOCALE = "en_US.UTF-8"
 
 PKG_CONFIG_DIRS = ("/opt/homebrew/lib/pkgconfig", "/opt/homebrew/share/pkgconfig",
                    "/usr/local/lib/pkgconfig", "/usr/local/share/pkgconfig",
@@ -97,8 +100,8 @@ def check_version(name: str, found: str) -> None:
                              f"{name} {required} (see keymaps/layouts/README.md)")
 
 
-def find_toolchain() -> tuple[Path, Path]:
-    """(libxkbcommon library, XKB data root) at the pinned versions."""
+def find_toolchain() -> tuple[Path, Path, Path]:
+    """(libxkbcommon library, XKB data root, Compose file) at the pinned versions."""
     xkbcommon = read_pkg_config("xkbcommon")
     check_version("libxkbcommon", xkbcommon.get("Version", "unknown"))
     libdir = Path(xkbcommon.get("libdir", ""))
@@ -112,7 +115,14 @@ def find_toolchain() -> tuple[Path, Path]:
     root = Path(xkb_data.get("xkb_base", ""))
     if not (root / "symbols").is_dir():
         raise ToolchainError(f"XKB data not found in {root}")
-    return library, root
+    x11 = read_pkg_config("x11")
+    check_version("libx11", x11.get("Version", "unknown"))
+    datadir = Path(x11.get("datarootdir") or x11.get("datadir") or
+                   Path(x11.get("prefix", "/usr"), "share"))
+    compose = datadir / "X11" / "locale" / COMPOSE_LOCALE / "Compose"
+    if not compose.is_file():
+        raise ToolchainError(f"Compose table not found at {compose}")
+    return library, root, compose
 
 
 def load_xkbcommon(library: Path):
@@ -134,7 +144,29 @@ def load_xkbcommon(library: Path):
     lib.xkb_keysym_to_utf32.restype = ctypes.c_uint32
     lib.xkb_keysym_to_utf32.argtypes = [ctypes.c_uint32]
     lib.xkb_keysym_get_name.argtypes = [ctypes.c_uint32, ctypes.c_char_p, ctypes.c_size_t]
+    lib.xkb_keysym_from_name.restype = ctypes.c_uint32
+    lib.xkb_keysym_from_name.argtypes = [ctypes.c_char_p, ctypes.c_int]
     return lib
+
+
+COMPOSE_LINE = re.compile(r'^<dead_([a-z_]+)>\s+<([A-Za-z0-9_]+)>\s*:\s*"((?:[^"\\]|\\.)*)"')
+
+
+def read_compose(lib, path: Path) -> dict:
+    """{dead key name: {base character: result}} for two-key dead key sequences."""
+    table: dict = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = COMPOSE_LINE.match(line)
+        if not match:
+            continue
+        dead, base_name, result = match.groups()
+        result = re.sub(r"\\(.)", r"\1", result)
+        sym = lib.xkb_keysym_from_name(base_name.encode(), 0)
+        base = lib.xkb_keysym_to_utf32(sym) if sym else 0
+        if base < 0x20 or base > 0xFFFF or len(result) != 1 or ord(result) > 0xFFFF:
+            continue
+        table.setdefault(dead, {}).setdefault(chr(base), result)
+    return table
 
 
 class Keymap:
@@ -206,8 +238,22 @@ def trim(values: list) -> list:
     return values
 
 
+def dead_keys(keys: dict, compose: dict) -> dict:
+    """Compositions of the layout's dead keys with the characters it types.
+
+    The space entry is the spacing character a dead key types on its own."""
+    values = [value for entry in keys.values()
+              for value in entry["levels"] + entry.get("caps", [])]
+    typed = {value for value in values if isinstance(value, str)} | {" "}
+    result = {}
+    for dead in sorted({value["dead"] for value in values if isinstance(value, dict)}):
+        table = compose.get(dead, {})
+        result[dead] = {base: table[base] for base in sorted(table) if base in typed}
+    return result
+
+
 def generate(name: str, layout: str, variant: str, description: str,
-             root: Path, lib) -> dict:
+             root: Path, lib, compose: dict) -> dict:
     keymap = Keymap(lib, root, layout, variant)
     try:
         keys = {}
@@ -222,6 +268,7 @@ def generate(name: str, layout: str, variant: str, description: str,
         "description": description,
         "source": {**REQUIRED_VERSIONS, "layout": layout, "variant": variant},
         "keys": keys,
+        "dead": dead_keys(keys, compose),
     }
 
 
@@ -255,6 +302,15 @@ def dump(data: dict) -> str:
     for index, (usage, entry) in enumerate(items):
         comma = "," if index + 1 < len(items) else ""
         lines.append(f"    {json.dumps(usage)}: {json.dumps(entry, ensure_ascii=False)}{comma}")
+    lines.append("  },")
+    items = list(data["dead"].items())
+    if not items:
+        lines += ['  "dead": {}', "}", ""]
+        return "\n".join(lines)
+    lines.append('  "dead": {')
+    for index, (dead, table) in enumerate(items):
+        comma = "," if index + 1 < len(items) else ""
+        lines.append(f"    {json.dumps(dead)}: {json.dumps(table, ensure_ascii=False)}{comma}")
     lines += ["  }", "}", ""]
     return "\n".join(lines)
 
@@ -285,15 +341,16 @@ def main(argv=None) -> int:
         jobs.append((args.name, args.xkb or args.name, args.variant, args.description))
 
     try:
-        library, xkb_root = find_toolchain()
+        library, xkb_root, compose_path = find_toolchain()
     except ToolchainError as error:
         print(f"generate_keyboard_layouts: {error}", file=sys.stderr)
         return 1
     lib = load_xkbcommon(library)
+    compose = read_compose(lib, compose_path)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     for name, layout, variant, description in jobs:
         description = description or xkb_description(xkb_root, layout, variant)
-        data = generate(name, layout, variant, description, xkb_root, lib)
+        data = generate(name, layout, variant, description, xkb_root, lib, compose)
         path = args.output_dir / f"{name}.json"
         path.write_text(dump(data), encoding="utf-8")
         print(f"{path.relative_to(ROOT) if path.is_relative_to(ROOT) else path}: "

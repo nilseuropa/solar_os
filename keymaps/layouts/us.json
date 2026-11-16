@@ -1,7 +1,7 @@
 {
   "name": "us",
   "description": "English (US)",
-  "source": {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2", "layout": "us", "variant": ""},
+  "source": {"xkeyboard-config": "2.48", "libxkbcommon": "1.13.2", "libx11": "1.8.14", "layout": "us", "variant": ""},
   "keys": {
     "0x04": {"levels": ["a", "A", "a", "A"], "caps": ["A", "a", "A", "a"]},
     "0x05": {"levels": ["b", "B", "b", "B"], "caps": ["B", "b", "B", "b"]},
@@ -53,5 +53,6 @@
     "0x37": {"levels": [".", ">", ".", ">"]},
     "0x38": {"levels": ["/", "?", "/", "?"]},
     "0x64": {"levels": ["<", ">", "<", ">"]}
-  }
+  },
+  "dead": {}
 }

@@ -5605,7 +5605,7 @@ static int solua_ble_layout(lua_State *L)
 
     solar_os_ble_keyboard_layout_t layout;
     if (!solar_os_ble_keyboard_parse_layout(luaL_checkstring(L, 1), &layout)) {
-        return luaL_error(L, "expected us or de");
+        return luaL_error(L, "expected us, de, ua, fr or ro");
     }
     return solua_check_esp(L, solar_os_ble_keyboard_set_layout(layout));
 }

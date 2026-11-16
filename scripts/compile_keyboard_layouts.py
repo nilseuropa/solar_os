@@ -17,34 +17,28 @@ from generate_keyboard_layouts import HID_TO_EVDEV, LAYOUT_DIR, REQUIRED_VERSION
 
 # Built-in layouts in firmware order. The index of a layout is stored in NVS,
 # so append new layouts at the end and never reorder or remove one.
-BUILTIN_LAYOUTS = ("us", "de")
-
-# Spacing character a dead key types on its own, as "dead key, space" does
-# in the X11 en_US.UTF-8 Compose table. Other dead keys type nothing until dead-key
-# composition exists.
-DEAD_SPACING = {
-    "grave": "`", "acute": "'", "circumflex": "^", "tilde": "~",
-    "macron": "¯", "breve": "˘", "abovedot": "˙",
-    "diaeresis": "\"", "doubleacute": "˝",
-    "caron": "ˇ", "cedilla": "¸", "ogonek": "˛",
-}
+BUILTIN_LAYOUTS = ("us", "de", "ua", "fr", "ro")
 
 
 class LayoutError(ValueError):
     pass
 
 
-def codepoint(value, where: str) -> tuple[int, bool]:
-    """(code point, is_dead) for one JSON level value."""
+def character(value, where: str) -> int:
+    if not isinstance(value, str) or len(value) != 1 or ord(value) > 0xFFFF or ord(value) < 0x20:
+        raise LayoutError(f"{where}: expected one BMP character, got {value!r}")
+    return ord(value)
+
+
+def codepoint(value, where: str) -> tuple:
+    """Code point, ("dead", name) or 0 for one JSON level value."""
     if value is None:
-        return 0, False
+        return 0
     if isinstance(value, str):
-        if len(value) != 1 or ord(value) > 0xFFFF or ord(value) < 0x20:
-            raise LayoutError(f"{where}: expected one BMP character, got {value!r}")
-        return ord(value), False
-    if isinstance(value, dict) and set(value) == {"dead"}:
-        spacing = DEAD_SPACING.get(value["dead"])
-        return (ord(spacing) if spacing else 0), True
+        return character(value, where)
+    if isinstance(value, dict) and set(value) == {"dead"} and \
+            re.fullmatch(r"[a-z_]+", str(value["dead"])):
+        return ("dead", value["dead"])
     raise LayoutError(f"{where}: unsupported value {value!r}")
 
 
@@ -74,18 +68,38 @@ def load(directory: Path, name: str) -> dict:
         caps = entry.get("caps", levels)
         if set(entry) - {"levels", "caps"} or len(levels) > 4 or len(caps) > 4:
             raise LayoutError(f"{where}: expected up to 4 levels and caps values")
-        chars, dead = [], 0
-        for index, value in enumerate(list(levels) + [None] * (4 - len(levels)) +
-                                      list(caps) + [None] * (4 - len(caps))):
-            char, is_dead = codepoint(value, where)
-            chars.append(char)
-            if is_dead:
-                dead |= 1 << index
-        keys.append((usage, dead, chars))
+        chars = [codepoint(value, where)
+                 for value in list(levels) + [None] * (4 - len(levels)) +
+                 list(caps) + [None] * (4 - len(caps))]
+        keys.append((usage, chars))
     keys.sort()
+    used = {char[1] for _, chars in keys for char in chars if isinstance(char, tuple)}
+    dead = {}
+    for dead_name, table in data.get("dead", {}).items():
+        where = f"{path.name} dead {dead_name}"
+        if not isinstance(table, dict):
+            raise LayoutError(f"{where}: expected an object")
+        dead[dead_name] = {character(base, where): character(result, where)
+                           for base, result in table.items()}
+    if set(dead) != used:
+        raise LayoutError(f"{path}: \"dead\" must list exactly the dead keys the layout uses "
+                          f"({', '.join(sorted(used)) or 'none'})")
     return {"name": name, "description": data.get("description", name),
-            "keys": keys, "altgr": any(chars[2:4] != chars[0:2] or chars[6:8] != chars[4:6]
-                                       for _, _, chars in keys)}
+            "keys": keys, "dead": dead,
+            "altgr": any(chars[2:4] != chars[0:2] or chars[6:8] != chars[4:6]
+                         for _, chars in keys)}
+
+
+def merge_dead_keys(layouts: list[dict]) -> dict:
+    """One composition table per dead key name for all built-in layouts."""
+    merged: dict = {}
+    for layout in layouts:
+        for name, table in layout["dead"].items():
+            target = merged.setdefault(name, {})
+            for base, result in table.items():
+                if target.setdefault(base, result) != result:
+                    raise LayoutError(f"dead_{name} + U+{base:04X} differs between layouts")
+    return {name: merged[name] for name in sorted(merged)}
 
 
 def c_string(text: str) -> str:
@@ -98,12 +112,36 @@ def header(layouts: list[dict]) -> str:
     for index, layout in enumerate(layouts):
         lines.append(f"#define SOLAR_OS_KEYBOARD_LAYOUT_INDEX_{layout['name'].upper().replace('-', '_')} {index}U")
     lines += [f"#define SOLAR_OS_KEYBOARD_LAYOUT_COUNT {len(layouts)}U", ""]
+
+    dead_keys = merge_dead_keys(layouts)
+    dead_index = {name: index for index, name in enumerate(dead_keys)}
+    lines.append("static const solar_os_keyboard_compose_t solar_os_keyboard_compose[] = {")
+    ranges, first = [], 0
+    for name, table in dead_keys.items():
+        pairs = sorted((base, result) for base, result in table.items() if base != 0x20)
+        lines.append(f"    /* dead_{name} */")
+        for base, result in pairs:
+            lines.append(f"    {{0x{base:04x}, 0x{result:04x}}},")
+        ranges.append((name, table.get(0x20, 0), first, len(pairs)))
+        first += len(pairs)
+    if first == 0:
+        lines.append("    {0, 0},")
+    lines += ["};", ""]
+    lines.append(f"#define SOLAR_OS_KEYBOARD_DEAD_KEY_COUNT {len(ranges)}U")
+    lines.append("static const solar_os_keyboard_dead_key_t "
+                 f"solar_os_keyboard_dead_keys[{max(len(ranges), 1)}] = {{")
+    for name, spacing, start, count in ranges:
+        lines.append(f"    {{0x{spacing:04x}, {start}, {count}}}, /* dead_{name} */")
+    lines += ["};", ""]
+
     for layout in layouts:
         symbol = layout["name"].replace("-", "_")
         lines.append(f"static const solar_os_keyboard_layout_key_t "
                      f"solar_os_keyboard_layout_{symbol}_keys[] = {{")
-        for usage, dead, chars in layout["keys"]:
-            values = ", ".join(f"0x{char:04x}" for char in chars)
+        for usage, chars in layout["keys"]:
+            dead = sum(1 << index for index, char in enumerate(chars) if isinstance(char, tuple))
+            values = ", ".join(f"{dead_index[char[1]]}" if isinstance(char, tuple)
+                               else f"0x{char:04x}" for char in chars)
             lines.append(f"    {{0x{usage:02x}, 0x{dead:02x}, {{{values}}}}},")
         lines += ["};", ""]
     lines.append("static const solar_os_keyboard_layout_t "
