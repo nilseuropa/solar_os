@@ -29,12 +29,9 @@ Use QEMU 20261109 or newer.
 
 ## Build the image
 
-The build steps call `pio` and `esptool`. PlatformIO brings its own esptool in
-its Python environment, `.platformio/penv` in your home folder (on Windows
-`%USERPROFILE%\.platformio\penv\Scripts\esptool.exe`), which is usually not on
-your PATH. Add that folder to your PATH as PlatformIO's
-[shell commands](https://docs.platformio.org/en/latest/core/installation/shell-commands.html)
-page describes, or call esptool by its full path.
+The build steps call `pio` and `esptool`. esptool comes with PlatformIO and is
+usually not on your PATH, so call it by its full path; in PowerShell:
+`& "$env:USERPROFILE\.platformio\penv\Scripts\esptool.exe"`.
 
 From the root of your SolarOS checkout, build the firmware. This takes a while:
 
