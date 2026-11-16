@@ -14,8 +14,8 @@ packages_any = ["job_model_upload"]
 - `model upload himax camera0 /path/to/bundle.json 4 --replace` starts programming
   an explicit inactive slot; `job status model-upload` reports progress and errors.
 - `job stop model-upload` cancels and attempts to restore the previous selection.
-- `model select himax camera0 4` selects a programmed slot; select slot 1 to return
-  to the recovery model. Slot 1 and the active slot cannot be uploaded over.
+- `model select himax camera0 4` selects a programmed slot. All four slots can
+  be replaced while inactive; the active slot cannot be uploaded over.
 - `model slots himax camera0` lists live slot selection and recorded model identities.
 - `model list` shows ESP-DL residents and the attached camera processor's slot overview.
 - `pipeline start himax camera0 1` runs one inference with the current selection.
@@ -81,8 +81,8 @@ the four-slot layout at 4, 6, 8 and 10 MiB, with 2 MiB per slot. The provider
 checks the actual layout before writing. A different layout is unsupported.
 Reported type/size zero is not interpreted as an empty slot.
 
-Slot 1 is reserved as a recovery model. Uploads can replace slots 2 through 4
-and refuse the currently active slot. `--replace` explicitly authorizes replacing
+Uploads can replace slots 1 through 4 and refuse the currently active slot.
+No model slot is reserved. `--replace` explicitly authorizes replacing
 the chosen slot, including when its existing contents are unknown. Uploading
 never writes firmware, boot metadata, or flash addresses supplied by a bundle.
 Keep a working model selected before uploading another one.
@@ -133,7 +133,7 @@ Programming is not a transaction on accelerator flash. Cancellation, transport
 failure or power loss can leave the destination slot partly written. Recovery
 attempts reset the device and restore the prior selection; a power loss can
 interrupt recovery too. Retry the upload to the inactive slot before selecting
-it. The recovery slot and previously active model bytes remain untouched.
+it. The previously active model bytes remain untouched.
 Removing a Zoo storage bundle does not erase accelerator flash.
 
 ## Metadata

@@ -15,7 +15,8 @@ The factory application uses the SPI writer for dated firmware beginning
 indicate CRC failure. Register transfers use commands `0xF2` and `0xF3`.
 
 SolarOS additionally requires the actual four-slot address inventory, bounds
-every destination to its 2 MiB slot, reserves slot 1, and refuses the active slot.
+every destination to its 2 MiB slot and refuses the active slot. Slots 1 through
+4 follow the same replacement rules.
 It never implements the vendor's offset-zero firmware/boot-magic write branch.
 The module requires explicit replacement authorization and records unknown
 existing slot contents honestly. No erase command or address comes from a bundle.

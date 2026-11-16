@@ -666,9 +666,9 @@ int solar_os_himax_model_upload(solar_os_processor_service_fn services, const ch
     manager_t s = {.cancel = cancel, .progress = report, .user = user, .slot = slot};
     manager_t *c = &s;
     int error = bind(c, services, source, timeout);
-    /* Keep the first recovery slot and the currently active slot intact.
-     * Unknown/zero slot sizes do not authorize replacement implicitly. */
-    if (!error && (slot < 2 || slot > 4 || flags != SOLAR_OS_PROCESSOR_UPLOAD_REPLACE)) error = BAD;
+    /* Any inactive model slot can be replaced explicitly. Unknown/zero slot
+     * sizes do not authorize replacement implicitly. */
+    if (!error && (slot < 1 || slot > 4 || flags != SOLAR_OS_PROCESSOR_UPLOAD_REPLACE)) error = BAD;
     if (!error && (c->camera->struct_size < sizeof(*c->camera) || !c->camera->spi || !c->camera->send || !c->camera->reset)) error = UNSUPPORTED;
     if (!error) {
         c->files = services(SOLAR_OS_NATIVE_FILES_SERVICE, 1, sizeof(*c->files));

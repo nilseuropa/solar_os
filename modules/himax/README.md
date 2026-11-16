@@ -54,7 +54,7 @@ model select himax camera0 4
 model slots himax camera0
 ```
 
-Upload protects slot 1 and the active slot, requires the reported four-slot
+Upload accepts slots 1 through 4, protects the active slot, requires the reported four-slot
 layout, and checks hashes, labels, model interfaces and firmware requirements
 before writing. It checks page/CRC status, tests inference, restores the old
 selection and atomically updates `/flash/.himax/<chip-id>.json`. `model slots

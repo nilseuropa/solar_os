@@ -71,14 +71,26 @@ class HimaxModelsTest(unittest.TestCase):
         self.assertEqual(sent[len(actual):], b"\xff" * (-len(actual) % 256))
         self.assertFalse(list(self.folder.glob("*.native.*")))
 
-    def test_protected_active_and_unapproved_slots_do_not_write(self):
-        for mode in ("protected-slot", "active-slot", "no-replace", "busy", "old-firmware", "bad-layout", "missing-spi"):
+    def test_invalid_active_and_unapproved_slots_do_not_write(self):
+        for mode in ("invalid-slot", "zero-slot", "active-slot", "no-replace", "busy", "old-firmware", "bad-layout", "missing-spi"):
             with self.subTest(mode=mode):
                 result = self.run_native(mode)
                 self.assertNotEqual(result["error"], 0)
                 self.assertEqual(result["pages"], 0)
                 self.assertEqual(result["selected"], 1)
                 self.assertFalse(self.receipt.exists())
+
+    def test_slot_one_upload_uses_first_model_region_and_restores_previous_selection(self):
+        for mode in ("slot-one", "slot-one-reset-default"):
+            with self.subTest(mode=mode):
+                result = self.run_native(mode)
+                self.assertEqual(result["error"], 0)
+                self.assertEqual(result["selected"], 4)
+                record = next(r for r in json.loads(self.receipt.read_bytes())["slots"] if r["slot"] == 1)
+                self.assertEqual(record["state"], "programmed")
+                self.assertEqual(record["previous_slot"], 4)
+                actual = self.binary.read_bytes()
+                self.assertEqual((self.root / "programmed.bin").read_bytes(), actual + b"\xff" * (-len(actual) % 256))
 
     def test_reset_default_is_reselected_before_programming(self):
         result = self.run_native("reset-default")

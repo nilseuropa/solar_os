@@ -19,6 +19,7 @@ static bool admit_write(const char *path);
 #include "../../modules/himax/manager.h"
 
 static unsigned owner, selected=1, pages, resets, probes, raw_calls, slept;
+static unsigned destination=4, original=1;
 static bool ota, sensor;
 static uint32_t target_address;
 static uint8_t programmed[2*1024*1024];
@@ -70,7 +71,7 @@ static int exchange_camera(uint32_t token,const char *source,const char *command
     else if(!strcmp(name,"MODELS?"))snprintf(data,sizeof(data),"{\"data\":[{\"id\":4,\"address\":%u,\"size\":0},{\"id\":3,\"address\":8388608,\"size\":0},{\"id\":2,\"address\":6291456,\"size\":0},{\"id\":1,\"address\":4194304,\"size\":0}]}",!strcmp(mode,"bad-layout")?10485504:10485760);
     else if(!strcmp(name,"BREAK"))strcpy(data,"{\"data\":{}}");
     else if(!strcmp(name,"INVOKE")) {
-        assert(event&&sensor&&selected==4);
+        assert(event&&sensor&&selected==destination);
         if(!strcmp(mode,"inference-failure"))return SOLAR_OS_NATIVE_ERROR_FAILED;
         strcpy(data,!strcmp(mode,"wrong-result")?"{\"data\":{\"image\":\"unused\"}}":
             !strcmp(mode,"malformed-result")?"{\"data\":{\"classes\":[garbage]}}":"{\"data\":{\"classes\":[[90,1]],\"boxes\":[],\"points\":[],\"perf\":[1,2,3]}}");
@@ -85,13 +86,14 @@ static int reset_camera(uint32_t token)
 {
     assert(token==77&&owner);ota=false;sensor=false;resets++;
     if(!strcmp(mode,"reset-default"))selected=4;
+    if(!strcmp(mode,"slot-one-reset-default"))selected=1;
     return ((!strcmp(mode,"reset-failure")&&resets==1)||(!strcmp(mode,"restore-failure")&&resets==3))?SOLAR_OS_NATIVE_ERROR_FAILED:0;
 }
 static int spi_camera(uint32_t token,const void *data,void *output,size_t n)
 {
     assert(token==77&&owner);
     if(!n){assert(!data&&!output);probes++;return !strcmp(mode,"missing-spi")?SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED:0;}
-    assert(ota&&data&&n<=262&&selected==1);raw_calls++;
+    assert(ota&&data&&n<=262&&selected==original);raw_calls++;
     const uint8_t *tx=data;
     if(!strcmp(mode,"spi-error")&&raw_calls==8)return SOLAR_OS_NATIVE_ERROR_FAILED;
     if(tx[0]==0xf2&&tx[1]==0) {
@@ -99,8 +101,9 @@ static int spi_camera(uint32_t token,const void *data,void *output,size_t n)
         if(n==10) {assert(target_address==0x51010000&&get32(tx+6)==0x028c208b);pages=0;}
         else if(n==6) assert(target_address==0x51010040);
         else {
-            assert(target_address>=0x38a00000&&target_address+256<=0x38c00000);
-            size_t offset=target_address-0x38a00000;assert(offset==programmed_size);
+            uint32_t base=0x38400000+(destination-1)*0x200000;
+            assert(target_address>=base&&target_address+256<=base+0x200000);
+            size_t offset=target_address-base;assert(offset==programmed_size);
             memcpy(programmed+offset,tx+6,256);programmed_size+=256;pages++;
         }
     } else if(tx[0]==0xf2) {
@@ -146,6 +149,7 @@ static const void *services(const char *name,uint32_t abi,uint32_t size)
 int main(int argc,char **argv)
 {
     assert(argc==4);mount_root=argv[1];mode=argv[3];char *reply=NULL;
+    if(!strncmp(mode,"slot-one",8)){destination=1;selected=original=4;}
     const solar_os_native_files_api_v1_t *files=solar_os_native_data_get_service(SOLAR_OS_NATIVE_FILES_SERVICE,1,SOLAR_OS_NATIVE_FILES_BASE_SIZE);
     assert(files&&files->struct_size>=sizeof(*files));
     char directory[160];
@@ -167,12 +171,12 @@ int main(int argc,char **argv)
         solar_os_memory_free(reply);reply=NULL;
         error=solar_os_himax_model_select(services,"camera0",5,1000,NULL,NULL,&reply);
     } else {
-        uint32_t slot=!strcmp(mode,"protected-slot")?1:!strcmp(mode,"active-slot")?selected:4;
+        uint32_t slot=!strcmp(mode,"invalid-slot")?5:!strcmp(mode,"zero-slot")?0:!strcmp(mode,"active-slot")?selected:destination;
         uint32_t flags=!strcmp(mode,"no-replace")?0:SOLAR_OS_PROCESSOR_UPLOAD_REPLACE;
         error=solar_os_himax_model_upload(services,"camera0",argv[2],slot,flags,1000,
             stop_callback,progress_callback,NULL,&reply);
         if(!error) {
-            assert(selected==1&&pages&&resets==3&&reply);
+            assert(selected==original&&pages&&resets==3&&reply);
             char path[512];snprintf(path,sizeof(path),"%s/programmed.bin",mount_root);
             FILE *f=fopen(path,"wb");assert(f);assert(fwrite(programmed,1,programmed_size,f)==programmed_size);fclose(f);
         }
