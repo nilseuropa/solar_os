@@ -27,7 +27,7 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 
 Use QEMU 20261109 or newer.
 
-## Before you start
+## Build the image
 
 The build steps call `pio` and `esptool`. PlatformIO brings its own esptool in
 its Python environment, `.platformio/penv` in your home folder (on Windows
@@ -35,8 +35,6 @@ its Python environment, `.platformio/penv` in your home folder (on Windows
 your PATH. Add that folder to your PATH as PlatformIO's
 [shell commands](https://docs.platformio.org/en/latest/core/installation/shell-commands.html)
 page describes, or call esptool by its full path.
-
-## Build the image
 
 From the root of your SolarOS checkout, build the firmware. This takes a while:
 
