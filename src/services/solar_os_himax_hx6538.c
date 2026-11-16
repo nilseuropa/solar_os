@@ -13,6 +13,7 @@
 #include "solar_os_camera_stream.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
+#include "solar_os_sscma.h"
 
 typedef struct {
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
@@ -196,6 +197,37 @@ static esp_err_t camera_capture(void *ctx, solar_os_camera_backend_frame_t *fram
 static void camera_release(void *ctx, void *token)
 { (void)token; solar_os_himax_clear(&((himax_device_t *)ctx)->camera); }
 
+static void camera_invalidate(void *ctx)
+{
+    himax_device_t *d = ctx;
+    d->ready = d->started = false;
+    solar_os_himax_clear(&d->camera);
+}
+
+static esp_err_t camera_control(void *ctx, const char *protocol, const void *request)
+{
+    himax_device_t *d = ctx;
+    const solar_os_sscma_exchange_t *r = request;
+    if (strcmp(protocol, SOLAR_OS_NATIVE_SSCMA_SERVICE)) return ESP_ERR_NOT_SUPPORTED;
+    if (!r->source || strcmp(r->source, d->name)) return ESP_ERR_NOT_FOUND;
+    if (!r->command) return ESP_OK; /* Ownership/name probe; no hardware access. */
+    if (!r->reply || !r->response_name || !r->timeout_ms || r->timeout_ms > 60000 ||
+        strlen(r->command) > 4095 || strlen(r->response_name) >= 32) return ESP_ERR_INVALID_ARG;
+    *r->reply = NULL;
+    if (r->cancel && r->cancel(r->user)) return ESP_ERR_TIMEOUT;
+    esp_err_t error = prepare(d);
+    if (!error) error = solar_os_himax_exchange(&d->camera, r->command,
+        r->response_name, r->event, r->timeout_ms, r->cancel, r->user);
+    if (!error) {
+        *r->reply = solar_os_memory_alloc(d->camera.reply_used + 1,
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "sscma.reply");
+        if (!*r->reply) error = ESP_ERR_NO_MEM;
+        else memcpy(*r->reply, d->camera.reply, d->camera.reply_used + 1);
+    }
+    solar_os_himax_clear(&d->camera);
+    return error;
+}
+
 static esp_err_t camera_resolutions(void *ctx, solar_os_camera_resolution_t *out,
                                      size_t capacity, size_t *count)
 {
@@ -267,7 +299,8 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     if (error == ESP_OK) {
         static const solar_os_camera_backend_ops_t operations = {.start = camera_start,
             .stop = camera_stop, .capture = camera_capture, .release = camera_release,
-            .publish = publish, .unpublish = unpublish, .get_resolutions = camera_resolutions};
+            .publish = publish, .unpublish = unpublish, .get_resolutions = camera_resolutions,
+            .control = camera_control, .invalidate = camera_invalidate};
         const solar_os_camera_backend_t backend = {.driver = "himax-hx6538", .ctx = d,
             .ops = &operations, .default_config = &default_config};
         error = solar_os_camera_register_backend(&backend);

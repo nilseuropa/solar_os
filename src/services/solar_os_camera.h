@@ -67,6 +67,12 @@ typedef struct {
      * Always return the full count; copy at most capacity entries. */
     esp_err_t (*get_resolutions)(void *ctx, solar_os_camera_resolution_t *out,
                                  size_t capacity, size_t *count);
+    /* Optional protocol extension. Runs under the camera lock with a valid
+     * owner and no outstanding frame. Must not call camera service APIs. */
+    esp_err_t (*control)(void *ctx, const char *protocol, const void *request);
+    /* Optional local cleanup after transport loss; no hardware I/O. The next
+     * start must recover/reinitialize the device before returning a frame. */
+    void (*invalidate)(void *ctx);
 } solar_os_camera_backend_ops_t;
 
 typedef struct {
@@ -140,6 +146,9 @@ esp_err_t solar_os_camera_release_frame(
     const solar_os_camera_owner_t *token,
     const solar_os_camera_frame_t *frame);
 esp_err_t solar_os_camera_get_status(solar_os_camera_status_t *status);
+esp_err_t solar_os_camera_control(const solar_os_camera_owner_t *token,
+    const char *protocol, const void *request);
+esp_err_t solar_os_camera_invalidate(const solar_os_camera_owner_t *token);
 /* Runtime control, independent of the capture owner. Preserved across stop/start. */
 esp_err_t solar_os_camera_set_orientation(solar_os_camera_orientation_t orientation);
 const char *solar_os_camera_orientation_name(solar_os_camera_orientation_t orientation);

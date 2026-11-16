@@ -36,10 +36,12 @@ static esp_err_t reserve_reply(solar_os_himax_t *camera)
     return ESP_OK;
 }
 
-static esp_err_t receive_reply(solar_os_himax_t *camera, uint64_t deadline)
+static esp_err_t receive_reply(solar_os_himax_t *camera, uint64_t deadline,
+    bool (*cancel)(void *), void *user)
 {
     camera->reply_used = 0;
     while (camera->io.now_ms(camera->io.ctx) < deadline) {
+        if (cancel && cancel(user)) return ESP_ERR_TIMEOUT;
         if (camera->input_position == camera->input_used) {
             camera->input_position = camera->input_used = 0;
             esp_err_t error = camera->io.read(camera->io.ctx, camera->input,
@@ -86,12 +88,25 @@ static bool reply_matches(solar_os_himax_t *camera, const char *name, uint64_t t
 esp_err_t solar_os_himax_command(solar_os_himax_t *camera, const char *command,
                                   const char *response_name, uint32_t timeout_ms)
 {
-    if (!camera || !command || !response_name || !timeout_ms) return ESP_ERR_INVALID_ARG;
+    return solar_os_himax_exchange(camera, command, response_name, false, timeout_ms, NULL, NULL);
+}
+
+esp_err_t solar_os_himax_exchange(solar_os_himax_t *camera, const char *command,
+    const char *response_name, bool event, uint32_t timeout_ms,
+    bool (*cancel)(void *), void *user)
+{
+    if (!camera || !command || !response_name || !timeout_ms || timeout_ms > 60000)
+        return ESP_ERR_INVALID_ARG;
+    if (cancel && cancel(user)) return ESP_ERR_TIMEOUT;
     esp_err_t error = camera->io.write(camera->io.ctx, (const uint8_t *)command, strlen(command));
     const uint64_t deadline = camera->io.now_ms(camera->io.ctx) + timeout_ms;
     while (error == ESP_OK) {
-        error = receive_reply(camera, deadline);
-        if (error == ESP_OK && reply_matches(camera, response_name, 0)) return reply_code(camera->reply);
+        error = receive_reply(camera, deadline, cancel, user);
+        if (error == ESP_OK && (reply_matches(camera, response_name, 0) ||
+            reply_matches(camera, response_name, 1) || reply_matches(camera, response_name, 2))) {
+            error = reply_code(camera->reply);
+            if (error || reply_matches(camera, response_name, event ? 1 : 0)) return error;
+        }
     }
     return error;
 }
@@ -167,44 +182,45 @@ esp_err_t solar_os_himax_sample(solar_os_himax_t *camera, uint32_t timeout_ms,
 {
     if (!camera || !jpeg || !length || !width || !height || !timeout_ms) return ESP_ERR_INVALID_ARG;
     *jpeg = NULL; *length = 0; *width = *height = 0;
-    const char command[] = "AT+SAMPLE=1\r\n";
-    esp_err_t error = camera->io.write(camera->io.ctx, (const uint8_t *)command, sizeof(command) - 1);
-    const uint64_t deadline = camera->io.now_ms(camera->io.ctx) + timeout_ms;
-    while (error == ESP_OK) {
-        error = receive_reply(camera, deadline);
-        if (error != ESP_OK) break;
-        if (!reply_matches(camera, "SAMPLE", 0) && !reply_matches(camera, "SAMPLE", 1)) continue;
-        error = reply_code(camera->reply);
-        if (error != ESP_OK) break;
-        if (!reply_matches(camera, "SAMPLE", 1)) continue;
-        const char *data, *encoded; size_t span;
-        if (!solar_os_json_scan_object_value(camera->reply, "data", &data, &span) || *data != '{' ||
-            !solar_os_json_scan_object_value(data, "image", &encoded, &span) || span < 2 || *encoded != '"')
-            return ESP_ERR_INVALID_RESPONSE;
-        char *source = (char *)encoded + 1;
-        size_t used = 0;
-        for (size_t i = 0; i < span - 2; i++) {
-            char c = source[i];
-            if (c == '\\') {
-                if (++i >= span - 2 || source[i] != '/') return ESP_ERR_INVALID_RESPONSE;
-                c = '/';
-            }
-            source[used++] = c;
-        }
-        /* The destination precedes the encoded input; decoding shrinks it.
-         * One PSRAM allocation becomes the immutable leased JPEG. */
-        size_t decoded = 0;
-        if (mbedtls_base64_decode((uint8_t *)camera->reply, camera->reply_capacity, &decoded,
-                                  (const uint8_t *)source, used) != 0)
-            return ESP_ERR_INVALID_RESPONSE;
-        /* SSCMA may encode its zero-padded JPEG buffer. Keep only the image,
-         * while still requiring an end marker before any padding. */
-        while (decoded && camera->reply[decoded - 1] == '\0') decoded--;
-        if (!jpeg_dimensions((const uint8_t *)camera->reply, decoded, width, height))
-            return ESP_ERR_INVALID_RESPONSE;
-        *length = decoded;
-        *jpeg = (const uint8_t *)camera->reply;
-        return ESP_OK;
-    }
+    esp_err_t error = solar_os_himax_exchange(camera, "AT+SAMPLE=1\r\n", "SAMPLE", true,
+        timeout_ms, NULL, NULL);
+    if (!error) error = solar_os_himax_decode_image(camera->reply, camera->reply_capacity,
+        jpeg, length, width, height);
     return error;
+}
+
+esp_err_t solar_os_himax_decode_image(char *reply, size_t capacity,
+    const uint8_t **jpeg, size_t *length, uint16_t *width, uint16_t *height)
+{
+    if (!reply || !capacity || !jpeg || !length || !width || !height ||
+        !memchr(reply, 0, capacity)) return ESP_ERR_INVALID_ARG;
+    *jpeg = NULL; *length = 0; *width = *height = 0;
+    const char *data, *encoded; size_t span;
+    if (!solar_os_json_scan_object_value(reply, "data", &data, &span) || *data != '{' ||
+        !solar_os_json_scan_object_value(data, "image", &encoded, &span) || span < 2 || *encoded != '"')
+        return ESP_ERR_INVALID_RESPONSE;
+    char *source = (char *)encoded + 1;
+    size_t used = 0;
+    for (size_t i = 0; i < span - 2; i++) {
+        char c = source[i];
+        if (c == '\\') {
+            if (++i >= span - 2 || source[i] != '/') return ESP_ERR_INVALID_RESPONSE;
+            c = '/';
+        }
+        source[used++] = c;
+    }
+    /* The destination precedes the encoded input; decoding shrinks it.
+     * One PSRAM allocation becomes the immutable leased JPEG. */
+    size_t decoded = 0;
+    if (mbedtls_base64_decode((uint8_t *)reply, capacity, &decoded,
+                              (const uint8_t *)source, used) != 0)
+        return ESP_ERR_INVALID_RESPONSE;
+    /* SSCMA may encode its zero-padded JPEG buffer. Keep only the image,
+     * while still requiring an end marker before any padding. */
+    while (decoded && reply[decoded - 1] == '\0') decoded--;
+    if (!jpeg_dimensions((const uint8_t *)reply, decoded, width, height))
+        return ESP_ERR_INVALID_RESPONSE;
+    *length = decoded;
+    *jpeg = (const uint8_t *)reply;
+    return ESP_OK;
 }

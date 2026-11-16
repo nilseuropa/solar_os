@@ -36,6 +36,12 @@ void solar_os_himax_clear(solar_os_himax_t *camera);
 esp_err_t solar_os_himax_probe(solar_os_himax_t *camera, uint32_t timeout_ms);
 esp_err_t solar_os_himax_command(solar_os_himax_t *camera, const char *command,
                                   const char *response_name, uint32_t timeout_ms);
+/* Raw SSCMA operation/event exchange. Reply remains owned by camera. */
+esp_err_t solar_os_himax_exchange(solar_os_himax_t *camera, const char *command,
+    const char *response_name, bool event, uint32_t timeout_ms,
+    bool (*cancel)(void *), void *user);
+esp_err_t solar_os_himax_decode_image(char *reply, size_t capacity,
+    const uint8_t **jpeg, size_t *length, uint16_t *width, uint16_t *height);
 esp_err_t solar_os_himax_sample(solar_os_himax_t *camera, uint32_t timeout_ms,
                                  const uint8_t **jpeg, size_t *length,
                                  uint16_t *width, uint16_t *height);

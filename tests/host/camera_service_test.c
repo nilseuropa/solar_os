@@ -83,6 +83,14 @@ static esp_err_t fake_resolutions(void *ctx, solar_os_camera_resolution_t *out,
     return ESP_OK;
 }
 
+static esp_err_t fake_control(void *ctx, const char *protocol, const void *request)
+{
+    assert(ctx && request && !strcmp(protocol, "test"));
+    return *(const esp_err_t *)request;
+}
+static unsigned invalidations;
+static void fake_invalidate(void *ctx) { assert(ctx); ++invalidations; }
+
 int main(void)
 {
     static const solar_os_camera_backend_ops_t operations = {
@@ -92,6 +100,8 @@ int main(void)
         .capture = fake_capture,
         .release = fake_release,
         .get_resolutions = fake_resolutions,
+        .control = fake_control,
+        .invalidate = fake_invalidate,
     };
     fake_camera_t fake = {0};
     const solar_os_camera_backend_t backend = {
@@ -140,6 +150,11 @@ int main(void)
     assert(strcmp(status.owner, "test") == 0);
 
     solar_os_camera_owner_t invalid = {.generation = owner.generation + 1U};
+    const esp_err_t control_result = ESP_ERR_NOT_SUPPORTED;
+    assert(solar_os_camera_control(&invalid, "test", &control_result) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_camera_control(&owner, "test", &control_result) == control_result);
+    assert(solar_os_camera_control(&owner, NULL, &control_result) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_camera_invalidate(&invalid) == ESP_ERR_INVALID_STATE);
     assert(solar_os_camera_start(&invalid, &config) == ESP_ERR_INVALID_STATE);
     assert(solar_os_camera_start(&owner, &config) == ESP_OK);
     assert(fake.starts == 1U);
@@ -153,6 +168,8 @@ int main(void)
     assert(frame->data == fake_jpeg);
     assert(frame->width == 320U && frame->height == 240U);
     const solar_os_camera_frame_t *leased_frame = frame;
+    assert(solar_os_camera_control(&owner, "test", &control_result) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_camera_invalidate(&owner) == ESP_ERR_INVALID_STATE && !invalidations);
     /* Live controls leave the capture owner and its existing JPEG valid. */
     assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_MIRROR) == ESP_OK);
     assert(solar_os_camera_get_status(&status) == ESP_OK);
@@ -211,6 +228,10 @@ int main(void)
     assert(solar_os_camera_start(&owner, &config) == ESP_OK);
     assert(solar_os_camera_capture(&owner, &frame) == ESP_OK && frame->width == 416 && frame->height == 416);
     assert(solar_os_camera_release_frame(&owner, frame) == ESP_OK);
+    unsigned starts_before = fake.starts;
+    assert(solar_os_camera_invalidate(&owner) == ESP_OK && invalidations == 1);
+    assert(solar_os_camera_get_status(&status) == ESP_OK && !status.initialized);
+    assert(solar_os_camera_start(&owner, &config) == ESP_OK && fake.starts == starts_before + 1);
     assert(solar_os_camera_stop(&owner) == ESP_OK);
     assert(solar_os_camera_release_owner(&owner) == ESP_OK);
     assert(solar_os_camera_unregister_backend("fake-camera") == ESP_OK);

@@ -58,6 +58,35 @@ static bool owner_valid(const solar_os_camera_owner_t *token)
         token->generation == camera_state.owner_generation;
 }
 
+esp_err_t solar_os_camera_control(const solar_os_camera_owner_t *token,
+    const char *protocol, const void *request)
+{
+    if (!protocol || !*protocol || !request) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = ensure_mutex();
+    if (error) return error;
+    xSemaphoreTake(camera_mutex, portMAX_DELAY);
+    if (!owner_valid(token) || camera_state.frame_leased) error = ESP_ERR_INVALID_STATE;
+    else if (!camera_state.backend.ops->control) error = ESP_ERR_NOT_SUPPORTED;
+    else error = camera_state.backend.ops->control(camera_state.backend.ctx, protocol, request);
+    xSemaphoreGive(camera_mutex);
+    return error;
+}
+
+esp_err_t solar_os_camera_invalidate(const solar_os_camera_owner_t *token)
+{
+    esp_err_t error = ensure_mutex();
+    if (error) return error;
+    xSemaphoreTake(camera_mutex, portMAX_DELAY);
+    if (!owner_valid(token) || camera_state.frame_leased) error = ESP_ERR_INVALID_STATE;
+    else if (!camera_state.backend.ops->invalidate) error = ESP_ERR_NOT_SUPPORTED;
+    else {
+        camera_state.backend.ops->invalidate(camera_state.backend.ctx);
+        camera_state.initialized = false;
+    }
+    xSemaphoreGive(camera_mutex);
+    return error;
+}
+
 solar_os_camera_config_t solar_os_camera_default_config(void)
 {
     solar_os_camera_config_t config = {.width = 320U, .height = 240U, .jpeg_quality = 12U};

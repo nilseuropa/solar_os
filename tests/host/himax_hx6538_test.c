@@ -65,6 +65,8 @@ static void *resize(void *ctx, void *data, size_t size)
     if (!data) f->allocations++;
     return realloc(data, size);
 }
+static bool cancel_now(void *ctx) { return *(bool *)ctx; }
+static bool cancel_after_wait(void *ctx) { return ((fake_t *)ctx)->now > 0; }
 
 int main(void)
 {
@@ -81,6 +83,24 @@ int main(void)
     assert(!strcmp(camera->version, "2024.08.16") && camera->mode_count == 3 && camera->sensor_id == 1);
     assert(camera->modes[1].width == 640 && camera->modes[1].height == 480 && camera->modes[1].option == 3);
     assert(camera->modes[2].width == 416 && camera->modes[2].option == 7);
+    fake.pending = "{\"type\":0,\"name\":\"UNRELATED\",\"code\":0}\n"
+        "{\"type\":0,\"name\":\"INVOKE\",\"code\":0}\n"
+        "{\"type\":1,\"name\":\"INVOKE\",\"code\":0,\"data\":{\"boxes\":[]}}\n";
+    assert(!solar_os_himax_exchange(camera, "AT+INVOKE=1,0,0\r\n", "INVOKE", true, 100, NULL, NULL));
+    assert(strstr(camera->reply, "boxes")); solar_os_himax_clear(camera);
+    fake.pending = "{\"type\":0,\"name\":\"INVOKE\",\"code\":8}\n";
+    assert(solar_os_himax_exchange(camera, "AT+INVOKE=1,0,0\r\n", "INVOKE", true, 100, NULL, NULL) == ESP_ERR_NOT_SUPPORTED);
+    solar_os_himax_clear(camera);
+    fake.pending = "{\"type\":2,\"name\":\"INVOKE\",\"code\":5}\n";
+    assert(solar_os_himax_exchange(camera, "AT+INVOKE=1,0,0\r\n", "INVOKE", true, 100, NULL, NULL) == ESP_ERR_INVALID_ARG);
+    solar_os_himax_clear(camera);
+    bool cancelled = true;
+    assert(solar_os_himax_exchange(camera, "AT+MODEL?\r\n", "MODEL?", false, 100,
+        cancel_now, &cancelled) == ESP_ERR_TIMEOUT && !fake.allocations);
+    fake.pending = NULL;
+    fake.now = 0;
+    assert(solar_os_himax_exchange(camera, "AT+MODEL?\r\n", "MODEL?", false, 100,
+        cancel_after_wait, &fake) == ESP_ERR_TIMEOUT && fake.now < 100 && !fake.allocations);
     const uint8_t *image; size_t length; uint16_t width, height;
     for (size_t chunk = 1; chunk <= 4095; chunk = chunk == 1 ? 7 : chunk == 7 ? 4095 : 4096) {
         fake.chunk = chunk;
