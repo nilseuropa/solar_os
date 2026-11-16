@@ -312,8 +312,6 @@ agent config reasoning medium
 agent config tools confirm
 agent config max-tools 16
 agent
-job start speechd /voices/en-US
-agent --tts
 agent list
 agent resume SLOT
 agent ask How much memory is free on this device?
@@ -327,17 +325,47 @@ after leaving the app or rebooting. `agent delete SLOT` removes one conversation
 without changing provider credentials. Responses uses its saved provider
 continuation ID; Chat Completions uses bounded local history. Slots are `1` to
 `3` on internal flash or `1` to `8` on SD; the oldest is reused when full.
-`agent ask`
-performs one unsaved request but likewise waits for `Esc` or the app-exit key
-after completion, so display-shell output is not immediately replaced by the
-shell screen.
+`agent ask` performs one unsaved foreground request. `Esc` or the app-exit key
+cancels an active request.
+
+### Image input
+
+Use a vision-capable model and add `--image SOURCE` before the question. Sources
+include stored images, `stream:ID` camera frames, `rtsp://` JPEG frames, and the
+image retained with a completed pipeline result:
+
+```text
+agent ask --image /pictures/sample.jpg Describe this picture.
+agent ask --image stream:camera0 What do you see?
+agent ask --image pipeline:1 Describe this processed frame.
+```
+
+Inside a chat, use `/image SOURCE QUESTION`. Up to two images may total 512 KiB.
+See [Agent image questions](agent.md#ask-about-an-image) for formats and ownership.
+
+### Speech output
 
 `agent --tts`, `agent --tts new`, `agent --tts resume SLOT`, and
 `agent --tts ask PROMPT` keep the written answer and also queue the successful
-final model response through the running local PicoTTS `speechd`. Start
-`speechd` with a voice directory first. Status and retry messages, tool calls,
+final model response through local PicoTTS. Select the `speech` package and copy
+a voice folder containing `ta.bin` and `sg.bin` to SD or flash, then start
+`speechd` with that directory:
+
+```text
+job start speechd /voices/en-US
+say "Solar O S is ready"
+agent --tts
+agent --tts ask --image stream:camera0 Describe the scene.
+```
+
+Speech uses the global `audio level` and can wait behind another audio user.
+Status and retry messages, tool calls,
 tool results, confirmations, and intermediate text before a tool call are not
-spoken.
+spoken. The provider supplies text; synthesis and voice selection happen on
+the device. See [Agent speech output](agent.md#speech-output) for voice setup,
+language selection, and troubleshooting.
+
+### Provider settings and tools
 
 Use `agent config key clear` for an endpoint that does not require bearer
 authentication. `agent status` shows configuration, request counters, HTTP

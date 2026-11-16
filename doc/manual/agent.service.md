@@ -4,7 +4,7 @@ title = "Agent service and tool reference"
 section = "app"
 summary = "Configure providers, inspect tools, and understand request limits"
 aliases = ["agent.tools"]
-keywords = "agent service responses api tools policy memory bounds provider"
+keywords = "agent service responses api tools policy memory bounds provider speech tts images"
 packages_any = ["app_agent"]
 +++
 # Native Agent Service
@@ -76,9 +76,8 @@ For a single request, use:
 agent ask Describe the current device status.
 ```
 
-The one-request frontend stays open after completion so the response remains
-readable. It is not persisted. Use `Esc` or the app-exit key to return to the
-shell.
+One-request answers are not persisted. `Esc` or the app-exit key cancels an
+active request.
 
 With Python or Lua included, run a source string or file:
 
@@ -104,6 +103,31 @@ validation uses the firmware certificate bundle. A stateless local provider
 turn that contains neither text nor a tool call is retried once; a second empty
 turn is reported as an invalid response instead of silently returning to the
 prompt.
+
+## Speech output and image input
+
+The foreground Agent app can queue final written answers for local PicoTTS
+playback. Start `speechd` with an installed voice directory, then launch with
+`--tts` immediately after `agent`:
+
+```text
+job start speechd /voices/en-US
+agent --tts
+agent --tts resume SLOT
+agent --tts ask --image stream:camera0 Describe the scene.
+```
+
+The `speech` package, audio output, and voice files are required. Speech starts
+after a successful final answer; tool activity and intermediate responses stay
+silent. The full text remains visible. Voice selection and playback belong to
+the local speech job; the provider returns text. See [Agent speech output](agent.md#speech-output)
+for voice installation and troubleshooting, and [speechd](jobs.reference.md#speechd)
+for queue behavior.
+
+Use `agent ask --image SOURCE QUESTION` or `/image SOURCE QUESTION` inside a
+chat for image input. File, `stream:ID`, `rtsp://`, and `pipeline:ID` sources use
+the same bounded encoded attachments. See [image questions](agent.md#ask-about-an-image)
+for supported formats, limits, source ownership, and conversation history.
 
 ## Typed tools
 
@@ -308,3 +332,7 @@ uses a provider continuation ID and Chat Completions uses bounded local
 history. `agent status` reports provider, policy, requests, tool activity, and
 memory. This page defines the tool contract and resource limits; `man agent` is
 the task-oriented usage guide.
+
+`agent --tts` speaks final answers using a running local PicoTTS `speechd` job.
+`agent [--tts] ask --image SOURCE QUESTION` combines image input with optional
+speech output. In chat, `/image SOURCE QUESTION` attaches an image to a turn.

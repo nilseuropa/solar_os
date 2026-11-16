@@ -795,7 +795,7 @@ Compact displays omit icons that do not fit before the clock and unread count.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `apps` | `apps` | List registered foreground apps compiled into the firmware. |
-| `agent` | `agent`; `agent new`; `agent ask PROMPT...` | Open a new native LLM agent TUI or make one unsaved foreground request. |
+| `agent` | `agent [--tts] [new\|ask [--image SOURCE] PROMPT...]` | Text/image questions and speech. [Guide](agent.md). |
 | `agent` | `agent list`; `agent resume SLOT`; `agent delete SLOT` | List, restore, or delete durable local conversation slots. |
 | `agent` | `agent status`; `agent tools` | Inspect provider state, request statistics, typed tools, risk, and policy. |
 | `agent` | `agent config endpoint\|model\|key\|reasoning\|tools\|max-tools VALUE` | Configure the provider and tool policy. |
