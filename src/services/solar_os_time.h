@@ -9,7 +9,9 @@
 #define SOLAR_OS_TIMEZONE_NAME_MAX 32
 #define SOLAR_OS_TIMEZONE_POSIX_MAX 80
 #define SOLAR_OS_NTP_DEFAULT_SERVER "pool.ntp.org"
-#define SOLAR_OS_NTP_DEFAULT_TIMEOUT_MS 15000U
+/* lwIP retries a lost SNTP exchange after 15 s, and its first request waits
+ * up to 5 s; the wait leaves room for that retry (tests/test_ntp_timeout.py). */
+#define SOLAR_OS_NTP_DEFAULT_TIMEOUT_MS 30000U
 
 typedef struct {
     uint16_t year;
