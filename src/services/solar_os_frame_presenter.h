@@ -38,6 +38,8 @@ typedef struct {
     uint8_t background_index;
     /* Native RGB565 value for letterboxing direct RGB565 frames. */
     uint16_t background_rgb565;
+    /* Fit and position against panel bounds, including a negative origin. */
+    bool fullscreen;
 } solar_os_frame_presenter_config_t;
 
 typedef struct {

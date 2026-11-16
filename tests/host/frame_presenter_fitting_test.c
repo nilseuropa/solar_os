@@ -30,12 +30,17 @@ static bool fail_allocation;
 static bool fail_task_creation;
 static bool rotate_during_present;
 static bool native_view;
+static bool fullscreen_test;
+static int signed_x,signed_y;
 static solar_os_display_raster_t captured;
 
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx)
 { assert(gfx); return display_width; }
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx)
 { assert(gfx); return display_height; }
+solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx)
+{ assert(gfx);return fullscreen_test ? (solar_os_display_rect_t){-60,-60,412,412} :
+    (solar_os_display_rect_t){0,0,display_width,display_height}; }
 bool solar_os_gfx_display_target_name(const solar_os_gfx_t *gfx, char *name, size_t size)
 { assert(gfx && size >= sizeof("display0")); strcpy(name, "display0"); return true; }
 bool solar_os_display_find_target(const char *name, solar_os_display_target_t *target)
@@ -59,6 +64,7 @@ esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display
         display_width = 240; display_height = 400;
         return ESP_ERR_NOT_SUPPORTED;
     }
+    assert(!fullscreen_test);
     assert((size_t)frame->x + frame->width <= display_width);
     assert((size_t)frame->y + frame->height <= display_height);
     if (frame->format == SOLAR_OS_DISPLAY_FORMAT_MONO1) {
@@ -66,6 +72,11 @@ esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display
     }
     captured = *frame;
     return ESP_OK;
+}
+esp_err_t solar_os_gfx_present_frame_at(solar_os_gfx_t *gfx,const solar_os_display_raster_t *frame,int x,int y)
+{
+    assert(gfx&&fullscreen_test&&x==-60&&y==-60&&frame->width==412&&frame->height==412);
+    signed_x=x;signed_y=y;captured=*frame;return ESP_OK;
 }
 
 static void *solar_os_memory_alloc(size_t size, int policy, const char *owner)
@@ -358,6 +369,14 @@ int main(void)
     assert(!captured.palette_inverted && captured.palette_rgb565 == NULL);
     assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
 
+    fullscreen_test=true;display_width=display_height=291;
+    panel_width=panel_height=412;display_formats=SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT;
+    config.width=config.height=412;config.stride=824;config.fullscreen=true;
+    p=NULL;assert(solar_os_frame_presenter_init(&p,&config)==ESP_OK);
+    assert(frame_present_current_output(p)==ESP_OK);
+    assert(captured.source_width==412&&captured.width==412&&signed_x==-60&&signed_y==-60);
+    assert(display_width==291&&display_height==291);
+    assert(solar_os_frame_presenter_deinit(p)==ESP_OK);
     puts("Presenter fits oversized source frames on mono and direct displays");
     return 0;
 }

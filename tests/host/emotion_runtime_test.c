@@ -35,6 +35,7 @@ typedef int portMUX_TYPE;
 #define portEXIT_CRITICAL(p) ((void)(p))
 typedef void *TaskHandle_t;
 typedef struct { const char *name; } solar_os_gfx_t;
+typedef struct { int x,y,width,height; } solar_os_display_rect_t;
 typedef uint32_t solar_os_gfx_color_t;
 typedef struct { uint16_t preferred_stream_fps, presentation_stack_bytes; uint32_t frame_formats; char owner[32]; } solar_os_display_target_t;
 typedef struct { bool alive; } solar_os_frame_presenter_t;
@@ -44,7 +45,7 @@ typedef struct {
     uint16_t width, height, stride, preferred_fps;
     const uint16_t *palette_rgb565;
     size_t palette_size;
-    bool allow_mono_fallback, literal_direct_palette, literal_mono_palette, clear_background_on_resume;
+    bool allow_mono_fallback, literal_direct_palette, literal_mono_palette, clear_background_on_resume, fullscreen;
     unsigned background_index;
 } solar_os_frame_presenter_config_t;
 typedef struct { esp_err_t last_error; } solar_os_frame_presenter_stats_t;
@@ -86,6 +87,8 @@ static bool solar_os_gfx_display_target_name(solar_os_gfx_t *g,char *out,size_t 
 { strlcpy(out,g->name,n);return true; }
 static unsigned solar_os_gfx_width(solar_os_gfx_t *g) {(void)g;return 128;}
 static unsigned solar_os_gfx_height(solar_os_gfx_t *g) {(void)g;return 64;}
+static solar_os_display_rect_t solar_os_gfx_panel_bounds(solar_os_gfx_t *g)
+{assert(g);return (solar_os_display_rect_t){-16,-8,160,80};}
 static unsigned solar_os_gfx_format(solar_os_gfx_t *g) {(void)g;return SOLAR_OS_DISPLAY_FORMAT_MONO1;}
 static bool solar_os_gfx_palette_inverted(solar_os_gfx_t *g) {(void)g;return true;}
 static bool solar_os_display_find_target(const char *name,solar_os_display_target_t *t)
@@ -112,7 +115,7 @@ static int solar_os_native_library_acquire(const char *name,unsigned abi,size_t 
 static int solar_os_native_library_release(uint32_t lease)
 {assert(lease==42&&leases);leases--;return 0;}
 static int solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,const solar_os_frame_presenter_config_t *c)
-{assert(c->width==128&&c->height==64&&c->literal_direct_palette&&c->literal_mono_palette);*out=calloc(1,sizeof(**out));return presenter_start_ok?0:ESP_ERR_NO_MEM;}
+{assert(c->width==(c->fullscreen?160:128)&&c->height==(c->fullscreen?80:64)&&c->literal_direct_palette&&c->literal_mono_palette);*out=calloc(1,sizeof(**out));return presenter_start_ok?0:ESP_ERR_NO_MEM;}
 static int solar_os_frame_presenter_suspend_checked(solar_os_frame_presenter_t *p)
 {return !p||present_stop_ok?0:ESP_ERR_TIMEOUT;}
 static int solar_os_frame_presenter_deinit(solar_os_frame_presenter_t *p)
@@ -200,6 +203,11 @@ static void test_terminal_colors(void)
 int main(void)
 {
     test_terminal_colors();
+    solar_os_emotion_options_t full={.display="oled0",.motion=1,.fullscreen=true};
+    solar_os_emotion_t *full_face=NULL;
+    assert(!solar_os_emotion_open(&full,NULL,&full_face,NULL,0));
+    assert(full_face->width==160&&full_face->height==80&&full_face->x==-16&&full_face->y==-8);
+    assert(!solar_os_emotion_close(&full_face));
     /* A software OLED target can advertise animation rates without a
      * hardware frame callback. Explicit reduced motion still caps at 2 fps. */
     software_target=true;

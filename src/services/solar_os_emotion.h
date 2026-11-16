@@ -12,6 +12,7 @@ typedef struct {
     bool sound;
     uint16_t fps;        /* 0 uses the target's rate, capped at 25. */
     int motion;          /* -1 automatic, 0 still poses, 1 animation. */
+    bool fullscreen;     /* Use the panel without changing the display canvas. */
 } solar_os_emotion_options_t;
 typedef struct {
     uint32_t frames, dropped, audio_skipped;

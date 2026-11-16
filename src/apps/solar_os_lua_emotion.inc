@@ -114,7 +114,7 @@ static int solua_emotion_face_status(lua_State *L)
 }
 static int solua_emotion_open(lua_State *L)
 {
-    if (lua_gettop(L) > 6) return luaL_error(L, "too many emotion arguments");
+    if (lua_gettop(L) > 7) return luaL_error(L, "too many emotion arguments");
     solar_os_emotion_options_t options = {.motion = -1};
     if (!lua_isnoneornil(L, 1)) options.display = solua_emotion_string(L, 1);
     options.sound = lua_toboolean(L, 2);
@@ -129,6 +129,7 @@ static int solua_emotion_open(lua_State *L)
     if (fps < 0 || fps > 30) return luaL_error(L, "fps must be 0..30");
     options.fps = fps;
     if (!lua_isnoneornil(L, 6)) options.motion = lua_toboolean(L, 6);
+    options.fullscreen = lua_toboolean(L, 7);
     char current[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
     if (solua.session_gfx) solar_os_gfx_display_target_name(solua.session_gfx, current, sizeof(current));
     bool foreground = *current && (!options.display || !strcmp(options.display, current));

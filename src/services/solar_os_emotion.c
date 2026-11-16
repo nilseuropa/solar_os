@@ -35,6 +35,7 @@ struct solar_os_emotion {
     bool claimed, registered, sound, motion, foreground, software;
     atomic_bool paused;
     uint16_t width, height, stride, fps, palette[4];
+    int16_t x, y;
     solar_os_gfx_color_t canvas_palette[4];
     uint8_t *pixels, *previous;
     bool have_frame;
@@ -153,7 +154,7 @@ static void worker(void *arg)
                     }
                     /* Row calls preserve INDEX2's padded stride on odd widths. */
                     for (unsigned y = 0; y < s->height; ++y)
-                        solar_os_gfx_bitmap_2bpp(s->gfx, 0, y, s->width, 1,
+                        solar_os_gfx_bitmap_2bpp(s->gfx, s->x, s->y + (int)y, s->width, 1,
                             s->pixels + (size_t)y * s->stride, s->stride, palette);
                     solar_os_gfx_present(s->gfx);
                     accepted = true;
@@ -305,7 +306,9 @@ esp_err_t solar_os_emotion_open(const solar_os_emotion_options_t *o,
         !s->api->blink || !s->api->render || !s->api->sound || !s->api->cue_duration_ms) {
         err = ESP_ERR_NOT_SUPPORTED; goto fail;
     }
-    s->width = solar_os_gfx_width(s->gfx); s->height = solar_os_gfx_height(s->gfx);
+    solar_os_display_rect_t bounds = o->fullscreen ? solar_os_gfx_panel_bounds(s->gfx) :
+        (solar_os_display_rect_t){0, 0, solar_os_gfx_width(s->gfx), solar_os_gfx_height(s->gfx)};
+    s->width = bounds.width; s->height = bounds.height; s->x = bounds.x; s->y = bounds.y;
     if (!s->width || !s->height || s->width > 2048 || s->height > 2048) {
         err = ESP_ERR_NOT_SUPPORTED; goto fail;
     }
@@ -346,6 +349,7 @@ esp_err_t solar_os_emotion_open(const solar_os_emotion_options_t *o,
         .palette_rgb565 = s->palette, .palette_size = 4, .preferred_fps = s->fps,
         .allow_mono_fallback = true, .literal_direct_palette = true, .literal_mono_palette = true,
         .clear_background_on_resume = true, .background_index = 0,
+        .fullscreen = o->fullscreen,
     };
     err = s->software ? ESP_OK : solar_os_frame_presenter_init(&s->presenter, &config);
     if (err != ESP_OK) goto fail;

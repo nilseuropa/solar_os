@@ -44,7 +44,7 @@ From a port shell or a headless script, supply a ready target returned by
 
 ## Display and lifetime
 
-`open(display=None, sound=False, fg=None, bg=None, fps=0, motion=None)` returns a
+`open(display=None, sound=False, fg=None, bg=None, fps=0, motion=None, fullscreen=False)` returns a
 face object. Python accepts positional or keyword arguments. Lua accepts the
 same arguments positionally; use `nil` for omitted optional values.
 
@@ -85,6 +85,9 @@ The equivalent Lua call is
 `solaros.emotion.open(nil, false, 0x00FFFF, 0x000000)`.
 
 Faces preserve their proportions and fit the target's oriented dimensions.
+`fullscreen=True` uses the full panel, including pixels outside a circular
+display's canvas, without changing the terminal canvas. Lua accepts this flag
+as the seventh positional argument. The default continues to fit the canvas.
 `fps=0` uses the target's preferred rate, capped at 25 frames per second. An
 explicit value accepts 1..30 and is capped by the same runtime and target
 limits. This is a submission limit, not a guarantee of physical refresh speed.
@@ -201,7 +204,7 @@ the installed `emotion` native library. `pkg available` lists catalog modules;
 `pkg install emotion` installs it when published. `display list` lists targets.
 
 ```text
-solaros.emotion.open(display=None, sound=False, fg=None, bg=None, fps=0, motion=None)
+solaros.emotion.open(display=None, sound=False, fg=None, bg=None, fps=0, motion=None, fullscreen=False)
 face.set(pose, transition_ms=200)
 face.react(pose, hold_ms=700, transition_ms=120, sound=None)
 face.look(x=0, y=0)

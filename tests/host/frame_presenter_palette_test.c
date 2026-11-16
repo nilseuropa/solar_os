@@ -14,10 +14,14 @@ struct solar_os_frame_presenter {
 };
 static bool inverted;
 static solar_os_display_raster_t captured;
+solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx)
+{ assert(gfx); return (solar_os_display_rect_t){-60,-60,412,412}; }
 bool solar_os_gfx_palette_inverted(const solar_os_gfx_t *gfx)
 { assert(gfx); return inverted; }
 esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame)
 { assert(gfx && frame); captured = *frame; return ESP_OK; }
+esp_err_t solar_os_gfx_present_frame_at(solar_os_gfx_t *gfx,const solar_os_display_raster_t *frame,int x,int y)
+{ assert(gfx&&frame&&x==-60&&y==-60);captured=*frame;return ESP_OK; }
 
 #include "frame_palette.inc"
 
