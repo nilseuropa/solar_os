@@ -1444,7 +1444,7 @@ static mp_obj_t solaros_time_sleep_ms(mp_obj_t duration_obj)
         vTaskDelay(slice > 0 ? slice : 1);
     }
     if (solar_os_micropython_stop_requested()) {
-        mp_raise_type(&mp_type_KeyboardInterrupt);
+        solar_os_micropython_check_interrupt();
     }
     return mp_const_none;
 }
@@ -2787,7 +2787,7 @@ static mp_obj_t solaros_midi_read(size_t n_args, const mp_obj_t *args)
             return mp_const_none;
         }
         if (solar_os_micropython_stop_requested()) {
-            mp_raise_type(&mp_type_KeyboardInterrupt);
+            solar_os_micropython_check_interrupt();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -7416,7 +7416,7 @@ static mp_obj_t solaros_input_read(size_t n_args, const mp_obj_t *args)
             return mp_const_none;
         }
         if (solar_os_micropython_stop_requested()) {
-            mp_raise_type(&mp_type_KeyboardInterrupt);
+            solar_os_micropython_check_interrupt();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -8772,8 +8772,8 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 
     int stack_top = 0;
     python_runner_control = &control;
-    python_app.vm_active = true;
     mp_embed_init(heap, PYTHON_HEAP_SIZE, &stack_top);
+    python_app.vm_active = true;
     python_register_solaros_module();
     python_setup_import_path(request->input_type == SOLAR_OS_SCRIPT_INPUT_FILE
                                  ? request->input
@@ -9000,8 +9000,8 @@ static void python_task(void *arg)
     }
 
     int stack_top = 0;
-    python_app.vm_active = true;
     mp_embed_init(heap, PYTHON_HEAP_SIZE, &stack_top);
+    python_app.vm_active = true;
     python_register_solaros_module();
     python_setup_import_path(python_app.mode == PYTHON_MODE_SCRIPT
                                  ? python_app.path
@@ -9010,7 +9010,7 @@ static void python_task(void *arg)
     python_setup_interactive_helpers();
 
     if (python_app.stop_requested) {
-        mp_sched_keyboard_interrupt();
+        solar_os_micropython_request_interrupt();
     } else if (python_app.mode == PYTHON_MODE_REPL) {
         success = python_run_repl();
     } else {
@@ -9467,11 +9467,13 @@ static void python_interrupt(void)
              python_app.vm_active,
              python_app.running,
              python_app.interrupted);
-    python_app.stop_requested = true;
     python_app.interrupted = true;
+    /* Publish stop after queueing the exception so a blocking API consumes
+     * that same interrupt instead of unwinding before it has been queued. */
     if (python_app.vm_active) {
-        mp_sched_keyboard_interrupt();
+        solar_os_micropython_request_interrupt();
     }
+    python_app.stop_requested = true;
 }
 
 static bool python_task_stopped(void *user)
