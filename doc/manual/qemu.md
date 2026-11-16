@@ -25,9 +25,7 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 | esptool | 5.4.0 |
 | Host | Windows 11 |
 
-Use QEMU 20261109 or newer. The 20260417 build, which ESP-IDF's tool list
-installs, crashes at octal PSRAM init. Linux and macOS builds of the same QEMU
-release exist; the commands below have not been run on them.
+Use QEMU 20261109 or newer.
 
 ## Get QEMU
 
