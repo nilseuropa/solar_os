@@ -29,15 +29,23 @@ Use QEMU 20261109 or newer.
 
 ## Build the image
 
-From the root of your SolarOS checkout:
+From the root of your SolarOS checkout, build the firmware. This takes a while:
 
 ```
 pio run -e qemu_esp32s3_rgb
+```
+
+Once it finishes without errors, change into the build folder and pad the image
+to 16 MB, because QEMU loads it as the board's flash chip and needs the chip's
+full size:
+
+```
 cd .pio/build/qemu_esp32s3_rgb
 esptool --chip esp32s3 merge-bin --pad-to-size 16MB -o flash_image.bin 0x0 firmware.factory.bin
 ```
 
-Use `qemu_esp32s3` in both places for the headless board. PlatformIO installs
+For the headless board, write `qemu_esp32s3` in place of `qemu_esp32s3_rgb` in
+the `pio run` and `cd` lines. PlatformIO installs
 esptool in its own Python environment (`penv`); call it from there.
 
 ## Launch
