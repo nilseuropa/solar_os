@@ -27,13 +27,6 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 
 Use QEMU 20261109 or newer.
 
-## Get QEMU
-
-Download the `qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-<host>.tar.xz`
-archive for your host from
-<https://github.com/espressif/qemu/releases/tag/esp-develop-9.2.2-20261109>
-and unpack it. The program is `qemu/bin/qemu-system-xtensa`.
-
 ## Build the image
 
 From the root of your SolarOS checkout:
