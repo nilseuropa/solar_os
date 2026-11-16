@@ -157,6 +157,83 @@ class ZooInstallTest(unittest.TestCase):
         self.publish()
         self.assertNotEqual(self.run_native("source-change")["error"], 0)
 
+    def test_installed_inventory_survives_missing_cache_and_network(self):
+        self.publish()
+        self.assertEqual(self.run_native()["error"], 0)
+        (self.storage / "dl/zoo/catalog.json").unlink()
+        (self.server / "catalog.json").unlink()
+        result = self.run_native("offline")
+        self.assertEqual(result["error"], 0)
+        self.assertEqual(result["count"], 1)
+        self.assertTrue(result["installed"])
+        self.assertTrue(result["local_only"])
+        self.assertEqual(result["target"], "esp32s3")
+
+    def test_source_change_and_catalog_removal_preserve_installed_inventory(self):
+        self.publish()
+        self.assertEqual(self.run_native()["error"], 0)
+        result = self.run_native("source-change")
+        self.assertEqual(result["error"], 0)
+        self.assertTrue(result["installed"])
+        self.assertTrue(result["local_only"])
+        old_id = self.bundle["id"]
+        self.bundle["id"] = self.metadata["id"] = "another-model"
+        self.publish()
+        result = self.run_native("refresh-only")
+        self.assertEqual(result["count"], 2)
+        self.bundle["id"] = self.metadata["id"] = old_id
+
+    def test_remove_offline_then_reinstall(self):
+        self.publish()
+        self.assertEqual(self.run_native()["error"], 0)
+        cache = self.storage / "dl/zoo/catalog.json"
+        cache.unlink()
+        result = self.run_native("remove")
+        self.assertEqual(result["error"], 0)
+        self.assertEqual(result["count"], 0)
+        self.assertFalse(self.installation.exists())
+        self.assertEqual(self.run_native()["error"], 0)
+        self.assertTrue(self.installation.exists())
+
+    def test_failed_cancelled_or_loaded_removal_preserves_installation(self):
+        self.publish()
+        self.assertEqual(self.run_native()["error"], 0)
+        for mode in ("remove-failure", "remove-cancel", "remove-loaded"):
+            with self.subTest(mode=mode):
+                result = self.run_native(mode)
+                self.assertNotEqual(result["error"], 0)
+                self.assertTrue(result["installed"])
+                self.assertEqual((self.installation / self.bundle["model"]["file"]).read_bytes(), self.data)
+
+    def test_invalid_receipts_manifests_and_symlinks_are_not_managed(self):
+        self.publish()
+        self.assertEqual(self.run_native()["error"], 0)
+        receipt = self.installation / ".zoo-receipt"
+        original = receipt.read_bytes()
+        receipt.write_bytes(b"f" * 64)
+        self.assertFalse(self.run_native("offline")["installed"])
+        self.assertNotEqual(self.run_native("remove")["error"], 0)
+        receipt.write_bytes(original)
+        outside = self.root / "outside"
+        self.installation.rename(outside)
+        self.installation.symlink_to(outside, target_is_directory=True)
+        self.assertFalse(self.run_native("offline")["installed"])
+        self.assertNotEqual(self.run_native("remove")["error"], 0)
+        self.assertTrue((outside / "bundle.json").exists())
+
+    def test_himax_download_is_storage_only_and_catalog_v2_keeps_espdl(self):
+        self.publish(mutate_catalog=lambda c: c.update(schema=2))
+        self.assertEqual(self.run_native()["error"], 0)
+        self.bundle["runtime"] = {"backend": "himax", "version": "sscma-v0", "target": "hx6538"}
+        self.metadata["schema"] = self.bundle["schema"] = 2
+        self.publish(mutate_catalog=lambda c: (c.update(schema=2), c["models"][0].update(packages=["driver_himax_hx6538", "service_pipeline"])))
+        result = self.run_native()
+        self.assertEqual(result["error"], 0)
+        self.assertTrue(result["installed"])
+        self.assertTrue(result["downloadable"])
+        self.assertFalse(result["compatible"])
+        self.assertEqual(result["target"], "hx6538")
+
     def test_catalog_backup_is_recovered_after_interrupted_swap(self):
         self.publish()
         self.assertEqual(self.run_native("refresh-only")["error"], 0)

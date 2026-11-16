@@ -24,6 +24,8 @@ static const char *mount_root, *server, *mode;
 static char custom_source[320];
 static volatile bool cancel;
 static size_t allocations;
+esp_err_t solar_os_inference_find(const char *path, uint32_t *handle)
+{ (void)path; (void)handle; return !strcmp(mode, "remove-loaded") ? ESP_OK : ESP_ERR_NOT_FOUND; }
 void *solar_os_memory_alloc(size_t n, solar_os_memory_class_t c, const char *tag)
 { (void)c; (void)tag; void *p = malloc(n); if (p) ++allocations; return p; }
 void *solar_os_memory_calloc(size_t n, size_t size, solar_os_memory_class_t c, const char *tag)
@@ -64,7 +66,8 @@ esp_err_t solar_os_storage_replace_file(const char *new_path,const char *active,
 { unlink(backup); bool old=!rename(active,backup); if(rename(new_path,active)){if(old)rename(backup,active);return ESP_FAIL;} unlink(backup);return 0; }
 int __real_rename(const char *, const char *);
 int __wrap_rename(const char *a, const char *b)
-{ if(!strcmp(mode,"swap-failure")&&strstr(a,".stage")){errno=EIO;return -1;}return __real_rename(a,b); }
+{ if((!strcmp(mode,"swap-failure")&&strstr(a,".stage")) ||
+     (!strcmp(mode,"remove-failure")&&strstr(b,"/.trash/"))){errno=EIO;return -1;}return __real_rename(a,b); }
 size_t __real_fwrite(const void *, size_t, size_t, FILE *);
 size_t __wrap_fwrite(const void *data, size_t size, size_t count, FILE *file)
 {
@@ -141,10 +144,16 @@ int main(int argc,char **argv)
     assert(argc==4);mount_root=argv[1];server=argv[2];mode=argv[3];
     solar_os_zoo_t *z=NULL; assert(!solar_os_zoo_open(&z));
     esp_err_t cached=solar_os_zoo_reload(z);
-    esp_err_t error=solar_os_zoo_refresh(z,&cancel,NULL,NULL);
+    esp_err_t error=cached;
+    bool offline = !strncmp(mode, "offline", 7) || !strncmp(mode, "remove", 6);
+    if (!offline) error=solar_os_zoo_refresh(z,&cancel,NULL,NULL);
+    if (!strcmp(mode,"remove-cancel")) cancel = true;
+    if (!strncmp(mode,"remove",6)) error=solar_os_zoo_remove(z,0,&cancel,NULL,NULL);
     if(!error&&!strcmp(mode,"source-change")) {solar_os_zoo_set_source("https://other.example/catalog.json");solar_os_zoo_close(z);assert(!solar_os_zoo_open(&z));error=solar_os_zoo_reload(z);}
-    else if(!error&&strcmp(mode,"refresh-only")) error=solar_os_zoo_install(z,0,&cancel,NULL,NULL);
+    else if(!offline&&!error&&strcmp(mode,"refresh-only")) error=solar_os_zoo_install(z,0,&cancel,NULL,NULL);
     size_t count=solar_os_zoo_count(z);bool installed=count&&solar_os_zoo_installed(z,0);
-    printf("{\"error\":%d,\"cached\":%d,\"count\":%zu,\"installed\":%s}\n",error,cached,count,installed?"true":"false");
+    solar_os_zoo_model_t info = {0}; if (count) assert(solar_os_zoo_get(z,0,&info));
+    printf("{\"error\":%d,\"cached\":%d,\"count\":%zu,\"installed\":%s,\"local_only\":%s,\"compatible\":%s,\"downloadable\":%s,\"target\":\"%s\"}\n",
+        error,cached,count,installed?"true":"false",info.local_only?"true":"false",info.compatible?"true":"false",info.downloadable?"true":"false",info.target);
     solar_os_zoo_close(z);assert(!allocations);return 0;
 }

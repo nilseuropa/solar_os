@@ -1794,7 +1794,7 @@ static const char * const playground_target_values[] = {"auto", "flash", "sd"};
 static const char * const playground_storage_values[] = {"flash", "sd"};
 #endif
 #if SOLAR_OS_PACKAGE_APP_ZOO
-static const char * const zoo_subcommands[] = {"refresh", "source", "storage", "install"};
+static const char * const zoo_subcommands[] = {"refresh", "source", "storage", "installed", "install", "remove"};
 static const char * const zoo_source_values[] = {"reset"};
 static const char * const zoo_storage_values[] = {"sd", "flash"};
 #endif

@@ -14,6 +14,7 @@
 
 #define ZOO_STACK 16384U
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(ZOO_STACK);
+typedef enum { ZOO_REFRESH, ZOO_INSTALL, ZOO_REMOVE } zoo_operation_t;
 typedef struct {
     solar_os_tui_t tui;
     solar_os_context_t *ctx;
@@ -22,7 +23,10 @@ typedef struct {
     solar_os_tui_viewport_t detail_view;
     solar_os_tui_input_state_t input;
     char query[48], status[128];
-    bool active, details, searching, busy, refreshing, command;
+    bool active, details, searching, busy, command, folder, installed_only, confirming;
+    char backend[32], target[64];
+    zoo_operation_t operation;
+    uint16_t folder_indices[SOLAR_OS_ZOO_MODELS_MAX * 2];
     size_t selected;
     volatile bool cancel, done;
     TaskHandle_t task;
@@ -30,7 +34,7 @@ typedef struct {
     solar_os_zoo_progress_t progress, drawn;
     /* UI callbacks run on the caller's stack, including the main display task.
      * Keep catalog records and detail formatting in transient PSRAM state. */
-    solar_os_zoo_model_t model;
+    solar_os_zoo_model_t model, other;
     char identity[224], sizes[128], result_text[96], memory[128];
     char path[SOLAR_OS_STORAGE_PATH_MAX], detail_text[256];
 } zoo_app_t;
@@ -48,13 +52,34 @@ static bool contains(const char *text, const char *query)
     }
     return false;
 }
+static bool accepts(size_t index, const solar_os_zoo_model_t *model)
+{
+    return (!app.installed_only || solar_os_zoo_installed(app.zoo, index)) &&
+        (contains(model->name, app.query) || contains(model->id, app.query) ||
+         contains(model->tasks, app.query) || contains(model->modalities, app.query) || contains(model->summary, app.query));
+}
 static size_t matches(size_t wanted, size_t *actual)
 {
     size_t count = 0; solar_os_zoo_model_t *model = &app.model;
     for (size_t i = 0; i < solar_os_zoo_count(app.zoo); ++i) {
         if (!solar_os_zoo_get(app.zoo, i, model)) continue;
-        if (!contains(model->name, app.query) && !contains(model->id, app.query) &&
-            !contains(model->tasks, app.query) && !contains(model->modalities, app.query) && !contains(model->summary, app.query)) continue;
+        if (strcmp(model->backend, app.backend) || strcmp(model->target, app.target) || !accepts(i, model)) continue;
+        if (count == wanted && actual) *actual = i;
+        ++count;
+    }
+    return count;
+}
+static size_t folders(size_t wanted, size_t *actual)
+{
+    size_t count = 0;
+    for (size_t i = 0; i < solar_os_zoo_count(app.zoo); ++i) {
+        if (!solar_os_zoo_get(app.zoo, i, &app.model) || !accepts(i, &app.model)) continue;
+        bool seen = false;
+        for (size_t j = 0; j < count && !seen; ++j)
+            if (solar_os_zoo_get(app.zoo, app.folder_indices[j], &app.other) &&
+                !strcmp(app.model.backend, app.other.backend) && !strcmp(app.model.target, app.other.target)) seen = true;
+        if (seen) continue;
+        app.folder_indices[count] = i;
         if (count == wanted && actual) *actual = i;
         ++count;
     }
@@ -66,7 +91,8 @@ static size_t detail_lines(const solar_os_zoo_model_t *model, size_t index, size
 {
     bool installed = solar_os_zoo_installed(app.zoo, index);
     snprintf(app.identity, sizeof(app.identity), "%s %s", model->id, model->version);
-    snprintf(app.sizes, sizeof(app.sizes), "%.1f MiB download / %.1f MiB installed; %s", model->archive_bytes/1048576.0, model->unpacked_bytes/1048576.0, model->license);
+    if (model->local_only) snprintf(app.sizes, sizeof(app.sizes), "Local bundle; %s", model->license);
+    else snprintf(app.sizes, sizeof(app.sizes), "%.1f MiB download / %.1f MiB installed; %s", model->archive_bytes/1048576.0, model->unpacked_bytes/1048576.0, model->license);
     snprintf(app.result_text, sizeof(app.result_text), "Result: %s; %s", model->result, installed ? "installed" : "not installed");
     if (model->memory_known) snprintf(app.memory, sizeof(app.memory), "Required free memory: %lu SRAM / %lu PSRAM bytes",
         (unsigned long)model->min_internal_bytes, (unsigned long)model->min_psram_bytes);
@@ -97,18 +123,23 @@ static void render(void)
     size_t rows = solar_os_tui_rows(&app.tui), cols = solar_os_tui_cols(&app.tui);
     solar_os_tui_clear(&app.tui);
     if (rows < 6 || cols < 20) { solar_os_tui_draw_too_small(&app.tui, "Zoo"); solar_os_tui_refresh(&app.tui); return; }
-    char text[256]; snprintf(text, sizeof(text), "Zoo /%s", app.query);
-    solar_os_tui_draw_title(&app.tui, text, solar_os_zoo_storage());
+    char text[256]; snprintf(text, sizeof(text), "Zoo%s%s%s%s%s", app.folder ? " / " : "", app.folder ? app.target : "",
+        *app.query ? " / " : "", app.query, app.installed_only ? " [installed]" : "");
+    solar_os_tui_draw_title(&app.tui, text, app.folder ? app.backend : solar_os_zoo_storage());
     if (app.busy) {
         solar_os_zoo_progress_t p;
         portENTER_CRITICAL(&zoo_lock); p = app.progress; portEXIT_CRITICAL(&zoo_lock);
         solar_os_tui_progress_bar(&app.tui, 2, 0, cols, p.stage, p.bytes, p.total, p.total > 0);
         line(3, app.cancel ? "Cancelling..." : "Working; c cancels", false);
         app.drawn = p;
+    } else if (app.confirming) {
+        solar_os_zoo_get(app.zoo, app.selected, &app.model);
+        snprintf(text, sizeof(text), "Remove %s %s?", app.model.id, app.model.version);
+        line(1, text, false); line(2, "Remove stored bundle? y / n", true);
     } else {
-        size_t index = 0, count = matches(app.view.cursor, &index);
+        size_t index = 0, count = app.folder ? matches(app.view.cursor, &index) : folders(app.view.cursor, &index);
         solar_os_tui_viewport_reconcile(&app.view, count, rows - 4);
-        matches(app.view.cursor, &index);
+        if (app.folder) matches(app.view.cursor, &index); else folders(app.view.cursor, &index);
         if (app.details && count) {
             solar_os_zoo_get(app.zoo, index, &app.model);
             size_t lines = detail_lines(&app.model, index, 0, false), visible = rows - 3;
@@ -116,8 +147,10 @@ static void render(void)
             detail_lines(&app.model, index, app.detail_view.cursor, true);
         } else {
             for (size_t row = 1, pos = app.view.top; row < rows - 3 && pos < count; ++row, ++pos) {
-                matches(pos, &index); solar_os_zoo_get(app.zoo, index, &app.model);
-                snprintf(text, sizeof(text), "%c %s", !app.model.compatible ? '!' : solar_os_zoo_installed(app.zoo, index) ? '*' : ' ', app.model.name);
+                if (app.folder) matches(pos, &index); else folders(pos, &index);
+                solar_os_zoo_get(app.zoo, index, &app.model);
+                if (app.folder) snprintf(text, sizeof(text), "%c %s", solar_os_zoo_installed(app.zoo, index) ? '*' : !app.model.compatible ? '!' : ' ', app.model.name);
+                else snprintf(text, sizeof(text), "/ %s (%s)", app.model.target, app.model.backend);
                 line(row, text, pos == app.view.cursor);
             }
             if (!count) line(2, "No models. Press r to refresh.", false);
@@ -126,8 +159,8 @@ static void render(void)
     if (app.searching) solar_os_tui_draw_input(&app.tui, rows - 3, 0, cols, "Search: ", app.query, &app.input, 0);
     if (!solar_os_tui_screen_fullscreen(&app.tui)) line(rows - 2, app.status, false);
     solar_os_tui_draw_footer(&app.tui, solar_os_tui_screen_fullscreen(&app.tui) ? app.status : NULL,
-        app.busy ? "c cancel | Ctrl+] exit" : app.details ?
-        "Arrows scroll | d download | Alt+S search | q back" : "Enter details | d download | Alt+S search | r refresh | q back");
+        app.busy ? "c cancel | Ctrl+] exit" : app.confirming ? "y remove | n cancel" : app.folder ?
+        "Enter details | d download | x remove | i installed | q back" : "Enter target | i installed | Alt+S search | r refresh | q exit");
     solar_os_tui_set_cursor_visible(&app.tui, app.searching);
     solar_os_tui_refresh(&app.tui);
 }
@@ -136,17 +169,18 @@ static void progress(const solar_os_zoo_progress_t *p, void *user)
 static void worker(void *user)
 {
     zoo_app_t *s = user;
-    esp_err_t error = s->refreshing ? solar_os_zoo_refresh(s->zoo, &s->cancel, progress, s) :
+    esp_err_t error = s->operation == ZOO_REFRESH ? solar_os_zoo_refresh(s->zoo, &s->cancel, progress, s) :
+        s->operation == ZOO_REMOVE ? solar_os_zoo_remove(s->zoo, s->selected, &s->cancel, progress, s) :
         solar_os_zoo_install(s->zoo, s->selected, &s->cancel, progress, s);
     portENTER_CRITICAL(&zoo_lock); s->result = error; s->done = true; portEXIT_CRITICAL(&zoo_lock);
     solar_os_task_delete_internal(NULL);
 }
-static void begin(bool refresh, size_t index)
+static void begin(zoo_operation_t operation, size_t index)
 {
     if (app.busy) return;
-    app.refreshing = refresh; app.selected = index; app.done = false; app.cancel = false; app.busy = true;
+    app.operation = operation; app.confirming = false; app.selected = index; app.done = false; app.cancel = false; app.busy = true;
     memset(&app.progress, 0, sizeof(app.progress));
-    strlcpy(app.progress.stage, refresh ? "catalog" : "download", sizeof(app.progress.stage));
+    strlcpy(app.progress.stage, operation == ZOO_REFRESH ? "catalog" : operation == ZOO_REMOVE ? "remove" : "download", sizeof(app.progress.stage));
     if (solar_os_task_create_pinned_internal(worker, "zoo", ZOO_STACK, &app, tskIDLE_PRIORITY + 2,
         &app.task, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
         app.busy = false; app.done = true; app.result = ESP_ERR_NO_MEM;
@@ -175,21 +209,30 @@ static esp_err_t start(solar_os_context_t *ctx)
     if (error) { solar_os_shell_io_printf(io, "zoo: storage unavailable: %s\n", esp_err_to_name(error)); solar_os_context_finish(ctx, 1, NULL); return ESP_OK; }
     error = solar_os_zoo_reload(app.zoo);
     if (error) snprintf(app.status, sizeof(app.status), "No cached catalog (%s); r refresh", esp_err_to_name(error));
-    if (cmd && !strcmp(cmd, "install") && argc == 4) {
+    if (cmd && !strcmp(cmd, "installed") && argc == 2) {
+        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
+        for (size_t i = 0; i < solar_os_zoo_count(app.zoo); ++i) if (solar_os_zoo_installed(app.zoo, i)) {
+            solar_os_zoo_get(app.zoo, i, &app.model);
+            solar_os_zoo_bundle_path(app.zoo, i, app.path, sizeof(app.path));
+            solar_os_shell_io_printf(io, "%s %s [%s/%s] %s\n", app.model.id, app.model.version, app.model.backend, app.model.target, app.path);
+        }
+        solar_os_context_finish(ctx, error ? 1 : 0, NULL); return ESP_OK;
+    }
+    if (cmd && (!strcmp(cmd, "install") || !strcmp(cmd, "remove")) && argc == 4) {
         solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND); app.command = true;
         for (size_t i = 0; i < solar_os_zoo_count(app.zoo); ++i) {
             solar_os_zoo_get(app.zoo, i, &app.model);
             if (!strcmp(app.model.id, solar_os_context_argv(ctx, 2)) && !strcmp(app.model.version, solar_os_context_argv(ctx, 3))) {
-                begin(false, i); return ESP_OK;
+                begin(!strcmp(cmd, "remove") ? ZOO_REMOVE : ZOO_INSTALL, i); return ESP_OK;
             }
         }
         solar_os_shell_io_writeln(io, "zoo: model/version not found; refresh the catalog"); solar_os_context_finish(ctx, 1, NULL); return ESP_OK;
     }
-    if (cmd && (strcmp(cmd, "refresh") || argc != 2)) { solar_os_shell_io_writeln(io, "usage: zoo [refresh|source [URL|reset]|storage [sd|flash]|install ID VERSION]"); solar_os_context_finish(ctx, 2, NULL); return ESP_OK; }
+    if (cmd && (strcmp(cmd, "refresh") || argc != 2)) { solar_os_shell_io_writeln(io, "usage: zoo [refresh|source [URL|reset]|storage [sd|flash]|installed|install ID VERSION|remove ID VERSION]"); solar_os_context_finish(ctx, 2, NULL); return ESP_OK; }
     error = solar_os_tui_screen_begin(&app.tui, ctx);
     if (error) { solar_os_context_finish(ctx, 1, "zoo: terminal is not TUI capable"); return ESP_OK; }
     app.active = true;
-    if (cmd || !solar_os_zoo_count(app.zoo)) begin(true, 0);
+    if (cmd) begin(ZOO_REFRESH, 0);
     render(); return ESP_OK;
 }
 static void resume(solar_os_context_t *ctx) { app.ctx = ctx; render(); }
@@ -211,8 +254,9 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
         portEXIT_CRITICAL(&zoo_lock);
         if (app.busy && done) {
             app.busy = false; app.task = NULL;
-            snprintf(app.status, sizeof(app.status), "%s", result ? app.cancel ? "cancelled" : esp_err_to_name(result) : app.refreshing ? "catalog refreshed" : "installed; load with model bundle PATH");
-            if (app.refreshing && !result) { app.view.cursor = app.view.top = 0; app.details = false; }
+            snprintf(app.status, sizeof(app.status), "%s", result ? app.cancel ? "cancelled" : esp_err_to_name(result) :
+                app.operation == ZOO_REFRESH ? "catalog refreshed" : app.operation == ZOO_REMOVE ? "stored bundle removed" : "bundle installed on storage");
+            if (!result && app.operation != ZOO_INSTALL) { app.view.cursor = app.view.top = 0; app.details = false; }
             if (app.command) { solar_os_shell_io_writeln(solar_os_context_shell_io(ctx), app.status); solar_os_context_finish(ctx, result ? 1 : 0, NULL); }
             redraw = true;
         } else if (app.busy && (strcmp(p.stage, app.drawn.stage) || p.bytes/16384 != app.drawn.bytes/16384)) redraw = true;
@@ -236,6 +280,11 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (ch == '\r') ch = SOLAR_OS_KEY_ENTER;
     if (ch == SOLAR_OS_KEY_APP_EXIT) { app.cancel = true; solar_os_context_finish(ctx, 0, NULL); return true; }
     if (app.busy) { if (ch == 'c' || ch == SOLAR_OS_KEY_ESCAPE) { app.cancel = true; render(); } return true; }
+    if (app.confirming) {
+        if (ch == 'y' || ch == 'Y') begin(ZOO_REMOVE, app.selected);
+        else if (ch == 'n' || ch == 'N' || ch == SOLAR_OS_KEY_ESCAPE || ch == 'q') app.confirming = false;
+        render(); return true;
+    }
     solar_os_tui_screen_key_action_t screen_key = solar_os_tui_screen_key(&app.tui, ch);
     if (screen_key == SOLAR_OS_TUI_SCREEN_KEY_TOGGLED) { render(); return true; }
     if (screen_key == SOLAR_OS_TUI_SCREEN_KEY_CONSUMED) return true;
@@ -249,11 +298,24 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
         if (action == SOLAR_OS_TUI_INPUT_CANCEL || action == SOLAR_OS_TUI_INPUT_SUBMIT) app.searching = false;
         app.view.cursor = app.view.top = 0; render(); return true;
     }
-    size_t index = 0, count = matches(app.view.cursor, &index);
-    if (ch == 'q' || ch == SOLAR_OS_KEY_ESCAPE) { if (app.details) app.details = false; else solar_os_context_finish(ctx, 0, NULL); }
-    else if (ch == 'r') begin(true, 0);
-    else if (ch == 'd' && count) begin(false, index);
-    else if ((ch == SOLAR_OS_KEY_ENTER || ch == '\r') && count) { app.details = !app.details; memset(&app.detail_view, 0, sizeof(app.detail_view)); }
+    size_t index = 0, count = app.folder ? matches(app.view.cursor, &index) : folders(app.view.cursor, &index);
+    if (ch == 'q' || ch == SOLAR_OS_KEY_ESCAPE) {
+        if (app.details) app.details = false;
+        else if (app.folder) { app.folder = false; app.view.cursor = app.view.top = 0; }
+        else solar_os_context_finish(ctx, 0, NULL);
+    }
+    else if (ch == 'r') begin(ZOO_REFRESH, 0);
+    else if (ch == 'i') { app.installed_only = !app.installed_only; app.details = false; app.view.cursor = app.view.top = 0; }
+    else if (ch == 'd' && count && app.folder) begin(ZOO_INSTALL, index);
+    else if (ch == 'x' && count && app.folder && solar_os_zoo_installed(app.zoo, index)) { app.selected = index; app.confirming = true; }
+    else if (ch == SOLAR_OS_KEY_ENTER && count) {
+        if (!app.folder) {
+            solar_os_zoo_get(app.zoo, index, &app.model);
+            strlcpy(app.backend, app.model.backend, sizeof(app.backend)); strlcpy(app.target, app.model.target, sizeof(app.target));
+            app.folder = true; app.view.cursor = app.view.top = 0;
+        } else app.details = !app.details;
+        memset(&app.detail_view, 0, sizeof(app.detail_view));
+    }
     else if (app.details && count) {
         solar_os_zoo_get(app.zoo, index, &app.model);
         size_t lines = detail_lines(&app.model, index, 0, false), rows = solar_os_tui_rows(&app.tui);

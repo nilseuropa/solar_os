@@ -2385,7 +2385,8 @@ Controls:
 
 Browse the hosted model zoo and install complete model bundles on mounted SD
 or flash storage. The text interface works on the display and VT100 port shells.
-It requires the Zoo package, ESP32-S3, PSRAM, and networking.
+It requires the Zoo package, ESP32-S3, and PSRAM. Networking is needed to refresh
+the catalog or download a bundle; browsing and removing installed bundles work offline.
 
 ```text
 zoo
@@ -2393,21 +2394,36 @@ zoo refresh
 zoo source [HTTPS-CATALOG-URL|reset]
 zoo storage [sd|flash]
 zoo install ID VERSION
+zoo installed
+zoo remove ID VERSION
 ```
 
-The default source is `https://solar-os.eu/zoo/catalog.json`. The first launch
-fetches it; later launches use the cached catalog. `r` refreshes the cache.
-Up/Down and Page Up/Page Down select entries, Enter opens details, Alt+S searches,
-and `d` downloads the selected version. Arrows and page keys scroll long details.
+The default source is `https://solar-os.eu/zoo/catalog-v2.json`. Zoo opens immediately
+using its cached catalog and installed inventory. Press `r` or run `zoo refresh`
+to fetch the catalog, including on first use. Models are grouped into folders by
+execution target and backend, such as `esp32s3 (espdl)` and `hx6538 (himax)`.
+Explicit source preferences are preserved; use `zoo source reset` to switch an
+older saved source to the current default. The legacy `catalog.json` endpoint
+continues to serve ESP-DL entries for older clients.
+Up/Down and Page Up/Page Down select entries, Enter opens a folder or details,
+Alt+S searches, and `d` downloads the selected version. `i` toggles installed models
+only. `x` removes the selected stored bundle after confirmation; `zoo remove ID VERSION`
+removes it directly. Unload resident ESP-DL models before removing their bundles.
+Arrows and page keys scroll long details.
 `*` marks an installed bundle and `!`
 marks an incompatible entry. `c` or Esc cancels a running operation. `q` or Esc returns
-from details or exits the browser; the app-exit key exits from either view.
+from details to the model list, then to target folders, then exits the browser;
+the app-exit key exits from any view.
 
 Source and storage preferences persist. Without an explicit storage preference,
 Zoo uses mounted SD, then flash. Files are stored under `dl/zoo/` on that volume;
 each installed bundle is in `models/ID/VERSION/`. Downloads are streamed to storage,
 checked against archive, manifest, model, and asset hashes, and installed through
 a staged directory swap. Interrupted downloads preserve the previous installation.
+The installed inventory is rebuilt from local manifests and installation receipts.
+It remains available if the cached catalog is missing, a repository removes a model,
+or the configured source changes. `zoo installed` lists installed versions and paths
+without contacting the repository.
 
 The browser shows task, modality, result adapter, license, validation status, and
 reported free-memory requirements. Runtime compatibility is not a
@@ -2415,7 +2431,10 @@ device inference test, and unreported memory remains unknown. The device accepts
 catalogs up to 512 KiB and 256 entries; larger catalogs fail without replacing the
 cache. Installation also needs enough storage for the ZIP and extracted files.
 
-Installation does not load a model. Use the displayed `bundle.json` path with
+Installation downloads a bundle to storage. Himax downloads do not program or
+select an accelerator model; the accelerator model-management path is separate.
+Removing a bundle never erases a model from accelerator flash.
+For ESP-DL, use the displayed `bundle.json` path with
 `model bundle PATH` or the native, Python, or Lua inference APIs. Loaded models
 remain resident until explicitly unloaded or the device reboots. See
 [Model bundles](model-bundles.md) for inputs, results, and execution, and

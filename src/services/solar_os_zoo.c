@@ -18,6 +18,9 @@
 #include "solar_os_download.h"
 #include "solar_os_http_client.h"
 #include "solar_os_inference_types_v1.h"
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+#include "solar_os_inference.h"
+#endif
 #include "solar_os_json.h"
 #include "solar_os_memory.h"
 #include "solar_os_zip.h"
@@ -37,6 +40,9 @@ struct solar_os_zoo {
     char source[SOLAR_OS_ZOO_SOURCE_MAX], root[SOLAR_OS_STORAGE_PATH_MAX];
     solar_os_json_doc_t *doc;
     const cJSON *catalog;
+    cJSON *installed;
+    struct { const cJSON *entry, *installed; } records[SOLAR_OS_ZOO_MODELS_MAX * 2];
+    size_t count, remote_count;
 };
 static const cJSON *get(const cJSON *o, const char *key) { return cJSON_GetObjectItemCaseSensitive(o, key); }
 static const char *str(const cJSON *o) { return cJSON_IsString(o) ? o->valuestring : NULL; }
@@ -127,15 +133,36 @@ static esp_err_t parse(const uint8_t *data, size_t size, solar_os_json_doc_t **o
     }
     return error;
 }
-static const cJSON *entry(const solar_os_zoo_t *z, size_t index)
-{ return cJSON_GetArrayItem(get(z->catalog, "models"), index); }
 static const cJSON *metadata(const cJSON *e) { return get(e, "metadata"); }
+static bool same_model(const cJSON *a, const cJSON *b)
+{ return eq(get(metadata(a), "id"), str(get(metadata(b), "id"))) &&
+    eq(get(metadata(a), "version"), str(get(metadata(b), "version"))); }
+static const cJSON *local_entry(const solar_os_zoo_t *z, const cJSON *e)
+{ const cJSON *p; cJSON_ArrayForEach(p, z->installed) if (same_model(p, e)) return p; return NULL; }
+static bool listed(const solar_os_zoo_t *z, const cJSON *e)
+{ const cJSON *p; cJSON_ArrayForEach(p, get(z->catalog, "models")) if (same_model(p, e)) return true; return false; }
+static void index_entries(solar_os_zoo_t *z)
+{
+    z->count = 0;
+    const cJSON *p;
+    cJSON_ArrayForEach(p, get(z->catalog, "models")) {
+        z->records[z->count].entry = p;
+        z->records[z->count++].installed = local_entry(z, p);
+    }
+    z->remote_count = z->count;
+    cJSON_ArrayForEach(p, z->installed) if (!listed(z, p)) {
+        z->records[z->count].entry = p;
+        z->records[z->count++].installed = p;
+    }
+}
+static const cJSON *entry(const solar_os_zoo_t *z, size_t index)
+{ return z && index < z->count ? z->records[index].entry : NULL; }
 static bool catalog_valid(const cJSON *root)
 {
     const cJSON *models = get(root, "models");
     uint32_t schema, bytes;
     int count = cJSON_GetArraySize(models);
-    if (!number(get(root, "schema"), 1, &schema) || schema != 1 || !cJSON_IsArray(models) ||
+    if (!number(get(root, "schema"), 2, &schema) || !schema || !cJSON_IsArray(models) ||
         count < 1 || (unsigned)count > SOLAR_OS_ZOO_MODELS_MAX) return false;
     const cJSON *e, *prior;
     cJSON_ArrayForEach(e, models) {
@@ -149,6 +176,9 @@ static bool catalog_valid(const cJSON *root)
             !number(get(a, "bytes"), ZOO_FILE_MAX, &bytes) || !bytes ||
             !number(get(a, "unpacked_bytes"), ZOO_FILE_MAX, &bytes) || !bytes ||
             !cJSON_IsObject(get(e, "runtime")) || !cJSON_IsObject(get(e, "inputs")) ||
+            !plain_string(get(get(e, "runtime"), "backend"), 31) ||
+            !plain_string(get(get(e, "runtime"), "target"), 63) ||
+            !plain_string(get(get(e, "runtime"), "version"), 63) ||
             !cJSON_IsObject(get(e, "outputs")) || !cJSON_IsObject(get(m, "requirements")) ||
             !cJSON_IsArray(get(e, "packages")) || !cJSON_IsBool(get(e, "psram")) ||
             !plain_string(get(get(e, "license"), "id"), 63) ||
@@ -227,6 +257,76 @@ static esp_err_t hash_file(const char *path, const char *expected, const volatil
         if (!error && !solar_os_crypto_sha256_matches_hex(digest, expected)) error = ESP_ERR_INVALID_CRC; }
     solar_os_crypto_sha256_free(&sha); solar_os_memory_free(buffer); fclose(file); return error;
 }
+static bool path_type(const char *path, bool directory)
+{
+    struct stat st;
+#ifdef ESP_PLATFORM
+    if (stat(path, &st)) return false; /* Managed volumes do not support symlinks. */
+#else
+    if (lstat(path, &st)) return false;
+#endif
+    return directory ? S_ISDIR(st.st_mode) : S_ISREG(st.st_mode);
+}
+/* The on-disk manifests and receipt are the installed inventory. No network or
+ * cached repository is needed, including for bundles installed by older builds. */
+static cJSON *read_installed(const char *folder, const char *id, const char *version)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX], receipt[66] = {0};
+    solar_os_json_doc_t *manifest = NULL, *sidecar = NULL;
+    if (!path_type(folder, true) || solar_os_storage_join_path(folder, ".zoo-receipt", path, sizeof(path)) ||
+        !path_type(path, false)) return NULL;
+    FILE *file = fopen(path, "rb"); if (!file) return NULL;
+    size_t n = fread(receipt, 1, sizeof(receipt) - 1, file); fclose(file);
+    if (n != 64 || !solar_os_crypto_sha256_hex_is_valid(receipt) ||
+        solar_os_storage_join_path(folder, "bundle.json", path, sizeof(path)) || !path_type(path, false) ||
+        read_doc(path, 65536, &manifest)) return NULL;
+    const cJSON *b = solar_os_json_root(manifest);
+    bool valid = eq(get(b, "id"), id) && eq(get(b, "version"), version) &&
+        plain_string(get(get(b, "runtime"), "backend"), 31) &&
+        plain_string(get(get(b, "runtime"), "target"), 63) &&
+        plain_string(get(get(b, "runtime"), "version"), 63) &&
+        plain_string(get(get(b, "license"), "id"), 63) &&
+        plain_string(get(get(b, "result"), "type"), 31) && !hash_file(path, receipt, NULL);
+    if (valid) valid = !solar_os_storage_join_path(folder, "zoo.json", path, sizeof(path)) &&
+        path_type(path, false) && !read_doc(path, 65536, &sidecar);
+    const cJSON *m = solar_os_json_root(sidecar);
+    if (valid) valid = eq(get(m, "id"), id) && eq(get(m, "version"), version) &&
+        plain_string(get(m, "name"), 120) && plain_string(get(m, "summary"), 1024) &&
+        tags(get(m, "tasks")) && tags(get(m, "modalities")) && cJSON_IsObject(get(m, "requirements"));
+    cJSON *e = valid ? cJSON_CreateObject() : NULL;
+    const char *fields[] = {"runtime", "inputs", "outputs", "result", "license"};
+    for (size_t i = 0; e && i < sizeof(fields)/sizeof(fields[0]); ++i)
+        if (!cJSON_AddItemToObject(e, fields[i], cJSON_Duplicate(get(b, fields[i]), true))) { cJSON_Delete(e); e = NULL; }
+    if (e && (!cJSON_AddItemToObject(e, "metadata", cJSON_Duplicate(m, true)) ||
+        !cJSON_AddStringToObject(e, "bundle_sha256", receipt) || !cJSON_AddStringToObject(e, "status", "declared"))) {
+        cJSON_Delete(e); e = NULL;
+    }
+    solar_os_json_free(sidecar); solar_os_json_free(manifest); return e;
+}
+static esp_err_t scan_installed(solar_os_zoo_t *z)
+{
+    char root[SOLAR_OS_STORAGE_PATH_MAX];
+    if (solar_os_storage_join_path(z->root, "models", root, sizeof(root))) return ESP_ERR_INVALID_SIZE;
+    cJSON *items = cJSON_CreateArray(); if (!items) return ESP_ERR_NO_MEM;
+    DIR *models = path_type(root, true) ? opendir(root) : NULL;
+    struct dirent *id, *version; unsigned count = 0;
+    while (models && count < SOLAR_OS_ZOO_MODELS_MAX && (id = readdir(models))) {
+        if (!identity(id->d_name)) continue;
+        char parent[SOLAR_OS_STORAGE_PATH_MAX];
+        if (solar_os_storage_join_path(root, id->d_name, parent, sizeof(parent)) || !path_type(parent, true)) continue;
+        DIR *versions = opendir(parent); if (!versions) continue;
+        while (count < SOLAR_OS_ZOO_MODELS_MAX && (version = readdir(versions))) {
+            if (!identity(version->d_name)) continue;
+            char folder[SOLAR_OS_STORAGE_PATH_MAX];
+            if (solar_os_storage_join_path(parent, version->d_name, folder, sizeof(folder))) continue;
+            cJSON *e = read_installed(folder, id->d_name, version->d_name);
+            if (e) { cJSON_AddItemToArray(items, e); ++count; }
+        }
+        closedir(versions);
+    }
+    if (models) closedir(models);
+    cJSON_Delete(z->installed); z->installed = items; index_entries(z); return ESP_OK;
+}
 typedef struct {
     solar_os_zoo_progress_fn fn;
     void *user;
@@ -281,6 +381,8 @@ esp_err_t solar_os_zoo_open(solar_os_zoo_t **out)
 {
     if (!out) return ESP_ERR_INVALID_ARG;
     *out = NULL;
+    esp_err_t initialized = solar_os_json_init();
+    if (initialized) return initialized;
     solar_os_zoo_t *z = solar_os_memory_calloc(1, sizeof(*z), SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "zoo");
     if (!z) return ESP_ERR_NO_MEM;
     solar_os_zoo_get_source(z->source, sizeof(z->source));
@@ -294,7 +396,7 @@ esp_err_t solar_os_zoo_open(solar_os_zoo_t **out)
     if (error) { solar_os_zoo_close(z); return error; }
     *out = z; return ESP_OK;
 }
-void solar_os_zoo_close(solar_os_zoo_t *z) { if (z) { solar_os_json_free(z->doc); solar_os_memory_free(z); } }
+void solar_os_zoo_close(solar_os_zoo_t *z) { if (z) { cJSON_Delete(z->installed); solar_os_json_free(z->doc); solar_os_memory_free(z); } }
 const char *solar_os_zoo_source(const solar_os_zoo_t *z) { return z->source; }
 const char *solar_os_zoo_root(const solar_os_zoo_t *z) { return z->root; }
 static esp_err_t cache_path(const solar_os_zoo_t *z, const char *name, char path[SOLAR_OS_STORAGE_PATH_MAX])
@@ -313,7 +415,9 @@ static esp_err_t reload(solar_os_zoo_t *z)
     if (!error && !catalog_valid(catalog)) error = ESP_ERR_INVALID_RESPONSE;
     if (error) solar_os_json_free(doc);
     else { solar_os_json_free(z->doc); z->doc = doc; z->catalog = catalog; }
-    return error;
+    esp_err_t inventory = scan_installed(z);
+    if (inventory) index_entries(z);
+    return inventory ? inventory : error && !cJSON_GetArraySize(z->installed) ? error : ESP_OK;
 }
 static esp_err_t refresh(solar_os_zoo_t *z, const volatile bool *cancel, solar_os_zoo_progress_fn fn, void *user)
 {
@@ -335,10 +439,10 @@ static esp_err_t refresh(solar_os_zoo_t *z, const volatile bool *cancel, solar_o
     }
     unlink(temp);
     if (error) solar_os_json_free(doc);
-    else { solar_os_json_free(z->doc); z->doc = doc; z->catalog = solar_os_json_root(doc); }
+    else { solar_os_json_free(z->doc); z->doc = doc; z->catalog = solar_os_json_root(doc); index_entries(z); }
     return error;
 }
-size_t solar_os_zoo_count(const solar_os_zoo_t *z) { return z ? cJSON_GetArraySize(get(z->catalog, "models")) : 0; }
+size_t solar_os_zoo_count(const solar_os_zoo_t *z) { return z ? z->count : 0; }
 static void join_tags(const cJSON *array, char *out, size_t size)
 {
     out[0] = 0; const cJSON *item;
@@ -364,26 +468,44 @@ bool solar_os_zoo_get(const solar_os_zoo_t *z, size_t index, solar_os_zoo_model_
     strlcpy(model->result, str(get(get(e, "result"), "type")), sizeof(model->result));
     strlcpy(model->license, str(get(get(e, "license"), "id")), sizeof(model->license));
     strlcpy(model->validation, str(get(e, "status")), sizeof(model->validation));
+    strlcpy(model->backend, str(get(r, "backend")), sizeof(model->backend));
+    strlcpy(model->target, str(get(r, "target")), sizeof(model->target));
+    model->local_only = index >= z->remote_count;
     join_tags(get(m, "tasks"), model->tasks, sizeof(model->tasks)); join_tags(get(m, "modalities"), model->modalities, sizeof(model->modalities));
     number(get(a, "bytes"), ZOO_FILE_MAX, &model->archive_bytes); number(get(a, "unpacked_bytes"), ZOO_FILE_MAX, &model->unpacked_bytes);
     model->compatible = eq(get(r, "backend"), "espdl") && eq(get(r, "version"), SOLAR_OS_INFERENCE_BACKEND_VERSION) && eq(get(r, "target"), "esp32s3");
+    model->downloadable = model->compatible;
+#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538 && SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+    if (eq(get(r, "backend"), "himax") && eq(get(r, "version"), "sscma-v0") && eq(get(r, "target"), "hx6538"))
+        model->downloadable = true;
+#endif
     if (!model->compatible) strlcpy(model->reason, "runtime or target mismatch", sizeof(model->reason));
     const cJSON *package;
     cJSON_ArrayForEach(package, get(e, "packages")) {
-        bool available = eq(package, "service_inference");
+        bool available = false;
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+        available |= eq(package, "service_inference");
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
         available |= eq(package, "service_image");
 #endif
-        if (!available) { model->compatible = false; strlcpy(model->reason, "required package is unavailable", sizeof(model->reason)); }
+#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
+        available |= eq(package, "driver_himax_hx6538");
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+        available |= eq(package, "service_pipeline");
+#endif
+        if (!available) { model->compatible = model->downloadable = false; strlcpy(model->reason, "required package is unavailable", sizeof(model->reason)); }
     }
     if (get(requirements, "min_solaros_version") && !version_minimum(str(get(requirements, "min_solaros_version")))) {
-        model->compatible = false; strlcpy(model->reason, "newer SolarOS required", sizeof(model->reason));
+        model->compatible = model->downloadable = false; strlcpy(model->reason, "newer SolarOS required", sizeof(model->reason));
     }
     model->memory_known = number(get(requirements, "min_free_internal_bytes"), UINT32_MAX, &model->min_internal_bytes) &&
         number(get(requirements, "min_free_psram_bytes"), UINT32_MAX, &model->min_psram_bytes);
     if (model->compatible) strlcpy(model->reason, model->memory_known ? "memory requirements declared" : "memory requirements unmeasured", sizeof(model->reason));
+    else if (model->downloadable) strlcpy(model->reason, "download only; accelerator model upload is not available", sizeof(model->reason));
     if (strlen(z->root) + strlen(model->id) + strlen(model->version) + 26 >= SOLAR_OS_STORAGE_PATH_MAX) {
-        model->compatible = false; strlcpy(model->reason, "installation path exceeds device limit", sizeof(model->reason));
+        model->compatible = model->downloadable = false; strlcpy(model->reason, "installation path exceeds device limit", sizeof(model->reason));
     }
     return true;
 }
@@ -398,11 +520,7 @@ esp_err_t solar_os_zoo_bundle_path(const solar_os_zoo_t *z, size_t i, char *out,
 { char path[SOLAR_OS_STORAGE_PATH_MAX]; esp_err_t e = model_path(z, i, path, sizeof(path)); return e ? e : solar_os_storage_join_path(path, "bundle.json", out, size); }
 bool solar_os_zoo_installed(const solar_os_zoo_t *z, size_t i)
 {
-    char path[SOLAR_OS_STORAGE_PATH_MAX], receipt[SOLAR_OS_STORAGE_PATH_MAX], value[66];
-    if (model_path(z, i, path, sizeof(path)) || solar_os_storage_join_path(path, ".zoo-receipt", receipt, sizeof(receipt))) return false;
-    FILE *file = fopen(receipt, "rb"); if (!file) return false;
-    size_t n = fread(value, 1, sizeof(value), file); fclose(file);
-    return n == 64 && !memcmp(value, str(get(entry(z, i), "bundle_sha256")), 64);
+    return z && i < z->count && z->records[i].installed;
 }
 typedef struct { char names[35][SOLAR_OS_STORAGE_PATH_MAX]; uint64_t seen, bytes; size_t count; esp_err_t error; } members_t;
 static bool add_member(members_t *m, const char *name)
@@ -430,7 +548,7 @@ static esp_err_t install(solar_os_zoo_t *z, size_t i, const volatile bool *cance
 {
     solar_os_zoo_model_t model;
     if (!solar_os_zoo_get(z, i, &model)) return ESP_ERR_NOT_FOUND;
-    if (!model.compatible) return ESP_ERR_NOT_SUPPORTED;
+    if (!model.downloadable || model.local_only) return ESP_ERR_NOT_SUPPORTED;
     char final[SOLAR_OS_STORAGE_PATH_MAX], stage[SOLAR_OS_STORAGE_PATH_MAX], backup[SOLAR_OS_STORAGE_PATH_MAX];
     char archive[SOLAR_OS_STORAGE_PATH_MAX], url[640], path[SOLAR_OS_STORAGE_PATH_MAX];
     if (model_path(z, i, final, sizeof(final)) || solar_os_storage_sibling_path(final, ".stage", stage, sizeof(stage)) ||
@@ -519,5 +637,45 @@ esp_err_t solar_os_zoo_install(solar_os_zoo_t *z, size_t i, const volatile bool 
 {
     if (!z) return ESP_ERR_INVALID_ARG;
     if (!transaction_begin()) return ESP_ERR_INVALID_STATE;
-    esp_err_t error = install(z, i, cancel, fn, user); transaction_end(); return error;
+    esp_err_t error = install(z, i, cancel, fn, user);
+    esp_err_t inventory = scan_installed(z);
+    transaction_end(); return error ? error : inventory;
+}
+esp_err_t solar_os_zoo_remove(solar_os_zoo_t *z, size_t i, const volatile bool *cancel, solar_os_zoo_progress_fn fn, void *user)
+{
+    if (!z) return ESP_ERR_INVALID_ARG;
+    if (!transaction_begin()) return ESP_ERR_INVALID_STATE;
+    char folder[SOLAR_OS_STORAGE_PATH_MAX], trash[SOLAR_OS_STORAGE_PATH_MAX], path[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t error = model_path(z, i, folder, sizeof(folder));
+    const cJSON *m = metadata(entry(z, i));
+    if (!error) {
+        char parent[SOLAR_OS_STORAGE_PATH_MAX];
+        error = cache_path(z, "models", parent);
+        if (!error && !path_type(parent, true)) error = ESP_ERR_NOT_FOUND;
+        if (!error) error = solar_os_storage_join_path(parent, str(get(m, "id")), path, sizeof(path));
+        if (!error && !path_type(path, true)) error = ESP_ERR_NOT_FOUND;
+    }
+    cJSON *verified = error ? NULL : read_installed(folder, str(get(m, "id")), str(get(m, "version")));
+    if (!verified && !error) error = ESP_ERR_NOT_FOUND;
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+    uint32_t handle;
+    if (!error) error = solar_os_zoo_bundle_path(z, i, path, sizeof(path));
+    if (!error) {
+        esp_err_t found = solar_os_inference_find(path, &handle);
+        if (found != ESP_ERR_NOT_FOUND) error = found ? found : ESP_ERR_INVALID_STATE;
+    }
+#endif
+    if (!error && cancelled(cancel)) error = ESP_ERR_TIMEOUT;
+    if (!error) error = cache_path(z, ".trash", trash);
+    if (!error) error = solar_os_storage_makedirs(trash, true);
+    if (!error && !path_type(trash, true)) error = ESP_ERR_INVALID_STATE;
+    if (!error) error = solar_os_storage_join_path(trash, str(get(verified, "bundle_sha256")), path, sizeof(path));
+    if (!error) error = remove_tree(path);
+    if (!error && rename(folder, path)) error = ESP_FAIL;
+    /* Once detached, finish reclaiming without cancellation. A failed reclaim
+     * leaves only .trash data, never a partially installed model. */
+    if (!error) { report(fn, user, "remove", 0, 0); error = remove_tree(path); }
+    cJSON_Delete(verified);
+    esp_err_t inventory = scan_installed(z);
+    transaction_end(); return error ? error : inventory;
 }
