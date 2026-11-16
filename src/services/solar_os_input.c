@@ -1,7 +1,6 @@
 #include "solar_os_input.h"
 #include "solar_os_input_route.h"
 
-#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "nvs.h"
+#include "solar_os_keyboard_layouts_generated.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 
@@ -55,14 +55,6 @@ typedef struct {
     uint32_t pressed_ms, tap_ms;
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
 } input_touch_state_t;
-
-#define INPUT_LATIN1_A_UMLAUT_UPPER ((uint8_t)0xc4)
-#define INPUT_LATIN1_O_UMLAUT_UPPER ((uint8_t)0xd6)
-#define INPUT_LATIN1_U_UMLAUT_UPPER ((uint8_t)0xdc)
-#define INPUT_LATIN1_SHARP_S ((uint8_t)0xdf)
-#define INPUT_LATIN1_A_UMLAUT_LOWER ((uint8_t)0xe4)
-#define INPUT_LATIN1_O_UMLAUT_LOWER ((uint8_t)0xf6)
-#define INPUT_LATIN1_U_UMLAUT_LOWER ((uint8_t)0xfc)
 
 typedef struct {
     uint32_t key_events;
@@ -253,6 +245,15 @@ static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
 };
+
+/* Layout indexes are stored in NVS and must match the generated table order. */
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_US == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_DE == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_COUNT ==
+                   sizeof(input_keyboard_layout_names) / sizeof(input_keyboard_layout_names[0]),
+               "keyboard layout table count");
 
 static const char *const input_source_class_names[] = {
     [SOLAR_OS_INPUT_SOURCE_OTHER] = "other",
@@ -2963,103 +2964,55 @@ bool solar_os_input_parse_key_chord(const char *text,
     return true;
 }
 
-static uint8_t input_shifted_digit(uint16_t usage)
+/* Key events carry ASCII or Latin-1 letters from U+00C0; 0x80-0xbf are
+ * SolarOS key codes, so other characters cannot be sent as a key. */
+static bool input_key_event_char(uint16_t codepoint)
 {
-    static const uint8_t shifted[] = {'!', '@', '#', '$', '%', '^', '&', '*', '(', ')'};
-    return shifted[usage - 0x1eU];
+    return (codepoint >= 0x20U && codepoint < 0x7fU) ||
+        (codepoint >= 0xc0U && codepoint <= 0xffU);
 }
 
-static uint8_t input_unshifted_digit(uint16_t usage)
+static const solar_os_keyboard_layout_key_t *input_layout_key(
+    const solar_os_keyboard_layout_t *table, uint16_t usage)
 {
-    return usage == 0x27U ? '0' : (uint8_t)('1' + usage - 0x1eU);
+    for (uint8_t i = 0; i < table->key_count; i++) {
+        if (table->keys[i].usage == usage) {
+            return &table->keys[i];
+        }
+    }
+    return NULL;
 }
 
-static uint8_t input_usage_to_us(uint16_t usage, bool shift, bool caps_lock)
+static uint8_t input_usage_to_layout_char(uint16_t usage,
+                                          uint8_t modifiers,
+                                          bool caps_lock,
+                                          solar_os_input_keyboard_layout_t layout)
 {
-    if (usage >= 0x04U && usage <= 0x1dU) {
-        const bool upper = shift ^ caps_lock;
-        return (uint8_t)((upper ? 'A' : 'a') + usage - 0x04U);
-    }
-    if (usage >= 0x1eU && usage <= 0x27U) {
-        return shift ? input_shifted_digit(usage) : input_unshifted_digit(usage);
-    }
-    switch (usage) {
-    case 0x28: return '\n';
-    case 0x29: return SOLAR_OS_KEY_ESCAPE;
-    case 0x2a: return '\b';
-    case 0x2b: return '\t';
-    case 0x2c: return ' ';
-    case 0x2d: return shift ? '_' : '-';
-    case 0x2e: return shift ? '+' : '=';
-    case 0x2f: return shift ? '{' : '[';
-    case 0x30: return shift ? '}' : ']';
-    case 0x31: return shift ? '|' : '\\';
-    case 0x32: return shift ? '~' : '#';
-    case 0x33: return shift ? ':' : ';';
-    case 0x34: return shift ? '"' : '\'';
-    case 0x35: return shift ? '~' : '`';
-    case 0x36: return shift ? '<' : ',';
-    case 0x37: return shift ? '>' : '.';
-    case 0x38: return shift ? '?' : '/';
-    default: return 0;
-    }
-}
-
-static uint8_t input_usage_to_de(uint16_t usage,
-                                 uint8_t modifiers,
-                                 bool caps_lock)
-{
+    const solar_os_keyboard_layout_t *table =
+        &solar_os_keyboard_layouts[(size_t)layout < SOLAR_OS_KEYBOARD_LAYOUT_COUNT ?
+                                   (size_t)layout : 0U];
     const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
-    const bool altgr = (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
-    if (altgr) {
-        switch (usage) {
-        case 0x28: return SOLAR_OS_KEY_ENTER;
-        case 0x2b: return '\t';
-        case 0x14: return '@';
-        case 0x24: return '{';
-        case 0x25: return '[';
-        case 0x26: return ']';
-        case 0x27: return '}';
-        case 0x2d: return '\\';
-        case 0x30: return '~';
-        case 0x64: return '|';
-        default: return 0;
-        }
-    }
-    if (usage >= 0x04U && usage <= 0x1dU) {
-        uint8_t base = (uint8_t)('a' + usage - 0x04U);
-        if (base == 'y') {
-            base = 'z';
-        } else if (base == 'z') {
-            base = 'y';
-        }
-        return (shift ^ caps_lock) ? (uint8_t)toupper(base) : base;
-    }
-    if (usage >= 0x1eU && usage <= 0x27U) {
-        static const uint8_t shifted[] = {'!', '"', '#', '$', '%', '&', '/', '(', ')', '='};
-        return shift ? shifted[usage - 0x1eU] : input_unshifted_digit(usage);
-    }
+    const bool altgr = table->altgr && (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
     switch (usage) {
-    case 0x28: return '\n';
-    case 0x29: return SOLAR_OS_KEY_ESCAPE;
-    case 0x2a: return '\b';
+    case 0x28: return altgr ? SOLAR_OS_KEY_ENTER : '\n';
+    case 0x29: return altgr ? 0 : SOLAR_OS_KEY_ESCAPE;
+    case 0x2a: return altgr ? 0 : '\b';
     case 0x2b: return '\t';
-    case 0x2c: return ' ';
-    case 0x2d: return shift ? '?' : INPUT_LATIN1_SHARP_S;
-    case 0x2e: return shift ? '`' : 0;
-    case 0x2f: return shift ? INPUT_LATIN1_U_UMLAUT_UPPER : INPUT_LATIN1_U_UMLAUT_LOWER;
-    case 0x30: return shift ? '*' : '+';
-    case 0x31:
-    case 0x32: return shift ? '\'' : '#';
-    case 0x33: return shift ? INPUT_LATIN1_O_UMLAUT_UPPER : INPUT_LATIN1_O_UMLAUT_LOWER;
-    case 0x34: return shift ? INPUT_LATIN1_A_UMLAUT_UPPER : INPUT_LATIN1_A_UMLAUT_LOWER;
-    case 0x35: return shift ? 0 : '^';
-    case 0x36: return shift ? ';' : ',';
-    case 0x37: return shift ? ':' : '.';
-    case 0x38: return shift ? '_' : '-';
-    case 0x64: return shift ? '>' : '<';
-    default: return 0;
+    default: break;
     }
+    const solar_os_keyboard_layout_key_t *key = input_layout_key(table, usage);
+    if (key == NULL) {
+        return 0;
+    }
+    const unsigned level = (shift ? SOLAR_OS_KEYBOARD_LAYOUT_LEVEL_SHIFT : 0U) +
+        (altgr ? SOLAR_OS_KEYBOARD_LAYOUT_LEVEL_ALTGR : 0U);
+    /* A Caps Lock result that cannot be a key event (such as capital sharp s)
+     * falls back to the character without Caps Lock. */
+    if (caps_lock &&
+        input_key_event_char(key->chars[SOLAR_OS_KEYBOARD_LAYOUT_CAPS + level])) {
+        return (uint8_t)key->chars[SOLAR_OS_KEYBOARD_LAYOUT_CAPS + level];
+    }
+    return input_key_event_char(key->chars[level]) ? (uint8_t)key->chars[level] : 0;
 }
 
 static uint8_t input_usage_to_function_key(uint16_t usage)
@@ -3180,12 +3133,7 @@ uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
     if (key != 0) {
         return key;
     }
-    if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
-        return input_usage_to_de(usage, modifiers, caps_lock);
-    }
-    return input_usage_to_us(usage,
-                             (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0,
-                             caps_lock);
+    return input_usage_to_layout_char(usage, modifiers, caps_lock, layout);
 }
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms)

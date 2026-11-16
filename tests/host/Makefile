@@ -11,6 +11,8 @@ MANUAL_GENERATED_DIR := generated/solar_os
 MANUAL_GENERATED_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_manual_data.h
 KEYMAP_GENERATED_HEADERS := $(addprefix $(MANUAL_GENERATED_DIR)/,solar_os_tca8418_keymap_generated.h solar_os_inputronic_keymap_generated.h solar_os_pager_keymap_generated.h)
 KEYMAP_INPUTS := $(wildcard $(ROOT)/keymaps/profiles/*.json) $(ROOT)/scripts/generate_keymaps.py $(ROOT)/scripts/solaros_keymap.py $(ROOT)/scripts/solaros_keymap_build.py
+KEYBOARD_LAYOUTS_HEADER := $(MANUAL_GENERATED_DIR)/solar_os_keyboard_layouts_generated.h
+KEYBOARD_LAYOUT_INPUTS := $(wildcard $(ROOT)/keymaps/layouts/*.json) $(ROOT)/scripts/compile_keyboard_layouts.py $(ROOT)/scripts/generate_keyboard_layouts.py $(ROOT)/src/services/solar_os_keyboard_layout.h
 
 .PHONY: all test clean
 
@@ -38,8 +40,8 @@ cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(R
 	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
-usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h usb_leonardo_fixture.h
-	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
+usb_hid_input_test: usb_hid_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h usb_leonardo_fixture.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
 		usb_hid_input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c \
 		$(ROOT)/src/services/solar_os_input.c $(USB_HID_CODEC_SOURCES) \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
@@ -100,7 +102,7 @@ can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/servic
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ican_stubs -Iepd_stubs -Iexpansion_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
-TARGETS += input_action_match_test gesture_completion_test touch_gesture_test
+TARGETS += input_action_match_test gesture_completion_test touch_gesture_test keyboard_layout_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1680_test ssd1680_expansion_test
 TARGETS += gc9a01_expansion_test
@@ -899,8 +901,8 @@ keys_test: keys_test.c $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		keys_test.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_test touch_gesture_test input_route_test: %: %.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
-	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+input_test touch_gesture_test input_route_test keyboard_layout_test: %: %.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_keys.h $(ROOT)/include/solar_os_key_codes.h $(ROOT)/src/services/solar_os_memory.h esp_timer.h nvs.h freertos/FreeRTOS.h
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services \
 		$< $(ROOT)/src/services/solar_os_input.c \
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
@@ -955,8 +957,8 @@ ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/servi
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		ble_keyboard_scan_policy_test.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.c -o $@
 
-ps2_keyboard_job_test: ps2_keyboard_job_test.c input_test.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
-	$(CC) $(CFLAGS) -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services \
+ps2_keyboard_job_test: ps2_keyboard_job_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/jobs -I$(ROOT)/src/services \
 		ps2_keyboard_job_test.c $(ROOT)/src/jobs/solar_os_ps2_keyboard_job.c \
 		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
@@ -974,6 +976,9 @@ cardkb_codec_test: cardkb_codec_test.c $(ROOT)/src/services/solar_os_cardkb_code
 
 $(KEYMAP_GENERATED_HEADERS) &: $(KEYMAP_INPUTS)
 	python3 $(ROOT)/scripts/generate_keymaps.py --output-dir $(MANUAL_GENERATED_DIR)
+
+$(KEYBOARD_LAYOUTS_HEADER): $(KEYBOARD_LAYOUT_INPUTS)
+	python3 $(ROOT)/scripts/compile_keyboard_layouts.py --output $@
 
 inputronic_keyboard_test matrix_keyboard_test: $(KEYMAP_GENERATED_HEADERS)
 
@@ -1508,6 +1513,7 @@ test: $(TARGETS)
 	./usb_service_vbus_test
 	./cdc_lifecycle_test
 	./touch_gesture_test
+	./keyboard_layout_test
 	./unistroke_test
 	./graffiti_test
 	./board_caps_test

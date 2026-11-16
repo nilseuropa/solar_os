@@ -5,6 +5,8 @@ import tempfile
 import tomllib
 import unittest
 
+from tests.test_keyboard_layouts import write_keyboard_layouts
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -33,6 +35,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 '#define SOLAR_OS_BOARD_BUTTONS { '
                 '{.pin=4, .key=SOLAR_OS_KEY_UP, .active_low=true}, '
                 '{.pin=5, .key=SOLAR_OS_KEY_ENTER, .emit_on_release=true} }\n')
+            write_keyboard_layouts(tmp)
             binary = Path(tmp, "buttons")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -73,6 +76,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 ''.join(f'#define {name} {defines[name]}\n' for name in (
                     "SOLAR_OS_BOARD_BUTTONS", "SOLAR_OS_BOARD_INPUT_CHORDS",
                     "SOLAR_OS_BOARD_TDECK_KEYMAP")))
+            write_keyboard_layouts(tmp)
             binary = Path(tmp, "trackball")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -99,6 +103,7 @@ class ForegroundPresenterTest(unittest.TestCase):
             Path(tmp, "cl32_publish.inc").write_text(production_functions(
                 (ROOT / "src/services/solar_os_cl32_core.c").read_text(),
                 ("publish_wire_event",)))
+            write_keyboard_layouts(tmp)
             binary = Path(tmp, "focus")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",

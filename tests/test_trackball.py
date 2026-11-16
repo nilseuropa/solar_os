@@ -4,6 +4,8 @@ import tempfile
 import tomllib
 import unittest
 
+from tests.test_keyboard_layouts import write_keyboard_layouts
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -16,6 +18,7 @@ class TrackballTest(unittest.TestCase):
                 '#include "solar_os_input_composition.h"\n'
                 '#define SOLAR_OS_BOARD_INPUT_CHORDS ' +
                 board["defines"]["SOLAR_OS_BOARD_INPUT_CHORDS"] + '\n')
+            write_keyboard_layouts(tmp)
             binary = Path(tmp, "trackball")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
