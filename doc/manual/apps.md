@@ -2405,15 +2405,18 @@ execution target and backend, such as `esp32s3 (espdl)` and `hx6538 (himax)`.
 Explicit source preferences are preserved; use `zoo source reset` to switch an
 older saved source to the current default. The legacy `catalog.json` endpoint
 continues to serve ESP-DL entries for older clients.
-Up/Down and Page Up/Page Down select entries, Enter opens a folder or details,
-Alt+S searches, and `d` downloads the selected version. `i` toggles installed models
-only. `x` removes the selected stored bundle after confirmation; `zoo remove ID VERSION`
-removes it directly. Unload resident ESP-DL models before removing their bundles.
-Arrows and page keys scroll long details.
-`*` marks an installed bundle and `!`
-marks an incompatible entry. `c` or Esc cancels a running operation. `q` or Esc returns
-from details to the model list, then to target folders, then exits the browser;
-the app-exit key exits from any view.
+The browser uses the same expandable tree and dialogs as `pkg`. Up/Down and
+Page Up/Page Down select entries; Enter toggles a target folder or opens model
+details. Right expands a folder or opens details. Left selects the parent folder,
+collapses a selected folder, or returns from details. `/` or Alt+S searches, and
+`t` toggles installed models only. `i` installs the selected version and `u` removes
+its stored bundle; both ask for confirmation. The older `d` download and `x` remove
+shortcuts also work. `zoo remove ID VERSION` removes a bundle directly. Unload
+resident ESP-DL models before removing their bundles. Arrows and page keys scroll
+long details. `[I]` marks an installed bundle and `[!]` marks an incompatible entry.
+Esc or `c` cancels a running operation. Enter or Esc closes the result dialog.
+`q` or Esc returns from details to the tree, then exits; the app-exit key exits
+from any view. Alt+Enter toggles fullscreen, which uses all available content rows.
 
 Source and storage preferences persist. Without an explicit storage preference,
 Zoo uses mounted SD, then flash. Files are stored under `dl/zoo/` on that volume;
