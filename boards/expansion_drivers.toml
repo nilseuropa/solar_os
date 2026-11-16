@@ -21,6 +21,20 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
+[drivers.uart-keyboard]
+keyboard = true
+summary = "Terminal keyboard on a UART"
+package = "expansion_uart_keyboard"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_uart"]
+default_name = "keyboard0"
+
+[[drivers.uart-keyboard.bindings]]
+key = "uart"
+kind = "uart_port"
+hint = "bus"
+required = true
+
 [drivers.inputronic-keyboard]
 keyboard = true
 summary = "Soldered Inputronic 8x10 keyboard"
@@ -2328,6 +2342,24 @@ kind = "gpio"
 hint = "gpio25"
 required = true
 allowed = [25]
+
+[drivers.qemu-rgb]
+summary = "QEMU virtual RGB panel"
+package = "driver_display_qemu_rgb"
+targets = ["esp32s3"]
+capabilities = ["gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_qemu_rgb"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600" }
+early = true
+default_name = "display0"
+
+[drivers.qemu-eth]
+summary = "QEMU virtual Ethernet (open_eth)"
+package = "driver_network_qemu_eth"
+targets = ["esp32s3"]
+capabilities = ["wifi"]
+default_name = "eth0"
 
 [drivers.vga32]
 summary = "VGA RGB222 output"
