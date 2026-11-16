@@ -30,6 +30,7 @@ static lua_State *state(void)
     lua_State *L = lua_newstate(lua_alloc, NULL); assert(L);
     luaL_requiref(L, "_G", luaopen_base, 1); lua_pop(L, 1);
     const luaL_Reg api[] = {{"start",solua_pipeline_start},{"list",solua_pipeline_list},
+        {"info",solua_pipeline_info},
         {"status",solua_pipeline_status},{"result",solua_pipeline_result},
         {"stop",solua_pipeline_stop},{"destroy",solua_pipeline_destroy},{NULL,NULL}};
     luaL_newlib(L, api); lua_setglobal(L, "pipeline"); return L;
@@ -40,6 +41,16 @@ int main(void)
 {
     create_sample_file();
     lua_State *L = state();
+    run(L,"local i=pipeline.info('qr'); assert(i.kind=='qr' and i.external_frames); "
+        "assert(not pcall(pipeline.info,'qr\\0bad')); assert(not pcall(pipeline.info,'qr','camera0\\0bad'))");
+    for (int i = 0; i < 35; ++i) {
+        lua_pushcfunction(L, solua_pipeline_info); lua_pushliteral(L,"qr");
+        lua_fail_after = i;
+        int status = lua_pcall(L,1,1,0);
+        lua_fail_after = -1;
+        assert(status == LUA_OK || status == LUA_ERRMEM || status == LUA_ERRRUN);
+        lua_settop(L,0); assert(!allocations);
+    }
     lua_pushstring(L,sample_file); lua_setglobal(L,"sample_file");
     run(L,"p=pipeline.start(sample_file); assert(type(p)=='number')");
     lua_getglobal(L,"p"); uint32_t id = lua_tointeger(L,-1); lua_settop(L,0);

@@ -1,5 +1,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
 #include "solar_os_pipeline.h"
+#include "solar_os_processor.h"
 static uint32_t python_pipeline_uint(mp_obj_t value)
 {
     mp_int_t n = mp_obj_get_int(value);
@@ -50,11 +51,8 @@ static mp_obj_t solaros_pipeline_status(mp_obj_t id)
     return d;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_pipeline_status_obj, solaros_pipeline_status);
-static mp_obj_t solaros_pipeline_result(size_t n, const mp_obj_t *args)
+static mp_obj_t python_pipeline_json(char *json)
 {
-    char *json = NULL;
-    python_check_esp(solar_os_pipeline_result(python_pipeline_uint(args[0]),
-        n > 1 ? python_pipeline_uint(args[1]) : 0, &json));
     if (!json) return mp_const_none;
     nlr_buf_t guard;
     if (nlr_push(&guard) == 0) {
@@ -64,7 +62,26 @@ static mp_obj_t solaros_pipeline_result(size_t n, const mp_obj_t *args)
     }
     solar_os_memory_free(json); nlr_jump(guard.ret_val);
 }
+static mp_obj_t solaros_pipeline_result(size_t n, const mp_obj_t *args)
+{
+    char *json = NULL;
+    python_check_esp(solar_os_pipeline_result(python_pipeline_uint(args[0]),
+        n > 1 ? python_pipeline_uint(args[1]) : 0, &json));
+    return python_pipeline_json(json);
+}
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_pipeline_result_obj, 1, 2, solaros_pipeline_result);
+static mp_obj_t solaros_pipeline_info(size_t n, const mp_obj_t *args)
+{
+    const char *values[3] = {NULL, "camera0", "info"};
+    for (size_t i = 0; i < n; ++i) {
+        size_t length; values[i] = mp_obj_str_get_data(args[i], &length);
+        if (memchr(values[i], 0, length)) mp_raise_ValueError(MP_ERROR_TEXT("embedded NUL in processor query"));
+    }
+    char *json = NULL;
+    python_check_esp(solar_os_processor_query(values[0], values[1], values[2], &json));
+    return python_pipeline_json(json);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_pipeline_info_obj, 1, 3, solaros_pipeline_info);
 static mp_obj_t solaros_pipeline_stop(mp_obj_t id)
 { python_check_esp(solar_os_pipeline_stop(python_pipeline_uint(id))); return mp_const_none; }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_pipeline_stop_obj, solaros_pipeline_stop);

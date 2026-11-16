@@ -2744,10 +2744,11 @@ static const char * const path_model_mode_handle[] = {"model", "mode", SHELL_COM
 static const char * const path_model_unload[] = {"model", "unload"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
-static const char * const pipeline_subcommands[] = {"list", "start", "status", "result", "stop", "destroy"};
-static const char * const pipeline_processors[] = {"qr", "model"};
+static const char * const pipeline_subcommands[] = {"list", "info", "start", "status", "result", "stop", "destroy"};
+static const char * const pipeline_processors[] = {"qr", "model", "himax"};
 static const char * const path_pipeline[] = {"pipeline"};
 static const char * const path_pipeline_start[] = {"pipeline", "start"};
+static const char * const path_pipeline_info[] = {"pipeline", "info"};
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 static const char * const path_camera[] = {"camera"};
@@ -3630,6 +3631,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
     SHELL_COMPLETION_STATIC(path_pipeline, pipeline_subcommands),
     SHELL_COMPLETION_STATIC(path_pipeline_start, pipeline_processors),
+    SHELL_COMPLETION_STATIC(path_pipeline_info, pipeline_processors),
 #endif
     SHELL_COMPLETION_STATIC(path_mem, mem_subcommands),
     SHELL_COMPLETION_STATIC(path_pkg, pkg_subcommands),

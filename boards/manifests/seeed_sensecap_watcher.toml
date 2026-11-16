@@ -22,7 +22,7 @@ capabilities = [
   "wifi", "ble", "gpio", "adc", "pwm", "key", "camera", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
-required_packages = []
+required_packages = ["backend_processor_himax"]
 psram_bytes = 8388608
 
 [defines]

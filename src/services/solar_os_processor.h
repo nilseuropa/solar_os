@@ -6,6 +6,10 @@
 #define SOLAR_OS_PROCESSOR_JSON_MAX 65536U
 typedef struct solar_os_processor solar_os_processor_t;
 typedef bool (*solar_os_processor_cancel_fn)(void *user);
+bool solar_os_processor_kind_valid(const char *kind);
+/* Owned capability/model metadata from a built-in or installed provider. */
+esp_err_t solar_os_processor_query(const char *kind, const char *source,
+    const char *query, char **json);
 
 /* An OS-owned native processor. Model processors retain a resident bundle;
  * destruction releases the reference, never unloads the model. The first image
@@ -15,6 +19,10 @@ esp_err_t solar_os_processor_create(const char *kind, uint32_t model,
     uint32_t timeout_ms, solar_os_processor_cancel_fn cancel, void *user,
     solar_os_processor_t **out);
 void solar_os_processor_destroy(solar_os_processor_t *processor);
+bool solar_os_processor_captures(const solar_os_processor_t *processor);
+esp_err_t solar_os_processor_bind_source(solar_os_processor_t *processor, const char *source);
+esp_err_t solar_os_processor_capture(solar_os_processor_t *processor, const char *source,
+    uint64_t sequence, solar_os_media_sample_t **sample, char **json);
 /* Borrow an immutable image until return; owned JSON has a 64 KiB bound.
  * QR binary payloads and raw tensors use lossless lowercase hexadecimal. */
 esp_err_t solar_os_processor_run(solar_os_processor_t *processor,

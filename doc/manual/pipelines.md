@@ -2,8 +2,8 @@
 id = "pipelines"
 title = "Native image pipelines"
 section = "api"
-summary = "OS-owned QR and model processing jobs with bounded latest results and frame timings"
-keywords = "pipeline vision qr inference model background job image camera rtsp python lua"
+summary = "OS-owned image processing jobs with built-in or external processors and matching encoded samples"
+keywords = "pipeline vision qr inference model himax processor background job image camera rtsp python lua"
 packages_any = ["service_pipeline"]
 agent_reference_sections = true
 +++
@@ -13,6 +13,8 @@ agent_reference_sections = true
 
 - `pipeline start qr <source>` creates an OS-owned QR processing job.
 - `pipeline start model <source> <handle>` uses a resident image bundle.
+- `pipeline info <processor> [source] [query]` inspects capabilities and model metadata.
+- `pipeline start himax <camera-id> [limit] [interval_ms]` uses the current HX6538 model.
 - `pipeline result <id>` reads the latest result; `stop` releases workers and
   sources; `destroy` also removes the configuration and latest result.
 
@@ -28,6 +30,39 @@ through `pipeline list` and can be explicitly destroyed.
 Enable the `pipelines` group and the desired processor package (`vision` for QR,
 `inference` for ESP-DL). The `full` flavor includes these groups where supported.
 RTSP sources additionally require `service.rtsp-client` and a JPEG video track.
+
+## Himax camera-bound inference
+
+The Watcher image includes the Himax provider. Other firmware can install the
+external `processor-himax` native library when supplied by its module repository.
+Discovery and inference belong to that provider; the expansion driver remains
+usable for ordinary camera sampling without it.
+
+```text
+pipeline info himax
+pipeline info himax camera0 models
+pipeline start himax camera0 1
+pipeline result 1
+pipeline destroy 1
+```
+
+`info` defaults to source `camera0` and query `info`. Other queries are `version`,
+`models`, `model`, and `algorithms`. Queries briefly acquire the camera and fail
+if another consumer owns it. Zero type/size values in factory model metadata do
+not necessarily mean inference is unavailable.
+
+The Himax processor accepts its attached camera only. It captures and processes
+one image on the chip, returning the matching JPEG and result together. It
+cannot process image files, RTSP frames or another camera's images. Use `qr` or
+`model` for those inputs. The current Himax model is used; the pipeline model
+argument must be zero. No model selection, upload or firmware changes occur.
+
+Results preserve SSCMA `boxes`, `classes`, `points`, `count` and `perf` fields
+when provided. Coordinates are marked `coordinate_space: "sscma"`; `perf`
+contains preprocessing, inference and postprocessing milliseconds. No class
+labels or coordinate conversion are inferred. `decode_us` is zero. The result's
+encoded image remains available through `pipeline:<id>` for Agent attachments,
+including after the job stops, until replacement or pipeline destruction.
 
 ## Start and control
 
@@ -92,6 +127,10 @@ discards that frame and increments `busy_frames`.
 ## Python and Lua
 
 Both expose `solaros.pipeline` with the same positional arguments:
+
+`pipeline.info(processor, source="camera0", query="info")` returns a capability
+and model metadata dictionary (a table in Lua). `pipeline.start("camera0",
+"himax", 0, 1)` captures one result using the current HX6538 model.
 
 ```python
 from solaros import pipeline

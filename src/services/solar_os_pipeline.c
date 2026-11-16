@@ -64,8 +64,9 @@ static void worker(void *user)
     uint32_t source = 0;
     const bool file = p->config.source[0] == '/';
     const bool rtsp = !strncmp(p->config.source, "rtsp://", 7);
+    const bool capture = solar_os_processor_captures(p->processor);
     esp_err_t error = ESP_OK;
-    if (!file) {
+    if (!file && !capture) {
         error = solar_os_script_media_create(p->status.job, cancelled, p, &media);
         if (!error && rtsp) {
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
@@ -84,8 +85,14 @@ static void worker(void *user)
     while (!error && !cancelled(p)) {
         solar_os_media_sample_t *sample = NULL;
         uint32_t frame = 0;
-        uint64_t timestamp = 0, begin = esp_timer_get_time(), decode_us = 0;
-        if (file) error = solar_os_media_sample_open_image(p->config.source, &sample);
+        uint64_t timestamp = 0, begin = esp_timer_get_time(), decode_us = 0, process_begin = begin;
+        char *json = NULL;
+        if (capture) {
+            error = solar_os_processor_capture(p->processor, p->config.source,
+                p->status.sequence + 1, &sample, &json);
+            const solar_os_media_sample_image_t *image = solar_os_media_sample_image(sample);
+            if (image) timestamp = image->metadata.timestamp_us;
+        } else if (file) error = solar_os_media_sample_open_image(p->config.source, &sample);
         else {
             if (rtsp) {
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
@@ -114,10 +121,9 @@ static void worker(void *user)
                 if (!error) error = released;
             }
         }
-        uint64_t process_begin = esp_timer_get_time();
-        char *json = NULL;
+        if (!capture) process_begin = esp_timer_get_time();
         bool processor_busy = false;
-        if (!error && !cancelled(p)) {
+        if (!error && !cancelled(p) && !capture) {
             error = solar_os_processor_run_sample(p->processor, sample, &json, &decode_us);
             processor_busy = error == ESP_ERR_INVALID_STATE;
         }
@@ -184,6 +190,7 @@ static esp_err_t start_job(void *user, solar_os_context_t *ctx, int argc, char *
     p->status.frames = p->status.busy_frames = 0; unlock(p);
     esp_err_t error = solar_os_processor_create(p->config.processor, p->config.model,
         p->config.timeout_ms, cancelled, p, &p->processor);
+    if (!error) error = solar_os_processor_bind_source(p->processor, p->config.source);
     if (!error) error = solar_os_jobs_get_generation(p->status.job, &p->generation);
     if (!error && solar_os_task_create_pinned_internal(worker, p->status.job, PIPELINE_STACK,
         p, tskIDLE_PRIORITY + 1, &p->worker, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS)
@@ -220,7 +227,7 @@ esp_err_t solar_os_pipeline_start(const solar_os_pipeline_config_t *c, uint32_t 
     if (!id) return ESP_ERR_INVALID_ARG;
     *id = 0;
     if (!c || !c->source || !*c->source || strlen(c->source) >= 256 || !c->processor ||
-        (strcmp(c->processor, "qr") && strcmp(c->processor, "model")) ||
+        !solar_os_processor_kind_valid(c->processor) ||
         (!strcmp(c->processor, "qr") && c->model) || (!strcmp(c->processor, "model") && !c->model) ||
         !c->timeout_ms || c->timeout_ms > 60000 || c->interval_ms > 60000) return ESP_ERR_INVALID_ARG;
     if (!admit()) return ESP_ERR_INVALID_STATE;

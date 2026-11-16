@@ -86,6 +86,11 @@ label = "Native image pipelines"
 category = "Media"
 members = ["service_pipeline"]
 
+[groups.himax_backend]
+label = "Built-in Himax processor"
+category = "Media"
+members = ["backend_processor_himax"]
+
 [groups.input_keymap]
 label = "Source keymaps"
 category = "Hardware support"
@@ -1452,6 +1457,13 @@ depends = ["service_inference"]
 sources = ["services/solar_os_inference_espdl.cpp", "services/solar_os_inference_espdl_api.cpp"]
 requires = ["esp-dl", "espdl_schema", "esp_timer"]
 capabilities = ["psram"]
+targets = ["esp32s3"]
+
+[packages.backend_processor_himax]
+label = "backend.processor-himax"
+depends = ["service_pipeline", "service_native_modules", "driver_himax_hx6538"]
+sources = ["../modules/himax/provider.c"]
+capabilities = ["psram", "expansion_spi"]
 targets = ["esp32s3"]
 
 [packages.service_imlib]

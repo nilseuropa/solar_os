@@ -9,7 +9,7 @@
 typedef struct {
     /* Absolute file path, native video stream ID, or rtsp:// JPEG URL. */
     const char *source;
-    const char *processor; /* qr or model */
+    const char *processor; /* qr, model, or processor-<kind> native provider */
     uint32_t model, limit, interval_ms, timeout_ms;
 } solar_os_pipeline_config_t;
 typedef struct {

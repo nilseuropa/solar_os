@@ -58,7 +58,11 @@ job start rtspd video=camera0 size=640x480 fps=5
 job stop rtspd
 ```
 
-Model upload, model selection, and inference are outside this driver interface.
+Model controls and inference belong to the optional `processor-himax` native
+module, included as a built-in provider by the Watcher image. See
+[native image pipelines](pipelines.md) for discovery and camera-bound inference.
+Ordinary sampling does not require the module. Model upload and selection are
+not exposed by this version of the module.
 
 With the `photo` package selected, `photo` opens a live viewfinder. Press Enter
 to save the displayed frame, or use `photo camera0 --size 640x480` for VGA capture.
