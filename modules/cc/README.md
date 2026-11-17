@@ -1,13 +1,13 @@
 # C compiler
 
 `cc` compiles C source files on ESP32-S3 devices with PSRAM into native SolarOS
-applications. Install it with `pkg install cc`; its matching `tinycc` library is
-installed automatically.
+applications. On firmware without the built-in compiler, install it with
+`pkg install cc`; its matching `tinycc` library is installed automatically.
 
-Firmware builders can instead enable the `cc` group in a custom flavor for an
-ESP32-S3 board with PSRAM. It links this command and the TinyCC provider into
-the image using the same sources and ABI. This form requires no installed
-compiler packages. Standard flavors keep it disabled. An installed `cc` command
+The `full` flavor includes the `cc` group by default on ESP32-S3 boards with
+PSRAM. Other flavors can enable it in a custom build. It links this command and
+the TinyCC provider into the image using the same sources and ABI. This form
+requires no installed compiler packages. An installed `cc` command
 can also acquire the built-in `tinycc` provider through normal library leases.
 
 ```

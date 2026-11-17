@@ -43,9 +43,10 @@ when its size and SHA-256 match the signed catalog. Close or unload active
 modules before replacing them.
 
 For ESP32-S3 boards with PSRAM, the optional `cc` firmware group includes the C
-command and TinyCC provider in the image. Set `cc = true` under `[groups]` in a
-custom flavor. Standard flavors leave it disabled. The built-in command needs
-no installed compiler ELFs and supports the same projects, SDK headers and
+command and TinyCC provider in the image. The `full` flavor enables it by
+default on supported boards. Other flavors can enable `cc = true` under
+`[groups]`; set it to `false` in a custom flavor to omit it. The built-in command
+needs no installed compiler ELFs and supports the same projects, SDK headers and
 limits as the external packages. Code stays in firmware flash; private compiler
 state is placed in PSRAM when external BSS is enabled. The compiler heap and
 joined worker stack are allocated on demand. The built-in provider takes
@@ -66,6 +67,7 @@ where the board supports them:
 
 | Group | Use | Guide |
 | --- | --- | --- |
+| `cc` | Compile native C applications with the built-in command and TinyCC provider on ESP32-S3 boards with PSRAM. | [C development](native-library.md) |
 | `vision` | Decode QR codes and process images. | [Computer vision](vision.md) |
 | `inference` | Run resident models on ESP32-S3 with PSRAM. | [Model inference](inference.md) |
 | `inference_backend` | Include the ESP-DL engine in firmware; otherwise install the `espdl` library. | [Model inference](inference.md) |

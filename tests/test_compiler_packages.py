@@ -10,12 +10,13 @@ CC=Path.home()/'.platformio/packages/toolchain-xtensa-esp-elf/bin/xtensa-esp32s3
 
 
 class CompilerPackagesTest(unittest.TestCase):
-    def test_builtin_compiler_is_opt_in_and_pruned_for_unsupported_boards(self):
+    def test_builtin_compiler_defaults_to_full_and_prunes_unsupported_boards(self):
         catalog = generate_flavor_config.load_catalog(ROOT/'packages/solar_os_packages.toml')
         for path in (ROOT/'flavors').glob('*.toml'):
             _, _, groups, packages = generate_flavor_config.load_flavor(path, catalog)
-            self.assertFalse(groups['cc'], path.name)
-            self.assertFalse(packages['app_cc'], path.name)
+            expected = path.stem == 'full'
+            self.assertEqual(groups['cc'], expected, path.name)
+            self.assertEqual(packages['app_cc'], expected, path.name)
         with tempfile.TemporaryDirectory() as temporary:
             flavor = Path(temporary)/'cc.toml'
             flavor.write_text('[flavor]\nname="cc-only"\n[groups]\ncc=true\n')

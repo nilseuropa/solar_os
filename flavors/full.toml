@@ -108,6 +108,7 @@ image_viewer = true
 vplay = true
 sketch = true
 invaders = true
+cc = true
 python = true
 lua = true
 playground = true

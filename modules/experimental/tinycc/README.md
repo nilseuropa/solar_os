@@ -6,7 +6,8 @@ catalog. `pkg install jet` also supplies the Jet C headers. See
 [`examples/jet-cube`](examples/jet-cube) for an editable native graphics app.
 
 The optional `cc` firmware group supplies both command and compiler directly
-from the image on ESP32-S3 boards with PSRAM. Standard flavors leave it off.
+from the image on ESP32-S3 boards with PSRAM. The `full` flavor enables it by
+default on supported boards; other flavors can select it explicitly.
 Both forms use the same source, compiler ABI, SDK and limits. Private allocator,
 libc and compiler symbols are namespaced in each complete relocatable object;
 only its entry point remains global when it is linked. Built-in compiler state
