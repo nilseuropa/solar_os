@@ -30,7 +30,6 @@ psram_bytes = 8388608
 SOLAR_OS_BOARD_USB_DEFAULT_OFF = "1"
 # Keep both SPI2 slaves deselected before their shared bus starts.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_21, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_8, .level = 0}}'
-SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
 SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_NC"
 SOLAR_OS_BOARD_PIN_KEY_WAKE = "GPIO_NUM_2"
 SOLAR_OS_BOARD_KEY_WAKE_ACTIVE_LEVEL = "0"

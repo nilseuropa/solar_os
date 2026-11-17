@@ -2,7 +2,7 @@
 id = "watcher"
 title = "SenseCAP Watcher"
 section = "hardware"
-summary = "Board devices, expansion connectors, and USB console for Seeed Studio SenseCAP Watcher"
+summary = "Board devices, expansion connectors, and display console for Seeed Studio SenseCAP Watcher"
 aliases = ["sensecap-watcher", "seeed_sensecap_watcher"]
 keywords = "seeed sensecap watcher spd2010 pca9535 es7243 es8311 grove connectors"
 packages_any = []
@@ -13,10 +13,15 @@ Build the ESP32-S3 firmware with `pio run -e seeed_sensecap_watcher`. The target
 uses 32 MB QSPI flash, 8 MB octal PSRAM, and the `full` flavor. Its partition
 table provides two 7 MiB OTA slots and almost 18 MiB of internal FAT storage.
 
+SolarOS starts its shell on the display. Use a paired BLE keyboard for typing;
+hold the wheel push button to start pairing.
+
 Use the **bottom USB-C** programming port. The rear USB-C port supplies power
 only. The dual USB-to-UART bridge presents an ESP32 port and a separate Himax
-port; use the ESP32 port at 115200 baud. A SolarOS shell starts automatically
-on `uart0`. Native USB starts **off**, leaving expansion GPIO19/20 free for
+port; use the ESP32 port at 115200 baud. For an optional UART shell, run
+`session create shell uart0` from the display shell.
+
+Native USB starts **off**, leaving expansion GPIO19/20 free for
 GPIO, ADC, PWM, and runtime buses. With the USB package included, use
 `usb mode device` for native CDC on J2, `usb mode host` for USB peripherals,
 and `usb mode off` to release the pins again. Release any pin or `cdc0` owner
@@ -130,7 +135,8 @@ and [SenseCAP Watcher BSP](https://github.com/Seeed-Studio/SenseCAP-Watcher-Firm
 
 ## Quick reference
 
-Target: `seeed_sensecap_watcher`. Console: bottom USB-C, ESP32 UART port,
+Target: `seeed_sensecap_watcher`. Console: display with BLE keyboard input.
+Optional UART shell: `session create shell uart0`, bottom USB-C ESP32 port,
 115200 baud. Display/touch: SPD2010, 412x412. I2C expansions: `i2c0`, SDA47,
 SCL48. Free header GPIOs at boot: 19 and 20. Native USB: `usb mode off|device|host`,
 default off. Camera: `camera0`, factory Himax JPEG sampling.

@@ -134,7 +134,7 @@ ground to a suitable USB host connector. The following target profiles enable
 | Target | Native USB data access |
 | --- | --- |
 | `solar_term` | Native USB connector and GPIO expansion header |
-| `seeed_sensecap_watcher` | J2 GPIO19/20; native USB defaults off, UART console remains available |
+| `seeed_sensecap_watcher` | J2 GPIO19/20; native USB defaults off, console on the display |
 | `esp32_s3_devkitc1_n16r8`, `devkitc1_epaper_workbench` | Native USB connector and GPIO19/20 headers |
 | `cl_32` | Native USB connector and EX1 D−/D+ pins |
 | `goouuu_esp32_s3cam` | Native USB connector and J2 GPIO19/20 pins |
