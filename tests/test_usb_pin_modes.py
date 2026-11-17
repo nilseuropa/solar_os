@@ -21,7 +21,7 @@ def run_c(source):
 
 
 class UsbPinModesTest(unittest.TestCase):
-    def test_serial_jtag_stops_before_releasing_pads_and_retries_cleanup(self):
+    def test_serial_jtag_restores_pulls_and_retries_pad_cleanup(self):
         source = (ROOT / 'src/drivers/cdc_port.c').read_text()
         functions = production_functions(source, ('cdc_port_init', 'uninstall_on_driver_core', 'cdc_port_deinit'))
         run_c(r'''
@@ -33,12 +33,21 @@ class UsbPinModesTest(unittest.TestCase):
 static bool ready, installed, fail_pins;
 static int driver_core, core, resets, installs, ipcs, pull_restores;
 static esp_err_t stop_error;
+typedef struct { bool dp_pu, dp_pd, dm_pu, dm_pd; } usb_serial_jtag_pull_override_vals_t;
+static usb_serial_jtag_pull_override_vals_t pulls;
+static bool pull_override;
 typedef struct { uint32_t tx_buffer_size, rx_buffer_size; } usb_serial_jtag_driver_config_t;
 static bool usb_serial_jtag_is_driver_installed(void) { return installed; }
 static int xPortGetCoreID(void) { return core; }
-static void usb_serial_jtag_ll_phy_disable_pull_override(void) { pull_restores++; }
+static inline void usb_serial_jtag_ll_phy_enable_pull_override(const usb_serial_jtag_pull_override_vals_t *values)
+{ pulls = *values; pull_override = true; }
+static void usb_serial_jtag_ll_phy_disable_pull_override(void) { pull_override = false; pull_restores++; }
 static esp_err_t usb_serial_jtag_driver_install(const usb_serial_jtag_driver_config_t *config)
-{ assert(config->tx_buffer_size && config->rx_buffer_size && !installed); installed = true; installs++; return ESP_OK; }
+{
+    assert(config->tx_buffer_size && config->rx_buffer_size && !installed);
+    assert(pulls.dp_pu && !pulls.dp_pd && !pulls.dm_pu && !pulls.dm_pd && !pull_override);
+    installed = true; installs++; return ESP_OK;
+}
 static esp_err_t usb_serial_jtag_driver_uninstall(void)
 { if (stop_error) return stop_error; installed = false; return ESP_OK; }
 static esp_err_t esp_ipc_call_blocking(int target, void (*fn)(void *), void *arg)
@@ -49,6 +58,8 @@ esp_err_t gpio_config(const gpio_config_t *config)
     assert(config->pin_bit_mask == ((1ULL << 19) | (1ULL << 20)));
     assert(config->mode == GPIO_MODE_DISABLE && !config->pull_up_en && !config->pull_down_en && !config->intr_type);
     resets++;
+    /* IDF's GPIO20 pull-up disable overrides USB pulls and clears D+ pull-up. */
+    if (!fail_pins) { pulls.dp_pu = false; pull_override = true; }
     return fail_pins ? ESP_FAIL : ESP_OK;
 }
 ''' + functions + r'''
@@ -58,7 +69,10 @@ int main(void)
     fail_pins = true;
     assert(cdc_port_init(&config) == ESP_FAIL && !installed && !installs);
     fail_pins = false; core = 1;
+    pulls.dp_pd = pulls.dm_pu = pulls.dm_pd = true; /* A preceding PHY owner. */
     assert(cdc_port_init(&config) == ESP_OK && ready && installed && driver_core == 1 && pull_restores == 1);
+    int initialized_resets = resets;
+    assert(cdc_port_init(&config) == ESP_OK && installs == 1 && resets == initialized_resets && pull_restores == 1);
     core = 0; stop_error = ESP_FAIL;
     int previous = resets;
     assert(cdc_port_deinit() == ESP_FAIL && ready && installed && resets == previous);
@@ -69,6 +83,7 @@ int main(void)
     assert(cdc_port_deinit() == ESP_OK && resets == previous + 2);
     assert(cdc_port_init(&config) == ESP_OK && ready && installed && pull_restores == 2);
     assert(cdc_port_deinit() == ESP_OK && !ready && !installed);
+    assert(!pulls.dp_pu && pull_override); /* Off leaves the pins without USB pulls. */
 }
 ''')
 

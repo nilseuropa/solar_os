@@ -23,8 +23,11 @@ esp_err_t cdc_port_init(const cdc_port_config_t *config)
     if (!usb_serial_jtag_is_driver_installed()) {
         esp_err_t pins_ret = usb_phy_port_release_pins();
         if (pins_ret != ESP_OK) return pins_ret;
-        /* GPIO use can override D+ pulls. Restore controller-managed pulls
-         * before the SDK enables the USB pads and reconnects the device. */
+        /* GPIO20 pull-up disable also clears the USB D+ pull-up value.
+         * Restore device pulls as well as controller control before the SDK
+         * enables the USB pads; clearing the override alone leaves D+ low. */
+        const usb_serial_jtag_pull_override_vals_t pulls = {.dp_pu = true};
+        usb_serial_jtag_ll_phy_enable_pull_override(&pulls);
         usb_serial_jtag_ll_phy_disable_pull_override();
         usb_serial_jtag_driver_config_t driver_config = {
             .tx_buffer_size = (uint32_t)config->tx_buffer_size,
