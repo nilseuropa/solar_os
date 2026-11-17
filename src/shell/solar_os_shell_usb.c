@@ -3,6 +3,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_cdc.h"
 #include "solar_os_usb.h"
+#include "solar_os_resources.h"
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
 #include "solar_os_usb_storage.h"
 #endif
@@ -76,7 +77,7 @@ static void usb_serial_command(solar_os_shell_io_t *io, int argc, char **argv)
 void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
-    const char *usage = "usb [status|devices|mode <device|host>"
+    const char *usage = "usb [status|devices|mode <off|device|host>"
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
         "|serial [PORT [OPTIONS]]"
 #endif
@@ -85,9 +86,10 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     if (argc >= 2 && strcmp(argv[1], "serial") == 0) { usb_serial_command(io, argc, argv); return; }
 #endif
     if (argc == 3 && strcmp(argv[1], "mode") == 0 &&
-        (strcmp(argv[2], "device") == 0 || strcmp(argv[2], "host") == 0)) {
+        (strcmp(argv[2], "off") == 0 || strcmp(argv[2], "device") == 0 || strcmp(argv[2], "host") == 0)) {
         const esp_err_t ret = solar_os_usb_set_mode(strcmp(argv[2], "host") == 0 ?
-            SOLAR_OS_USB_MODE_HOST : SOLAR_OS_USB_MODE_DEVICE);
+            SOLAR_OS_USB_MODE_HOST : strcmp(argv[2], "off") == 0 ?
+                SOLAR_OS_USB_MODE_OFF : SOLAR_OS_USB_MODE_DEVICE);
         if (ret != ESP_OK) {
             solar_os_cdc_status_t cdc;
             solar_os_cdc_get_status(&cdc);
@@ -101,13 +103,25 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
             else if (ret == ESP_ERR_INVALID_STATE && storage.mounted && storage.open_handles)
                 solar_os_shell_io_writeln(io, "usb: usb0 is busy; close files and unmount disk images first");
 #endif
-            else solar_os_shell_io_printf(io, "usb mode: %s\n", solar_os_shell_error_text(ret));
+            else {
+                bool pin_busy = false;
+                for (int pin = 19; pin <= 20 && !pin_busy && ret == ESP_ERR_INVALID_STATE; pin++) {
+                    solar_os_resource_claim_t claim;
+                    if (solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim) &&
+                        strcmp(claim.owner, "usb-host") && strcmp(claim.owner, "usb-device")) {
+                        solar_os_shell_io_printf(io, "usb: %s owns GPIO%d; release it before switching modes\n",
+                            claim.owner, pin);
+                        pin_busy = true;
+                    }
+                }
+                if (!pin_busy) solar_os_shell_io_printf(io, "usb mode: %s\n", solar_os_shell_error_text(ret));
+            }
         }
         solar_os_usb_status_t status;
         solar_os_usb_get_status(&status);
         solar_os_shell_io_printf(io, "USB mode: %s\n", solar_os_usb_mode_name(status.mode));
         if (status.rollback_error != ESP_OK) solar_os_shell_io_printf(io,
-            "Restore error: %s; retry usb mode device\n", solar_os_shell_error_text(status.rollback_error));
+            "Restore error: %s; retry usb mode off\n", solar_os_shell_error_text(status.rollback_error));
         return;
     } else if (!(argc == 1 || (argc == 2 &&
         (strcmp(argv[1], "status") == 0 || strcmp(argv[1], "devices") == 0)))) {
@@ -121,11 +135,15 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     if (status.last_error != ESP_OK) solar_os_shell_io_printf(io,
         "Last error: %s\n", solar_os_shell_error_text(status.last_error));
     if (status.rollback_error != ESP_OK) solar_os_shell_io_printf(io,
-        "Restore error: %s; retry usb mode device\n", solar_os_shell_error_text(status.rollback_error));
+        "Restore error: %s; retry usb mode off\n", solar_os_shell_error_text(status.rollback_error));
 #ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
     solar_os_shell_io_printf(io, "Host power: onboard VBUS switch %s (GPIO%d)\n",
         status.vbus_enabled ? "enabled" : "disabled", (int)SOLAR_OS_BOARD_PIN_USB_VBUS_EN);
 #endif
+    if (status.mode == SOLAR_OS_USB_MODE_OFF) {
+        solar_os_shell_io_writeln(io, "Native USB: off; GPIO19/20 released");
+        return;
+    }
     if (status.mode == SOLAR_OS_USB_MODE_DEVICE) {
 #if SOLAR_OS_BOARD_HAS_CDC
         solar_os_shell_io_writeln(io, "Native USB: CDC / Serial-JTAG");

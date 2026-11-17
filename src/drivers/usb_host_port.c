@@ -1,4 +1,5 @@
 #include "usb_host_port.h"
+#include "usb_phy_port.h"
 
 #include <stdatomic.h>
 #include <string.h>
@@ -326,6 +327,9 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t callback)
 {
     if (callback == NULL) return ESP_ERR_INVALID_ARG;
     if (host_installed) return ESP_ERR_INVALID_STATE;
+    /* Drop the preceding GPIO/ADC mux and pulls before the PHY takes over. */
+    const esp_err_t pins_ret = usb_phy_port_release_pins();
+    if (pins_ret != ESP_OK) return pins_ret;
     if (solar_os_mutex_get_dynamic(&guard) == NULL) return ESP_ERR_NO_MEM;
     connections = solar_os_queue_create(16, sizeof(hid_host_device_handle_t));
     if (connections == NULL) return ESP_ERR_NO_MEM;

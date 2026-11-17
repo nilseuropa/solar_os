@@ -19,6 +19,7 @@ TARGETS += usb_hid_input_test usb_hid_keyboard_report_test usb_hid_mouse_report_
 TARGETS += usb_service_serial_test
 TARGETS += usb_service_storage_test
 TARGETS += usb_service_vbus_test
+TARGETS += usb_service_boot_off_test
 TARGETS += storage_usb_mounts_test
 TARGETS += ps2_keyboard_job_test
 
@@ -34,8 +35,8 @@ usb_hid_mouse_report_test: usb_hid_mouse_report_test.c $(USB_HID_CODEC_SOURCES) 
 usb_hid_joystick_report_test: usb_hid_joystick_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_joystick_fixture.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
 
-cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(wildcard usb_stubs/freertos/*.h)
-	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(ROOT)/src/services/solar_os_resources.c $(wildcard usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_BOARD_HAS_USB_HOST=1 -DSOLAR_OS_PACKAGE_SERVICE_RESOURCES=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h usb_leonardo_fixture.h
@@ -45,7 +46,12 @@ usb_hid_input_test: usb_hid_input_test.c input_test.c $(ROOT)/src/services/solar
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
 USB_SERVICE_BOARD_SOURCES := $(ROOT)/src/board/solar_os_board_usb.c
-USB_SERVICE_BOARD_HEADERS := $(ROOT)/src/board/solar_os_board_usb.h
+USB_SERVICE_BOARD_HEADERS := $(ROOT)/src/board/solar_os_board_usb.h $(ROOT)/src/drivers/usb_phy_port.h
+
+usb_service_boot_off_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS) $(wildcard usb_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_BOARD_USB_DEFAULT_OFF=1 \
+		-include compat.h -Iusb_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		-I$(ROOT)/src/board $(filter %.c,$^) -o $@
 
 usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h) $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
 	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
@@ -1509,6 +1515,7 @@ test: $(TARGETS)
 	./usb_hid_input_test
 	./usb_hid_keyboard_report_test
 	./usb_service_test
+	./usb_service_boot_off_test
 	./usb_service_no_cdc_test
 	./usb_service_storage_test
 	./usb_service_vbus_test

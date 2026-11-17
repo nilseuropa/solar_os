@@ -1,4 +1,5 @@
 #include "solar_os_usb.h"
+#include "usb_phy_port.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -25,7 +26,14 @@
 #define USB_OWNER "usb-host"
 
 static SemaphoreHandle_t mode_mutex;
-static solar_os_usb_mode_t current_mode = SOLAR_OS_USB_MODE_DEVICE;
+#if SOLAR_OS_BOARD_HAS_CDC && !SOLAR_OS_BOARD_USB_DEFAULT_OFF
+#define USB_BOOT_MODE SOLAR_OS_USB_MODE_DEVICE
+#else
+#define USB_BOOT_MODE SOLAR_OS_USB_MODE_OFF
+#endif
+static solar_os_usb_mode_t current_mode = SOLAR_OS_USB_MODE_FAULT;
+static solar_os_usb_mode_t host_origin_mode = USB_BOOT_MODE;
+static bool mode_initialized;
 static bool sleep_prepared;
 static bool resources_held;
 static bool vbus_enabled;
@@ -136,15 +144,18 @@ static esp_err_t acquire_resources(void)
         if (ret != ESP_OK) return ret;
         resources_held = true;
     }
-    const esp_err_t ret = acquire_pm();
-    if (ret != ESP_OK) release_resources();
-    return ret;
+    return ESP_OK;
 }
 
 static esp_err_t set_cdc_enabled(bool enabled)
 {
 #if SOLAR_OS_BOARD_HAS_CDC
     /* Driver installation explicitly selects the internal PHY. */
+    if (!enabled) {
+        solar_os_cdc_status_t status;
+        solar_os_cdc_get_status(&status);
+        if (!status.initialized && !status.driver_installed) return ESP_OK;
+    }
     return enabled ? solar_os_cdc_init() : solar_os_cdc_deinit();
 #else
     /* USB-UART consoles do not use the native PHY. Device mode is idle. */
@@ -165,52 +176,105 @@ static esp_err_t set_vbus_enabled(bool enabled)
 static esp_err_t stop_host_port(void)
 {
     const esp_err_t ret = usb_host_port_stop();
-    const esp_err_t power_ret = set_vbus_enabled(false);
+    const esp_err_t power_ret = resources_held || vbus_enabled ? set_vbus_enabled(false) : ESP_OK;
     return ret == ESP_OK ? power_ret : ret;
 }
 
-/* Caller holds mode_mutex. A failed teardown retains the PHY, claims and PM
- * locks; device mode must never be installed on top of a live host stack. */
-static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
+/* Caller holds mode_mutex. Failed teardown retains ownership until recovery. */
+static esp_err_t stop_host_stack(void)
 {
-    if (mode == current_mode && mode == SOLAR_OS_USB_MODE_HOST) return ESP_OK;
-    if (mode == SOLAR_OS_USB_MODE_DEVICE) {
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
-        esp_err_t serial_ret = solar_os_usb_serial_prepare_stop();
-        if (serial_ret != ESP_OK) return serial_ret;
+    esp_err_t ret = solar_os_usb_serial_prepare_stop();
+    if (ret != ESP_OK) return ret;
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
-        esp_err_t storage_ret = solar_os_usb_storage_stop();
-        if (storage_ret != ESP_OK) {
+    esp_err_t storage_ret = solar_os_usb_storage_stop();
+    if (storage_ret != ESP_OK) {
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
-            solar_os_usb_serial_cancel_stop();
+        solar_os_usb_serial_cancel_stop();
 #endif
-            return storage_ret;
-        }
+        return storage_ret;
+    }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
-        serial_ret = solar_os_usb_serial_stop();
-        if (serial_ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return serial_ret; }
+    ret = solar_os_usb_serial_stop();
+    if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
 #endif
-        esp_err_t ret = stop_host_port();
+    const esp_err_t stop_ret = stop_host_port();
+    if (stop_ret != ESP_OK) current_mode = SOLAR_OS_USB_MODE_FAULT;
+    return stop_ret;
+}
+
+static esp_err_t release_host_resources(void)
+{
+    if (resources_held) {
+        const esp_err_t ret = usb_phy_port_release_pins();
         if (ret != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
-        ret = set_cdc_enabled(true);
-        current_mode = ret == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
-        release_resources();
-        return ret;
+    }
+    release_resources();
+    return ESP_OK;
+}
+
+static esp_err_t restore_mode(solar_os_usb_mode_t mode)
+{
+    const esp_err_t ret = mode == SOLAR_OS_USB_MODE_DEVICE ? set_cdc_enabled(true) : ESP_OK;
+    current_mode = ret == ESP_OK ? mode :
+        mode_initialized ? SOLAR_OS_USB_MODE_OFF : SOLAR_OS_USB_MODE_FAULT;
+#if SOLAR_OS_BOARD_HAS_CDC
+    if (ret != ESP_OK) {
+        solar_os_cdc_status_t status;
+        solar_os_cdc_get_status(&status);
+        if (status.initialized || status.driver_installed) current_mode = SOLAR_OS_USB_MODE_FAULT;
+    }
+#endif
+    mode_initialized = true;
+    return ret;
+}
+
+static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
+{
+    if (mode == current_mode && mode_initialized) return ESP_OK;
+    if (mode != SOLAR_OS_USB_MODE_HOST) {
+        /* Boot ROM can leave USB pads active without an installed driver. */
+        if (mode == SOLAR_OS_USB_MODE_OFF && !resources_held) {
+            bool cdc_active = false;
+#if SOLAR_OS_BOARD_HAS_CDC
+            solar_os_cdc_status_t cdc;
+            solar_os_cdc_get_status(&cdc);
+            cdc_active = cdc.initialized || cdc.driver_installed;
+#endif
+            if (!cdc_active) {
+                const esp_err_t claim = acquire_resources();
+                if (claim != ESP_OK) return claim;
+            }
+        }
+        esp_err_t ret = stop_host_stack();
+        if (ret != ESP_OK) return ret;
+        if (mode == SOLAR_OS_USB_MODE_OFF) {
+            ret = set_cdc_enabled(false);
+            if (ret != ESP_OK) {
+                if (ret != ESP_ERR_INVALID_STATE) current_mode = SOLAR_OS_USB_MODE_FAULT;
+                return ret;
+            }
+        }
+        ret = release_host_resources();
+        return ret == ESP_OK ? restore_mode(mode) : ret;
     }
     if (current_mode == SOLAR_OS_USB_MODE_FAULT) return ESP_ERR_INVALID_STATE;
-    esp_err_t ret = acquire_resources();
+    const solar_os_usb_mode_t previous = current_mode == SOLAR_OS_USB_MODE_SUSPENDED ?
+        host_origin_mode : current_mode;
+    esp_err_t ret = set_cdc_enabled(false);
     if (ret != ESP_OK) {
-        if (current_mode == SOLAR_OS_USB_MODE_SUSPENDED) {
-            rollback_error = set_cdc_enabled(true);
-            current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
-            release_resources();
-        }
+        if (ret != ESP_ERR_INVALID_STATE) current_mode = SOLAR_OS_USB_MODE_FAULT;
         return ret;
     }
-    ret = set_cdc_enabled(false);
-    if (ret != ESP_OK) { release_resources(); return ret; }
+    ret = acquire_resources();
+    if (ret == ESP_OK) ret = acquire_pm();
+    if (ret != ESP_OK) {
+        rollback_error = release_host_resources();
+        if (rollback_error == ESP_OK) rollback_error = restore_mode(previous);
+        return ret;
+    }
     ret = usb_host_port_start(input_event);
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
     if (ret == ESP_OK) ret = solar_os_usb_serial_start();
@@ -220,27 +284,38 @@ static esp_err_t set_mode_locked(solar_os_usb_mode_t mode)
 #endif
     if (ret == ESP_OK) ret = set_vbus_enabled(true);
     if (ret == ESP_OK) ret = usb_host_port_enable();
-    if (ret == ESP_OK) { current_mode = SOLAR_OS_USB_MODE_HOST; return ESP_OK; }
-#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
-    rollback_error = solar_os_usb_serial_stop();
-    if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
-    rollback_error = solar_os_usb_storage_stop();
-    if (rollback_error != ESP_OK) { current_mode = SOLAR_OS_USB_MODE_FAULT; return ret; }
-#endif
-    rollback_error = stop_host_port();
-    if (rollback_error == ESP_OK) {
-        rollback_error = set_cdc_enabled(true);
-        release_resources();
+    if (ret == ESP_OK) {
+        current_mode = SOLAR_OS_USB_MODE_HOST;
+        host_origin_mode = previous;
+        mode_initialized = true;
+        return ESP_OK;
     }
-    current_mode = rollback_error == ESP_OK ? SOLAR_OS_USB_MODE_DEVICE : SOLAR_OS_USB_MODE_FAULT;
+    rollback_error = stop_host_stack();
+    if (rollback_error == ESP_OK) rollback_error = release_host_resources();
+    if (rollback_error == ESP_OK) rollback_error = restore_mode(previous);
+    if (rollback_error != ESP_OK) current_mode = SOLAR_OS_USB_MODE_FAULT;
+    return ret;
+}
+
+esp_err_t solar_os_usb_init(void)
+{
+    if (solar_os_mutex_get_dynamic(&mode_mutex) == NULL) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(mode_mutex, portMAX_DELAY);
+    esp_err_t ret = current_mode == SOLAR_OS_USB_MODE_FAULT ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if (!mode_initialized) {
+        rollback_error = ESP_OK;
+        ret = last_error = set_mode_locked(USB_BOOT_MODE);
+    }
+    xSemaphoreGive(mode_mutex);
     return ret;
 }
 
 esp_err_t solar_os_usb_set_mode(solar_os_usb_mode_t mode)
 {
-    if (mode != SOLAR_OS_USB_MODE_DEVICE && mode != SOLAR_OS_USB_MODE_HOST) return ESP_ERR_INVALID_ARG;
+    if (mode != SOLAR_OS_USB_MODE_DEVICE && mode != SOLAR_OS_USB_MODE_HOST &&
+        mode != SOLAR_OS_USB_MODE_OFF) return ESP_ERR_INVALID_ARG;
+    /* Preserve the old UART-only 'device' command as an idle/off alias. */
+    if (mode == SOLAR_OS_USB_MODE_DEVICE && !SOLAR_OS_BOARD_HAS_CDC) mode = SOLAR_OS_USB_MODE_OFF;
     if (solar_os_mutex_get_dynamic(&mode_mutex) == NULL) return ESP_ERR_NO_MEM;
     xSemaphoreTake(mode_mutex, portMAX_DELAY);
     rollback_error = ESP_OK;
@@ -276,7 +351,7 @@ esp_err_t solar_os_usb_prepare_sleep(void)
     xSemaphoreTake(mode_mutex, portMAX_DELAY);
     esp_err_t ret = ESP_OK;
     if (current_mode == SOLAR_OS_USB_MODE_FAULT) ret = ESP_ERR_INVALID_STATE;
-    else if (!sleep_prepared && current_mode != SOLAR_OS_USB_MODE_DEVICE) {
+    else if (!sleep_prepared && current_mode == SOLAR_OS_USB_MODE_HOST) {
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
         ret = solar_os_usb_serial_prepare_stop();
         if (ret != ESP_OK) { last_error = ret; xSemaphoreGive(mode_mutex); return ret; }
@@ -321,6 +396,7 @@ esp_err_t solar_os_usb_resume(void)
 const char *solar_os_usb_mode_name(solar_os_usb_mode_t mode)
 {
     switch (mode) {
+    case SOLAR_OS_USB_MODE_OFF: return "off";
     case SOLAR_OS_USB_MODE_DEVICE: return "device";
     case SOLAR_OS_USB_MODE_HOST: return "host";
     case SOLAR_OS_USB_MODE_SUSPENDED: return "suspended";

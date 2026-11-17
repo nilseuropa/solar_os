@@ -5,6 +5,11 @@
 #include <string.h>
 
 #include "solar_os_board_caps.h"
+#include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_RESOURCES && SOLAR_OS_BOARD_HAS_USB_HOST
+#include "solar_os_resources.h"
+#define CDC_CLAIMS_PINS 1
+#endif
 #if SOLAR_OS_BOARD_HAS_CDC
 #include "cdc_port.h"
 #endif
@@ -19,6 +24,31 @@ static const char *TAG = "solar_os_cdc";
 
 static SemaphoreHandle_t cdc_mutex;
 static bool cdc_initialized;
+
+#if SOLAR_OS_BOARD_HAS_CDC
+static bool cdc_cleanup_pending;
+static bool cdc_pads_released;
+static esp_err_t cdc_claim_pins(void)
+{
+#if CDC_CLAIMS_PINS
+    const solar_os_resource_request_t requests[] = {
+        {SOLAR_OS_RESOURCE_USB_PORT, 0, -1, "internal USB PHY"},
+        {SOLAR_OS_RESOURCE_GPIO_PIN, 19, -1, "USB D-"},
+        {SOLAR_OS_RESOURCE_GPIO_PIN, 20, -1, "USB D+"},
+    };
+    return solar_os_resource_claim_bundle(requests, 3, "usb-device", NULL);
+#else
+    return ESP_OK;
+#endif
+}
+
+static void cdc_release_pins(void)
+{
+#if CDC_CLAIMS_PINS
+    (void)solar_os_resource_release_owner("usb-device");
+#endif
+}
+#endif
 
 static void cdc_lock(void)
 {
@@ -66,7 +96,7 @@ static esp_err_t cdc_port_open_cb(void *user)
 {
     (void)user;
     cdc_lock();
-    const bool enabled = cdc_initialized;
+    const bool enabled = cdc_initialized && cdc_port_driver_installed();
     cdc_unlock();
     return enabled ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
@@ -94,17 +124,31 @@ esp_err_t solar_os_cdc_deinit(void)
     return ESP_ERR_NOT_SUPPORTED;
 #else
     cdc_lock();
-    if (!cdc_initialized) {
+    if (!cdc_initialized && cdc_pads_released) {
         cdc_unlock();
         return ESP_OK;
     }
+    if (!cdc_initialized) {
+        const esp_err_t claim = cdc_claim_pins();
+        if (claim != ESP_OK) { cdc_unlock(); return claim; }
+    }
     /* Unregister rejects owners, including racing opens. Once removed, the
      * callbacks cannot acquire the driver while we uninstall it. */
-    esp_err_t ret = solar_os_port_unregister(SOLAR_OS_CDC_PORT_NAME);
+    esp_err_t ret = cdc_initialized ?
+        solar_os_port_unregister(SOLAR_OS_CDC_PORT_NAME) : ESP_ERR_NOT_FOUND;
     if (ret == ESP_OK || ret == ESP_ERR_NOT_FOUND) {
         ret = cdc_port_deinit();
-        if (ret == ESP_OK) cdc_initialized = false;
-        else (void)cdc_register_stream_port();
+        if (ret == ESP_OK) {
+            cdc_initialized = false;
+            cdc_cleanup_pending = false;
+            cdc_pads_released = true;
+            cdc_release_pins();
+        }
+        else {
+            cdc_initialized = true;
+            cdc_cleanup_pending = true;
+            (void)cdc_register_stream_port();
+        }
     }
     cdc_unlock();
     return ret;
@@ -117,7 +161,7 @@ esp_err_t solar_os_cdc_init(void)
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (cdc_initialized) {
-        return ESP_OK;
+        return cdc_cleanup_pending ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
 
     if (cdc_mutex == NULL) {
@@ -130,7 +174,7 @@ esp_err_t solar_os_cdc_init(void)
     cdc_lock();
     if (cdc_initialized) {
         cdc_unlock();
-        return ESP_OK;
+        return cdc_cleanup_pending ? ESP_ERR_INVALID_STATE : ESP_OK;
     }
 
     const cdc_port_config_t config = {
@@ -138,15 +182,30 @@ esp_err_t solar_os_cdc_init(void)
         .tx_buffer_size = CDC_TX_BUFFER_SIZE,
     };
 
-    esp_err_t ret = cdc_port_init(&config);
+    esp_err_t ret = cdc_claim_pins();
+    if (ret != ESP_OK) { cdc_unlock(); return ret; }
+    cdc_pads_released = false;
+    ret = cdc_port_init(&config);
     if (ret == ESP_OK) {
         ret = cdc_register_stream_port();
     }
     if (ret == ESP_OK) {
         cdc_initialized = true;
+        cdc_cleanup_pending = false;
         SOLAR_OS_LOGI(TAG,
                       "CDC port ready: %s",
                       cdc_port_is_connected() ? "connected" : "not connected");
+    } else {
+        /* A failed port registration must not leave unowned live USB pads. */
+        const esp_err_t cleanup = cdc_port_deinit();
+        if (cleanup == ESP_OK) {
+            cdc_pads_released = true;
+            cdc_release_pins();
+        }
+        else {
+            cdc_initialized = true; /* Keep claims until a successful retry. */
+            cdc_cleanup_pending = true;
+        }
     }
 
     cdc_unlock();

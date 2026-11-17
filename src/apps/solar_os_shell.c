@@ -664,7 +664,7 @@ static const shell_command_t shell_builtin_commands[] = {
     {"camera", "camera status and JPEG capture", solar_os_shell_cmd_camera},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
-    {"usb", "USB device/host mode and HID input", solar_os_shell_cmd_usb},
+    {"usb", "USB off/device/host mode and peripherals", solar_os_shell_cmd_usb},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC
     {"adc", "read expansion analog inputs", solar_os_shell_cmd_adc},
@@ -1387,7 +1387,7 @@ static const char * const usb_subcommands[] = {"status", "devices", "mode",
     "serial",
 #endif
 };
-static const char * const usb_modes[] = {"device", "host"};
+static const char * const usb_modes[] = {"off", "device", "host"};
 static const char * const path_usb[] = {"usb"};
 static const char * const path_usb_mode[] = {"usb", "mode"};
 #endif

@@ -16,8 +16,12 @@ table provides two 7 MiB OTA slots and almost 18 MiB of internal FAT storage.
 Use the **bottom USB-C** programming port. The rear USB-C port supplies power
 only. The dual USB-to-UART bridge presents an ESP32 port and a separate Himax
 port; use the ESP32 port at 115200 baud. A SolarOS shell starts automatically
-on `uart0`. GPIO19/20 are available on the expansion header rather than being
-used for native USB CDC.
+on `uart0`. Native USB starts **off**, leaving expansion GPIO19/20 free for
+GPIO, ADC, PWM, and runtime buses. With the USB package included, use
+`usb mode device` for native CDC on J2, `usb mode host` for USB peripherals,
+and `usb mode off` to release the pins again. Release any pin or `cdc0` owner
+before switching. These native USB signals are separate from the USB-to-UART
+programming connector. See [USB modes and wiring](usb.host.md).
 
 The panel is circular, with 412x412 addressable pixels. The default layout
 canvas is a centered 291x291 rectangle. Terminal and TUI content fits this
@@ -117,7 +121,9 @@ J2 has pins 1..4 opposite pins 8..5. `io` displays the same connector map.
 
 J2 and J5 share `i2c0` with onboard devices. GPIO47/48 stay owned by that bus;
 attach I2C expansions through `i2c=i2c0`. GPIO19/20 are free 3.3 V GPIO, ADC,
-and PWM signals. The header's 5 V contact is a supply input, not a GPIO.
+and PWM signals while native USB is off. Host/device mode claims both pins.
+USB host use requires suitable external peripheral power; J2's 5 V contact is
+a supply input, not a software-controlled VBUS output or GPIO.
 
 Hardware references: [Seeed's hardware overview](https://wiki.seeedstudio.com/watcher_hardware_overview/)
 and [SenseCAP Watcher BSP](https://github.com/Seeed-Studio/SenseCAP-Watcher-Firmware/tree/main/components/sensecap-watcher).
@@ -126,4 +132,5 @@ and [SenseCAP Watcher BSP](https://github.com/Seeed-Studio/SenseCAP-Watcher-Firm
 
 Target: `seeed_sensecap_watcher`. Console: bottom USB-C, ESP32 UART port,
 115200 baud. Display/touch: SPD2010, 412x412. I2C expansions: `i2c0`, SDA47,
-SCL48. Free header GPIOs: 19 and 20. Camera: `camera0`, factory Himax JPEG sampling.
+SCL48. Free header GPIOs at boot: 19 and 20. Native USB: `usb mode off|device|host`,
+default off. Camera: `camera0`, factory Himax JPEG sampling.

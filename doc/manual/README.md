@@ -129,7 +129,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [uart command](commands.md) — Show the default uart0 or a selected named UART bus.
 - [unzip command](commands.md) — List or extract a ZIP archive.
 - [uptime command](commands.md) — Print elapsed time since boot.
-- [usb command](commands.md) — USB host and serial controls.
+- [usb command](commands.md) — USB modes and GPIO reuse.
 - [version command](commands.md) — Print the SolarOS version and firmware flavor.
 - [wait command](commands.md) — Pause the calling shell or shell script for 0 through 86400 seconds.
 - [watch command](commands.md) — Repeat another shell command until Esc, q, or the app-exit key is pressed.
@@ -264,7 +264,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, environment, and IMU measurements
-- [USB host](usb.host.md) — Use USB input, serial adapters, and one FAT storage drive through the ESP32-S3 internal PHY
+- [USB host](usb.host.md) — Select USB off/device/host mode and use input, serial adapters, or FAT storage
 
 ## Scripting APIs
 

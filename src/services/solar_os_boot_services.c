@@ -24,6 +24,9 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buttons.h"
 #include "solar_os_cdc.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+#include "solar_os_usb.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
 #include "solar_os_chat.h"
 #endif
@@ -106,11 +109,25 @@ void solar_os_boot_services_init(uint32_t now_ms)
         SOLAR_OS_LOGW(TAG, "Port service unavailable: %s", esp_err_to_name(port_err));
     }
 
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+    const esp_err_t usb_err = solar_os_usb_init();
+    if (usb_err != ESP_OK) {
+        SOLAR_OS_LOGW(TAG, "USB unavailable: %s", esp_err_to_name(usb_err));
+    }
+#else
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC)) {
-        const esp_err_t cdc_err = solar_os_cdc_init();
+        const esp_err_t cdc_err =
+#if SOLAR_OS_BOARD_USB_DEFAULT_OFF
+            solar_os_cdc_deinit();
+#else
+            solar_os_cdc_init();
+#endif
         if (cdc_err != ESP_OK) {
             SOLAR_OS_LOGW(TAG, "CDC port unavailable: %s", esp_err_to_name(cdc_err));
         }
+    }
+#endif
+    if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC) && !SOLAR_OS_BOARD_USB_DEFAULT_OFF) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         const esp_err_t hid_err = solar_os_hid_init();
         if (hid_err != ESP_OK) {

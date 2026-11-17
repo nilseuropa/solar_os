@@ -12,13 +12,13 @@ platformio_board = "seeed_sensecap_watcher"
 
 [build]
 drivers = [
-  "uart_esp_idf", "display_spd2010", "pointer_spd2010", "storage_expansion",
+  "cdc_usb_serial_jtag", "uart_esp_idf", "display_spd2010", "pointer_spd2010", "storage_expansion",
   "audio_es8311_es7243", "battery_adc", "rtc_pcf8563",
   "i2c_esp_idf", "spi_esp_idf", "gpio_esp_idf", "adc_esp_idf", "pwm_esp_idf",
 ]
 capabilities = [
   "psram", "simd", "display", "gfx", "streaming_display", "display_brightness",
-  "pointer", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
+  "pointer", "cdc", "usb_host", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
   "wifi", "ble", "gpio", "adc", "pwm", "key", "camera", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm", "expansion_i2s",
 ]
@@ -26,6 +26,8 @@ required_packages = ["backend_processor_himax"]
 psram_bytes = 8388608
 
 [defines]
+# USB is available on demand; leave J2 GPIO19/20 free after boot.
+SOLAR_OS_BOARD_USB_DEFAULT_OFF = "1"
 # Keep both SPI2 slaves deselected before their shared bus starts.
 SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_21, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_8, .level = 0}}'
 SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'

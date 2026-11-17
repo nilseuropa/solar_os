@@ -1222,8 +1222,10 @@ bindings = { gpio = 7 }
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
             {4, 8, 15, 16, 17, 18, 21, 38, 39, 40, 41, 42, 47, 48},
         )
-        for gpio in (1, 2, 3, 19, 20, 35, 36, 37, 46):
+        for gpio in (1, 2, 3, 35, 36, 37, 46):
             self.assertEqual(pins[gpio]["policy"], "fixed")
+        for gpio in (19, 20):
+            self.assertEqual(pins[gpio]["policy"], "releasable")
 
         buses = {bus["name"]: bus for bus in board["buses"]}
         self.assertEqual(

@@ -21,7 +21,7 @@ class WatcherBoardTest(unittest.TestCase):
         self.board = load_board_manifest(directory / "seeed_sensecap_watcher.toml", directory)
         self.drivers = load_driver_catalog(ROOT / "boards/expansion_drivers.toml")
 
-    def test_builtin_devices_survive_flavor_pruning_without_cdc(self):
+    def test_builtin_devices_survive_flavor_pruning_with_usb_off_by_default(self):
         catalog = generate_flavor_config.load_catalog(ROOT / "packages/solar_os_packages.toml")
         for flavor in ("writerdeck", "full"):
             _, _, groups, packages = generate_flavor_config.load_flavor(
@@ -33,7 +33,10 @@ class WatcherBoardTest(unittest.TestCase):
                 catalog, groups, selected, set(self.board["build"]["capabilities"]))
             self.assertTrue(all(selected[package] for package in required))
         validate_board(self.board, self.drivers)
-        self.assertNotIn("cdc", self.board["build"]["capabilities"])
+        self.assertIn("cdc", self.board["build"]["capabilities"])
+        self.assertIn("usb_host", self.board["build"]["capabilities"])
+        self.assertIn("cdc_usb_serial_jtag", self.board["build"]["drivers"])
+        self.assertEqual(self.board["defines"]["SOLAR_OS_BOARD_USB_DEFAULT_OFF"], "1")
         self.assertIn("camera", self.board["build"]["capabilities"])
         camera = next(d for d in self.board["devices"] if d["name"] == "camera0")
         self.assertEqual(camera["driver"], "himax-hx6538")

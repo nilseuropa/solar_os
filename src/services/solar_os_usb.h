@@ -8,6 +8,7 @@ typedef enum {
     SOLAR_OS_USB_MODE_HOST,
     SOLAR_OS_USB_MODE_SUSPENDED,
     SOLAR_OS_USB_MODE_FAULT,
+    SOLAR_OS_USB_MODE_OFF,
 } solar_os_usb_mode_t;
 
 typedef struct {
@@ -21,6 +22,8 @@ typedef struct {
     usb_host_port_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
 } solar_os_usb_status_t;
 
+/* Apply the board's volatile boot policy once. */
+esp_err_t solar_os_usb_init(void);
 esp_err_t solar_os_usb_set_mode(solar_os_usb_mode_t mode);
 void solar_os_usb_get_status(solar_os_usb_status_t *status);
 const char *solar_os_usb_mode_name(solar_os_usb_mode_t mode);
