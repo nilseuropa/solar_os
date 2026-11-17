@@ -1002,6 +1002,12 @@ selection, clipboard operations, text-size changes, and syntax highlighting for
 known source files. The editor supports files up to 256 KiB on boards with
 PSRAM and 32 KiB on boards without PSRAM. Use `hexedit` for binary files.
 
+Highlighting follows the filename: C source and headers (`.c`, `.h`), Python
+(`.py`, `.pyw`), and Lua (`.lua`). C highlighting covers keywords and standard
+types, preprocessor directives, comments, string and character literals, and
+numbers. Multiline comments and continued literals retain their highlighting
+when scrolling. It works in the display editor and port terminals.
+
 Usage:
 
 ```text

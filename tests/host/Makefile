@@ -22,6 +22,7 @@ TARGETS += usb_service_vbus_test
 TARGETS += usb_service_boot_off_test
 TARGETS += storage_usb_mounts_test
 TARGETS += ps2_keyboard_job_test
+TARGETS += syntax_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_keyboard_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -841,6 +842,10 @@ text_search_test: text_search_test.c $(ROOT)/src/services/solar_os_text_search.c
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		text_search_test.c $(ROOT)/src/services/solar_os_text_search.c -o $@
 
+syntax_test: syntax_test.c $(ROOT)/src/services/solar_os_syntax.c $(ROOT)/src/services/solar_os_syntax.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		syntax_test.c $(ROOT)/src/services/solar_os_syntax.c -o $@
+
 shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(ROOT)/src/shell/solar_os_shell_parse.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
 		shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c -o $@
@@ -1494,6 +1499,7 @@ test: $(TARGETS)
 	./display_layout_test
 	./gfx_icons_test
 	./text_search_test
+	./syntax_test
 	./doc_layout_test
 	./doc_memory_test
 	./gesture_command_test

@@ -61,7 +61,7 @@ The `full` flavor includes the `cc` command and TinyCC compiler on ESP32-S3
 boards with PSRAM. Compile a source file with `cc hello.c -o hello.elf`, then
 run it with `load hello.elf`. Other builds can enable the `cc` firmware group
 or install it with `pkg install cc`. See
-[C development and library headers](doc/manual/native-library.md#compile-c-on-the-device)
+[C development](doc/manual/c.md)
 for a complete example, project builds, and SDK browsing.
 
 ## Scripted vision and model inference

@@ -2,6 +2,30 @@
 
 ## 4.x
 
+- **4.18.0** — 2026-11-17 — Added on-device C compilation for ESP32-S3
+  boards with PSRAM, including multi-file projects, installed library headers,
+  SDK browsing and header export. The compiler is included in the full flavor
+  and available as an optional firmware feature or installable package.
+  The editor now highlights C source files and headers.
+  Added Seeed Studio SenseCAP Watcher support with its round touchscreen,
+  wheel, Himax camera, microphone and speaker, microSD, RTC, and battery
+  monitoring. Watcher starts its shell on the display, supports BLE keyboards
+  and wheel-button wake, and leaves native USB off so expansion GPIO19/20
+  remain free. Added reusable PCA9535 GPIO expander, SPD2010 display/touch,
+  and ES7243/ES7243E microphone drivers. Added Photo with a live viewfinder,
+  JPEG capture from cameras or RTSP sources, and fullscreen operation; fixed
+  captured photo colors in View. Agent now accepts image questions from files,
+  camera streams, RTSP and pipeline results.
+  Added Python and Lua Agent APIs for text, images, and stored WAV/MP3 audio
+  questions, provider settings, and saved conversations. Audio input uses an
+  audio-capable Chat Completions model. Added Himax model programming, slot
+  selection, persistent slot inventory, and camera-bound inference pipelines.
+  Zoo now organizes models by target and supports offline inventory management.
+  USB mode switching now includes an off mode that releases exposed data pins
+  for general I/O. Fixed native USB serial enumeration when restoring device
+  mode. Improved full-panel media and emotion rendering, SPD2010 refresh
+  performance, and Python cleanup during cancellation. Reduced memory use
+  during shell completion and after closing port shells.
 - **4.17.12** — 2026-11-13 — Added Seeed Studio reTerminal E1003 support
   with its 10.3-inch grayscale e-paper display, touch, microSD, microphone,
   buzzer, battery and charger monitoring, RTC, and temperature/humidity sensor.
