@@ -398,6 +398,82 @@ static void check_byte_readers(void)
     solar_os_input_source_close(keyboard);
 }
 
+/* A release delivers the byte its press delivered, even when the modifiers
+ * differ (AltGr released before the key). */
+static void check_release_matches_press(void)
+{
+    solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-release", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    solar_os_input_key_event_t events[8];
+    while (solar_os_input_read_events(events, 8) != 0) {
+    }
+    static const struct { uint16_t usage; uint8_t modifiers; bool caps; } keys[] = {
+        {0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false},                          /* ² */
+        {0x35, 0, false},                                                     /* dead ^ */
+        {0x2d, 0, true},                                                      /* ẞ */
+        {0x20, SOLAR_OS_INPUT_MOD_LEFT_SHIFT, false},                         /* § */
+        {0x04, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false},                          /* æ */
+    };
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        const uint8_t code = solar_os_input_translate_hid_usage(keys[i].usage, keys[i].modifiers,
+                                                                keys[i].caps);
+        assert(solar_os_input_write_key(keyboard, keys[i].usage, keys[i].usage, code,
+                                        keys[i].modifiers, SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+        assert(solar_os_input_write_key(keyboard, keys[i].usage, keys[i].usage, code, 0,
+                                        SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+        assert(solar_os_input_read_events(events, 8) == 2);
+        const uint8_t press = events[0].key;
+        solar_os_input_key_event_t press_event = events[0], release_event = events[1];
+        (void)solar_os_input_resolve_layout_key(&press_event);
+        (void)solar_os_input_resolve_layout_key(&release_event);
+        assert(press_event.action == SOLAR_OS_INPUT_KEY_PRESS);
+        assert(release_event.action == SOLAR_OS_INPUT_KEY_RELEASE);
+        if (press_event.key != release_event.key) {
+            fprintf(stderr, "usage 0x%02x: press 0x%02x (code 0x%02x), release 0x%02x\n",
+                    keys[i].usage, press_event.key, press, release_event.key);
+            assert(press_event.key == release_event.key);
+        }
+    }
+    /* Releasing every key at once (a source going away) does the same. */
+    assert(solar_os_input_write_key(keyboard, 0x1f, 0x1f,
+                                    solar_os_input_translate_hid_usage(
+                                        0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false),
+                                    SOLAR_OS_INPUT_MOD_RIGHT_ALT,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    solar_os_input_source_release_all(keyboard);
+    assert(solar_os_input_read_events(events, 8) == 2);
+    solar_os_input_key_event_t held = events[0], released = events[1];
+    (void)solar_os_input_resolve_layout_key(&held);
+    (void)solar_os_input_resolve_layout_key(&released);
+    assert(held.key == released.key);
+    solar_os_input_source_close(keyboard);
+}
+
+/* The input route owner (on-screen keyboard) gets byte keys too. */
+static void check_route_owner(void)
+{
+    solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-route", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    int owner;
+    const solar_os_input_route_config_t config = {
+        .target = "display0", .trigger_source = keyboard, .trigger_physical_key = 0x35,
+        .native_width = 320, .native_height = 240, .scale = 1,
+        .x = 0, .y = 120, .width = 320, .height = 120,
+    };
+    assert(solar_os_input_route_claim(&owner, &config) == ESP_OK);
+    assert(solar_os_input_write_key(keyboard, 0x35, 0x35, SOLAR_OS_KEY_LAYOUT_TEXT, 0,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    solar_os_input_route_event_t event;
+    bool reset = false;
+    assert(solar_os_input_route_read(&owner, &event, &reset));
+    assert(event.type == SOLAR_OS_INPUT_ROUTE_KEY && event.data.key.usage == 0x35);
+    assert(event.data.key.key == '^');
+    solar_os_input_route_release(&owner);
+    solar_os_input_source_close(keyboard);
+}
+
 static void check_ukrainian(void)
 {
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA) == ESP_OK);
@@ -417,6 +493,15 @@ static void check_ukrainian(void)
     assert(typed(0x04, SOLAR_OS_INPUT_MOD_LEFT_GUI | SOLAR_OS_INPUT_MOD_LEFT_SHIFT,
                  false, NULL) == 'A');
     assert(text_of(0x04, SOLAR_OS_INPUT_MOD_LEFT_ALT, false) == 'a');
+    /* Ctrl with a Cyrillic key that is not a letter types the US character
+     * too, which Ctrl then turns into its control code (Ctrl+[ is Escape). */
+    assert(typed(0x2f, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == '[');
+    assert(text_of(0x2f, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false) == '[');
+    assert(typed(0x30, SOLAR_OS_INPUT_MOD_RIGHT_CTRL, false, NULL) == 0x1d); /* Ctrl+] */
+    assert(typed(0x33, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == ';');
+    assert(solar_os_input_translate_char_key('[', SOLAR_OS_INPUT_MOD_LEFT_CTRL) == 0x1b);
+    /* Without the modifier the key still types its own letter. */
+    assert(text_of(0x2f, 0, false) == 0x0445);
 }
 
 static void check_shortcut_letters(void)
@@ -506,6 +591,8 @@ int main(void)
 
     check_invariants();
     check_byte_readers();
+    check_release_matches_press();
+    check_route_owner();
     check_dead_keys();
     check_ukrainian();
     check_shortcut_letters();

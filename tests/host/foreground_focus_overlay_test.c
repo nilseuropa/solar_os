@@ -588,6 +588,19 @@ int main(void)
     control.key = SOLAR_OS_KEY_LEFT;
     dispatch_input_key(&control);
     assert(probe_char == SOLAR_OS_KEY_CTRL_LEFT);
+    /* Ctrl+@ is a real NUL and still reaches the shell. */
+    probe_char = 0xffU;
+    control.key = '@';
+    dispatch_input_key(&control);
+    assert(probe_char == 0U);
+    /* A layout key whose text no byte carries (Cyrillic) sends nothing to it. */
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA) == ESP_OK);
+    probe_char = 0xffU;
+    solar_os_input_key_event_t cyrillic = {.source = source, .usage = 0x04,
+        .key = SOLAR_OS_KEY_LAYOUT_TEXT, .action = SOLAR_OS_INPUT_KEY_PRESS};
+    dispatch_input_key(&cyrillic);
+    assert(probe_char == 0xffU);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     text_probe = false;
     solar_os_input_source_close(source);
 #ifdef CL32_KEYBOARD_TEST

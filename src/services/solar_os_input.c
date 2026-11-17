@@ -500,6 +500,19 @@ static void input_increment_counter(uint32_t *counter)
 static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
                                                       solar_os_input_keyboard_layout_t layout);
 
+/* The release of a held key carries the byte its press delivered. A layout
+ * code is resolved with the modifiers of the press, not of the release, which
+ * can differ (AltGr released first). Callers hold input_lock. */
+static solar_os_input_key_event_t input_release_event(const solar_os_input_key_event_t *held,
+                                                      uint8_t modifiers)
+{
+    solar_os_input_key_event_t release = *held;
+    (void)input_resolve_layout_key(&release, input_keyboard_layout);
+    release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+    release.modifiers = modifiers;
+    return release;
+}
+
 static void input_record_key_locked(const solar_os_input_key_event_t *event)
 {
     input_source_diagnostics_state_t *diagnostics =
@@ -1310,9 +1323,7 @@ void solar_os_input_source_release_all(solar_os_input_source_t source)
         if (!input_pressed[i].active || input_pressed[i].event.source != source) {
             continue;
         }
-        solar_os_input_key_event_t release = input_pressed[i].event;
-        release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-        release.modifiers = 0;
+        const solar_os_input_key_event_t release = input_release_event(&input_pressed[i].event, 0);
         if (input_queue_push_locked(&release)) {
             input_record_key_locked(&release);
         }
@@ -1403,9 +1414,8 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
-            solar_os_input_key_event_t release = input_pressed[i].event;
-            release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-            release.modifiers = 0;
+            const solar_os_input_key_event_t release =
+                input_release_event(&input_pressed[i].event, 0);
             if (input_queue_push_locked(&release)) {
                 input_record_key_locked(&release);
                 memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
@@ -1545,9 +1555,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
     } else if (action == SOLAR_OS_INPUT_KEY_RELEASE) {
         input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
         if (pressed != NULL) {
-            solar_os_input_key_event_t release = pressed->event;
-            release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-            release.modifiers = modifiers;
+            const solar_os_input_key_event_t release = input_release_event(&pressed->event, modifiers);
             memset(pressed, 0, sizeof(*pressed));
             input_repeat_stop_locked(source, physical_key);
             if (!input_queue_push_locked(&release)) {
@@ -1606,9 +1614,8 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
             result = ESP_ERR_NO_MEM;
         } else {
             if (pressed) {
-                solar_os_input_key_event_t release = pressed->event;
-                release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-                release.modifiers = modifiers;
+                const solar_os_input_key_event_t release =
+                    input_release_event(&pressed->event, modifiers);
                 (void)input_queue_push_locked(&release);
                 input_record_key_locked(&release);
                 input_repeat_stop_locked(source, physical_key);
@@ -1649,12 +1656,10 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
         .modifiers = modifiers,
         .action = SOLAR_OS_INPUT_KEY_PRESS,
     };
-    solar_os_input_key_event_t release = press;
-    release.modifiers = 0U;
-    release.action = SOLAR_OS_INPUT_KEY_RELEASE;
 
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
+    const solar_os_input_key_event_t release = input_release_event(&press, 0U);
     if (!input_source_valid_locked(source) ||
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0U) {
@@ -3024,11 +3029,18 @@ static solar_os_input_text_t input_layout_entry(const solar_os_keyboard_layout_k
     return (solar_os_input_text_t){.codepoint = key->chars[index]};
 }
 
-/* Keys whose base character is a non-Latin letter type their US character
- * with shortcut modifiers, so Alt and GUI shortcuts work in every layout. */
+/* Latin letters: Basic Latin to Latin Extended-B, and Latin Extended Additional. */
+static bool input_codepoint_latin(uint16_t codepoint)
+{
+    return codepoint < 0x0250U || (codepoint >= 0x1e00U && codepoint < 0x1f00U);
+}
+
+/* Keys whose base character is a non-Latin letter (Cyrillic, ...) type their
+ * US character with shortcut modifiers, so Ctrl, Alt and GUI shortcuts work in
+ * every layout. */
 static bool input_layout_key_non_latin(const solar_os_keyboard_layout_key_t *key)
 {
-    return key != NULL && (key->dead & 1U) == 0U && key->chars[0] >= 0x0370U;
+    return key != NULL && (key->dead & 1U) == 0U && !input_codepoint_latin(key->chars[0]);
 }
 
 /* The text a layout key types and the byte key consumers get for it. */
@@ -3039,8 +3051,8 @@ static bool input_layout_lookup(uint16_t usage, uint8_t modifiers, bool caps_loc
     const solar_os_keyboard_layout_t *table = input_layout_table(layout);
     const solar_os_keyboard_layout_key_t *key = input_layout_key(table, usage);
     if (input_layout_key_non_latin(key) &&
-        (modifiers & (SOLAR_OS_INPUT_MOD_LEFT_ALT | SOLAR_OS_INPUT_MOD_LEFT_GUI |
-                      SOLAR_OS_INPUT_MOD_RIGHT_GUI)) != 0U) {
+        (modifiers & (SOLAR_OS_INPUT_MOD_CTRL | SOLAR_OS_INPUT_MOD_LEFT_ALT |
+                      SOLAR_OS_INPUT_MOD_LEFT_GUI | SOLAR_OS_INPUT_MOD_RIGHT_GUI)) != 0U) {
         table = input_layout_table(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US);
         key = input_layout_key(table, usage);
     }
@@ -3281,7 +3293,7 @@ static uint8_t input_usage_to_control(uint16_t usage,
     if (base >= 'a' && base <= 'z') {
         return (uint8_t)(base - 'a' + 1U);
     }
-    if (usage >= 0x04U && usage <= 0x1dU && (base == 0U || base >= 0x0370U)) {
+    if (usage >= 0x04U && usage <= 0x1dU && (base == 0U || !input_codepoint_latin(base))) {
         return (uint8_t)(usage - 0x04U + 1U);
     }
     switch (usage) {
