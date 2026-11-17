@@ -1091,6 +1091,7 @@ depends = [
 sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
+  "services/solar_os_native_storage.c",
   "services/solar_os_native_media.c",
   "services/solar_os_native_data.c",
   "services/solar_os_native_motion.c",

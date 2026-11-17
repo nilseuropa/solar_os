@@ -23,6 +23,7 @@ scripts/__pycache__/
 tests/__pycache__/
 tests/hil/__pycache__/
 modules/experimental/*/__pycache__/
+modules/experimental/tinycc/differential/__pycache__/
 modules/espdl/__pycache__/
 modules/jet/__pycache__/
 modules/robot/__pycache__/

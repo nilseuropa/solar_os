@@ -99,6 +99,89 @@ Firmware consumers use `solar_os_native_library_acquire`, `retain`, `release`,
 and `unload` through `solar_os_native.h`; they use the same stable result codes.
 These APIs do not expose arbitrary firmware symbols to external libraries.
 
+## C headers in library packages
+
+Native C projects can declare exact SDK dependencies in `cc.toml`:
+
+```toml
+sources = ["main.c", "helpers.c"]
+include_dirs = ["include"]
+output = "build/demo.elf"
+dependencies = [{ id = "jet", version = "1.12.0" }]
+```
+
+Run `cc build` beside the project file, or `cc build /dev/demo/cc.toml` from
+another directory. Relative paths belong to the project file's directory.
+`sources` is required; include directories and dependencies default to empty,
+and the default output is `a.elf`. Projects support at most eight sources,
+eight include directories and eight dependencies in an 8 KiB file. Use explicit
+source paths. The format accepts single or double quoted strings, comments,
+multiline arrays and inline dependency tables. Unknown or duplicate keys,
+other TOML tables, multiline strings and escapes other than `\\` and `\"`
+are rejected with a line number.
+
+Builds check installed library SDK versions without loading providers or
+downloading packages. Missing dependencies report `pkg install ID`; the
+repository must provide the exact declared version. After compilation and ELF
+validation succeed, missing output directories are created and the executable
+is replaced. Build errors and cooperative cancellation preserve the existing
+output. Applications still acquire and release their runtime library leases.
+
+Libraries can embed their public C headers in the same ELF as their executable
+code. Declare the exported paths in `module.toml`:
+
+```toml
+[sdk.headers]
+"hello_library_api.h" = "main/hello_library_api.h"
+```
+
+Use `cmake/solar_os_native_sdk.cmake` to produce the typed artifact from the
+original build ELF. The `hello-library` example shows the complete setup.
+`scripts/pack_native_sdk.py` validates the declared files and adds a
+non-allocated `.solaros.sdk` section. The package catalog's artifact hash covers
+both code and headers. Installing, updating or removing the ELF does the same
+for its headers; there are no separate header files to keep in sync.
+
+The `cc` compiler discovers these declarations by module ID:
+
+```c
+#include <hello-library/hello_library_api.h>
+```
+
+Jet includes its public headers in the library package. Install `cc` and `jet`,
+then use `#include <jet/solar_os_jet_abi.h>`. The
+[native C graphics example](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc/examples/jet-cube)
+shows a resumable foreground app with input and explicit library cleanup.
+
+No manual header copy or `-I` option is needed for installed library headers.
+Quoted relative includes within a packaged header stay in that library's
+namespace. Headers can include published SolarOS ABI headers from the compiler
+SDK or namespaced headers from other installed libraries. They must remain
+compatible with the provider's versioned API table.
+
+Browse the compiler's built-in SDK and installed library SDKs with:
+
+```text
+cc sdk list
+cc sdk show solar_os_native_app_abi.h
+cc sdk show jet/solar_os_jet_abi.h
+cc sdk export /dev/sdk
+edit /dev/sdk/jet/solar_os_jet_abi.h
+```
+
+`list` includes provider package versions and header sizes. Browsing reads ELF
+metadata without activating the library providers. The built-in SDK version is
+the TinyCC package version. `export` requires a new directory and preserves
+the header namespaces and relative includes; an existing directory is refused.
+Exported files can be browsed with `edit` or supplied through `-I /dev/sdk`.
+
+The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
+256 KiB of text in total. Exported names include the module ID and fit in
+95 bytes. Names use letters, digits, underscores, hyphens, dots and directory
+separators; absolute paths and parent traversal in declarations are rejected.
+Builds that share public headers can pass an explicit `--source-root` to the
+packer. Declared files, including symlinks, must stay within that root.
+
 ## Runtime helpers
 
 Providers can request these optional version-one tables through `get_service`.
@@ -109,10 +192,16 @@ Pass the size of the public table and check for NULL before use:
 | `time` | `solar_os_native_time_abi.h` | Monotonic microseconds and cooperative sleep on the calling task |
 | `thread` | `solar_os_native_thread_abi.h` | Normal/recursive mutexes, conditions, task-local keys and joinable workers |
 | `controllers` | `solar_os_native_controllers_abi.h` | Owned PID instances in the OS registry; caller supplies timestamped samples and handles its actuator |
-| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float parsing and math helpers |
+| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float/double parsing and math helpers |
 | `camera.sscma` | `solar_os_native_sscma_abi.h` | Exclusive shared-camera control, bounded SSCMA exchanges and JPEG reply decoding for the HX6538 driver |
 | `storage.files` | `solar_os_native_data_abi.h` | Read-only file leases, bounded reads, streaming SHA-256, atomic small-file replacement and optional persistent namespaces on internal flash |
 | `json` | `solar_os_native_data_abi.h` | Strict bounded JSON parsing, borrowed object/array values and owned root lifetime |
+
+The `libc` table appends `parse_double` (`strtod`) and `scale_double` (`ldexp`).
+Consumers that need these methods must check `struct_size` through the relevant
+field and check its pointer before calling it. Consumers that only need older
+methods can request the table prefix ending before `parse_double` to retain
+compatibility with earlier firmware. The service ABI remains version one.
 
 Thread operations return POSIX error numbers. Destroy synchronization objects
 and clear task-local values before deleting their keys. Key deletion does not
