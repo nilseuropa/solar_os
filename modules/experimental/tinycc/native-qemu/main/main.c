@@ -173,6 +173,9 @@ void app_main(void)
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)before_internal,
         (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     char *argv[] = {"cc", "--self-test"};
+    assert(!client_entry(1, argv) && !leases);
+    char *help_argv[] = {"cc", "--help"};
+    assert(!client_entry(2, help_argv) && !leases);
     int code = client_entry(2, argv);
     printf("NATIVE_CLIENT_RESULT=%d\n", code); assert(!code);
     char *build_argv[]={"cc","build","/project/cc.toml"};

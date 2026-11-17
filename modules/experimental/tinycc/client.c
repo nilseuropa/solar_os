@@ -265,7 +265,7 @@ int app_main(int argc, char **argv)
         print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n");
         print("       cc build [path/to/cc.toml]\n");
         print("       cc sdk list | show HEADER | export NEW_DIRECTORY\n");
-        return argc < 2 ? 2 : 0;
+        return 0;
     }
     const void *table = NULL; uint32_t lease = 0;
     int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
