@@ -9,12 +9,19 @@ ROOT = Path(__file__).resolve().parents[1]
 # CONFIG_LWIP_SNTP_STARTUP_DELAY=y, CONFIG_LWIP_SNTP_MAXIMUM_STARTUP_DELAY=5000
 # delay the first request after sntp_init by a random 0..5000 ms (lwip sntp.c sntp_init).
 SNTP_STARTUP_DELAY_MAX_MS = 5000
-# lwIP sntp_opts.h: SNTP_RECV_TIMEOUT 15000, SNTP_RETRY_TIMEOUT = SNTP_RECV_TIMEOUT.
-# A lost reply, or a failed lookup, waits this long before lwIP asks again.
-SNTP_RETRY_MS = 15000
+# lwIP sntp_opts.h: SNTP_RECV_TIMEOUT 15000. After a request, lwIP waits this long
+# for the reply, then calls sntp_try_next_server.
+SNTP_RECV_TIMEOUT_MS = 15000
+# lwIP sntp_opts.h: SNTP_RETRY_TIMEOUT = SNTP_RECV_TIMEOUT. With one server
+# (CONFIG_LWIP_SNTP_MAX_SERVERS defaults to 1), sntp_try_next_server finds no
+# other server and calls sntp_retry, which waits this long before the next request.
+SNTP_RETRY_TIMEOUT_MS = 15000
 # lwIP dns.c with DNS_MAX_RETRIES 4 and DNS_TMR_INTERVAL 1000: sends at 0, 1, 2 and 4 s,
-# and reports a failed lookup at 7 s when only one DNS server is set.
+# and reports a failed lookup at 7 s when only one DNS server is set; sntp_dns_found
+# then calls sntp_try_next_server, and so sntp_retry.
 DNS_FAIL_MS = 7000
+# Time left for the second try's lookup and reply.
+REPLY_WINDOW_MS = 5000
 
 
 def default_timeout_ms() -> int:
@@ -25,11 +32,26 @@ def default_timeout_ms() -> int:
 
 
 class NtpTimeoutTest(unittest.TestCase):
-    def test_default_wait_covers_one_lost_exchange(self) -> None:
-        # Worst first try: the full start delay, then a lookup that fails, then
-        # lwIP's retry. The second try needs a little time on top.
-        self.assertGreater(default_timeout_ms(),
-                           SNTP_STARTUP_DELAY_MAX_MS + DNS_FAIL_MS + SNTP_RETRY_MS)
+    def test_default_wait_covers_a_failed_lookup(self) -> None:
+        # Full start delay, a lookup that fails, lwIP's retry delay, then the second try.
+        second_try_ms = SNTP_STARTUP_DELAY_MAX_MS + DNS_FAIL_MS + SNTP_RETRY_TIMEOUT_MS
+        self.assertGreaterEqual(default_timeout_ms(), second_try_ms + REPLY_WINDOW_MS)
+
+    def test_default_wait_covers_a_lost_reply(self) -> None:
+        # Full start delay, the receive timeout for the lost reply, lwIP's retry delay,
+        # then the second request.
+        second_try_ms = SNTP_STARTUP_DELAY_MAX_MS + SNTP_RECV_TIMEOUT_MS + SNTP_RETRY_TIMEOUT_MS
+        self.assertGreaterEqual(default_timeout_ms(), second_try_ms + REPLY_WINDOW_MS)
+
+    def test_manual_states_the_default_wait(self) -> None:
+        ms = default_timeout_ms()
+        manual = ROOT / "doc" / "manual"
+        for page, text in (("commands.md", f"Waits up to {ms // 1000} s"),
+                           ("jobs.reference.md", f"| Wait per sync | `{ms // 1000}` seconds"),
+                           ("python.time.md", f"`timeout_ms` to `{ms}`"),
+                           ("lua.time.md", f"`timeout_ms` to `{ms}`")):
+            with self.subTest(page=page):
+                self.assertIn(text, (manual / page).read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

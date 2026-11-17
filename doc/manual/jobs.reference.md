@@ -945,6 +945,7 @@ Defaults:
 | --- | --- |
 | Interval | `60` seconds |
 | Server | `pool.ntp.org` |
+| Wait per sync | `40` seconds, so lwIP can retry one lost packet |
 
 Examples:
 
