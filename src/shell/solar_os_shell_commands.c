@@ -2028,7 +2028,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
     solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    solar_os_shell_io_writeln(term, "  setterm keyboard [us|de]");
+    solar_os_shell_io_writeln(term, "  setterm keyboard [us|de|ua|fr|ro]");
     solar_os_shell_io_writeln(term, "  setterm ble [default|on|off]");
 #endif
     solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]");
@@ -2633,19 +2633,19 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                      "keyboard: %s\n",
                                      solar_os_input_keyboard_layout_name(
                                          solar_os_input_keyboard_layout()));
-            solar_os_shell_io_writeln(term, "values: us de");
+            solar_os_shell_io_writeln(term, "values: us de ua fr ro");
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(term, "setterm keyboard", argv[3],
-                                           "setterm keyboard [us|de]");
+                                           "setterm keyboard [us|de|ua|fr|ro]");
             return;
         }
 
         solar_os_input_keyboard_layout_t layout;
         if (!solar_os_input_parse_keyboard_layout(argv[2], &layout)) {
             solar_os_shell_diag_invalid(term, "setterm keyboard", "layout", argv[2],
-                                        "us or de", "setterm keyboard [us|de]", false);
+                                        "us, de, ua, fr or ro", "setterm keyboard [us|de|ua|fr|ro]", false);
             return;
         }
 

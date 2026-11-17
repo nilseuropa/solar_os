@@ -5969,7 +5969,7 @@ static mp_obj_t solaros_ble_layout(size_t n_args, const mp_obj_t *args)
 
     solar_os_ble_keyboard_layout_t layout;
     if (!solar_os_ble_keyboard_parse_layout(mp_obj_str_get_str(args[0]), &layout)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected us or de"));
+        mp_raise_ValueError(MP_ERROR_TEXT("expected us, de, ua, fr or ro"));
     }
     python_check_esp(solar_os_ble_keyboard_set_layout(layout));
     return mp_const_none;

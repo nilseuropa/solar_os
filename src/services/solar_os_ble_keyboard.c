@@ -429,6 +429,9 @@ static esp_err_t stop_scanning(void)
 static const char *keyboard_layout_names[] = {
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE] = "de",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_UA] = "ua",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_FR] = "fr",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO] = "ro",
 };
 
 static const char *addr_type_name(uint8_t addr_type);
@@ -1579,9 +1582,9 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
     if (keys != NULL) {
         for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
             next.keycodes[i] = keys[i];
-            next.chars[i] = solar_os_input_translate_hid_usage(keys[i],
-                                                               modifiers,
-                                                               caps_lock);
+            next.chars[i] = solar_os_input_translate_hid_usage_byte(keys[i],
+                                                                    modifiers,
+                                                                    caps_lock);
         }
     }
 

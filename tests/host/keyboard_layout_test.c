@@ -224,6 +224,220 @@ static uint8_t legacy_char(solar_os_input_keyboard_layout_t layout, uint8_t usag
     return legacy_usage_to_us(usage, (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0, caps);
 }
 
+/* What a key event delivers to a byte consumer, and its text. */
+static uint8_t typed(uint16_t usage, uint8_t modifiers, bool caps, solar_os_input_text_t *text)
+{
+    solar_os_input_key_event_t event = {
+        .source = 1, .physical_key = usage, .usage = usage,
+        .key = solar_os_input_translate_hid_usage(usage, modifiers, caps),
+        .modifiers = modifiers, .action = SOLAR_OS_INPUT_KEY_PRESS,
+    };
+    const uint8_t code = event.key;
+    const solar_os_input_text_t resolved = solar_os_input_resolve_layout_key(&event);
+    if (code == SOLAR_OS_KEY_LAYOUT_TEXT || code == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS) {
+        /* Layout codes only appear for text the byte cannot carry. */
+        assert((code == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS) == caps);
+        assert(resolved.dead != 0U || resolved.codepoint != event.key);
+    } else {
+        assert(event.key == code);
+    }
+    if (text != NULL) {
+        *text = resolved;
+    }
+    return event.key;
+}
+
+static uint16_t text_of(uint16_t usage, uint8_t modifiers, bool caps)
+{
+    solar_os_input_text_t text;
+    (void)typed(usage, modifiers, caps, &text);
+    assert(text.dead == 0U);
+    return text.codepoint;
+}
+
+static uint8_t dead_of(uint16_t usage, uint8_t modifiers)
+{
+    solar_os_input_text_t text;
+    (void)typed(usage, modifiers, false, &text);
+    assert(text.dead != 0U);
+    return text.dead;
+}
+
+/* Feeds the texts and checks the code points typed by the last one. */
+static void expect_compose(solar_os_input_compose_t *state, solar_os_input_text_t text,
+                           size_t count, uint16_t first, uint16_t second)
+{
+    uint16_t out[2] = {0, 0};
+    const size_t got = solar_os_input_compose_feed(state, text, out);
+    if (got != count || (count > 0 && out[0] != first) || (count > 1 && out[1] != second)) {
+        fprintf(stderr, "compose: got %zu U+%04X U+%04X, want %zu U+%04X U+%04X\n",
+                got, out[0], out[1], count, first, second);
+        assert(false);
+    }
+}
+
+static solar_os_input_text_t ch(uint16_t codepoint)
+{
+    return (solar_os_input_text_t){.codepoint = codepoint};
+}
+
+static solar_os_input_text_t dead(uint8_t index)
+{
+    return (solar_os_input_text_t){.dead = index};
+}
+
+static void check_dead_keys(void)
+{
+    solar_os_input_compose_t state = {0};
+
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR) == ESP_OK);
+    const uint8_t circumflex = dead_of(0x2f, 0);   /* ^ key right of P */
+    const uint8_t diaeresis = dead_of(0x2f, SOLAR_OS_INPUT_MOD_LEFT_SHIFT);
+    /* Byte consumers get the spacing character, as before. */
+    assert(typed(0x2f, 0, false, NULL) == '^');
+    assert(typed(0x2f, SOLAR_OS_INPUT_MOD_LEFT_SHIFT, false, NULL) == '"');
+
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, ch('e'), 1, 0x00ea, 0);            /* ê */
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, ch('E'), 1, 0x00ca, 0);            /* Ê */
+    expect_compose(&state, dead(diaeresis), 0, 0, 0);
+    expect_compose(&state, ch('i'), 1, 0x00ef, 0);            /* ï */
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, ch(' '), 1, '^', 0);               /* dead key + space */
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, dead(circumflex), 1, '^', 0);      /* twice */
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, ch('x'), 2, '^', 'x');             /* no composition */
+    expect_compose(&state, dead(circumflex), 0, 0, 0);
+    expect_compose(&state, dead(diaeresis), 1, '^', 0);       /* another dead key */
+    expect_compose(&state, ch('u'), 1, 0x00fc, 0);            /* ü */
+    expect_compose(&state, ch('a'), 1, 'a', 0);               /* nothing pending */
+    expect_compose(&state, ch(0), 0, 0, 0);
+
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    expect_compose(&state, dead(dead_of(0x2e, 0)), 0, 0, 0);  /* ´ */
+    expect_compose(&state, ch('e'), 1, 0x00e9, 0);            /* é */
+    expect_compose(&state, dead(dead_of(0x35, 0)), 0, 0, 0);  /* ^ */
+    expect_compose(&state, ch('o'), 1, 0x00f4, 0);            /* ô */
+
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO) == ESP_OK);
+    /* AltGr+S is ș; the Romanian layout has no dead key there. */
+    assert(text_of(0x16, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) == 0x0219);
+    assert(typed(0x16, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false, NULL) == 0);
+}
+
+/* Every built-in layout: layout codes only for text a byte cannot carry, and
+ * the byte is the text whenever a byte can carry it. */
+static void check_invariants(void)
+{
+    for (unsigned layout = 0; layout <= SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO; layout++) {
+        assert(solar_os_input_set_keyboard_layout(layout) == ESP_OK);
+        for (unsigned usage = 0x04; usage <= 0x89; usage++) {
+            for (unsigned modifiers = 0; modifiers < 0x100U; modifiers += 0x11U) {
+                for (int caps = 0; caps < 2; caps++) {
+                    solar_os_input_text_t text;
+                    const uint8_t byte = typed((uint16_t)usage, (uint8_t)modifiers, caps, &text);
+                    if (text.dead == 0U && ((text.codepoint >= 0x20U && text.codepoint < 0x7fU) ||
+                                            (text.codepoint >= 0xc0U && text.codepoint <= 0xffU))) {
+                        assert(byte == text.codepoint);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/* Press and release one key from a keyboard source, as a driver does. */
+static void press(solar_os_input_source_t keyboard, uint16_t usage, uint8_t modifiers, bool caps)
+{
+    const uint8_t key = solar_os_input_translate_hid_usage(usage, modifiers, caps);
+    assert(solar_os_input_write_key(keyboard, usage, usage, key, modifiers,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_write_key(keyboard, usage, usage, key, modifiers,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+}
+
+/* Byte readers (shell, scripts, BLE) never see the layout codes. */
+static void check_byte_readers(void)
+{
+    solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-bytes", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    char chars[8];
+    while (solar_os_input_read_chars(chars, sizeof(chars)) != 0) {
+    }
+
+    press(keyboard, 0x35, 0, false);   /* dead ^ */
+    press(keyboard, 0x2d, 0, true);    /* Caps Lock + ß */
+    press(keyboard, 0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false);  /* ², no byte */
+    press(keyboard, 0x04, 0, false);
+    assert(solar_os_input_read_source_chars(keyboard, chars, sizeof(chars)) == 3);
+    assert((uint8_t)chars[0] == '^' && (uint8_t)chars[1] == INPUT_LATIN1_SHARP_S &&
+           chars[2] == 'a');
+
+    solar_os_input_source_diagnostics_t diagnostics;
+    assert(solar_os_input_source_get_diagnostics(keyboard, &diagnostics));
+    assert(diagnostics.has_key && diagnostics.last_key.key == 'a');
+    press(keyboard, 0x35, 0, false);
+    assert(solar_os_input_source_get_diagnostics(keyboard, &diagnostics));
+    assert(diagnostics.last_key.key == '^');
+
+    /* A reader of another source leaves the key for the next reader intact. */
+    solar_os_input_source_t other = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-other", true, &other) == ESP_OK);
+    assert(solar_os_input_read_source_chars(other, chars, sizeof(chars)) == 0);
+    solar_os_input_source_close(other);
+    solar_os_input_key_event_t events[4];
+    const size_t count = solar_os_input_read_events(events, 4);
+    assert(count == 2 && events[0].key == SOLAR_OS_KEY_LAYOUT_TEXT);
+
+    assert(solar_os_input_translate_hid_usage_byte(0x35, 0, false) == '^');
+    assert(solar_os_input_translate_hid_usage_byte(0x2d, 0, true) == INPUT_LATIN1_SHARP_S);
+    assert(solar_os_input_translate_hid_usage_byte(0x04, 0, false) == 'a');
+    solar_os_input_source_close(keyboard);
+}
+
+static void check_ukrainian(void)
+{
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA) == ESP_OK);
+    assert(text_of(0x04, 0, false) == 0x0444);                              /* ф */
+    assert(text_of(0x04, SOLAR_OS_INPUT_MOD_LEFT_SHIFT, false) == 0x0424);  /* Ф */
+    assert(text_of(0x04, 0, true) == 0x0424);
+    assert(text_of(0x04, SOLAR_OS_INPUT_MOD_LEFT_SHIFT, true) == 0x0444);
+    assert(text_of(0x31, 0, false) == 0x0491);                              /* ґ */
+    assert(text_of(0x30, 0, false) == 0x0457);                              /* ї */
+    assert(typed(0x04, 0, false, NULL) == 0);
+    assert(typed(0x1e, 0, false, NULL) == '1');
+    assert(typed(0x2c, 0, false, NULL) == ' ');
+    /* Shortcuts use the US letter on Cyrillic keys. */
+    assert(typed(0x04, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x01);
+    assert(typed(0x1d, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x1a);
+    assert(typed(0x04, SOLAR_OS_INPUT_MOD_LEFT_ALT, false, NULL) == 'a');
+    assert(typed(0x04, SOLAR_OS_INPUT_MOD_LEFT_GUI | SOLAR_OS_INPUT_MOD_LEFT_SHIFT,
+                 false, NULL) == 'A');
+    assert(text_of(0x04, SOLAR_OS_INPUT_MOD_LEFT_ALT, false) == 'a');
+}
+
+static void check_shortcut_letters(void)
+{
+    /* Ctrl+letter follows the letter on the key. */
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR) == ESP_OK);
+    assert(typed(0x14, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x01); /* A */
+    assert(typed(0x04, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x11); /* Q */
+    assert(typed(0x1a, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x1a); /* Z */
+    assert(typed(0x1d, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x17); /* W */
+    assert(typed(0x33, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x0d); /* M */
+    assert(typed(0x10, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == ',');  /* , key */
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    assert(typed(0x1c, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x1a); /* Z */
+    assert(typed(0x1d, SOLAR_OS_INPUT_MOD_LEFT_CTRL, false, NULL) == 0x19); /* Y */
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
+    for (uint16_t usage = 0x04; usage <= 0x1d; usage++) {
+        assert(typed(usage, SOLAR_OS_INPUT_MOD_RIGHT_CTRL, false, NULL) == usage - 0x04U + 1U);
+    }
+}
+
 static void check_layout(solar_os_input_keyboard_layout_t layout)
 {
     /* Both shifts and left/right Alt, GUI: only Shift and right Alt matter. */
@@ -247,8 +461,7 @@ static void check_layout(solar_os_input_keyboard_layout_t layout)
                     (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
                 const unsigned level = (shift ? 1U : 0U) + (altgr ? 2U : 0U);
                 const uint8_t old = legacy_char(layout, (uint8_t)usage, modifiers, caps);
-                const uint8_t got = solar_os_input_translate_hid_usage((uint16_t)usage,
-                                                                       modifiers, caps);
+                const uint8_t got = typed((uint16_t)usage, modifiers, caps, NULL);
                 uint8_t want = old;
                 if (expected_change(layout, (uint8_t)usage, level, caps, old, &want)) {
                     changed += want != old;
@@ -276,12 +489,27 @@ int main(void)
     assert(solar_os_input_translate_hid_usage(0x28, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) ==
            SOLAR_OS_KEY_ENTER);
     assert(solar_os_input_translate_hid_usage(0x2a, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) == 0);
-    /* Caps Lock + ß has no key-event capital, so it types ß. */
-    assert(solar_os_input_translate_hid_usage(0x2d, 0, true) == INPUT_LATIN1_SHARP_S);
-    /* Key codes are never produced as characters: AltGr+2 is ² (0xb2). */
-    assert(solar_os_input_translate_hid_usage(0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) == 0);
+    /* Caps Lock + ß has no key-byte capital, so byte consumers get ß; text is ẞ. */
+    assert(typed(0x2d, 0, true, NULL) == INPUT_LATIN1_SHARP_S);
+    assert(text_of(0x2d, 0, true) == 0x1e9e);
+    /* Key codes are never produced as characters: AltGr+2 is ² (0xb2), which
+     * only text carries. Shift+3 is §. */
+    assert(typed(0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false, NULL) == 0);
+    assert(text_of(0x1f, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) == 0x00b2);
+    assert(text_of(0x20, SOLAR_OS_INPUT_MOD_LEFT_SHIFT, false) == 0x00a7);
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     assert(solar_os_input_translate_hid_usage(0x28, SOLAR_OS_INPUT_MOD_RIGHT_ALT, false) == '\n');
+    /* Plain bytes are their own text. */
+    assert(text_of(0x04, 0, false) == 'a');
+    solar_os_input_key_event_t nav = {.key = SOLAR_OS_KEY_UP};
+    assert(solar_os_input_resolve_layout_key(&nav).codepoint == 0 && nav.key == SOLAR_OS_KEY_UP);
+
+    check_invariants();
+    check_byte_readers();
+    check_dead_keys();
+    check_ukrainian();
+    check_shortcut_letters();
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     puts("keyboard_layout_test: ok");
     return 0;
 }

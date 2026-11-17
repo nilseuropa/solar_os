@@ -17,9 +17,21 @@ enum {
 
 typedef struct {
     uint8_t usage;     /* HID keyboard usage */
-    uint8_t dead;      /* bit n: chars[n] is a dead key (its spacing character) */
+    uint8_t dead;      /* bit n: chars[n] is an index into solar_os_keyboard_dead_keys */
     uint16_t chars[8]; /* Unicode BMP code points, 0 = nothing */
 } solar_os_keyboard_layout_key_t;
+
+/* A dead key and the next character compose into one character. */
+typedef struct {
+    uint16_t base;
+    uint16_t result;
+} solar_os_keyboard_compose_t;
+
+typedef struct {
+    uint16_t spacing; /* typed on its own (dead key + space), 0 = nothing */
+    uint16_t first;   /* compositions in solar_os_keyboard_compose, sorted by base */
+    uint16_t count;
+} solar_os_keyboard_dead_key_t;
 
 typedef struct {
     const char *name;

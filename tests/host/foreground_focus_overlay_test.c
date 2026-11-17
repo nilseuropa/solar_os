@@ -41,6 +41,14 @@ static bool dispatch_text_to_input_focus(uint8_t ch)
     text_char = ch;
     return false;
 }
+static bool input_focus_accepts_text_events(void) { return false; }
+static bool dispatch_layout_text_to_input_focus(solar_os_input_text_t text)
+{
+    return dispatch_text_to_input_focus(text.dead == 0U && text.codepoint < 0x100U ?
+                                        (uint8_t)text.codepoint : 0U);
+}
+static unsigned compose_clears;
+static void clear_text_compose(void) { compose_clears++; }
 static void process_app_requests(void) {}
 static bool solar_os_sessions_cycle_display_focus(void) { display_moves[0]++; return true; }
 static bool solar_os_sessions_cycle_display_focus_previous(void) { display_moves[1]++; return true; }
@@ -91,11 +99,15 @@ static void test_cl32_session_switching(void)
                 const uint8_t physical_key = direction ? 120U : 119U;
                 const unsigned previous = previous_sessions, next = next_sessions;
                 const unsigned guest_before = guest_events;
+                const unsigned clears_before = compose_clears;
                 publish_wire_event(&device, 101U | 0x80U);
                 publish_wire_event(&device, physical_key | 0x80U);
                 dispatch_desktop_queue();
                 assert(previous_sessions == previous + (direction == 0));
                 assert(next_sessions == next + (direction != 0));
+                /* Switching sessions drops a pending dead key, even when the
+                 * next switch returns to the same session. */
+                assert(compose_clears > clears_before);
                 assert(guest_events == guest_before);
                 assert(!overlay_active && !session_switch_alt_held && session_switch_nav_held == 0);
 
@@ -419,8 +431,10 @@ static void test_trackball_session_switching(void)
     assert(solar_os_input_read_events(focus, 2) == 2);
     assert(focus[0].key == SOLAR_OS_KEY_UP);
     const unsigned up_moves = display_moves[3];
+    const unsigned display_clears = compose_clears;
     dispatch_input_key(&focus[0]); dispatch_input_key(&focus[1]);
     assert(display_moves[3] == up_moves + 1 && session_switch_nav_held == 0);
+    assert(compose_clears == display_clears + 1);
     close_session_overlay(); /* The mock has no timer for transient overlays. */
     solar_os_input_composition_set_modifiers(keyboard, 0);
     solar_os_input_source_close(keyboard);

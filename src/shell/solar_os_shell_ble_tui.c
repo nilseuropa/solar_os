@@ -953,10 +953,10 @@ static void ble_tui_change_setting(int direction, bool activate)
             !solar_os_ble_keyboard_keepalive_enabled());
         break;
     case BLE_TUI_SETTING_LAYOUT: {
-        const solar_os_ble_keyboard_layout_t layout =
-            solar_os_ble_keyboard_layout() == SOLAR_OS_BLE_KEYBOARD_LAYOUT_US ?
-                SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE : SOLAR_OS_BLE_KEYBOARD_LAYOUT_US;
-        err = solar_os_ble_keyboard_set_layout(layout);
+        const int count = (int)SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO + 1;
+        const int next = ((int)solar_os_ble_keyboard_layout() + (direction < 0 ? -1 : 1) +
+                          count) % count;
+        err = solar_os_ble_keyboard_set_layout((solar_os_ble_keyboard_layout_t)next);
         break;
     }
     case BLE_TUI_SETTING_REPEAT_RATE: {
