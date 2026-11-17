@@ -450,6 +450,42 @@ static void check_release_matches_press(void)
     solar_os_input_source_close(keyboard);
 }
 
+/* Keys queued under one layout mean that layout's characters when read after
+ * a switch: a German ^ press and release both read as ^, not as the US key. */
+static void check_layout_switch_while_queued(void)
+{
+    solar_os_input_source_t keyboard = SOLAR_OS_INPUT_SOURCE_INVALID;
+    assert(solar_os_input_keyboard_source_open("layout-switch", true, &keyboard) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) == ESP_OK);
+    solar_os_input_key_event_t events[8];
+    while (solar_os_input_read_events(events, 8) != 0) {
+    }
+    const uint8_t code = solar_os_input_translate_hid_usage(0x35, 0, false);
+    assert(solar_os_input_write_key(keyboard, 0x35, 0x35, code, 0,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_write_key(keyboard, 0x35, 0x35, code, 0,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
+    assert(solar_os_input_read_events(events, 8) == 2);
+    assert(events[0].action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(events[1].action == SOLAR_OS_INPUT_KEY_RELEASE);
+    (void)solar_os_input_resolve_layout_key(&events[0]);
+    (void)solar_os_input_resolve_layout_key(&events[1]);
+    if (events[0].key != '^' || events[1].key != '^') {
+        fprintf(stderr, "press 0x%02x release 0x%02x\n", events[0].key, events[1].key);
+    }
+    assert(events[0].key == '^');
+    assert(events[1].key == '^');
+    /* Keys typed after the switch use the new layout. */
+    assert(solar_os_input_write_key(keyboard, 0x35, 0x35,
+                                    solar_os_input_translate_hid_usage(0x35, 0, false), 0,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_read_events(events, 8) == 1);
+    (void)solar_os_input_resolve_layout_key(&events[0]);
+    assert(events[0].key == '`');
+    solar_os_input_source_close(keyboard);
+}
+
 /* The input route owner (on-screen keyboard) gets byte keys too. */
 static void check_route_owner(void)
 {
@@ -593,6 +629,7 @@ int main(void)
     check_byte_readers();
     check_release_matches_press();
     check_route_owner();
+    check_layout_switch_while_queued();
     check_dead_keys();
     check_ukrainian();
     check_shortcut_letters();

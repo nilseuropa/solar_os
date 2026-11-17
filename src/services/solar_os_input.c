@@ -500,6 +500,20 @@ static void input_increment_counter(uint32_t *counter)
 static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
                                                       solar_os_input_keyboard_layout_t layout);
 
+static bool input_key_is_layout_code(const solar_os_input_key_event_t *event)
+{
+    return event->key == SOLAR_OS_KEY_LAYOUT_TEXT || event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS;
+}
+
+/* A layout code means what the layout in force when the key was typed says,
+ * so it is tagged when it enters the queue. Callers hold input_lock. */
+static void input_tag_layout(solar_os_input_key_event_t *event)
+{
+    if (input_key_is_layout_code(event) && event->layout_tag == 0U) {
+        event->layout_tag = (uint8_t)((unsigned)input_keyboard_layout + 1U);
+    }
+}
+
 /* The release of a held key carries the byte its press delivered. A layout
  * code is resolved with the modifiers of the press, not of the release, which
  * can differ (AltGr released first). Callers hold input_lock. */
@@ -507,6 +521,7 @@ static solar_os_input_key_event_t input_release_event(const solar_os_input_key_e
                                                       uint8_t modifiers)
 {
     solar_os_input_key_event_t release = *held;
+    input_tag_layout(&release);
     (void)input_resolve_layout_key(&release, input_keyboard_layout);
     release.action = SOLAR_OS_INPUT_KEY_RELEASE;
     release.modifiers = modifiers;
@@ -572,8 +587,15 @@ static input_pressed_slot_t *input_alloc_pressed_locked(void)
     return NULL;
 }
 
-static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
+static bool input_queue_push_locked(const solar_os_input_key_event_t *queued)
 {
+    solar_os_input_key_event_t tagged;
+    const solar_os_input_key_event_t *event = queued;
+    if (queued != NULL) {
+        tagged = *queued;
+        input_tag_layout(&tagged);
+        event = &tagged;
+    }
     /* Count before capture/queueing: a foreground owner may consume the key
      * before the desktop polls, and a full queue must not hide wake activity. */
     if (event != NULL && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
@@ -1545,6 +1567,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
                 .modifiers = modifiers,
                 .action = SOLAR_OS_INPUT_KEY_PRESS,
             };
+            input_tag_layout(&pressed->event);
             if (!input_queue_push_locked(&pressed->event)) {
                 result = ESP_ERR_NO_MEM;
             } else {
@@ -1627,6 +1650,7 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
                     .source = source, .physical_key = physical_key, .usage = usage,
                     .key = key, .modifiers = modifiers, .action = SOLAR_OS_INPUT_KEY_PRESS,
                 };
+                input_tag_layout(&next->event);
                 (void)input_queue_push_locked(&next->event);
                 input_record_key_locked(&next->event);
                 input_repeat_start_locked(&next->event);
@@ -3141,6 +3165,10 @@ static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t
     }
     solar_os_input_text_t text = {0};
     uint8_t byte = 0;
+    if (event->layout_tag != 0U &&
+        (unsigned)event->layout_tag - 1U <= (unsigned)SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO) {
+        layout = (solar_os_input_keyboard_layout_t)(event->layout_tag - 1U);
+    }
     if (!input_layout_lookup(event->usage, event->modifiers,
                              event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS,
                              layout, &text, &byte)) {
