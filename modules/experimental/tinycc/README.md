@@ -5,6 +5,18 @@ On compatible firmware, `pkg install cc` installs both through the signed
 catalog. `pkg install jet` also supplies the Jet C headers. See
 [`examples/jet-cube`](examples/jet-cube) for an editable native graphics app.
 
+The optional `cc` firmware group supplies both command and compiler directly
+from the image on ESP32-S3 boards with PSRAM. Standard flavors leave it off.
+Both forms use the same source, compiler ABI, SDK and limits. Private allocator,
+libc and compiler symbols are namespaced in each complete relocatable object;
+only its entry point remains global when it is linked. Built-in compiler state
+uses external BSS when enabled; code and SDK text stay in flash.
+
+Use `qemu.py --builtin --qemu /path/to/qemu-system-xtensa` to exercise the
+firmware-linked form, or `--native` for the external ELFs. Both modes check
+compilation, recovery, SDK/project builds and execution of generated code.
+Their reports include firmware hashes and memory measurements.
+
 This prototype compiles C **on ESP32-S3** into native modules that use the
 published SolarOS host and library ABIs. The `tinycc` native library exposes
 a bounded compilation API; the `cc` client reads source and headers from

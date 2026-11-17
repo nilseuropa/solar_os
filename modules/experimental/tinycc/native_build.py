@@ -14,9 +14,42 @@ from build import HERE, ROOT, CACHE, prepare, replace, run
 from isolate import isolate
 
 
+def build_builtin(cc, prefix, output, destination, libgcc):
+    destination.mkdir(parents=True, exist_ok=True)
+    # Resolve reset-region boundaries while retaining ordinary firmware
+    # sections and relocations. Final ESP-IDF linking assigns all addresses.
+    layout = destination / 'core.ld'
+    layout.write_text('''SECTIONS {
+  .data.solar_os_tinycc_core : ALIGN(16) {
+    __cc_data_start = .; *(.tcccore.data*) __cc_data_end = .;
+  }
+  .bss.solar_os_tinycc_core (NOLOAD) : ALIGN(16) {
+    __cc_bss_start = .; *(.tcccore.bss*) __cc_bss_end = .;
+  }
+}
+''')
+    objects = []
+    for name, inputs in (
+        ('tinycc', ['core.o', 'runtime.o', 'module.o']),
+        ('cc', ['client.o', 'sdk_cli.o', 'sdk_reader.o', 'project.o', 'validator.o']),
+    ):
+        raw = destination / (name + '.raw.o')
+        isolated = destination / (name + '.isolated.o')
+        local = destination / (name + '.o')
+        run(cc, '-r', '-nostdlib', *(['-Wl,-T,' + str(layout)] if name == 'tinycc' else []),
+            *[output / obj for obj in inputs], libgcc, '-o', raw)
+        entry = isolate(prefix + 'nm', prefix + 'objcopy', raw, isolated, 'solar_os_' + name + '_')
+        run(prefix + 'objcopy', '--keep-global-symbol=' + entry, isolated, local)
+        objects.append(local)
+    archive = destination / 'libsolar_os_cc.a'
+    archive.unlink(missing_ok=True)
+    run(prefix + 'ar', 'rcs', archive, *objects)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--archive", type=Path)
+    parser.add_argument("--builtin-output", type=Path, help="also build isolated firmware objects")
     args = parser.parse_args()
     source = prepare(args.archive)
     replace(source / "libtcc.c", 'tcc_open_bf(s1, "<string>", len);',
@@ -140,6 +173,8 @@ def main():
         run(CACHE / "elf-check", path)
         report["artifacts"][name] = {"bytes": path.stat().st_size, "imports": imports,
                                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
+    if args.builtin_output:
+        build_builtin(cc, prefix, output, args.builtin_output.resolve(), libgcc)
     (output / "build.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report["artifacts"], indent=2))
 

@@ -31,7 +31,7 @@ class NativeRunScopesTest(unittest.TestCase):
         functions = production_functions(source, (
             "native_run_scope_current", "native_run_scope_add", "native_run_scope_remove",
             "solar_os_native_run_service_user", "native_write_utf8", "native_get_service", "native_job_get_service",
-            "solar_os_native_run"))
+            "solar_os_native_run_builtin", "solar_os_native_run"))
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "native_run.inc").write_text(scope + "\n" + functions)
             binary = Path(tmp, "scopes")

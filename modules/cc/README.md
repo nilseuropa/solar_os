@@ -4,6 +4,12 @@
 applications. Install it with `pkg install cc`; its matching `tinycc` library is
 installed automatically.
 
+Firmware builders can instead enable the `cc` group in a custom flavor for an
+ESP32-S3 board with PSRAM. It links this command and the TinyCC provider into
+the image using the same sources and ABI. This form requires no installed
+compiler packages. Standard flavors keep it disabled. An installed `cc` command
+can also acquire the built-in `tinycc` provider through normal library leases.
+
 ```
 cc main.c helpers.c -o program.elf
 load program.elf

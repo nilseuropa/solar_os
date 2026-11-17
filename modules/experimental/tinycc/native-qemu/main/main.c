@@ -19,9 +19,17 @@
 #include "solar_os_native_storage_abi.h"
 #include "hello_library_api.h"
 
+#ifndef SOLAR_CC_BUILTIN
+#define SOLAR_CC_BUILTIN 0
+#endif
+
 static const solar_os_native_library_descriptor_v1_t *compiler;
 static unsigned leases, library_calls;
-void *solar_os_memory_elf_alloc(size_t bytes) { return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT); }
+void *solar_os_memory_elf_alloc(size_t bytes)
+{
+    /* Match SolarOS's pinned memory service, including its alignment contract. */
+    return heap_caps_aligned_alloc(16, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+}
 static uint32_t add(uint32_t a, uint32_t b) { library_calls++; assert(a == 19 && b == 23); return a+b; }
 static const hello_library_api_v1_t provider = {1, sizeof(provider), add};
 static int acquire(const char *id, uint32_t abi, uint32_t size, uint32_t *lease, const void **table)
@@ -113,8 +121,13 @@ static esp_elf_symbol_table_t exports[] = {
     ESP_ELFSYM_EXPORT(memcpy), ESP_ELFSYM_EXPORT(memset), ESP_ELFSYM_EXPORT(memmove),
     ESP_ELFSYM_EXPORT(memcmp), ESP_ELFSYM_EXPORT(strlen), ESP_ELFSYM_EXPORT(setjmp), ESP_ELFSYM_EXPORT(longjmp), ESP_ELFSYM_END,
 };
+#if SOLAR_CC_BUILTIN
+extern int solar_os_tinycc_app_main(int, char **);
+extern int solar_os_cc_app_main(int, char **);
+#else
 extern const uint8_t compiler_start[] asm("_binary_compiler_start");
 extern const uint8_t client_start[] asm("_binary_client_start");
+#endif
 static const char program[] =
 #include "library_probe.inc"
 ;
@@ -139,28 +152,44 @@ static int header_reader(void *user, const char *path, void *buffer, uint32_t ca
 }
 void app_main(void)
 {
-    esp_elf_t library_elf, client_elf, program_elf;
+    const size_t before_psram = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    const size_t before_internal = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    esp_elf_t program_elf;
     assert(!esp_elf_register_symbol(exports));
+#if SOLAR_CC_BUILTIN
+    assert(!solar_os_tinycc_app_main(0, NULL));
+    int (*client_entry)(int, char **) = solar_os_cc_app_main;
+#else
+    esp_elf_t library_elf, client_elf;
     assert(!esp_elf_init(&library_elf) && !esp_elf_relocate(&library_elf, compiler_start));
     assert(!((int (*)(int,char **))library_elf.entry)(0, NULL));
     assert(compiler);
     assert(!esp_elf_init(&client_elf) && !esp_elf_relocate(&client_elf, client_start));
+    int (*client_entry)(int, char **) = (void *)client_elf.entry;
+#endif
+    assert(compiler);
+    printf("CC_MEMORY deployment=%s before_psram=%u loaded_psram=%u before_internal=%u loaded_internal=%u\n",
+        SOLAR_CC_BUILTIN ? "builtin" : "external", (unsigned)before_psram,
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)before_internal,
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     char *argv[] = {"cc", "--self-test"};
-    int code = ((int (*)(int,char **))client_elf.entry)(2, argv);
+    int code = client_entry(2, argv);
     printf("NATIVE_CLIENT_RESULT=%d\n", code); assert(!code);
     char *build_argv[]={"cc","build","/project/cc.toml"};
-    assert(!((int (*)(int,char **))client_elf.entry)(3,build_argv));
+    assert(!client_entry(3,build_argv));
     assert(project_writes==1 && project_output && project_output_bytes);
     assert(!esp_elf_init(&program_elf) && !esp_elf_relocate(&program_elf,project_output));
     assert(((int (*)(int,char **))program_elf.entry)(0,NULL)==42);esp_elf_deinit(&program_elf);
     project_bad_source=true;
-    assert(((int (*)(int,char **))client_elf.entry)(3,build_argv)!=0);
+    assert(client_entry(3,build_argv)!=0);
     assert(project_writes==1 && project_output_bytes);project_bad_source=false;
     project_file="sources=['main.c']\nunknown=true\n";
-    assert(((int (*)(int,char **))client_elf.entry)(3,build_argv)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(client_entry(3,build_argv)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(project_writes==1 && !leases);heap_caps_free(project_output);project_output=NULL;
     printf("SOLAR_CC_PROJECT_PASS: manifest-relative sources, includes, native execution and failed-build preservation\n");
+#if !SOLAR_CC_BUILTIN
     esp_elf_deinit(&client_elf);
+#endif
     const solar_os_cc_api_v1_t *api = (const void *)compiler->api;
     void *output = solar_os_memory_elf_alloc(8192); assert(output);
     solar_os_cc_request_v1_t request = {.struct_size=sizeof(request), .source=program, .source_bytes=sizeof(program)-1};
@@ -266,7 +295,15 @@ void app_main(void)
     extern int solar_cc_differential(const solar_os_cc_api_v1_t *);
     assert(!solar_cc_differential(api));
 #endif
-    assert(!compiler->shutdown()); esp_elf_deinit(&library_elf);
+    assert(!compiler->shutdown());
+#if !SOLAR_CC_BUILTIN
+    esp_elf_deinit(&library_elf);
+#else
+    printf("SOLAR_CC_BUILTIN_PASS: isolated compiler and command execute from firmware\n");
+#endif
+    printf("CC_MEMORY_AFTER psram=%u internal=%u\n",
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+        (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
     printf("SOLAR_CC_NATIVE_PASS: compiled C on ESP32-S3, then loaded and executed its ELF\n");
     printf("SOLAR_CC_FILE_ADAPTER_PASS: legacy requests, standalone main, nested disk headers and imports\n");
 #ifdef SOLAR_CC_DIFFERENTIAL

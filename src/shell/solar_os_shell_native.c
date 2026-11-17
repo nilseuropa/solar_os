@@ -4,6 +4,7 @@
 #include "solar_os_native_foreground.h"
 #include "solar_os_native_storage.h"
 #include "solar_os_input.h"
+#include <stdio.h>
 #include <string.h>
 #include "solar_os_module_packages.h"
 #include "solar_os_shell.h"
@@ -60,7 +61,8 @@ static esp_err_t native_shell_run(solar_os_shell_io_t *io,
                                   int argc,
                                   char **argv,
                                   solar_os_native_run_result_t *result,
-                                  solar_os_context_t *ctx)
+                                  solar_os_context_t *ctx,
+                                  int (*builtin_entry)(int, char **))
 {
     char cwd[SOLAR_OS_STORAGE_PATH_MAX];
     solar_os_native_storage_context_t storage;
@@ -77,7 +79,13 @@ static esp_err_t native_shell_run(solar_os_shell_io_t *io,
         .service_user = &storage,
     };
     char detail[128];
-    const esp_err_t err = solar_os_native_run(path,
+    esp_err_t err;
+    if (builtin_entry) {
+        int status = 0;
+        err = solar_os_native_run_builtin(builtin_entry, argc, argv, &options, &status);
+        if (err == ESP_OK && status) err = ESP_FAIL;
+        snprintf(detail, sizeof(detail), "built-in command returned %d", status);
+    } else err = solar_os_native_run(path,
                                               argc,
                                               argv,
                                               &options,
@@ -88,6 +96,13 @@ static esp_err_t native_shell_run(solar_os_shell_io_t *io,
         solar_os_shell_diag_esp(io, command, err, detail, NULL);
     }
     return err;
+}
+
+esp_err_t solar_os_shell_run_native_builtin(solar_os_context_t *ctx,
+    int (*entry)(int, char **), int argc, char **argv)
+{
+    return native_shell_run(solar_os_shell_command_io(ctx), "cc", NULL,
+                            argc, argv, NULL, ctx, entry);
 }
 
 void solar_os_shell_cmd_load(solar_os_context_t *ctx, int argc, char **argv)
@@ -146,7 +161,8 @@ void solar_os_shell_cmd_load(solar_os_context_t *ctx, int argc, char **argv)
                                            module_argc,
                                            module_argv,
                                            &result,
-                                           ctx);
+                                           ctx,
+                                           NULL);
     if (err != ESP_OK) {
         return;
     }
@@ -199,6 +215,7 @@ bool solar_os_shell_try_native_module(solar_os_context_t *ctx,
                            argc,
                            argv,
                            NULL,
-                           ctx);
+                           ctx,
+                           NULL);
     return true;
 }

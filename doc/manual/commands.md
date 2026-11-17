@@ -276,6 +276,7 @@ job for periodic polling.
 | `pkg` | `pkg remove <module>` | Remove an installed native module. |
 | `pkg` | `pkg unload <library>` | Unload an unused library while keeping its installed file. |
 | `load` | `load <file.elf> [args...]` | Validate, relocate, run, and unload one native ELF module from storage. |
+| `cc` | `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Available with the optional `cc` firmware group or an installed `cc` package. See [C development](native-library.md). |
 | `board` | `board` | Print board ID, name, and capabilities. |
 | `identity` | `identity [status]` | Show the configured user and hostname. |
 | `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |

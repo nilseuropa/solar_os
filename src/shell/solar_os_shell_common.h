@@ -12,6 +12,8 @@
 
 solar_os_shell_io_t *solar_os_shell_command_io(solar_os_context_t *ctx);
 solar_os_terminal_t *solar_os_shell_display_terminal(solar_os_context_t *ctx);
+esp_err_t solar_os_shell_run_native_builtin(solar_os_context_t *ctx,
+    int (*entry)(int, char **), int argc, char **argv);
 
 bool solar_os_shell_print_not_supported(solar_os_shell_io_t *term,
                                         const char *command,

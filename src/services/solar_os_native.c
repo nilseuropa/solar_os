@@ -1110,11 +1110,37 @@ static void native_slot_remove(native_resident_slot_t *slot)
     portEXIT_CRITICAL(&native_resident_lock);
 }
 
+#if SOLAR_OS_PACKAGE_APP_CC
+static esp_err_t native_initialize_builtin_library(native_resident_slot_t *slot,
+    int (*entry)(int, char **), char *detail, size_t detail_len)
+{
+    char *argv[] = {slot->id, NULL};
+    native_registering_slot = slot;
+    native_registering_task = xTaskGetCurrentTaskHandle();
+    const int code = entry(1, argv);
+    native_registering_slot = NULL;
+    native_registering_task = NULL;
+    if (code || !slot->registered) {
+        native_set_detail(detail, detail_len, "built-in library initialization failed");
+        return code == SOLAR_OS_NATIVE_ERROR_NO_MEMORY ? ESP_ERR_NO_MEM : ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+#endif
+
 static esp_err_t native_load_resident(native_resident_slot_t *slot,
                                       const char *path,
                                       char *detail,
                                       size_t detail_len)
 {
+#if SOLAR_OS_PACKAGE_APP_CC
+    if (slot->type == SOLAR_OS_MODULE_TYPE_LIBRARY && !strcmp(slot->id, "tinycc")) {
+        extern int solar_os_tinycc_app_main(int, char **);
+        const esp_err_t ready = native_register_symbols(detail, detail_len);
+        if (ready != ESP_OK) return ready;
+        return native_initialize_builtin_library(slot, solar_os_tinycc_app_main, detail, detail_len);
+    }
+#endif
     solar_os_storage_metadata_t metadata;
     esp_err_t err = solar_os_storage_stat(path, &metadata);
     if (err != ESP_OK || metadata.type != SOLAR_OS_STORAGE_ENTRY_FILE) {
@@ -1255,6 +1281,21 @@ static esp_err_t native_unregister_resident(native_resident_slot_t *slot)
 #endif
     }
     return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t solar_os_native_run_builtin(int (*entry)(int, char **), int argc,
+                                      char **argv,
+                                      const solar_os_native_run_options_t *options,
+                                      int *exit_status)
+{
+    if (!entry || argc < 1 || !argv || !options || !options->write ||
+        options->expected_manifest || !exit_status) return ESP_ERR_INVALID_ARG;
+    native_run_scope_t scope = {.task = xTaskGetCurrentTaskHandle(), .options = *options};
+    native_run_scope_add(&scope);
+    *exit_status = entry(argc, argv);
+    if (options->cleanup) options->cleanup(options->service_user);
+    native_run_scope_remove(&scope);
+    return ESP_OK;
 }
 
 esp_err_t solar_os_native_run(const char *path,

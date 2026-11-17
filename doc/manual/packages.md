@@ -42,6 +42,17 @@ before downloading artifacts. A dependency already on storage is reused only
 when its size and SHA-256 match the signed catalog. Close or unload active
 modules before replacing them.
 
+For ESP32-S3 boards with PSRAM, the optional `cc` firmware group includes the C
+command and TinyCC provider in the image. Set `cc = true` under `[groups]` in a
+custom flavor. Standard flavors leave it disabled. The built-in command needs
+no installed compiler ELFs and supports the same projects, SDK headers and
+limits as the external packages. Code stays in firmware flash; private compiler
+state is placed in PSRAM when external BSS is enabled. The compiler heap and
+joined worker stack are allocated on demand. The built-in provider takes
+precedence over an installed `tinycc` library; leases protect it until clients
+finish, and unloading releases its runtime snapshot without removing firmware
+code. See [C development](native-library.md).
+
 Each artifact is validated and replaced separately. If a later download fails,
 successfully installed dependencies remain available and the previous requested
 module is preserved. Removing a library can leave its consumers unable to run;

@@ -26,6 +26,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [camera command](commands.md) — Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error.
 - [can command](commands.md) — List the attached classic CAN controller and bitrate. See Classic CAN.
 - [cat command](commands.md) — Print a small text file.
+- [cc command](commands.md) — Compile native C applications and browse SDK headers. Available with the optional cc firmware group or an installed cc package. See C development.
 - [cd command](commands.md) — Change current shell directory.
 - [charger command](commands.md) — List registered battery chargers, concrete drivers, and valid configuration ranges.
 - [clear command](commands.md) — Clear the active shell terminal.

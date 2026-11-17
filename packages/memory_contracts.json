@@ -10,7 +10,7 @@
   "exceptions": {
     "modules/experimental/tinycc/native-qemu/main/main.c": {
       "calls": {
-        "heap_caps_malloc": 1,
+        "heap_caps_aligned_alloc": 1,
         "heap_caps_calloc": 1,
         "xTaskCreateStaticPinnedToCore": 1
       },

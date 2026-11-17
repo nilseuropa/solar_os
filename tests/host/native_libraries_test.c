@@ -66,7 +66,21 @@ static int shutdown_library(void) {
     assert(solar_os_native_library_acquire("example", 7, sizeof(api), &token, &p) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     return fail_shutdown ? SOLAR_OS_NATIVE_ERROR_INVALID_STATE : SOLAR_OS_NATIVE_OK;
 }
+static int builtin_loads, builtin_shutdowns, fail_builtin;
+static int shutdown_builtin(void) { builtin_shutdowns++; return 0; }
+static int builtin_entry(int argc, char **argv) {
+    assert(argc == 1 && argv && !strcmp(argv[0], "tinycc"));
+    if (fail_builtin) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    const solar_os_native_library_descriptor_v1_t descriptor = {
+        1, sizeof(descriptor), "tinycc", "built-in compiler", (const void *)&api, shutdown_builtin,
+    };
+    builtin_loads++;
+    return native_register_library(&descriptor);
+}
+static esp_err_t native_initialize_builtin_library(native_resident_slot_t *,
+    int (*)(int, char **), char *, size_t);
 static esp_err_t native_load_resident(native_resident_slot_t *slot, const char *path, char *d, size_t n) {
+    if (!strcmp(slot->id, "tinycc")) return native_initialize_builtin_library(slot, builtin_entry, d, n);
     (void)path; (void)d; (void)n;
     if (!strcmp(slot->id, "missing")) return ESP_ERR_NOT_FOUND;
     slot->elf_initialized = slot->elf.live = true;
@@ -187,6 +201,16 @@ static void *unloader(void *unused) {
 int main(void) {
     test_registration();
     test_lifecycle();
+    uint32_t builtin_lease; const void *builtin_table;
+    fail_builtin = 1;
+    assert(solar_os_native_library_acquire("tinycc", 7, sizeof(api), &builtin_lease, &builtin_table) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(!builtin_lease && !builtin_table && !native_registering_slot && !native_registering_task);
+    fail_builtin = 0;
+    assert(!solar_os_native_library_acquire("tinycc", 7, sizeof(api), &builtin_lease, &builtin_table));
+    assert(builtin_table == &api && builtin_loads == 1 && !images);
+    assert(solar_os_native_library_unload("tinycc") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!solar_os_native_library_release(builtin_lease));
+    assert(!solar_os_native_library_unload("tinycc") && builtin_shutdowns == 1);
     uint32_t lease; const void *table;
     assert(solar_os_native_library_acquire("example", 7, sizeof(api), &lease, &table) == 0);
     native_resident_slot_t retained_app = {.type = SOLAR_OS_MODULE_TYPE_APP, .id = "retained"};

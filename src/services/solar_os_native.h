@@ -40,6 +40,13 @@ typedef struct {
     solar_os_native_elf_info_t elf;
 } solar_os_native_run_result_t;
 
+/* Run trusted firmware code with the same task-local services and cleanup as
+ * an ELF command. Its entry status is returned separately from setup errors. */
+esp_err_t solar_os_native_run_builtin(int (*entry)(int, char **), int argc,
+                                      char **argv,
+                                      const solar_os_native_run_options_t *options,
+                                      int *exit_status);
+
 esp_err_t solar_os_native_run(const char *path,
                               int argc,
                               char **argv,

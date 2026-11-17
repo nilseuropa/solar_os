@@ -575,6 +575,9 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
     {"load", "run a native ELF module", solar_os_shell_cmd_load},
 #endif
+#if SOLAR_OS_PACKAGE_APP_CC
+    {"cc", "compile native C applications", solar_os_shell_cmd_cc},
+#endif
     {"board", "show board capabilities", solar_os_shell_cmd_board},
     {"identity", "show or configure device identity", solar_os_shell_cmd_identity},
     {"input", "show input sources", solar_os_shell_cmd_input},

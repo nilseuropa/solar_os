@@ -557,6 +557,11 @@ label = "Python"
 category = "Scripting"
 members = ["app_python", "service_emotion", "service_jet", "service_robot"]
 
+[groups.cc]
+label = "Built-in C compiler"
+category = "Scripting"
+members = ["app_cc"]
+
 [groups.lua]
 label = "Lua"
 category = "Scripting"
@@ -3334,6 +3339,13 @@ depends = ["service_script_net", "service_script_runner", "service_script_media"
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
+
+[packages.app_cc]
+label = "app.cc"
+depends = ["service_native_modules"]
+sources = ["shell/solar_os_shell_cc.c"]
+capabilities = ["psram"]
+targets = ["esp32s3"]
 
 [packages.app_lua]
 label = "app.lua"

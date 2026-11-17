@@ -560,6 +560,9 @@ set_property(SOURCE ${SOLAR_OS_SRCS} APPEND PROPERTY OBJECT_DEPENDS
 )
 
 set(SOLAR_OS_LINKER_FRAGMENTS)
+if(SOLAR_OS_PACKAGE_APP_CC)
+    list(APPEND SOLAR_OS_LINKER_FRAGMENTS "cc_memory.lf")
+endif()
 if(SOLAR_OS_PACKAGE_DRIVER_CAMERA_ESP32)
     list(APPEND SOLAR_OS_LINKER_FRAGMENTS "camera_memory.lf")
 endif()
@@ -572,6 +575,11 @@ idf_component_register(
     REQUIRES ${SOLAR_OS_REQUIRES}
     LDFRAGMENTS ${SOLAR_OS_LINKER_FRAGMENTS}
 )
+
+if(SOLAR_OS_PACKAGE_APP_CC)
+    include("${SOLAR_OS_PROJECT_DIR}/cmake/solar_os_cc_builtin.cmake")
+    solar_os_link_builtin_cc(${COMPONENT_LIB})
+endif()
 
 if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)
     # Keep the pinned managed component pristine. Compile a generated copy

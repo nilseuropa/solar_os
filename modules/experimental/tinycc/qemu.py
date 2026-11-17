@@ -16,18 +16,19 @@ def main():
     parser.add_argument("--qemu", type=Path, required=True)
     mode=parser.add_mutually_exclusive_group()
     mode.add_argument("--native", action="store_true", help="run the compiler itself in the ESP32-S3 emulator")
+    mode.add_argument("--builtin", action="store_true", help="run the firmware-linked compiler and command")
     mode.add_argument("--differential", action="store_true", help="run the prepared GCC comparison corpus")
     args = parser.parse_args()
-    args.native=args.native or args.differential
+    args.native=args.native or args.differential or args.builtin
     qemu = args.qemu.resolve()
     project = HERE / ("native-qemu" if args.native else "qemu")
-    output = CACHE / ("differential-qemu" if args.differential else project.name); output.mkdir(exist_ok=True)
+    output = CACHE / ("builtin-qemu" if args.builtin else "differential-qemu" if args.differential else project.name); output.mkdir(exist_ok=True)
     report_file=output / "report.json"
     if report_file.exists(): report_file.unlink()
     console = output / "console.log"
     if console.exists(): console.unlink()
     pio = Path.home() / ".platformio/penv/bin"
-    environment="differential" if args.differential else "probe"
+    environment="builtin" if args.builtin else "differential" if args.differential else "probe"
     build = project / ".pio/build" / environment
     with (output / "build.log").open("w") as log:
         subprocess.run([str(pio / "pio"), "run", "-d", str(project), "-e", environment],
@@ -61,7 +62,21 @@ def main():
         "scalar_probe.elf", "library_probe.elf", "hello-library.elf", "library-user.elf"]
     report = {"qemu": subprocess.check_output([str(qemu), "--version"], text=True).splitlines()[0],
               "target": "esp32s3", "compiler_ran_on_target": args.native,
+              "firmware_sha256": hashlib.sha256((build / "firmware.bin").read_bytes()).hexdigest(),
+              "firmware_bytes": (build / "firmware.bin").stat().st_size,
               "artifacts": {name: hashlib.sha256((CACHE / name).read_bytes()).hexdigest() for name in paths}}
+    if args.builtin:
+        if 'SOLAR_CC_BUILTIN_PASS:' not in text: raise RuntimeError('missing built-in compiler checks')
+        report['builtin_archive_sha256'] = hashlib.sha256(
+            (build/'tinycc/libsolar_os_cc.a').read_bytes()).hexdigest()
+        report['compiler_built_in'] = True
+    if args.native:
+        loaded = re.search(r'CC_MEMORY deployment=(\w+) before_psram=(\d+) loaded_psram=(\d+) before_internal=(\d+) loaded_internal=(\d+)', text)
+        released = re.search(r'CC_MEMORY_AFTER psram=(\d+) internal=(\d+)', text)
+        if not loaded or not released: raise RuntimeError('missing compiler memory measurements')
+        report['memory'] = dict(zip(('deployment','before_psram','loaded_psram','before_internal','loaded_internal'),
+                                   [loaded[1], *map(int, loaded.groups()[1:])]))
+        report['memory'].update(after_psram=int(released[1]), after_internal=int(released[2]))
     if not args.native: report.update(abi_cycles=100, generated_provider_and_job_callbacks=True)
     else: report.update(legacy_request_abi=True, standalone_main=True, nested_file_headers=True,
                         unsupported_import_rejected=True, optional_libc_extension=True, project_build=True)
