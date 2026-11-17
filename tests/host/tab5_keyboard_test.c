@@ -96,6 +96,13 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source, uint16_t phys
 }
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char key)
 { assert(alive[source]); (void)key; return input_error; }
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source, uint16_t physical,
+    uint16_t usage, uint8_t key, uint8_t mods)
+{
+    esp_err_t err = solar_os_input_write_key(source, physical, usage, key, mods, SOLAR_OS_INPUT_KEY_PRESS);
+    return err != ESP_OK ? err :
+        solar_os_input_write_key(source, physical, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+}
 bool solar_os_expansion_find_i2c_bus(const char *name, solar_os_expansion_i2c_bus_t *bus, size_t *index)
 { (void)bus; (void)index; return strcmp(name, "i2c0") == 0 || strcmp(name, "i2c1") == 0; }
 esp_err_t solar_os_bus_i2c_probe(const char *name, uint8_t address)

@@ -74,6 +74,13 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source, uint16_t phys
 }
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char key)
 { assert(source != 0U); last_char = (uint8_t)key; chars++; return ESP_OK; }
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source, uint16_t physical,
+    uint16_t usage, uint8_t key, uint8_t mods)
+{
+    esp_err_t err = solar_os_input_write_key(source, physical, usage, key, mods, SOLAR_OS_INPUT_KEY_PRESS);
+    return err != ESP_OK ? err :
+        solar_os_input_write_key(source, physical, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+}
 
 static esp_err_t lock(void *context)
 {
@@ -151,11 +158,15 @@ int main(void)
     process(&second, 50000, true, true); assert(events[event_count-1U].key == 'a');
     solar_os_input_keymap_release_all(owner.handle);
     process(&owner, 60000, true, true); process(&owner, 60000, false, true);
-    assert(chars == 1 && last_char == ' ');
+    assert(chars == 0 && events[event_count-2U].key == ' ');
+    assert(events[event_count-2U].usage == 0x2c);
+    assert(events[event_count-2U].physical_key == SOLAR_OS_INPUT_PHYSICAL_NONE);
+    assert(events[event_count-2U].action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(events[event_count-1U].action == SOLAR_OS_INPUT_KEY_RELEASE);
     process(&owner, 60000, true, true); process(&owner, 50000, true, true);
     assert(events[event_count-1U].key == '!');
     process(&owner, 60000, false, true); process(&owner, 50000, false, true);
-    assert(chars == 1 && events[event_count-1U].key == '!');
+    assert(chars == 0 && events[event_count-1U].key == '!');
     solar_os_input_keymap_t custom = map;
     custom.physical[1] = 1234;
     unsigned prior_released = released;
