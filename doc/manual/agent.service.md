@@ -129,6 +129,15 @@ chat for image input. File, `stream:ID`, `rtsp://`, and `pipeline:ID` sources us
 the same bounded encoded attachments. See [image questions](agent.md#ask-about-an-image)
 for supported formats, limits, source ownership, and conversation history.
 
+## Python and Lua
+
+Scripts can call `solaros.agent.ask(prompt[, images[, conversation_id]])` and
+receive a reply with text, usage, and an optional saved conversation ID. Images
+accept one source string or up to two file, stream, RTSP, or pipeline sources.
+Bindings also expose provider configuration, status, cancellation, and saved
+conversation management. See [Python agent API](python.agent.md) and
+[Lua agent API](lua.agent.md) for arguments, examples, limits, and tool policy.
+
 ## Typed tools
 
 `agent tools` shows the canonical registry, domain and risk metadata, runtime

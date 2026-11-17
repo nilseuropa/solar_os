@@ -273,6 +273,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Digital signal processing](dsp.md) — Portable fixed-point DSP operations, streaming contexts, and script APIs
 - [Emotion engine](emotion.md) — Animated facial expressions and optional reaction sounds for Python and Lua
 - [Jet 3D renderer](jet.md) — Script-defined 3D scenes using the resident Jet library
+- [Lua agent API](lua.agent.md) — Ask language models about text or images, configure providers, and resume conversations
 - [Lua API overview](lua.md) — Runtime basics, conventions, and service API topic index
 - [Lua audio and control API](lua.audio.md) — Audio and control: audio, synth, dsp, controls, parameters, midi, osc
 - [Lua bluetooth API](lua.ble.md) — Bluetooth: ble
@@ -295,6 +296,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Native image pipelines](pipelines.md) — OS-owned QR and model processing jobs with bounded latest results and frame timings
 - [Native libraries](native-library.md) — Install reusable native libraries and manage their lifetime
 - [Native media and inference](native-media.md) — Versioned image, camera/RTSP, QR, imlib and resident-model interfaces for ELF modules
+- [Python agent API](python.agent.md) — Ask language models about text or images, configure providers, and resume conversations
 - [Python API overview](python.md) — Runtime basics, conventions, and service API topic index
 - [Python audio and control API](python.audio.md) — Audio and control: audio, synth, dsp, controls, parameters, midi, osc
 - [Python bluetooth API](python.ble.md) — Bluetooth: ble

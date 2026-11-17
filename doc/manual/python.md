@@ -52,6 +52,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Camera, streams, and RTSP](python.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
 | [Computer vision](vision.md) | `solaros.vision` |
 | [Model inference](inference.md) | `solaros.inference` |
+| [Agent text and image questions](python.agent.md) | `solaros.agent` |
 | [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Conventions

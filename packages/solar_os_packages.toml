@@ -1390,7 +1390,7 @@ capabilities = ["wifi"]
 
 [packages.service_agent]
 label = "service.agent"
-depends = ["service_crypto", "service_http_client", "service_json", "service_media_sample"]
+depends = ["service_crypto", "service_http_client", "service_json", "service_media_sample_source"]
 sources = [
   "services/solar_os_agent_images.c",
   "services/solar_os_agent.c",
@@ -1398,6 +1398,7 @@ sources = [
   "services/solar_os_agent_reference.c",
   "services/solar_os_agent_openai.c",
   "services/solar_os_agent_tools.c",
+  "services/solar_os_script_agent.c",
 ]
 requires = ["heap", "nvs_flash"]
 capabilities = ["psram", "wifi"]

@@ -67,6 +67,8 @@ typedef struct {
     bool initialized;
     bool running;
     bool cancel_requested;
+    solar_os_agent_cancel_fn should_cancel;
+    void *cancel_user_data;
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
     uint8_t max_tools;
@@ -526,8 +528,10 @@ bool solar_os_agent_provider_cancel_requested(void)
 {
     portENTER_CRITICAL(&agent_lock);
     const bool cancel = agent.cancel_requested;
+    solar_os_agent_cancel_fn should_cancel = agent.should_cancel;
+    void *user_data = agent.cancel_user_data;
     portEXIT_CRITICAL(&agent_lock);
-    return cancel;
+    return cancel || (should_cancel != NULL && should_cancel(user_data));
 }
 
 void solar_os_agent_provider_bind_request(solar_os_http_request_t *request)
@@ -906,6 +910,8 @@ static void agent_finish_request(esp_err_t error,
     portENTER_CRITICAL(&agent_lock);
     agent.running = false;
     agent.cancel_requested = false;
+    agent.should_cancel = NULL;
+    agent.cancel_user_data = NULL;
     agent.last_error = error;
     agent.last_internal_after = internal_after;
     agent.last_internal_largest_after = internal_largest_after;
@@ -955,6 +961,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     max_tools = agent.max_tools;
     agent.running = true;
     agent.cancel_requested = false;
+    agent.should_cancel = request->should_cancel;
+    agent.cancel_user_data = request->user_data;
     agent.request_count++;
     agent.last_http_status = -1;
     agent.last_error = ESP_OK;

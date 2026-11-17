@@ -59,6 +59,7 @@ typedef struct {
 
 typedef esp_err_t (*solar_os_agent_event_fn)(const solar_os_agent_event_t *event,
                                              void *user_data);
+typedef bool (*solar_os_agent_cancel_fn)(void *user_data);
 
 typedef esp_err_t (*solar_os_agent_tool_confirmation_fn)(
     const char *tool_name,
@@ -91,6 +92,8 @@ typedef struct {
     char *next_conversation_id;
     size_t next_conversation_id_len;
     solar_os_agent_event_fn event_handler;
+    /* Polled synchronously during provider I/O; must not call an interpreter. */
+    solar_os_agent_cancel_fn should_cancel;
     solar_os_agent_tool_confirmation_fn confirm_tool;
     solar_os_agent_script_run_fn run_script;
     uint32_t script_languages;

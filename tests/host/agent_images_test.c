@@ -39,6 +39,11 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http
         "data: {\"choices\":[{\"delta\":{\"content\":\"image seen\"},\"finish_reason\":null}]}\n\n"
         "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n" :
         "{\"error\":{\"message\":\"vision unsupported\"}}";
+    if (http_status == 200 && strstr(r->options.url, "/responses")) data =
+        "data: {\"type\":\"response.output_text.delta\",\"delta\":\"image seen\"}\n\n"
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"r1\"}}\n\n";
+    assert(r->options.should_cancel != NULL);
+    if (r->options.should_cancel(r->options.cancel_user_data)) return ESP_ERR_INVALID_STATE;
     if (cancelled) return ESP_ERR_INVALID_STATE;
     const solar_os_http_event_t event={.type=SOLAR_OS_HTTP_EVENT_DATA,.status_code=http_status,
         .data=(const uint8_t *)data,.data_len=strlen(data)};
@@ -46,8 +51,10 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http
 }
 #include "../../src/services/solar_os_agent_openai.c"
 
+#ifndef SOLAR_OS_AGENT_IMAGES_TEST_SUPPORT_ONLY
 static esp_err_t receive(const solar_os_agent_event_t *event,void *user)
 { if(event->type==SOLAR_OS_AGENT_EVENT_TEXT_DELTA)strcat(user,event->text);return ESP_OK; }
+#endif
 static void record(FILE *file,const solar_os_agent_provider_config_t *config,solar_os_agent_provider_turn_t *turn)
 {
     char *body=NULL;size_t length=0;
@@ -56,6 +63,7 @@ static void record(FILE *file,const solar_os_agent_provider_config_t *config,sol
     assert(cJSON_IsFalse(cJSON_GetObjectItemCaseSensitive(parsed,"parallel_tool_calls")));
     cJSON_Delete(parsed);assert(fwrite(body,1,length,file)==length);fputc('\n',file);solar_os_memory_free(body);
 }
+#ifndef SOLAR_OS_AGENT_IMAGES_TEST_SUPPORT_ONLY
 int main(int argc,char **argv)
 {
     assert(argc==2);assert(!solar_os_json_init());
@@ -126,3 +134,4 @@ int main(int argc,char **argv)
     assert(!fclose(file));assert(!allocations);
     puts("Agent image ownership, protocols, continuations, limits, errors, cancellation and OOM passed");
 }
+#endif

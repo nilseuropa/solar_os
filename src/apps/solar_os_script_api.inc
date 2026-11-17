@@ -54,6 +54,24 @@ SOLAR_OS_SCRIPT_API_MODULE_BEGIN(board);
 SOLAR_OS_SCRIPT_API_FUNCTION(board, info, info);
 SOLAR_OS_SCRIPT_API_MODULE_END(board);
 
+#if SOLAR_OS_PACKAGE_SERVICE_AGENT
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(agent);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, ask, ask);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_endpoint, set_endpoint);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_model, set_model);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_api_key, set_api_key);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_reasoning_effort, set_reasoning_effort);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_tool_policy, set_tool_policy);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_max_tools, set_max_tools);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, cancel, cancel);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, forget, forget);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, conversations, conversations);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, conversation_info, conversation_info);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, delete_conversation, delete_conversation);
+SOLAR_OS_SCRIPT_API_MODULE_END(agent);
+#endif
+
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(storage);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, status, status);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, is_mounted, is_mounted);

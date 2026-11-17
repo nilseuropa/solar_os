@@ -504,6 +504,12 @@ static esp_err_t agent_openai_feed(agent_openai_stream_t *stream,
     return ESP_OK;
 }
 
+static bool agent_openai_should_cancel(void *user_data)
+{
+    (void)user_data;
+    return solar_os_agent_provider_cancel_requested();
+}
+
 static esp_err_t agent_openai_http_event(const solar_os_http_event_t *event,
                                          void *user_data)
 {
@@ -1063,6 +1069,7 @@ static esp_err_t agent_openai_run_turn(const solar_os_agent_provider_config_t *c
         .transmit_buffer_size = AGENT_OPENAI_TX_BUFFER,
         .event_handler = agent_openai_http_event,
         .user_data = stream,
+        .should_cancel = agent_openai_should_cancel,
     };
 
     solar_os_http_request_t *request = NULL;

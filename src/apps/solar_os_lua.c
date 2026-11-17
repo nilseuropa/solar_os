@@ -7519,6 +7519,7 @@ static int solua_gfx_text(lua_State *L)
 #include "solar_os_lua_usb_serial.inc"
 #include "solar_os_lua_imlib.inc"
 #include "solar_os_lua_inference.inc"
+#include "solar_os_lua_agent.inc"
 #include "solar_os_lua_pipeline.inc"
 #include "solar_os_lua_dlp.inc"
 #include "solar_os_lua_emotion.inc"
