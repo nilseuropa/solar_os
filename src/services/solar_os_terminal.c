@@ -2155,7 +2155,16 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
         return;
     }
 
-    u8g2_SetFont(u8g2, terminal_selected_font(terminal, bold, italic));
+    const uint8_t *cell_font = terminal_selected_font(terminal, bold, italic);
+    u8g2_SetFont(u8g2, cell_font);
+    if (cell > 0xffU && !u8g2_IsGlyph(u8g2, cell)) {
+        /* The built-in face lacks the glyph; a loaded font pack has it for the
+         * same cell, so it draws in the same place. */
+        const uint8_t *extra = solar_os_font_fallback(cell_font, cell);
+        if (extra != NULL) {
+            u8g2_SetFont(u8g2, extra);
+        }
+    }
     if (text_scale == 2) {
         (void)u8g2_DrawGlyphX2(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, cell);
     } else {
