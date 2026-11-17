@@ -99,6 +99,11 @@ typedef struct {
     uint8_t key;
     uint8_t modifiers;
     solar_os_input_key_action_t action;
+    /* For a layout code (SOLAR_OS_KEY_LAYOUT_TEXT*): the keyboard layout in
+     * force when the event was queued, plus one. Zero resolves with the
+     * current layout. Set by the input queue, so a layout change between
+     * queueing and reading does not change what a queued key meant. */
+    uint8_t layout_tag;
 } solar_os_input_key_event_t;
 
 typedef enum {

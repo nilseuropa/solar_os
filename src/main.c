@@ -1848,7 +1848,9 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
         dispatch_text_to_input_focus((uint8_t)text_key)) {
         return;
     }
-    if (text_key != 0) {
+    /* A layout key whose text no byte carries has nothing to send (Ctrl+@ is a
+     * real NUL, so only layout keys are skipped). */
+    if (!layout_key || text_key != 0) {
         dispatch_input_chars(&text_key, 1);
     }
 }
