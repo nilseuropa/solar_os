@@ -19,6 +19,90 @@ static size_t find_block(const solar_os_doc_t *doc, solar_os_doc_block_type_t ty
     return 0;
 }
 
+static void test_utf8_cursor_geometry(void)
+{
+    static const char text[] = "aö€їțZ";
+    static const size_t offsets[] = {0, 1, 3, 6, 8, 10, 11};
+    solar_os_doc_t doc;
+    solar_os_doc_layout_t layout;
+    solar_os_doc_init(&doc);
+    solar_os_doc_layout_init(&layout);
+    assert(solar_os_doc_parse_markdown(&doc, text, sizeof(text) - 1U, "utf8.md") == ESP_OK);
+
+    for (int zoom = 0; zoom <= 4; zoom++) {
+        const int char_w = 6 + zoom;
+        for (int raw = 0; raw <= 1; raw++) {
+            const solar_os_doc_reveal_range_t reveal = {.start = 0, .end = sizeof(text) - 1U};
+            for (size_t columns = 3; columns <= 6; columns += 3) {
+                assert(solar_os_doc_layout_build_ex(&layout, &doc, (int)columns * char_w,
+                                                     zoom, raw ? &reveal : NULL, raw) == ESP_OK);
+                assert(layout.line_count == 6 / columns);
+                for (size_t i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
+                    int x = -1;
+                    int y = -1;
+                    assert(solar_os_doc_layout_source_to_xy(&layout, offsets[i], &x, &y, NULL));
+                    const size_t line = i == 6 ? layout.line_count - 1U : i / columns;
+                    const size_t column = i == 6 ? columns : i % columns;
+                    assert(x == (int)column * char_w);
+                    assert(y == solar_os_doc_layout_line(&layout, line)->y);
+                    size_t hit = SIZE_MAX;
+                    assert(solar_os_doc_layout_hit_test(&layout, x, y, &hit));
+                    assert(hit == offsets[i]);
+                }
+                if (columns == 3) {
+                    for (size_t i = 0; i < 3; i++) {
+                        size_t target = SIZE_MAX;
+                        assert(solar_os_doc_layout_adjacent_source(&layout, offsets[i], true, &target));
+                        assert(target == offsets[i + 3]);
+                        assert(solar_os_doc_layout_adjacent_source(&layout, target, false, &target));
+                        assert(target == offsets[i]);
+                    }
+                }
+                for (size_t i = 0; i < layout.run_count; i++) {
+                    const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&layout, i);
+                    assert(run->width == (int)columns * char_w);
+                    assert(solar_os_doc_layout_run_source_x(&layout, run, run->source_start) == run->x);
+                    assert(solar_os_doc_layout_run_source_x(&layout, run, run->source_end) == run->x + run->width);
+                    const char *run_text = raw ? doc.source : doc.blocks[run->block_index].text;
+                    assert(((unsigned char)run_text[run->text_offset] & 0xc0U) != 0x80U);
+                    assert(((unsigned char)run_text[run->text_offset + run->text_len] & 0xc0U) != 0x80U);
+                }
+            }
+        }
+    }
+    solar_os_doc_layout_free(&layout);
+    solar_os_doc_free(&doc);
+}
+
+static void test_utf8_styled_and_code_layout(void)
+{
+    static const char markdown[] = "ö **ö** țZ";
+    solar_os_doc_t doc;
+    solar_os_doc_layout_t layout;
+    solar_os_doc_init(&doc);
+    solar_os_doc_layout_init(&layout);
+    assert(solar_os_doc_parse_markdown(&doc, markdown, sizeof(markdown) - 1U, "utf8.md") == ESP_OK);
+    assert(solar_os_doc_layout_build(&layout, &doc, 180, 1) == ESP_OK);
+    int x = -1;
+    assert(solar_os_doc_layout_source_to_xy(&layout, 5, &x, NULL, NULL) && x == 2 * 7);
+    assert(solar_os_doc_layout_source_to_xy(&layout, 10, &x, NULL, NULL) && x == 4 * 7);
+    assert(solar_os_doc_layout_source_to_xy(&layout, 12, &x, NULL, NULL) && x == 5 * 7);
+
+    static const char code[] = "```\naö€їțZ\n```\n";
+    assert(solar_os_doc_parse_markdown(&doc, code, sizeof(code) - 1U, "utf8.md") == ESP_OK);
+    assert(solar_os_doc_layout_build(&layout, &doc, 3 * 7 + 8, 1) == ESP_OK);
+    assert(layout.line_count == 2);
+    for (size_t i = 0; i < layout.run_count; i++) {
+        const solar_os_doc_layout_run_t *run = solar_os_doc_layout_run(&layout, i);
+        assert(run->width == 3 * 7);
+        const char *text = doc.blocks[run->block_index].text;
+        assert(((unsigned char)text[run->text_offset] & 0xc0U) != 0x80U);
+        assert(((unsigned char)text[run->text_offset + run->text_len] & 0xc0U) != 0x80U);
+    }
+    solar_os_doc_layout_free(&layout);
+    solar_os_doc_free(&doc);
+}
+
 static void test_raw_ranges_and_reader_wrapper(void)
 {
     static const char markdown[] =
@@ -361,6 +445,8 @@ static void test_table_alternatives_and_wrapping(void)
 
 int main(void)
 {
+    test_utf8_cursor_geometry();
+    test_utf8_styled_and_code_layout();
     test_raw_ranges_and_reader_wrapper();
     test_reveal_round_trip();
     test_adjacent_heading_navigation();

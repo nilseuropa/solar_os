@@ -396,12 +396,12 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
+    static const char * const keyboard_values[] = {"us", "de", "ua", "fr", "ro"};
     static const char * const powerkey_values[] = {
         "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
     };
     static const char * const startup_values[] = {"auto", "flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    static const char * const keyboard_values[] = {"us", "de"};
     static const char * const ble_values[] = {"default", "on", "off"};
 #endif
 
@@ -440,11 +440,11 @@ static bool setterm_tui_cycle_selected(int direction)
         return setterm_tui_cycle_value(backlight_values,
                                        sizeof(backlight_values) / sizeof(backlight_values[0]),
                                        direction);
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD:
         return setterm_tui_cycle_value(keyboard_values,
                                        sizeof(keyboard_values) / sizeof(keyboard_values[0]),
                                        direction);
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE:
         return setterm_tui_cycle_value(ble_values,
                                        sizeof(ble_values) / sizeof(ble_values[0]),

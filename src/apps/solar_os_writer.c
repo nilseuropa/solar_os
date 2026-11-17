@@ -1233,9 +1233,11 @@ static void writer_draw_highlight(solar_os_gfx_t *gfx, const solar_os_doc_view_t
         if (to <= from) {
             continue;
         }
-        const int x = view->x + run->x + ((int)from * run->char_w);
+        const int start_x = solar_os_doc_layout_run_source_x(&writer.layout, run, run->source_start + from);
+        const int end_x = solar_os_doc_layout_run_source_x(&writer.layout, run, run->source_start + to);
+        const int x = view->x + start_x;
         const int y = view->y + run->y - view->scroll_y;
-        solar_os_gfx_fill_rect(gfx, x, y, (int)(to - from) * run->char_w, run->height);
+        solar_os_gfx_fill_rect(gfx, x, y, end_x - start_x, run->height);
     }
 }
 
