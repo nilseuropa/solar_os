@@ -936,6 +936,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     }
     esp_err_t err = solar_os_agent_images_validate(request->images, request->image_count);
     if (err != ESP_OK) return err;
+    err = solar_os_agent_audio_validate(request->audio);
+    if (err != ESP_OK) return err;
     err = solar_os_agent_init();
     if (err != ESP_OK) {
         return err;
@@ -1076,6 +1078,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         .prompt = request->prompt,
         .images = request->images,
         .image_count = request->image_count,
+        .audio = request->audio,
         .history = history.messages,
         .history_count = history.message_count,
         .previous_response_id =
@@ -1319,14 +1322,19 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             run->capture.assistant_len > 0 ?
                 run->capture.assistant : "[No text response]";
         char *saved_prompt = NULL;
-        if (request->image_count) {
+        if (request->image_count || request->audio) {
             saved_prompt = solar_os_memory_alloc(SOLAR_OS_AGENT_PROMPT_MAX + 128,
                 SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "agent.image-history");
-            if (saved_prompt) snprintf(saved_prompt, SOLAR_OS_AGENT_PROMPT_MAX + 128,
-                "%s\n[Image attachments: %u; image content omitted from local history.]",
-                request->prompt, (unsigned)request->image_count);
+            if (saved_prompt) {
+                if (request->audio) snprintf(saved_prompt, SOLAR_OS_AGENT_PROMPT_MAX + 128,
+                    "%s\n[Attachments: %u image(s), 1 audio file; encoded content omitted from local history.]",
+                    request->prompt, (unsigned)request->image_count);
+                else snprintf(saved_prompt, SOLAR_OS_AGENT_PROMPT_MAX + 128,
+                    "%s\n[Image attachments: %u; image content omitted from local history.]",
+                    request->prompt, (unsigned)request->image_count);
+            }
         }
-        err = request->image_count && !saved_prompt ? ESP_ERR_NO_MEM : solar_os_agent_conversation_commit(
+        err = (request->image_count || request->audio) && !saved_prompt ? ESP_ERR_NO_MEM : solar_os_agent_conversation_commit(
             request->conversation_id,
             solar_os_agent_openai_provider.name,
             config.model,

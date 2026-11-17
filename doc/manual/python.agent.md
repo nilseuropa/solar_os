@@ -2,8 +2,8 @@
 id = "python.agent"
 title = "Python agent API"
 section = "api"
-summary = "Ask language models about text or images, configure providers, and resume conversations"
-keywords = "python solaros agent ask image camera vision provider conversation tools"
+summary = "Ask language models about text, images, or audio files and manage conversations"
+keywords = "python solaros agent ask audio wav mp3 image camera vision provider conversation tools"
 packages_any = ["service_agent"]
 agent_reference_sections = true
 +++
@@ -47,6 +47,41 @@ transcoding. Select a provider model that accepts images. Samples and temporary
 source ownership are released on success, cancellation, and failure. A saved
 conversation records an attachment marker locally; image bytes are not saved.
 See [Agent image questions](agent.md#ask-about-an-image) for provider history behavior.
+
+## Audio-file questions
+
+`ask_audio(prompt, path[, conversation_id])` sends one existing encoded WAV or
+MP3 file with the text prompt and returns the same reply fields as `ask()`.
+Use positional arguments. The optional third argument has the same saved
+conversation semantics: omit it for a stateless request, pass an empty string
+for a new conversation, or pass a returned ID to resume.
+
+```python
+import solaros
+
+answer = solaros.agent.ask_audio("Summarize this recording.", "/recording.wav")
+print(answer["text"])
+```
+
+Configure a Chat Completions endpoint and an audio-capable model before calling
+this method. For OpenAI, use `https://api.openai.com/v1/chat/completions` with
+an audio model such as `gpt-audio-1.5`. The adapter requests text output.
+Responses endpoints reject audio with `ESP_ERR_NOT_SUPPORTED` before HTTP
+transmission. Other compatible providers must accept the same `input_audio`
+content format; model and tool support depend on the provider.
+
+The file limit is 1 MiB. Container recognition uses the file bytes, not its
+extension; the provider decodes the audio. The service does not transcode it.
+Empty, oversized, missing, or unsupported files fail before upload. Native
+buffers and file handles are released on success, cancellation, and failure;
+reads poll cancellation in 4 KiB chunks.
+
+Use normal SolarOS storage paths. File submission needs no microphone or local
+audio package. Scripts that also record audio can use
+`solaros.audio.record_wav(path, duration_ms)` when audio input is available.
+Audio remains attached through tool continuations in the current request.
+Saved conversations retain text and an attachment notice; they omit audio
+bytes, so later local-history turns do not resend an earlier recording.
 
 ## Conversations
 
@@ -109,6 +144,11 @@ print(followup["text"])
 ```
 
 ## Quick reference
+
+Use `solaros.agent.ask_audio(prompt, path[, conversation_id])` for one encoded
+WAV/MP3 file up to 1 MiB, with a Chat Completions endpoint and audio-capable
+model. The reply contains text, conversation_id, truncated, and token counts.
+Audio submission needs no local microphone and does not use Responses.
 
 Use `solaros.agent.ask(prompt, images=None, conversation_id=None)` with positional
 arguments. `images` is one source string or up to two strings in a list/tuple:

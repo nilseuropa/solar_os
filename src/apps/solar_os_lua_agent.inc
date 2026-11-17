@@ -60,6 +60,19 @@ static int solua_agent_push_result(lua_State *L)
     return 1;
 }
 
+static int solua_agent_request(lua_State *L, const solar_os_script_agent_request_t *request)
+{
+    /* Push the protected conversion before allocating the native result. */
+    lua_pushcfunction(L, solua_agent_push_result);
+    solar_os_script_agent_result_t response = {0};
+    (void)solua_check_esp(L, solar_os_script_agent_ask(request, &response));
+    lua_pushlightuserdata(L, &response);
+    const int status = lua_pcall(L, 1, 1, 0);
+    solar_os_script_agent_result_clear(&response);
+    if (status != LUA_OK) return lua_error(L);
+    return 1;
+}
+
 static int solua_agent_ask(lua_State *L)
 {
     solar_os_script_agent_request_t request = {
@@ -81,15 +94,17 @@ static int solua_agent_ask(lua_State *L)
         }
     }
     if (!lua_isnoneornil(L, 3)) request.conversation_id = solua_agent_string(L, 3);
-    /* Push the protected conversion before allocating the native result. */
-    lua_pushcfunction(L, solua_agent_push_result);
-    solar_os_script_agent_result_t response = {0};
-    (void)solua_check_esp(L, solar_os_script_agent_ask(&request, &response));
-    lua_pushlightuserdata(L, &response);
-    const int status = lua_pcall(L, 1, 1, 0);
-    solar_os_script_agent_result_clear(&response);
-    if (status != LUA_OK) return lua_error(L);
-    return 1;
+    return solua_agent_request(L, &request);
+}
+
+static int solua_agent_ask_audio(lua_State *L)
+{
+    solar_os_script_agent_request_t request = {
+        .prompt = solua_agent_string(L, 1), .audio_file = solua_agent_string(L, 2),
+        .should_cancel = solua_should_cancel,
+    };
+    if (!lua_isnoneornil(L, 3)) request.conversation_id = solua_agent_string(L, 3);
+    return solua_agent_request(L, &request);
 }
 
 static int solua_agent_set_endpoint(lua_State *L)

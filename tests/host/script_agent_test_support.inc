@@ -5,6 +5,7 @@
 #include "solar_os_script_agent.h"
 #include "solar_os_media_sample_source.h"
 #include "solar_os_storage.h"
+#include <unistd.h>
 
 static bool script_cancel, cancel_during_source, cancel_during_run, long_answer;
 static int source_reads, agent_runs;
@@ -17,7 +18,8 @@ static solar_os_agent_status_t service_status;
 static bool script_should_cancel(void *user) { (void)user; return script_cancel; }
 esp_err_t solar_os_storage_resolve_path(const char *input, char *out, size_t capacity)
 {
-    int size = snprintf(out, capacity, "/resolved/%s", input[0] == '/' ? input + 1 : input);
+    int size = !strncmp(input, "/tmp/", 5) ? snprintf(out, capacity, "%s", input) :
+        snprintf(out, capacity, "/resolved/%s", input[0] == '/' ? input + 1 : input);
     return size >= 0 && (size_t)size < capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
@@ -56,6 +58,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     strcpy(config.model, "vision-test");
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt, .images = request->images, .image_count = request->image_count,
+        .audio = request->audio,
     };
     if (body_output) record(body_output, &config, &turn);
     solar_os_agent_provider_result_t result;
@@ -103,3 +106,21 @@ esp_err_t solar_os_agent_conversation_get(const char *id, solar_os_agent_convers
 esp_err_t solar_os_agent_conversations_list(solar_os_agent_conversation_info_t *items, size_t size, size_t *count)
 { assert(size >= 1); *count = 1; return solar_os_agent_conversation_get("c1", items); }
 esp_err_t solar_os_agent_conversation_delete(const char *id) { return strcmp(id, "c1") ? ESP_ERR_NOT_FOUND : ESP_OK; }
+
+/* A valid tiny mono PCM WAV, and an ID3-tagged MP3 header for container tests.
+ * The HTTP double checks transport and text handling; it does not decode audio. */
+const uint8_t script_agent_test_wav[] = {
+    'R','I','F','F',44,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,
+    1,0,1,0,0x80,0x3e,0,0,0,0x7d,0,0,2,0,16,0,'d','a','t','a',8,0,0,0,
+    0,1,2,3,4,5,6,7,
+};
+const uint8_t script_agent_test_mp3[] = {'I','D','3',4,0,0,0,0,0,0,0xff,0xfb,0x90,0};
+
+void script_agent_audio_fixture(char path[160], bool mp3)
+{
+    strcpy(path, "/tmp/solaros-agent-audio-XXXXXX");
+    int fd = mkstemp(path); assert(fd >= 0);
+    const void *data = mp3 ? (const void *)script_agent_test_mp3 : (const void *)script_agent_test_wav;
+    size_t length = mp3 ? sizeof(script_agent_test_mp3) : sizeof(script_agent_test_wav);
+    assert(write(fd, data, length) == (ssize_t)length && !close(fd));
+}

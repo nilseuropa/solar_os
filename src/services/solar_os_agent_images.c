@@ -19,6 +19,15 @@ esp_err_t solar_os_agent_images_validate(solar_os_media_sample_t *const *images,
     return ESP_OK;
 }
 
+esp_err_t solar_os_agent_audio_validate(const solar_os_media_sample_t *sample)
+{
+    if (!sample) return ESP_OK;
+    const solar_os_media_sample_audio_t *audio = solar_os_media_sample_audio(sample);
+    if (!audio || !audio->format ||
+        (strcmp(audio->format, "wav") && strcmp(audio->format, "mp3"))) return ESP_ERR_NOT_SUPPORTED;
+    return audio->length > SOLAR_OS_AGENT_AUDIO_BYTES_MAX ? ESP_ERR_INVALID_SIZE : ESP_OK;
+}
+
 static char *escaped_text(char *out, const char *text)
 {
     static const char hex[] = "0123456789abcdef";
@@ -48,22 +57,34 @@ static char *base64(char *out, const uint8_t *data, size_t length)
 esp_err_t solar_os_agent_image_content(const char *prompt,
     solar_os_media_sample_t *const *images, size_t count, bool responses, char **content)
 {
+    return solar_os_agent_input_content(prompt, images, count, NULL, responses, content);
+}
+
+esp_err_t solar_os_agent_input_content(const char *prompt,
+    solar_os_media_sample_t *const *images, size_t count,
+    const solar_os_media_sample_t *sample, bool responses, char **content)
+{
     if (!content) return ESP_ERR_INVALID_ARG;
     *content = NULL;
     if (!prompt || strlen(prompt) >= SOLAR_OS_AGENT_PROMPT_MAX) return ESP_ERR_INVALID_SIZE;
     esp_err_t error = solar_os_agent_images_validate(images,count);
     if (error) return error;
+    error = solar_os_agent_audio_validate(sample);
+    if (error) return error;
+    if (sample && responses) return ESP_ERR_NOT_SUPPORTED;
+    const solar_os_media_sample_audio_t *audio = solar_os_media_sample_audio(sample);
     size_t capacity = strlen(prompt)*6 + 256;
     for (size_t i = 0; i < count; i++) {
         const solar_os_media_sample_image_t *image = solar_os_media_sample_image(images[i]);
         capacity += 4*((image->length+2)/3) + 128;
     }
+    if (audio) capacity += 4*((audio->length+2)/3) + 128;
     char *buffer = solar_os_memory_alloc(capacity,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"agent.image-content");
     if (!buffer) return ESP_ERR_NO_MEM;
     char *p = buffer;
-    if (count) p += sprintf(p,"[{\"type\":\"%s\",\"text\":",responses ? "input_text" : "text");
+    if (count || audio) p += sprintf(p,"[{\"type\":\"%s\",\"text\":",responses ? "input_text" : "text");
     p = escaped_text(p,prompt);
-    if (count) *p++ = '}';
+    if (count || audio) *p++ = '}';
     for (size_t i = 0; i < count; i++) {
         const solar_os_media_sample_image_t *image = solar_os_media_sample_image(images[i]);
         p += sprintf(p,responses ? ",{\"type\":\"input_image\",\"image_url\":\"data:%s;base64,"
@@ -71,7 +92,12 @@ esp_err_t solar_os_agent_image_content(const char *prompt,
         p = base64(p,image->data,image->length);
         memcpy(p,responses ? "\"}" : "\"}}",responses ? 2 : 3); p += responses ? 2 : 3;
     }
-    if (count) *p++ = ']';
+    if (audio) {
+        p += sprintf(p, ",{\"type\":\"input_audio\",\"input_audio\":{\"data\":\"");
+        p = base64(p, audio->data, audio->length);
+        p += sprintf(p, "\",\"format\":\"%s\"}}", audio->format);
+    }
+    if (count || audio) *p++ = ']';
     *p = 0; *content = buffer;
     return ESP_OK;
 }

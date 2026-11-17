@@ -58,6 +58,7 @@ SOLAR_OS_SCRIPT_API_MODULE_END(board);
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(agent);
 SOLAR_OS_SCRIPT_API_FUNCTION(agent, status, status);
 SOLAR_OS_SCRIPT_API_FUNCTION(agent, ask, ask);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, ask_audio, ask_audio);
 SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_endpoint, set_endpoint);
 SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_model, set_model);
 SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_api_key, set_api_key);

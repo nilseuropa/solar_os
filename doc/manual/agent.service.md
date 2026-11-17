@@ -138,6 +138,27 @@ Bindings also expose provider configuration, status, cancellation, and saved
 conversation management. See [Python agent API](python.agent.md) and
 [Lua agent API](lua.agent.md) for arguments, examples, limits, and tool policy.
 
+## Audio-file input
+
+The native request accepts one borrowed encoded audio sample in `audio`.
+Use `solar_os_media_sample_open_audio_bounded()` to load a resolved file with
+a size bound and cancellation callback, then call `solar_os_agent_run()` and
+release the sample with `solar_os_media_sample_release()` after it returns.
+
+Audio accepts WAV or MP3 up to 1 MiB. The Chat Completions adapter sends the
+file as base64 `input_audio` with its detected format and requests text output.
+Select an audio-capable model; for OpenAI, use the complete
+`https://api.openai.com/v1/chat/completions` endpoint and an audio model such
+as `gpt-audio-1.5`. Responses endpoints return `ESP_ERR_NOT_SUPPORTED` without
+uploading audio. See the [provider audio reference](https://developers.openai.com/api/docs/guides/audio-chat-completions).
+
+Python and Lua expose this as `solaros.agent.ask_audio(prompt, path[, conversation_id])`.
+The return value matches `ask()`. File reads and HTTP polling support script
+cancellation and deadlines; all native samples are released on every return
+path. The service forwards encoded bytes without recording or transcoding.
+Audio stays in the current request's tool continuations. Saved history stores
+an attachment notice and text, with audio bytes omitted.
+
 ## Typed tools
 
 `agent tools` shows the canonical registry, domain and risk metadata, runtime
@@ -333,7 +354,7 @@ for available operations and their policy.
 
 ## Quick reference
 
-The native agent uses the configured OpenAI-compatible Responses endpoint,
+The native agent uses the configured OpenAI-compatible Responses or Chat Completions endpoint,
 applies the selected confirmation policy, and exposes bounded typed tools for
 installed SolarOS features. Completed chat turns are stored locally;
 `agent list`, `agent resume SLOT`, and `agent delete SLOT` manage them. Responses
@@ -341,6 +362,10 @@ uses a provider continuation ID and Chat Completions uses bounded local
 history. `agent status` reports provider, policy, requests, tool activity, and
 memory. This page defines the tool contract and resource limits; `man agent` is
 the task-oriented usage guide.
+
+For audio files, use `solaros.agent.ask_audio(prompt, path[, conversation_id])`
+in Python or Lua with an audio-capable Chat Completions model. WAV/MP3 input
+is bounded to 1 MiB and returns text; Responses rejects audio input.
 
 `agent --tts` speaks final answers using a running local PicoTTS `speechd` job.
 `agent [--tts] ask --image SOURCE QUESTION` combines image input with optional

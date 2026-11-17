@@ -80,6 +80,19 @@ int main(void)
     assert(!strcmp(field(result, "conversation_id")->text, "c1"));
     args[1] = mp_const_none; args[2] = string("c1");
     assert(!strcmp(field(solaros_agent_ask(3, args), "text")->text, "image seen"));
+    char audio_path[160]; script_agent_audio_fixture(audio_path, false);
+    mp_obj_t audio_args[] = {string("Summarize this recording."), string(audio_path), string("")};
+    test_endpoint = "https://api.openai.com/v1/chat/completions";
+    result = solaros_agent_ask_audio(3, audio_args);
+    assert(!strcmp(field(result, "text")->text, "image seen") && !strcmp(field(result, "conversation_id")->text, "c1"));
+    audio_args[2] = string("c1"); assert(field(solaros_agent_ask_audio(3, audio_args), "total_tokens")->number == 33);
+    test_endpoint = "https://test/responses";
+    if (!setjmp(error_jump)) { solaros_agent_ask_audio(2, audio_args); assert(false); }
+    audio_args[1] = number(42);
+    if (!setjmp(error_jump)) { solaros_agent_ask_audio(2, audio_args); assert(false); }
+    audio_args[1] = string("/missing.wav");
+    if (!setjmp(error_jump)) { solaros_agent_ask_audio(2, audio_args); assert(false); }
+    assert(!allocations && !unlink(audio_path));
     solaros_agent_set_endpoint(string("https://test/responses")); solaros_agent_set_model(string("vision"));
     solaros_agent_set_api_key(string("secret")); solaros_agent_set_reasoning_effort(string("low"));
     solaros_agent_set_tool_policy(string("off")); solaros_agent_set_max_tools(number(32));
@@ -90,7 +103,7 @@ int main(void)
     assert(solaros_agent_conversations()->count == 1);
     assert(field(solaros_agent_conversation_info(string("c1")), "created_at")->number == 5000000000LL);
     solaros_agent_delete_conversation(string("c1"));
-    for (int i = 0; i < 4; i++) {
+    for (volatile int i = 0; i < 4; i++) {
         int limits[] = {-1, 0, 33, 256};
         if (!setjmp(error_jump)) { solaros_agent_set_max_tools(number(limits[i])); assert(false); }
     }

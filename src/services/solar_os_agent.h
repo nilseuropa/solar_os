@@ -23,6 +23,7 @@
 #define SOLAR_OS_AGENT_MAX_TOOLS_MAX 32U
 #define SOLAR_OS_AGENT_IMAGES_MAX 2U
 #define SOLAR_OS_AGENT_IMAGE_BYTES_MAX (512U * 1024U)
+#define SOLAR_OS_AGENT_AUDIO_BYTES_MAX (1024U * 1024U)
 
 typedef enum {
     SOLAR_OS_AGENT_TOOL_POLICY_OFF = 0,
@@ -85,6 +86,8 @@ typedef struct {
      * bytes are bounded independently of text. No decoding or transcoding. */
     solar_os_media_sample_t *const *images;
     size_t image_count;
+    /* Optional borrowed encoded WAV/MP3 sample; held until run returns. */
+    solar_os_media_sample_t *audio;
     /* SolarOS-local durable conversation ID, not a provider response ID. */
     const char *conversation_id;
     /* Shell directory used to resolve relative storage-tool paths. */

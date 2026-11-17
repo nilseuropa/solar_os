@@ -58,6 +58,27 @@ class ScriptAgentBindingsTest(unittest.TestCase):
     def test_python_bindings(self):
         self.compile_and_run('script_agent_python_test')
 
+    def test_audio_files_and_provider_payloads(self):
+        bodies = self.compile_and_run('script_agent_audio_test', output=True)
+        self.assertEqual(len(bodies), 5)
+        wav = b'RIFF' + bytes([44, 0, 0, 0]) + b'WAVEfmt ' + bytes([
+            16, 0, 0, 0, 1, 0, 1, 0, 0x80, 0x3e, 0, 0, 0, 0x7d, 0, 0, 2, 0, 16, 0,
+        ]) + b'data' + bytes([8, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7])
+        mp3 = b'ID3' + bytes([4, 0, 0, 0, 0, 0, 0, 0xff, 0xfb, 0x90, 0])
+        for body, expected, encoding in zip(bodies, [wav, mp3, wav, wav + bytes(1024 * 1024 - len(wav))],
+                                            ['wav', 'mp3', 'wav', 'wav']):
+            self.assertEqual(body['modalities'], ['text'])
+            self.assertNotIn('reasoning_effort', body)
+            parts = next(message['content'] for message in body['messages'] if message.get('role') == 'user')
+            self.assertEqual(parts[0]['text'], 'Summarize this recording.')
+            self.assertEqual(parts[1]['type'], 'input_audio')
+            self.assertEqual(parts[1]['input_audio']['format'], encoding)
+            self.assertEqual(base64.b64decode(parts[1]['input_audio']['data'], validate=True), expected)
+        self.assertEqual(bodies[2]['messages'][-1]['role'], 'tool')
+        self.assertEqual(bodies[4]['modalities'], ['text'])
+        self.assertNotIn('reasoning_effort', bodies[4])
+        self.assertEqual(bodies[4]['messages'][-1]['content'], 'Summarize your previous answer.')
+
     def test_lua_bindings_with_real_interpreter(self):
         self.compile_and_run('script_agent_lua_test', lua=True)
 

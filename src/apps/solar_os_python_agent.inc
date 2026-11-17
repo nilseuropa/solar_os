@@ -47,22 +47,10 @@ static mp_obj_t solaros_agent_status(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_agent_status_obj, solaros_agent_status);
 
-static mp_obj_t solaros_agent_ask(size_t n_args, const mp_obj_t *args)
+static mp_obj_t python_agent_request(const solar_os_script_agent_request_t *request)
 {
-    solar_os_script_agent_request_t request = {
-        .prompt = python_agent_string(args[0]), .should_cancel = python_should_cancel,
-    };
-    if (n_args > 1 && args[1] != mp_const_none) {
-        mp_obj_t single = args[1], *images = &single;
-        size_t count = 1;
-        if (!mp_obj_is_str(single)) mp_obj_get_array(single, &count, &images);
-        if (count > SOLAR_OS_AGENT_IMAGES_MAX) mp_raise_ValueError(MP_ERROR_TEXT("at most two agent images"));
-        request.image_count = count;
-        for (size_t i = 0; i < count; i++) request.images[i] = python_agent_string(images[i]);
-    }
-    if (n_args > 2 && args[2] != mp_const_none) request.conversation_id = python_agent_string(args[2]);
     solar_os_script_agent_result_t response = {0};
-    python_check_esp(solar_os_script_agent_ask(&request, &response));
+    python_check_esp(solar_os_script_agent_ask(request, &response));
     /* Native PSRAM must be released even if MicroPython allocation raises. */
     nlr_buf_t nlr;
     if (nlr_push(&nlr) == 0) {
@@ -80,7 +68,35 @@ static mp_obj_t solaros_agent_ask(size_t n_args, const mp_obj_t *args)
     solar_os_script_agent_result_clear(&response);
     nlr_jump(nlr.ret_val);
 }
+
+static mp_obj_t solaros_agent_ask(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_script_agent_request_t request = {
+        .prompt = python_agent_string(args[0]), .should_cancel = python_should_cancel,
+    };
+    if (n_args > 1 && args[1] != mp_const_none) {
+        mp_obj_t single = args[1], *images = &single;
+        size_t count = 1;
+        if (!mp_obj_is_str(single)) mp_obj_get_array(single, &count, &images);
+        if (count > SOLAR_OS_AGENT_IMAGES_MAX) mp_raise_ValueError(MP_ERROR_TEXT("at most two agent images"));
+        request.image_count = count;
+        for (size_t i = 0; i < count; i++) request.images[i] = python_agent_string(images[i]);
+    }
+    if (n_args > 2 && args[2] != mp_const_none) request.conversation_id = python_agent_string(args[2]);
+    return python_agent_request(&request);
+}
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_agent_ask_obj, 1, 3, solaros_agent_ask);
+
+static mp_obj_t solaros_agent_ask_audio(size_t n_args, const mp_obj_t *args)
+{
+    solar_os_script_agent_request_t request = {
+        .prompt = python_agent_string(args[0]), .audio_file = python_agent_string(args[1]),
+        .should_cancel = python_should_cancel,
+    };
+    if (n_args > 2 && args[2] != mp_const_none) request.conversation_id = python_agent_string(args[2]);
+    return python_agent_request(&request);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_agent_ask_audio_obj, 2, 3, solaros_agent_ask_audio);
 
 static mp_obj_t solaros_agent_set_endpoint(mp_obj_t value)
 {

@@ -8,6 +8,7 @@ typedef struct {
     const char *prompt;
     const char *images[SOLAR_OS_AGENT_IMAGES_MAX];
     size_t image_count;
+    const char *audio_file; /* Optional SolarOS storage path to one WAV/MP3 file. */
     /* NULL: stateless; "": new saved conversation; otherwise resume this ID. */
     const char *conversation_id;
     solar_os_agent_cancel_fn should_cancel;

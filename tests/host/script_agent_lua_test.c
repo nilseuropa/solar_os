@@ -37,13 +37,20 @@ int main(void)
     luaL_openlibs(L);
     lua_newtable(L);
 #define METHOD(name) lua_pushcfunction(L, solua_agent_##name); lua_setfield(L, -2, #name)
-    METHOD(ask); METHOD(status); METHOD(set_endpoint); METHOD(set_model); METHOD(set_api_key);
+    METHOD(ask); METHOD(ask_audio); METHOD(status); METHOD(set_endpoint); METHOD(set_model); METHOD(set_api_key);
     METHOD(set_reasoning_effort); METHOD(set_tool_policy); METHOD(set_max_tools);
     METHOD(cancel); METHOD(forget); METHOD(conversations); METHOD(conversation_info); METHOD(delete_conversation);
 #undef METHOD
     lua_setglobal(L, "agent");
     check(L, "local a = agent.ask('Describe the image.', 'stream:camera0'); assert(a.text == 'image seen' and a.total_tokens == 33 and not a.truncated and a.conversation_id == '')");
     check(L, "local a = agent.ask('Compare pictures.', {'photo.jpg', 'pipeline:1'}, ''); assert(a.conversation_id == 'c1'); assert(agent.ask('Followup.', nil, a.conversation_id).text == 'image seen')");
+    char audio_path[160]; script_agent_audio_fixture(audio_path, false);
+    lua_pushstring(L, audio_path); lua_setglobal(L, "audio_path");
+    test_endpoint = "https://api.openai.com/v1/chat/completions";
+    check(L, "local a = agent.ask_audio('Summarize this recording.', audio_path, ''); assert(a.text == 'image seen' and a.conversation_id == 'c1' and a.total_tokens == 33); assert(agent.ask_audio('Again.', audio_path, a.conversation_id).text == 'image seen'); assert(not pcall(agent.ask_audio, 'Question.', 42)); assert(not pcall(agent.ask_audio, 'Question.', '/missing.wav'))");
+    test_endpoint = "https://test/responses";
+    check(L, "assert(not pcall(agent.ask_audio, 'Question.', audio_path))");
+    assert(!unlink(audio_path));
     check(L, "agent.set_endpoint('https://test/responses'); agent.set_model('vision'); agent.set_api_key('secret'); agent.set_reasoning_effort('low'); agent.set_tool_policy('off'); agent.set_max_tools(32); local s = agent.status(); assert(s.endpoint == 'https://test/responses' and s.model == 'vision' and s.api_key_set and s.api_key == nil and s.max_tools == 32 and s.tool_policy == 'off'); agent.set_api_key(''); assert(not agent.status().api_key_set)");
     check(L, "assert(agent.conversations()[1].id == 'c1'); assert(agent.conversation_info('c1').created_at == 5000000000); agent.delete_conversation('c1')");
     check(L, "for _, value in ipairs({0, -1, 33, 256, 1.5}) do assert(not pcall(agent.set_max_tools, value)) end; assert(not pcall(agent.ask, 'Question.', {'a', 'b', 'c'})); assert(not pcall(agent.ask, 'Question.', {42})); assert(not pcall(agent.ask, 'Question.', 'a' .. string.char(0) .. 'b')); assert(not pcall(agent.ask, 'Question.', {'photo.jpg', 'missing.jpg'})); assert(not pcall(agent.ask, 'Question.', 'unsupported.jpg'))");

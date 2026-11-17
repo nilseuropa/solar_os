@@ -66,6 +66,7 @@ esp_err_t solar_os_script_agent_ask(const solar_os_script_agent_request_t *reque
     if (result->text == NULL) return ESP_ERR_NO_MEM;
 
     solar_os_media_sample_t *images[SOLAR_OS_AGENT_IMAGES_MAX] = {0};
+    solar_os_media_sample_t *audio = NULL;
     size_t remaining = SOLAR_OS_AGENT_IMAGE_BYTES_MAX;
     esp_err_t error = ESP_OK;
     for (size_t i = 0; i < request->image_count && error == ESP_OK; i++) {
@@ -91,8 +92,15 @@ esp_err_t solar_os_script_agent_ask(const solar_os_script_agent_request_t *reque
         if (error == ESP_OK) error = solar_os_agent_images_validate(images, i + 1U);
         if (error == ESP_OK) remaining -= solar_os_media_sample_image(images[i])->length;
     }
+    if (error == ESP_OK && request->audio_file != NULL) {
+        char path[SOLAR_OS_STORAGE_PATH_MAX];
+        error = solar_os_storage_resolve_path(request->audio_file, path, sizeof(path));
+        if (error == ESP_OK) error = solar_os_media_sample_open_audio_bounded(path,
+            SOLAR_OS_AGENT_AUDIO_BYTES_MAX, script_agent_cancelled, &capture, &audio);
+    }
     const solar_os_agent_request_t native = {
         .prompt = request->prompt, .images = images, .image_count = request->image_count,
+        .audio = audio,
         .conversation_id = request->conversation_id,
         .next_conversation_id = request->conversation_id != NULL ? result->conversation_id : NULL,
         .next_conversation_id_len = sizeof(result->conversation_id),
@@ -102,6 +110,7 @@ esp_err_t solar_os_script_agent_ask(const solar_os_script_agent_request_t *reque
     if (error == ESP_OK) error = script_agent_cancelled(&capture) ?
         ESP_ERR_INVALID_STATE : solar_os_agent_run(&native);
     for (size_t i = 0; i < SOLAR_OS_AGENT_IMAGES_MAX; i++) solar_os_media_sample_release(images[i]);
+    solar_os_media_sample_release(audio);
     if (error != ESP_OK) solar_os_script_agent_result_clear(result);
     return error;
 }
