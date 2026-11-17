@@ -45,6 +45,35 @@ Software pin ownership cannot disconnect board wiring or an attached USB
 cable. Isolate the native USB data pair from active USB hardware before using
 it for unrelated GPIO signals.
 
+## Connect to a computer
+
+On boards with native CDC, select device mode to expose the USB Serial/JTAG
+port to a computer. This also works after using GPIO19/20 for GPIO or ADC:
+
+```text
+usb mode device
+usb status
+```
+
+The port enumerates even without a shell attached to `cdc0`. On Linux it
+normally appears as `/dev/ttyACM*`; the number can change after reconnection.
+For an interactive USB shell, run `session create shell cdc0` from another
+shell after releasing any existing `cdc0` owner.
+
+Off and host modes remove the native USB device from the computer. Select
+device mode from the display, UART, or a network shell to reconnect it.
+USB-to-UART bridge connectors use separate hardware and remain available
+across native USB mode changes. Watcher's bottom programming connector is
+such a bridge; its optional native USB data pair is on J2.
+
+If running firmware leaves no native USB port available for flashing, enter
+ROM download mode with the board's BOOT/RESET controls: hold BOOT, press and
+release RESET, then release BOOT. Wait for the computer's port to appear and
+select its current name before flashing. On T-Deck Plus, BOOT is the
+trackball's centre push button. See the
+[Espressif USB recovery guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/usb-serial-jtag-console.html#usb-pin-reconfiguration)
+and [LilyGO download instructions](https://github.com/Xinyuan-LilyGO/T-Deck/blob/master/firmware/README.MD).
+
 ## USB hubs
 
 External USB hubs allow supported keyboards, mice, gamepads, USB serial
@@ -327,3 +356,6 @@ Use `usb mode off` to stop USB and release GPIO19/20, or `usb mode device`
 to restore compiled native CDC/JTAG. Release conflicting owners first.
 Watcher boots with USB off and its GPIO19/20 free; other CDC profiles normally
 boot in device mode. Every restart restores the board policy.
+Device mode exposes the computer's USB serial port independently of a `cdc0`
+shell. If flashing needs recovery, hold BOOT while resetting to enter ROM
+download mode; on T-Deck Plus, BOOT is the trackball's centre push button.

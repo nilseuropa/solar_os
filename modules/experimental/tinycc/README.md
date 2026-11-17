@@ -15,7 +15,7 @@ uses external BSS when enabled; code and SDK text stay in flash.
 
 Use `qemu.py --builtin --qemu /path/to/qemu-system-xtensa` to exercise the
 firmware-linked form, or `--native` for the external ELFs. Both modes check
-compilation, recovery, SDK/project builds and execution of generated code.
+help, compilation, recovery, SDK/project builds and execution of generated code.
 Their reports include firmware hashes and memory measurements.
 
 This prototype compiles C **on ESP32-S3** into native modules that use the
@@ -68,6 +68,8 @@ Support is experimental and targets ESP32-S3's windowed ABI; this is not a C
 conformance certification or support for other ESP32 variants.
 
 ## C SDK and projects
+
+Run `cc` or `cc --help` to print usage and return success without compiling.
 
 Compile separate source files together; each keeps its own macros, include
 guards, static symbols and diagnostics. The total source limit remains 64 KiB:

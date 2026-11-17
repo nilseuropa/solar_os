@@ -15,6 +15,8 @@ cc main.c helpers.c -o program.elf
 load program.elf
 ```
 
+Run `cc` or `cc --help` to print usage and return success without compiling.
+
 For a repeatable project build, put `cc.toml` beside the source directory:
 
 ```toml

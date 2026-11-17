@@ -4,7 +4,7 @@ title = "Native SolarOS agent"
 section = "app"
 summary = "Ask questions with text and images, hear synthesized answers, and use the agent's typed tools"
 aliases = ["llm"]
-keywords = "agent llm model openai responses reasoning tools policy prompt chat image camera multimodal speech synthesis tts picotts voice"
+keywords = "agent llm model openai responses reasoning tools policy prompt chat image camera multimodal speech synthesis tts picotts voice python lua audio wav mp3 ask_audio"
 packages_any = ["app_agent"]
 +++
 # Native SolarOS agent
@@ -139,6 +139,30 @@ bytes. Chat Completions resumes therefore include the notice without the old
 images; attach them again for another visual comparison. Responses resumes
 use the saved provider response ID and the provider's retained context.
 
+## Questions from scripts
+
+With `service.agent` and Python or Lua included, scripts can submit text and
+image questions through `solaros.agent.ask(prompt[, images[, conversation_id]])`.
+Use the same provider configuration as the Agent app. One source string or a
+sequence of up to two sources supplies the images.
+
+For a stored audio recording, use
+`solaros.agent.ask_audio(prompt, path[, conversation_id])`. It accepts one
+encoded WAV or MP3 file up to 1 MiB and returns a written answer. Select an
+audio-capable model and a Chat Completions endpoint; the SolarOS Responses
+adapter rejects audio input. Submitting a file needs no microphone or local
+audio package.
+
+```python
+import solaros
+
+answer = solaros.agent.ask_audio("Summarize this recording.", "/recording.wav")
+print(answer["text"])
+```
+
+See the [Python agent API](python.agent.md) and [Lua agent API](lua.agent.md)
+for image examples, saved conversations, cancellation, and tool policy.
+
 ## Inspect background workloads
 
 The agent can inspect job admission without starting or stopping anything. For
@@ -189,3 +213,6 @@ mutating, or disruptive calls. `Esc` or the app-exit key returns to the shell.
 frame, or `pipeline:ID` image. In chat, use `/image SOURCE QUESTION`. Up to two
 images may total 512 KiB; select a vision-capable provider/model. Speech output
 can be combined with these image requests using `agent --tts ask --image ...`.
+Python and Lua scripts use `solaros.agent.ask()` for text/images and
+`solaros.agent.ask_audio(prompt, path[, conversation_id])` for one WAV/MP3 file
+up to 1 MiB with an audio-capable Chat Completions model.

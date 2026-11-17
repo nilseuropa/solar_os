@@ -54,6 +54,11 @@ precedence over an installed `tinycc` library; leases protect it until clients
 finish, and unloading releases its runtime snapshot without removing firmware
 code. See [C development](native-library.md).
 
+Python and Lua are also compiled into the firmware when their `python` and
+`lua` groups are selected. The `full` flavor enables both on boards with PSRAM;
+custom flavors can omit either runtime independently. Inspect `pkg system`
+for `app.python`, `app.lua`, and `app.cc` in the running image.
+
 Each artifact is validated and replaced separately. If a later download fails,
 successfully installed dependencies remain available and the previous requested
 module is preserved. Removing a library can leave its consumers unable to run;

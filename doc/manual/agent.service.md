@@ -4,8 +4,8 @@ title = "Agent service and tool reference"
 section = "app"
 summary = "Configure providers, inspect tools, and understand request limits"
 aliases = ["agent.tools"]
-keywords = "agent service responses api tools policy memory bounds provider speech tts images"
-packages_any = ["app_agent"]
+keywords = "agent service responses api tools policy memory bounds provider speech tts images audio wav mp3 python lua ask_audio"
+packages_any = ["service_agent"]
 +++
 # Native Agent Service
 

@@ -17,16 +17,16 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 ## Commands
 
 - [adc command](commands.md) — Show ADC service status.
-- [agent command](agent.md) — Open a new native LLM agent TUI or make one unsaved foreground request.
+- [agent command](agent.md) — Text/image questions and speech. Guide.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio state, global speaker level, tone queue, and active synth telemetry.
 - [battery command](commands.md) — Show voltage, state of charge, power source, config, and monitor trend.
 - [ble command](commands.md) — Show BLE keyboard state and the current/next boot setting.
 - [board command](commands.md) — Print board ID, name, and capabilities.
-- [camera command](commands.md) — Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error.
+- [camera command](commands.md) — Initialize on first use; show sensor, settings, owner, leases, captures, and last error.
 - [can command](commands.md) — List the attached classic CAN controller and bitrate. See Classic CAN.
 - [cat command](commands.md) — Print a small text file.
-- [cc command](commands.md) — Compile native C applications and browse SDK headers. Available with the optional cc firmware group or an installed cc package. See C development.
+- [cc command](commands.md) — Compile native C applications and browse SDK headers. Included in full on ESP32-S3 boards with PSRAM; other builds can enable the cc group or install cc. Bare cc and cc --help display usage successfully. See C development.
 - [cd command](commands.md) — Change current shell directory.
 - [charger command](commands.md) — List registered battery chargers, concrete drivers, and valid configuration ranges.
 - [clear command](commands.md) — Clear the active shell terminal.
@@ -79,7 +79,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [messages command](commands.md) — Open the tabbed instance, connection, and message manager.
 - [midi command](commands.md) — Show MIDI worker, traffic, parser, and queue status.
 - [mkdir command](commands.md) — Create directories.
-- [model command](commands.md) — Check engine availability and inspect resident models, interfaces, memory, mode, and references.
+- [model command](commands.md) — Inspect engine, model inventories across backends, or a resident handle.
 - [modem command](commands.md) — Open the modem status and settings TUI.
 - [motor command](motor.md) — Configure the generic motor service and mot.<name> drive sink while unclaimed.
 - [mqtt command](commands.md) — Show broker, authentication, connection, traffic, queue, and error status without revealing the password.
@@ -95,7 +95,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [ota command](commands.md) — Show running and configured OTA state.
 - [outbox command](commands.md) — List pending outbound messages. Sent and failed messages remain in conversation history, not Outbox.
 - [ping command](commands.md) — Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit.
-- [pipeline command](commands.md) — List OS-owned native image pipelines.
+- [pipeline command](commands.md) — Inspect native processing jobs, errors and timings.
 - [pkg command](commands.md) — Open the native-module package manager.
 - [pocsag command](commands.md) — Show POCSAG receiver configuration, counters, correction statistics, and RSSI.
 - [port command](commands.md) — List byte-stream ports.
@@ -178,6 +178,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [messages application](apps.md#messages) — Manage messaging instances, connections, and local message history on the display or a VT100 terminal. Run messages without arguments to open the TUI. Existing messages subcommands remain available for shell and scripting use.
 - [Native SolarOS agent](agent.md) — Ask questions with text and images, hear synthesized answers, and use the agent's typed tools
 - [notes application](apps.md#notes) — Markdown-backed checklist and category manager. It stores unchecked and checked items and supports one level of category folding. A persistent bottom help bar shows the available controls, with status or text input directly above it.
+- [photo application](apps.md#photo) — Live viewfinder and still capture from a registered JPEG video source or an RTSP JPEG camera. The default source is camera0; this application requires a graphical display and PSRAM. Select the photo package group. Local camera providers are supplied by the camera group; RTSP reception is included on Wi-Fi boards and uses the same UDP JPEG transport as the rtsp application. JPEG frames are limited to 2 megapixels and 512 KiB.
 - [player application](apps.md#player) — Interactive WAV/MP3 player and the user-facing counterpart to aplay. player keeps a persistent M3U playlist under .player on the current storage root. Opening an audio file from Files adds it to that playlist, selects it, and starts playback. Missing files remain listed so removable media can be reattached.
 - [Playground](playground.md) — Browse, install, uninstall, and run community Python and Lua applications
 - [playground application](apps.md#playground) — Browse the configured community catalog as a foldable category tree, search applications, and install, update, uninstall, or run Python and Lua scripts.
@@ -201,7 +202,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [web application](apps.md#web) — Simple graphical web browser for lightweight HTML pages. It shares document and image rendering infrastructure with reader where possible. Embedded and direct PNG, JPEG, GIF, and WebP images retain color on indexed-color displays; one-bit displays keep the grayscale decode and dither path. Direct MJPEG URLs are shown as live video using the same JPEG renderer.
 - [webradio application](apps.md#webradio) — Stream a direct MP3 URL through the default registered audio output. On a graphical display shell, WebRadio opens a two-tab media-player GUI. The GUI uses compact controls, scrolling channels and fitted edit dialogs on small display targets. On UART, USB CDC, Telnet, SSH, and other text shells, it opens a station-list TUI.
 - [writer application](apps.md#writer) — Resumable graphical Markdown editor for PSRAM display boards. Inactive blocks are formatted like reader; the block containing the cursor and every block touched by a selection show their exact Markdown source. edit remains the portable text editor for port shells and boards without graphics or PSRAM.
-- [zoo application](apps.md#zoo) — Browse the hosted model zoo and install complete model bundles on mounted SD or flash storage. The text interface works on the display and VT100 port shells. It requires the Zoo package, ESP32-S3, PSRAM, and networking.
+- [zoo application](apps.md#zoo) — Browse the hosted model zoo and install complete model bundles on mounted SD or flash storage. The text interface works on the display and VT100 port shells. It requires the Zoo package, ESP32-S3, and PSRAM. Networking is needed to refresh the catalog or download a bundle; browsing and removing installed bundles work offline.
 
 ## Background jobs
 
@@ -255,15 +256,20 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Classic CAN](hardware.can.md) — Attach a TWAI CAN controller, exchange frames, and inspect bus errors
 - [Continuous controls](controls.md) — Map analog and other scalar inputs to app parameters or MIDI CC
 - [Encoder counts](encoder.md) — Attach named quadrature encoders with explicit x1, x2, or x4 counting
+- [ES7243 microphone ADCs](es7243.md) — Capture stereo I2S audio with ES7243 or ES7243E, independently or with ES8311 output
 - [Expansion drivers and attached devices](expansion.md) — Discover, attach, and detach package-gated expansion devices
 - [Expansion hardware reference](expansion.reference.md) — Resource rules, workflows, drivers, bindings, and wiring examples
 - [Feedback controllers](controllers.md) — Run PID and hysteresis controllers with timestamped measurements and owned outputs
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
+- [Himax HX6538 camera](himax-hx6538.md) — JPEG sampling through the factory Himax HX6538 SSCMA firmware
+- [Himax model management](himax-models.md) — Program storage bundles into HX6538 model slots and select a model
 - [Motor control](motor.md) — Control named motors with normalized drive commands
 - [Robot joints](robot.md) — Use the optional external robot library for calibrated servo and motor/encoder joints
 - [Robot models and transforms](robot-models.md) — Load URDF models, query transforms and run declared joint and differential-drive components
+- [SenseCAP Watcher](watcher.md) — Board devices, expansion connectors, and display console for Seeed Studio SenseCAP Watcher
 - [Servo outputs](servo.md) — Control calibrated positional servos with hardware PWM
 - [Source keymaps](input.keymap.md) — Inspect and customize registered input-source mappings
+- [SPD2010 QSPI display](spd2010.md) — Attach a 412x412 RGB565 display over a dedicated four-line SPI interface
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, environment, and IMU measurements
 - [USB host](usb.host.md) — Select USB off/device/host mode and use input, serial adapters, or FAT storage
 
@@ -294,7 +300,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [Model inference](inference.md) — Load resident ESP-DL models from storage and execute named tensor inputs and outputs
 - [Named runtime buses](buses.md) — Create and use resource-owned I2C, SPI, UART, MIDI, OneWire, and PS/2 buses
 - [Native foreground apps](native-app.md) — Install native apps, switch sessions, and use the foreground module API
-- [Native image pipelines](pipelines.md) — OS-owned QR and model processing jobs with bounded latest results and frame timings
+- [Native image pipelines](pipelines.md) — OS-owned image processing jobs with built-in or external processors and matching encoded samples
 - [Native libraries](native-library.md) — Install reusable native libraries and manage their lifetime
 - [Native media and inference](native-media.md) — Versioned image, camera/RTSP, QR, imlib and resident-model interfaces for ELF modules
 - [Python agent API](python.agent.md) — Ask language models about text, images, or audio files and manage conversations

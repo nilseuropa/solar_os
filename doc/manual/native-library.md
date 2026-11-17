@@ -3,7 +3,7 @@ id = "native-library"
 title = "Native libraries"
 summary = "Install reusable native libraries and manage their lifetime"
 section = "api"
-keywords = "native library resident module provider lease unload ABI"
+keywords = "native library resident module provider lease unload ABI C compiler cc tinycc build sdk headers"
 packages_any = ["service_native_modules"]
 agent_reference_sections = true
 +++
@@ -42,6 +42,13 @@ library before reinstalling it.
 `mem reclaim` unloads unused libraries together and reports free PSRAM and the
 largest free block before and after cleanup. Active leases prevent reclamation.
 Application sessions, including suspended foreground apps, keep their state.
+
+`cc` compiles C sources into native SolarOS executables. It is included in the
+`full` flavor on ESP32-S3 boards with PSRAM. Other builds can select the `cc`
+firmware group or install it with `pkg install cc`. Run `cc` or `cc --help`
+to display usage successfully. Compile with `cc main.c -o main.elf`, then run
+`load main.elf`; use `cc build [cc.toml]` for projects and `cc sdk list` to
+discover headers.
 
 ## Developer reference
 
@@ -99,6 +106,49 @@ Firmware consumers use `solar_os_native_library_acquire`, `retain`, `release`,
 and `unload` through `solar_os_native.h`; they use the same stable result codes.
 These APIs do not expose arbitrary firmware symbols to external libraries.
 
+## Compile C on the device
+
+The `full` flavor includes the `cc` command and TinyCC provider on every
+supported ESP32-S3 board with PSRAM. Check `pkg system` for the compiled
+`app.cc` package. Other flavors can enable the `cc` group in a custom build,
+or use `pkg install cc` to install the command and its matching `tinycc`
+library from the signed catalog. The built-in form needs no compiler packages
+on storage. See [firmware packages and flavors](packages.md).
+
+Run `cc` or `cc --help` to show usage. Both return success without starting a
+compilation. To try a complete program, save this as `hello.c` with `edit`:
+
+```c
+#include <stdio.h>
+
+int main(int argc, char **argv)
+{
+    puts("Hello from SolarOS C");
+    return 0;
+}
+```
+
+Compile it from the same directory, then run the generated executable:
+
+```text
+cc hello.c -o hello.elf
+load hello.elf
+```
+
+For multiple source files, use `cc main.c helpers.c -I include -o project.elf`.
+Source and output paths use the launching shell's current directory. Use
+`-I directory` for local headers, or the project file below for repeatable
+builds. The compiler validates the generated ELF before replacing an existing
+output; compilation errors and cooperative cancellation preserve that output.
+
+Both compiler forms use the same SDK and limits: up to eight source files
+totalling 64 KiB, eight include directories, a 2 MiB private compiler heap and
+a 20-second cooperative deadline. The SDK provides SolarOS ABI headers and a
+bounded C library. Variable-length arrays, inline assembly, optimization and
+general object/archive linking are unavailable. See the
+[compiler reference](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc#c-sdk-and-projects)
+for supported language features and C library functions.
+
 ## C headers in library packages
 
 Native C projects can declare exact SDK dependencies in `cc.toml`:
@@ -148,8 +198,8 @@ The `cc` compiler discovers these declarations by module ID:
 #include <hello-library/hello_library_api.h>
 ```
 
-Jet includes its public headers in the library package. Install `cc` and `jet`,
-then use `#include <jet/solar_os_jet_abi.h>`. The
+Jet includes its public headers in the library package. With `cc` available,
+run `pkg install jet`, then use `#include <jet/solar_os_jet_abi.h>`. The
 [native C graphics example](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc/examples/jet-cube)
 shows a resumable foreground app with input and explicit library cleanup.
 

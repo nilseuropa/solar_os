@@ -56,7 +56,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Camera, streams, and RTSP](lua.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
 | [Computer vision](vision.md) | `solaros.vision` |
 | [Model inference](inference.md) | `solaros.inference` |
-| [Agent text and image questions](lua.agent.md) | `solaros.agent` |
+| [Agent text, image, and audio questions](lua.agent.md) | `solaros.agent` |
 | [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Top-Level Helpers

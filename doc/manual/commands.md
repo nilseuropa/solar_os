@@ -276,7 +276,7 @@ job for periodic polling.
 | `pkg` | `pkg remove <module>` | Remove an installed native module. |
 | `pkg` | `pkg unload <library>` | Unload an unused library while keeping its installed file. |
 | `load` | `load <file.elf> [args...]` | Validate, relocate, run, and unload one native ELF module from storage. |
-| `cc` | `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Available with the optional `cc` firmware group or an installed `cc` package. See [C development](native-library.md). |
+| `cc` | `cc [--help]`; `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Included in `full` on ESP32-S3 boards with PSRAM; other builds can enable the `cc` group or install `cc`. Bare `cc` and `cc --help` display usage successfully. See [C development](native-library.md#compile-c-on-the-device). |
 | `board` | `board` | Print board ID, name, and capabilities. |
 | `identity` | `identity [status]` | Show the configured user and hostname. |
 | `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
@@ -363,21 +363,16 @@ Gesture completion lists gesture-capable sources after `source=`, limits
 
 ### Native ELF modules
 
-`load` is the low-level maintainer interface for the native-module runtime. It
-is compiled only for ESP32-S3 boards with PSRAM. The command resolves the ELF
-path through the calling shell's current directory, reads at most 2 MiB into
-PSRAM, validates every ELF header and table boundary, checks for an Xtensa
-ELF32 dynamic object, relocates it into executable PSRAM, and calls its entry
-point with the supplied arguments.
+`load` validates and runs trusted Xtensa ELF32 dynamic modules on ESP32-S3
+boards with PSRAM. Paths use the calling shell's directory. It reads at most
+2 MiB into executable PSRAM, checks headers and table boundaries, relocates
+the image, and calls its entry with the supplied arguments. Native code shares
+the firmware address space.
 
-Native modules import the single versioned `solar_os_native_host_v1` symbol.
-The returned function table reports the ABI version, target, firmware version,
-and provides UTF-8 output through the shell that invoked `load`. Its optional
-`get_service` extension discovers versioned image, video, vision and inference
-interfaces; see [Native media and inference](native-media.md). Existing modules
-using the original output-only prefix remain compatible. Arbitrary SolarOS
-internals are not exported through this interface. Native ELF code is not sandboxed; `load` is for trusted,
-maintainer-produced modules only.
+Modules import only `solar_os_native_host_v1`. Its table supplies ABI, target
+and firmware versions, UTF-8 shell output, and optional versioned services;
+see [Native media and inference](native-media.md). The original output-only
+prefix remains compatible; arbitrary firmware internals are not exported.
 
 ELFs declaring lifecycle-2 app metadata launch through the
 [foreground app runtime](native-app.md), retaining their image while suspended.
@@ -385,36 +380,29 @@ Installed apps launch by module name.
 Ctrl+Alt+Del, Ctrl+] or closing the session requests cooperative shutdown.
 The host restarts the device if shutdown does not finish within five seconds.
 
-The ordinary `load` runner is for short-lived command-style modules. A module must stop
-all of its work and release every callback and resource before its entry point
-returns, because the runner immediately unloads its code and data. Installed
-jobs, drivers, and libraries use separate resident lifecycle ABIs instead of this runner.
+Synchronous commands must stop workers and release callbacks and resources
+before returning, when their code and data are unloaded. Installed jobs,
+drivers, and libraries use resident lifecycles instead.
 
 The standalone `modules/examples/hello` ESP-IDF project builds a small acceptance
 module.
 
-Official native-module catalogs are versioned with the host firmware. `pkg`
-accepts a catalog only when its ECDSA signature, SolarOS version, ESP target,
-and native ABI match the running firmware. Each downloaded ELF must match the
-signed size and SHA-256, pass the same ELF validation as `load`, and is staged
-before atomic activation. The signed type selects the storage and lifecycle
-boundary: application modules use `/modules/apps/<module>.elf`, jobs use
-`/modules/jobs`, drivers use `/modules/drivers`, and libraries use
-`/modules/libraries`. Every entry separately
-declares its lifecycle ABI and its type-specific native host API size.
-Application lifecycle ABI 1 is the synchronous `main(argc, argv)`
-run-and-unload contract. Job lifecycle ABI 1 registers start, stop, and tick
-callbacks and keeps the ELF resident until the stopped job is removed. Driver
-lifecycle ABI 1 registers a zero-binding utility driver contract and keeps the
-ELF resident until all devices are detached and the module is removed.
-Library lifecycle ABI 1 registers a versioned API table. Consumers acquire
-leases that prevent unloading while calls, objects, or workers use that API.
-Libraries load on demand from installed storage; `pkg unload ID` unloads an
-unused library and retains its file. See [Native libraries](native-library.md).
-Application lifecycle ABI 2 declares a foreground app manifest and runs
-`main(argc, argv)` on its declared worker. Display, input, storage, timing and
-optional audio are provided by the versioned foreground service. Resumable apps
-retain their ELF and guest state across session switches.
+`pkg` verifies the catalog's ECDSA signature, SolarOS version, ESP target and
+host ABI. Each ELF must match its signed size and SHA-256 and pass `load`'s
+validation before staged activation. Entries declare lifecycle ABI and host
+API size. Signed types select `/modules/apps/<module>.elf`, `/modules/jobs`,
+`/modules/drivers`, or `/modules/libraries`.
+
+Application lifecycle ABI 1 runs synchronous `main(argc, argv)` and unloads on
+return. Job ABI 1 registers start/stop/tick callbacks; its ELF remains until
+the stopped job is removed. Driver ABI 1 registers a zero-binding utility
+driver and remains until its devices are detached and the module removed.
+Library ABI 1 supplies a versioned API protected by consumer leases. Libraries
+load on demand; `pkg unload ID` releases an unused image while keeping its file.
+See [Native libraries](native-library.md).
+Application ABI 2 runs `main(argc, argv)` on a declared foreground worker with
+versioned display, input, storage, timing and optional audio services. Resumable
+apps retain code and state across session switches; see [Native apps](native-app.md).
 
 Run `pkg` without arguments to open the package manager. It loads the saved
 signed catalog without a network request and checks its signature and host
@@ -1714,9 +1702,9 @@ Mode output separates distinct `frame-count`/`frame-interval-us` from physical
 `scan-count`/`scan-interval-us`, and reports `pulse-transfer-us` and
 `pulse-busy-us` separately. Requested cadence does not guarantee optical settling.
 Panel presets, waveform constraints and native fallback behavior are described
-under [SolarWriter](boards.md#solarwriter), [CrowPanel 4.2](boards.md#elecrow-crowpanel-esp32-s3-42-inch-e-paper),
+under [SolarWriter](boards.md#solarwriter), [CrowPanel 4.2](boards.md#elecrow-crowpanel-esp32-s3-4-2-inch-e-paper),
 [Waveshare 4G E-paper](boards.md#waveshare-4g-e-paper),
-[Sticky](boards.md#seeed-reterminal-sticky), and
+[Sticky](boards.md#seeed-studio-reterminal-sticky), and
 [SSD1685](expansion.reference.md#gdey029t71h-e-paper-ssd1685).
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not
