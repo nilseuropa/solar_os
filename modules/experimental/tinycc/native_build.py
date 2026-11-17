@@ -11,6 +11,7 @@ import subprocess
 import tomllib
 
 from build import HERE, ROOT, CACHE, prepare, replace, run
+from isolate import isolate
 
 
 def main():
@@ -104,9 +105,13 @@ def main():
     # Hide all private runtime/compiler names; only the versioned host imports escape.
     for name, objects in (("tinycc.library", ["core.o", "runtime.o", "module.o"]), ("cc.app", ["client.o", "sdk_cli.o", "sdk_reader.o", "project.o", "validator.o"])):
         run(cc, "-r", "-nostdlib", *[output / p for p in objects], output / "libgcc.a", "-o", output / (name + ".o"))
-        run(prefix + "objcopy", "--keep-global-symbol=app_main", output / (name + ".o"), output / (name + ".local.o"))
+        namespace = "solar_os_tinycc_" if name == "tinycc.library" else "solar_os_cc_"
+        entry = isolate(prefix + "nm", prefix + "objcopy", output / (name + ".o"),
+                        output / (name + ".isolated.o"), namespace)
+        run(prefix + "objcopy", "--keep-global-symbol=" + entry,
+            output / (name + ".isolated.o"), output / (name + ".local.o"))
         run(cc, "-nostdlib", "-nostartfiles", "-shared", "-Wl,-Bsymbolic", "-Wl,--gc-sections",
-            "-Wl,-e,app_main", "-Wl,-T," + str(output / "layout.ld"), output / (name + ".local.o"),
+            "-Wl,-e," + entry, "-Wl,-T," + str(output / "layout.ld"), output / (name + ".local.o"),
             "-o", output / (name + ".elf"))
         run(prefix + "strip", "--strip-unneeded", "--remove-section=.got.loc", "--remove-section=.dynamic",
             "--remove-section=.xt.lit", "--remove-section=.xt.prop", "--remove-section=.xtensa.info", output / (name + ".elf"))
@@ -124,7 +129,7 @@ def main():
               "sources": {os.path.relpath(path, HERE): hashlib.sha256(path.read_bytes()).hexdigest()
                           for path in [ROOT / "src/services/solar_os_native_elf.c",
                                        ROOT / "src/services/solar_os_native_elf.h"] + [HERE / name for name in ("runtime.c", "embedded.c", "client.c", "module.c",
-                                                               "native_build.py", "xtensa-gen.c", "xtensa-link.c",
+                                                               "native_build.py", "isolate.py", "xtensa-gen.c", "xtensa-link.c",
                                                                "include/solar_os_cc_abi.h","support.c","support_build.py",
                                                                "support-bridge.c","standard-bridge.c","build.py","driver.c","sdk_reader.c","sdk_reader.h","sdk_cli.c","sdk_cli.h","project.c","project.h","sdk_runtime.c")]
                           +[ROOT/"include/solar_os_native_sdk.h"]}, "artifacts": {}}
