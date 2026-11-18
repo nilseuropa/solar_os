@@ -177,6 +177,127 @@ static void test_bad_files(void)
     assert(live_allocs == 0U);
 }
 
+/* The first face of a pack file, as written by generate_u8g2_fonts.py. */
+static uint8_t *read_first_face(const char *pack, size_t *len, size_t *file_offset)
+{
+    char path[512];
+    snprintf(path, sizeof(path), "%s/%s.sfp", PACK_DIR, pack);
+    FILE *in = fopen(path, "rb");
+    assert(in != NULL);
+    uint8_t head[8 + SOLAR_OS_FONT_PACK_NAME_MAX];
+    assert(fread(head, 1, sizeof(head), in) == sizeof(head));
+    const unsigned ranges = head[4] | (head[5] << 8);
+    assert(fseek(in, (long)(sizeof(head) + ranges * 8U), SEEK_SET) == 0);
+    uint8_t entry[12];
+    assert(fread(entry, 1, sizeof(entry), in) == sizeof(entry));
+    const uint32_t offset = entry[4] | (entry[5] << 8) | (entry[6] << 16) | ((uint32_t)entry[7] << 24);
+    *len = entry[8] | (entry[9] << 8) | (entry[10] << 16) | ((uint32_t)entry[11] << 24);
+    uint8_t *face = malloc(*len);
+    assert(face != NULL && fseek(in, (long)offset, SEEK_SET) == 0);
+    assert(fread(face, 1, *len, in) == *len);
+    fclose(in);
+    *file_offset = offset;
+    return face;
+}
+
+static uint8_t *face_copy(const uint8_t *face, size_t len)
+{
+    uint8_t *copy = malloc(len);
+    assert(copy != NULL);
+    memcpy(copy, face, len);
+    return copy;
+}
+
+static size_t face_unicode(const uint8_t *face)
+{
+    return 23U + ((size_t)face[21] << 8 | face[22]);
+}
+
+static void test_face_validation(void)
+{
+    size_t len = 0, offset = 0;
+    uint8_t *face = read_first_face("cyrillic", &len, &offset);
+    assert(solar_os_font_face_valid(face, len));
+    assert(!solar_os_font_face_valid(NULL, len));
+    assert(!solar_os_font_face_valid(face, 10U));
+
+    /* Cut short: the glyph chain runs past the end. */
+    assert(!solar_os_font_face_valid(face, len - 3U));
+
+    const size_t unicode = face_unicode(face);
+    const size_t table = (size_t)face[unicode] << 8 | face[unicode + 1U];
+    const size_t first_glyph = unicode + table;
+    uint8_t *bad;
+
+    /* Unicode section start beyond the face. */
+    bad = face_copy(face, len);
+    bad[21] = 0xff;
+    bad[22] = 0xff;
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+
+    /* 'A' start position off the glyph table. */
+    bad = face_copy(face, len);
+    bad[18] = (uint8_t)(bad[18] + 1U);
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+
+    /* A run length of zero bits. */
+    bad = face_copy(face, len);
+    bad[2] = 0;
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+
+    /* Lookup table: an offset that leaves the glyphs, and a table that
+     * never ends with 0xffff. */
+    bad = face_copy(face, len);
+    bad[unicode] = 0xff;
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+    bad = face_copy(face, len);
+    for (size_t e = unicode; e + 4U <= first_glyph; e += 4U) {
+        if (bad[e + 2U] == 0xff && bad[e + 3U] == 0xff) {
+            bad[e + 3U] = 0xfe;
+        }
+    }
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+
+    /* A glyph whose size runs past the end, or is too small for its own
+     * bits. */
+    bad = face_copy(face, len);
+    bad[first_glyph + 2U] = 0xff;
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+    bad = face_copy(face, len);
+    bad[first_glyph + 2U] = 4U;
+    assert(!solar_os_font_face_valid(bad, len));
+    free(bad);
+
+    /* Every face of both packs passes (the loads below check that), and a
+     * pack with a broken face does not load at all. */
+    char src[512], dst[512];
+    snprintf(src, sizeof(src), "%s/cyrillic.sfp", PACK_DIR);
+    snprintf(dst, sizeof(dst), "%s/fonts/broken.sfp", volume);
+    FILE *in = fopen(src, "rb");
+    FILE *out = fopen(dst, "wb");
+    assert(in != NULL && out != NULL);
+    int c;
+    for (size_t i = 0; (c = fgetc(in)) != EOF; i++) {
+        if (i == offset + first_glyph + 2U) {
+            c = 0xff;
+        }
+        fputc(c, out);
+    }
+    fclose(in);
+    fclose(out);
+    psram_bytes = 8U * 1024U * 1024U;
+    assert(solar_os_font_pack_load("broken") == ESP_ERR_INVALID_RESPONSE);
+    assert(solar_os_font_pack_count() == 0U);
+    assert(live_allocs == 0U);
+    free(face);
+}
+
 static void test_full_load_with_psram(void)
 {
     psram_bytes = 8U * 1024U * 1024U;
@@ -272,6 +393,7 @@ int main(void)
 
     test_names();
     test_bad_files();
+    test_face_validation();
     test_full_load_with_psram();
     test_reduced_load_without_psram();
     test_selection();

@@ -52,6 +52,11 @@ esp_err_t solar_os_font_pack_dir(char *path, size_t path_len);
 
 bool solar_os_font_pack_name_valid(const char *name);
 
+/* True when every offset, size and glyph bit stream in the U8g2 face lies
+ * within its len bytes, so U8g2 can draw any glyph of it safely. Each face
+ * of a pack is checked before the pack is loaded. */
+bool solar_os_font_face_valid(const uint8_t *face, size_t len);
+
 /* The pack face for a style (0 r, 1 b, 2 i, 3 bi) and size index (0 for the
  * regular-only 5x8 face, 1..6 for sizes 10..20) that has the glyph, or NULL. */
 const uint8_t *solar_os_font_pack_face(unsigned style, unsigned size_index, uint32_t codepoint);

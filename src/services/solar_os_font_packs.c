@@ -64,6 +64,224 @@ static uint32_t rd32(const uint8_t *p)
            ((uint32_t)p[3] << 24);
 }
 
+/* U8g2 face layout (u8g2_font.c): a 23 byte header, the glyphs up to 0xff
+ * as <encoding, size, data> ended by a zero size, then the Unicode section:
+ * a lookup table of <offset, encoding> words ended by encoding 0xffff, and
+ * glyphs as <encoding hi, lo, size, data> ended by encoding 0. U8g2 trusts
+ * every offset and size, so a face from a file is walked here first. */
+#define FACE_HEADER_BYTES 23U
+
+typedef struct {
+    const uint8_t *face;
+    size_t len;
+    size_t pos;
+    uint8_t bit;
+    bool overrun;
+} face_bits_t;
+
+static uint16_t rd16be(const uint8_t *p)
+{
+    return (uint16_t)((p[0] << 8) | p[1]);
+}
+
+/* u8g2_font_decode_get_unsigned_bits(), with every byte it reads checked:
+ * it touches the next byte as soon as bit + cnt reaches 8. */
+static unsigned face_bits_get(face_bits_t *bits, uint8_t cnt)
+{
+    if (bits->pos >= bits->len) {
+        bits->overrun = true;
+        return 0;
+    }
+    unsigned val = (unsigned)bits->face[bits->pos] >> bits->bit;
+    unsigned end = bits->bit + cnt;
+    if (end >= 8U) {
+        bits->pos++;
+        if (bits->pos >= bits->len) {
+            bits->overrun = true;
+            return 0;
+        }
+        val |= (unsigned)bits->face[bits->pos] << (8U - bits->bit);
+        end -= 8U;
+    }
+    bits->bit = (uint8_t)end;
+    return val & ((1U << cnt) - 1U);
+}
+
+/* Replays u8g2_font_decode_glyph() without drawing: the glyph's bits must
+ * end inside its own size, which also bounds a run-length loop that would
+ * otherwise never reach the last row. U8g2 may read the byte after the last
+ * bit it uses (the next glyph's header), so reads are bounded by the face. */
+static bool face_glyph_ended(const face_bits_t *bits, size_t end)
+{
+    return !bits->overrun && (bits->pos < end || (bits->pos == end && bits->bit == 0U));
+}
+
+static bool face_glyph_valid(const uint8_t *face, size_t face_len, size_t data, size_t end)
+{
+    face_bits_t bits = {.face = face, .len = face_len, .pos = data};
+    const uint8_t *info = face;
+    const unsigned width = face_bits_get(&bits, info[4]);
+    const unsigned height = face_bits_get(&bits, info[5]);
+    (void)face_bits_get(&bits, info[6]);
+    (void)face_bits_get(&bits, info[7]);
+    (void)face_bits_get(&bits, info[8]);
+    if (!face_glyph_ended(&bits, end)) {
+        return false;
+    }
+    /* U8g2 keeps both in int8_t. */
+    if (width > 127U || height > 127U) {
+        return false;
+    }
+    if (width == 0U) {
+        return true;
+    }
+    /* decode->x/y are int8_t, the run loop works in uint8_t. */
+    int8_t x = 0;
+    int8_t y = 0;
+    for (;;) {
+        const unsigned a = face_bits_get(&bits, info[2]);
+        const unsigned b = face_bits_get(&bits, info[3]);
+        unsigned repeat;
+        do {
+            const unsigned runs[2] = {a, b};
+            for (unsigned r = 0; r < 2U; r++) {
+                uint8_t cnt = (uint8_t)runs[r];
+                uint8_t lx = (uint8_t)x;
+                uint8_t ly = (uint8_t)y;
+                for (;;) {
+                    const uint8_t rem = (uint8_t)(width - lx);
+                    if (cnt < rem) {
+                        break;
+                    }
+                    cnt = (uint8_t)(cnt - rem);
+                    lx = 0;
+                    ly++;
+                }
+                lx = (uint8_t)(lx + cnt);
+                x = (int8_t)lx;
+                y = (int8_t)ly;
+            }
+            repeat = face_bits_get(&bits, 1U);
+            if (!face_glyph_ended(&bits, end)) {
+                return false;
+            }
+        } while (repeat != 0U);
+        if (y >= (int8_t)height) {
+            return true;
+        }
+    }
+}
+
+bool solar_os_font_face_valid(const uint8_t *face, size_t len)
+{
+    if (face == NULL || len < FACE_HEADER_BYTES + 2U || len > PACK_FILE_MAX_BYTES) {
+        return false;
+    }
+    /* Bit counts of the glyph fields: U8g2 reads at most 8 at once, and a
+     * signed field of 0 bits is undefined in its decoder. */
+    for (unsigned i = 2; i <= 8U; i++) {
+        if (face[i] == 0U || face[i] > 8U) {
+            return false;
+        }
+    }
+
+    /* Glyphs up to 0xff. The 'A' and 'a' start positions must land on one
+     * of them or on the end marker. */
+    const size_t start_upper = FACE_HEADER_BYTES + rd16be(face + 17);
+    const size_t start_lower = FACE_HEADER_BYTES + rd16be(face + 19);
+    bool upper_seen = false;
+    bool lower_seen = false;
+    size_t pos = FACE_HEADER_BYTES;
+    for (;;) {
+        if (pos + 2U > len) {
+            return false;
+        }
+        upper_seen = upper_seen || pos == start_upper;
+        lower_seen = lower_seen || pos == start_lower;
+        const size_t size = face[pos + 1];
+        if (size == 0U) {
+            break;
+        }
+        if (size < 3U || pos + size > len ||
+            !face_glyph_valid(face, len, pos + 2U, pos + size)) {
+            return false;
+        }
+        pos += size;
+    }
+    if (!upper_seen || !lower_seen) {
+        return false;
+    }
+
+    /* The Unicode section. */
+    const size_t unicode = FACE_HEADER_BYTES + rd16be(face + 21);
+    if (unicode + 4U > len) {
+        return false;
+    }
+    const size_t table_bytes = rd16be(face + unicode);
+    const size_t glyphs = unicode + table_bytes;
+    if (table_bytes < 4U || (table_bytes % 4U) != 0U || glyphs > len) {
+        return false;
+    }
+
+    /* Walk the glyph chain once, remembering where glyphs start so each
+     * lookup entry can be checked against them. */
+    size_t starts_max = 0;
+    for (size_t p = glyphs;;) {
+        if (p + 2U > len) {
+            return false;
+        }
+        if (rd16be(face + p) == 0U) {
+            break;
+        }
+        if (p + 3U > len) {
+            return false;
+        }
+        const size_t size = face[p + 2];
+        if (size < 4U || p + size > len || !face_glyph_valid(face, len, p + 3U, p + size)) {
+            return false;
+        }
+        starts_max = p;
+        p += size;
+    }
+
+    /* Each lookup entry moves the cursor by its offset and names the last
+     * encoding of that block. The search stops at the first entry at or
+     * above the wanted encoding, so the table must end with 0xffff and the
+     * cursor must stay on a glyph (or the end marker) all the way. */
+    size_t cursor = unicode;
+    uint32_t last = 0;
+    for (size_t entry = unicode;; entry += 4U) {
+        if (entry + 4U > glyphs) {
+            return false;
+        }
+        cursor += rd16be(face + entry);
+        const uint16_t encoding = rd16be(face + entry + 2U);
+        if (cursor < glyphs || cursor > len || encoding < last) {
+            return false;
+        }
+        /* On a glyph boundary: walk from the chain start (faces are small). */
+        bool on_glyph = false;
+        for (size_t p = glyphs;;) {
+            if (p == cursor) {
+                on_glyph = true;
+                break;
+            }
+            if (p > starts_max || p > cursor || rd16be(face + p) == 0U) {
+                break;
+            }
+            p += face[p + 2];
+        }
+        if (!on_glyph) {
+            return false;
+        }
+        if (encoding == 0xffffU) {
+            break;
+        }
+        last = encoding;
+    }
+    return true;
+}
+
 static bool pack_lock_take(void)
 {
     if (pack_lock == NULL) {
@@ -244,6 +462,11 @@ esp_err_t solar_os_font_pack_load(const char *name)
     for (unsigned i = 0; i < range_count; i++) {
         fresh.range[i][0] = rd32(table + i * 8U);
         fresh.range[i][1] = rd32(table + i * 8U + 4U);
+        if (fresh.range[i][0] > fresh.range[i][1]) {
+            fclose(file);
+            solar_os_memory_free(data);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
     }
     fresh.data = data;
     fresh.bytes = total;
@@ -258,6 +481,13 @@ esp_err_t solar_os_font_pack_load(const char *name)
         }
         if (fseek(file, (long)entries[i].offset, SEEK_SET) != 0 ||
             fread(data + cursor, 1, entries[i].length, file) != entries[i].length) {
+            err = ESP_ERR_INVALID_RESPONSE;
+            break;
+        }
+        /* U8g2 follows a face's offsets unchecked: check them against the
+         * face's own length before any of it can be drawn. */
+        if (!solar_os_font_face_valid(data + cursor, entries[i].length)) {
+            SOLAR_OS_LOGW(TAG, "%s: face %u is malformed", name, i);
             err = ESP_ERR_INVALID_RESPONSE;
             break;
         }

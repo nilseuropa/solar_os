@@ -37,12 +37,12 @@
 #include "solar_os_board_caps.h"
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 #include "solar_os_ble_keyboard.h"
-#include "solar_os_font_packs.h"
 #endif
 #include "solar_os_config.h"
 #include "solar_os_display.h"
 #include "solar_os_backlight.h"
 #include "solar_os_display_layout.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_fonts.h"
 #include "solar_os_identity.h"
 #include "solar_os_input.h"
