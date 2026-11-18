@@ -1,9 +1,9 @@
 +++
 id = "aogmaneo"
 title = "AOgmaNeo online learning"
-summary = "Use native sparse predictive hierarchies, actors and image encoders"
+summary = "Use sparse predictive hierarchies, actors and image encoders from C, Python and Lua"
 section = "api"
-keywords = "aogmaneo ogmaneo machine learning online incremental prediction reinforcement image encoder native library"
+keywords = "aogmaneo ogmaneo machine learning online incremental prediction reinforcement image encoder native library python lua"
 packages_any = ["service_native_modules"]
 agent_reference_sections = true
 +++
@@ -11,7 +11,8 @@ agent_reference_sections = true
 
 AOgmaNeo is an optional resident native library for ESP32-S3 boards with
 executable PSRAM. It supplies sparse predictive hierarchies, reinforcement
-learning actors, and image encoding/reconstruction to native C apps and jobs.
+learning actors, and image encoding/reconstruction to native C apps and jobs,
+Python and Lua.
 The provider ID is `aogmaneo`, with provider ABI 1.
 
 ## Quick reference
@@ -69,7 +70,7 @@ for service lookup and lease ownership.
 Hierarchy outputs require a successful step; `clear` invalidates them until
 the next step. Prediction and activation methods reject input-only layers.
 Learning parameters use the pinned upstream defaults. Provider ABI 1 exposes
-native C calls; it has no direct Python/Lua bindings or persistence API.
+native C calls and matching Python/Lua frontends. There is no persistence API.
 
 ## Shapes and buffers
 
@@ -103,6 +104,95 @@ for the duration of the call.
 Invalid arguments leave models unchanged. If allocation or engine execution
 fails during a step, that model becomes unusable. Destroy it and create a new
 model. No C++ exception crosses the native API.
+
+## Python and Lua
+
+`solaros.aogmaneo` is available when `service.aogmaneo` is compiled into the
+firmware. The Python and Lua groups select this frontend on ESP32-S3 boards
+with PSRAM. The engine must also be installed as the `aogmaneo` library.
+Creating a model loads the installed ELF without downloading it. A missing
+library raises an error directing the caller to `pkg install aogmaneo`.
+
+The two runtimes expose the same functions:
+
+| Call | Result |
+| --- | --- |
+| `create(inputs, layers, seed=12345)` | Hierarchy handle |
+| `step(model, inputs, learn=True, reward=0, mimic=0)` | Process/learn one step |
+| `prediction(model, input=0)` | List of predicted categorical codes |
+| `activations(model, input=0)` | List of cell activations |
+| `values(model, input=0)` | List of actor values; action inputs only |
+| `hidden(model, layer=0)` | List of hidden categorical codes |
+| `clear(model)` | Reset hierarchy temporal state, retaining weights |
+| `image_create(hidden, visible, seed=12345)` | Image-encoder handle |
+| `image_step(model, inputs, learn=True, learn_reconstruction=False)` | List of hidden codes |
+| `image_reconstruct(model, codes, visible=0)` | Python bytes or Lua binary string |
+| `destroy(model)` | Destroy either model kind and release its library lease |
+
+Defaults above use Python spelling. Lua uses `true` and `false` and positional
+arguments. Python accepts keyword arguments for `create`, `step`,
+`image_create` and `image_step`; pass optional indexes positionally for query
+and reconstruction calls. Input, hidden-layer and visible-layer indexes are
+zero-based in both languages. Lua list tables use normal one-based array positions.
+
+`inputs` and `layers` in `create` are nonempty lists of up to eight descriptors.
+Each descriptor is a Python dictionary or Lua table. `size` is required and is
+a three-element list/tuple or Lua table `{x,y,z}`. The other fields default to:
+
+| Descriptor | Fields and defaults |
+| --- | --- |
+| Hierarchy input | `type=PREDICTION`, `dendrites=4`, `up_radius=2`, `down_radius=2`, `value_size=128`, `value_dendrites=2`, `history_capacity=512` |
+| Hidden layer | `dendrites=4`, `up_radius=2`, `recurrent_radius=0`, `down_radius=2` |
+| Image visible layer | `radius=2` |
+
+Input types are `solaros.aogmaneo.INPUT`, `PREDICTION` and `ACTION`. Actor
+parameters are `value_size`, `value_dendrites` and `history_capacity`.
+Seeds are unsigned 32-bit values. Shapes, radii and weight-array limits follow
+the native API. Unknown descriptor fields and invalid dimensions raise errors.
+
+`step` receives one list of categorical codes per hierarchy input. `image_step`
+receives one byte buffer per visible layer: Python bytes-like objects or Lua
+binary strings. Counts and layouts must match the declared shapes. Returned
+lists and byte strings are owned by the interpreter.
+
+Handles belong to the current interpreter invocation. A handle from another
+run has no meaning. Destroyed handles are rejected and are not reused within
+the same invocation. The provider supports eight live models across all
+consumers, including Python, Lua and native applications. Each live model pins
+the library. Explicitly destroy models when finished; interpreter shutdown
+also destroys remaining models on normal exit, script errors and cancellation.
+Failed close retains ownership for cleanup retry.
+
+Native operations run synchronously. Cancellation is checked before and after
+each operation; it does not interrupt the middle of a learning step.
+
+```python
+import solaros
+
+a = solaros.aogmaneo
+m = a.create([{"size": (1, 1, 4)}], [{"size": (2, 2, 16)}])
+try:
+    for tick in range(200):
+        a.step(m, [[tick % 4]])
+    print(a.prediction(m))
+finally:
+    a.destroy(m)
+```
+
+```lua
+local a = solaros.aogmaneo
+local m = a.create({{size={1,1,4}}}, {{size={2,2,16}}})
+local ok, err = pcall(function()
+    for tick=0,199 do a.step(m, {{tick % 4}}) end
+    print(a.prediction(m)[1])
+end)
+a.destroy(m)
+if not ok then error(err) end
+```
+
+Complete [Python](https://github.com/nilseuropa/solar_os/blob/main/examples/python/aogmaneo.py)
+and [Lua](https://github.com/nilseuropa/solar_os/blob/main/examples/lua/aogmaneo.lua)
+examples also encode and reconstruct byte images.
 
 ## C project
 

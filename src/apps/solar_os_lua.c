@@ -23,6 +23,9 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+#include "solar_os_aogmaneo.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
 #endif
@@ -348,6 +351,9 @@ typedef enum {
 
 typedef struct {
     solua_state_t app;
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+    solar_os_aogmaneo_context_t aogmaneo;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     solar_os_midi_subscription_t midi_subscription;
     bool midi_subscribed;
@@ -7524,6 +7530,7 @@ static int solua_gfx_text(lua_State *L)
 #include "solar_os_lua_dlp.inc"
 #include "solar_os_lua_emotion.inc"
 #include "solar_os_lua_jet.inc"
+#include "solar_os_lua_aogmaneo.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 static void solua_push_contact(lua_State *L,
@@ -8229,6 +8236,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
     solua_dlp_destroy();
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_aogmaneo_cleanup();
     solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
@@ -8345,6 +8353,7 @@ done:
         solua_dlp_destroy();
         solua_emotion_destroy();
         solua_jet_destroy();
+        solua_aogmaneo_cleanup();
         solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
@@ -8642,7 +8651,7 @@ static void solua_stop(solar_os_context_t *ctx)
              * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
             while ((__atomic_load_n(&solua_media_session, __ATOMIC_ACQUIRE) != NULL ||
-                    solua_inference_active() || solua_imlib_active() || solua_emotion_active() || solua_jet_active()) &&
+                    solua_inference_active() || solua_imlib_active() || solua_emotion_active() || solua_jet_active() || solua_aogmaneo_active()) &&
                    !solua_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(solua_task_stopped, NULL,
                     SOLUA_STOP_WAIT_MS, 20U);
@@ -8683,6 +8692,7 @@ static void solua_stop(solar_os_context_t *ctx)
     }
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_aogmaneo_cleanup();
     solua_robot_destroy();
     solua_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH

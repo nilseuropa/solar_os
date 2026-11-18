@@ -101,7 +101,7 @@ def build(environment, output, sdk=None):
     imports = verify(artifact, allowed)
     run("strip", "--strip-unneeded", "--remove-section=.got.loc", "--remove-section=.dynamic",
         "--remove-section=.xt.lit", "--remove-section=.xt.prop", "--remove-section=.xtensa.info", artifact)
-    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / "module.toml"))
+    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / "module.toml", ROOT / "include"))
     verify(artifact, allowed)
     report = {"environment": environment, "sdk_build_dir": str(sdk),
               "upstream_commit": UPSTREAM_COMMIT, "artifact_bytes": artifact.stat().st_size,

@@ -3,9 +3,11 @@
 `aogmaneo.library.elf` provides online learning through sparse predictive
 hierarchies, reinforcement-learning actors, and image encoding/reconstruction.
 It runs on ESP32-S3 with executable PSRAM and the native-module service.
-The provider is optional and uses no firmware package or shell command.
+The engine remains in the optional ELF. The `service.aogmaneo` firmware frontend
+provides Python/Lua bindings and is selected by the Python and Lua groups on
+supported boards. It registers no shell command.
 
-The versioned C API is [solar_os_aogmaneo_abi.h](solar_os_aogmaneo_abi.h).
+The versioned C API is [solar_os_aogmaneo_abi.h](../../include/solar_os_aogmaneo_abi.h).
 Native apps and jobs acquire library ID `aogmaneo`, provider ABI 1, and retain
 their lease until every model has been destroyed. The table supports up to eight
 hierarchy/image models in total. Shutdown refuses while any model is live.
@@ -17,8 +19,10 @@ roles, recurrent layers, online learning, reward and imitation input, predicted
 categories, activations and actor value estimates. The image encoder accepts
 byte channels, returns categorical columns and reconstructs visible layers.
 Each model has independent seeded random state. Learning parameters use the
-pinned upstream defaults. ABI 1 does not expose model persistence or direct
-Python/Lua bindings.
+pinned upstream defaults. ABI 1 does not expose model persistence.
+Python and Lua expose `solaros.aogmaneo` with matching hierarchy, actor and
+image operations. Each interpreter owns its model handles and closes them on
+exit, including after script errors. Explicitly destroy models when finished.
 
 Buffers and descriptors are copied into provider-owned storage. Outputs are
 copied into caller buffers. No C++ object, borrowed output pointer, exception,
@@ -50,6 +54,15 @@ Once the module is in a compatible signed catalog, install it with
 `pkg install aogmaneo`. It is stored as `modules/libraries/aogmaneo.elf` in
 the preferred volume. Acquisition loads the installed file without network
 access. Unused libraries can be unloaded with `pkg unload aogmaneo`.
+
+## Script examples
+
+Run [Python](../../examples/python/aogmaneo.py) or
+[Lua](../../examples/lua/aogmaneo.lua) after installing the library. Both
+examples train a hierarchy and encode/reconstruct an image. Model/layer indexes
+are zero-based in both languages; Lua list tables use their normal one-based
+array positions. See the [manual](../../doc/manual/aogmaneo.md) for signatures,
+descriptor fields and defaults.
 
 ## Native C example
 

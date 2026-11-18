@@ -555,7 +555,7 @@ members = ["app_invaders"]
 [groups.python]
 label = "Python"
 category = "Scripting"
-members = ["app_python", "service_emotion", "service_jet", "service_robot"]
+members = ["app_python", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
 
 [groups.cc]
 label = "Built-in C compiler"
@@ -565,7 +565,7 @@ members = ["app_cc"]
 [groups.lua]
 label = "Lua"
 category = "Scripting"
-members = ["app_lua", "service_emotion", "service_jet", "service_robot"]
+members = ["app_lua", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
 
 [groups.playground]
 label = "Playground package manager"
@@ -1266,6 +1266,13 @@ label = "service.emotion"
 depends = ["service_native_modules"]
 sources = ["services/solar_os_emotion.c"]
 requires = ["esp_timer"]
+targets = ["esp32s3"]
+capabilities = ["psram"]
+
+[packages.service_aogmaneo]
+label = "service.aogmaneo"
+depends = ["service_native_modules"]
+sources = ["services/solar_os_aogmaneo.c"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
 

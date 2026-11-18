@@ -15,7 +15,7 @@ class AOgmaNeoTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("aogmaneo_sdk", ROOT / "scripts/pack_native_sdk.py")
         packer = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(packer)
-        module_id, version, headers = packer.load_headers(MODULE / "module.toml")
+        module_id, version, headers = packer.load_headers(MODULE / "module.toml", ROOT / "include")
         self.assertEqual((module_id, version), ("aogmaneo", "1.0.0"))
         self.assertEqual([name for name, _, _ in headers], ["aogmaneo/solar_os_aogmaneo_abi.h"])
         with tempfile.TemporaryDirectory(prefix="solaros-aogmaneo-sdk-") as temporary:
