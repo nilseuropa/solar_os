@@ -17,8 +17,9 @@ typedef struct {
     {u8g2_font_solar_os_default_bi_##size##_tf, 3, index}
 
 static const font_face_t font_faces[] = {
-    FACES_FOR_SIZE(10, 0), FACES_FOR_SIZE(12, 1), FACES_FOR_SIZE(14, 2),
-    FACES_FOR_SIZE(16, 3), FACES_FOR_SIZE(18, 4), FACES_FOR_SIZE(20, 5),
+    {u8g2_font_5x8_tf, 0, 0},
+    FACES_FOR_SIZE(10, 1), FACES_FOR_SIZE(12, 2), FACES_FOR_SIZE(14, 3),
+    FACES_FOR_SIZE(16, 4), FACES_FOR_SIZE(18, 5), FACES_FOR_SIZE(20, 6),
 };
 
 const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)

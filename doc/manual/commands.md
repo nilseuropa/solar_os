@@ -690,16 +690,10 @@ when an SD card is mounted. `sd` always selects SD and is rejected on boards
 without SD support. Use `setterm startup` without a value to show the selected
 source and currently resolved path.
 
-`setterm font load <pack>` loads a font pack, a file `fonts/<pack>.sfp` on the
-default storage volume, and `setterm font unload <pack>` drops it. The terminal
-and graphics text draw a character from a loaded pack when the built-in faces
-have no glyph for it, in the same cell and style. Generate packs from the
-default TTF faces with `python3 fonts/generate_u8g2_fonts.py --pack <name>
---glyph-ranges <ranges>`; `fonts/packs/` holds `cyrillic` and `latin-ext`
-(Latin Extended-A, ș/ț, general punctuation and the euro sign). The loaded set
-is saved and restored once storage is mounted at boot. A pack loads whole into
-PSRAM; without PSRAM only the regular and bold faces that fit in 24 KB load.
-`setterm font` without a value also lists the loaded and available packs.
+`setterm font load <pack>` loads `fonts/<pack>.sfp` from the default volume
+and `unload` drops it. Text draws characters the built-in faces lack from a
+loaded pack, at every size. The set is saved and restored at boot. Without
+PSRAM only faces that fit in 24 KB load. `setterm font` lists the packs.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure

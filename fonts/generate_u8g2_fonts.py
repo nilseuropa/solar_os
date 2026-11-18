@@ -28,6 +28,10 @@ from PIL import Image, ImageDraw, ImageFont
 FONT_DIR = Path(__file__).resolve().parent
 DEFAULT_SIZES = [10, 12, 14, 16, 18, 20]
 DEFAULT_RANGES = [(0x20, 0x7E), (0xA0, 0xFF)]
+# Terminal text size 8 draws the U8g2 5x8 face, cut from the public-domain
+# misc-fixed 5x8 BDF. A pack takes that face's extra glyphs from the same BDF.
+FIXED_5X8_BDF = FONT_DIR / "misc-fixed" / "5x8.bdf"
+FIXED_5X8_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -407,6 +411,24 @@ def parse_u8g2_c_array(path: Path) -> bytes:
     return bytes(data)
 
 
+def fixed_5x8_face(bdfconv: str, u8g2_dir: Path, map_expr: str) -> GeneratedFont:
+    """The pack's regular face for terminal text size 8, from misc-fixed 5x8."""
+    symbol = "u8g2_font_solar_os_pack_r_8_tf"
+    c_path = u8g2_dir / f"{symbol}.c"
+    run_bdfconv(bdfconv, FIXED_5X8_BDF, c_path, symbol, map_expr)
+    return GeneratedFont(
+        style=STYLES[0],
+        size=FIXED_5X8_SIZE,
+        cell_width=5,
+        cell_height=8,
+        ascent=7,
+        descent=1,
+        bdf_path=FIXED_5X8_BDF,
+        c_path=c_path,
+        symbol=symbol,
+    )
+
+
 def write_pack(path: Path, name: str, ranges: list[tuple[int, int]], faces: list[GeneratedFont]) -> None:
     """Write a font pack: the glyphs of `ranges` for every style and size.
 
@@ -546,6 +568,7 @@ def generate(args: argparse.Namespace) -> list[GeneratedFont]:
     if args.pack:
         if args.no_u8g2 or any(item.c_path is None for item in generated):
             raise SystemExit("--pack needs bdfconv: make -C fonts/tools/bdfconv")
+        generated.append(fixed_5x8_face(bdfconv, u8g2_dir, map_expr))
         pack_path = Path(args.pack_dir).resolve() / f"{args.pack}.sfp"
         write_pack(pack_path, args.pack, args.glyph_ranges, generated)
         print(f"wrote {pack_path} ({pack_path.stat().st_size} bytes)")
@@ -583,7 +606,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--pack",
         metavar="NAME",
         help="write a font pack NAME.sfp holding only --glyph-ranges for every "
-        "style and size (loaded on the device with `setterm font load NAME`)",
+        "style and size, plus a regular 5x8 face from fonts/misc-fixed/5x8.bdf "
+        "(loaded on the device with `setterm font load NAME`)",
     )
     parser.add_argument(
         "--pack-dir",

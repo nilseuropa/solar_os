@@ -30,8 +30,8 @@ extern const uint8_t u8g2_font_solar_os_default_i_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_bi_20_tf[];
 
 /* The loaded font-pack face that goes with a built-in face and has the glyph
- * for a code point, or NULL (no pack loaded, the 5x8 and icon faces, glyph not
- * in any pack). See solar_os_font_packs.h. */
+ * for a code point, or NULL (no pack loaded, an icon face, glyph not in any
+ * pack). See solar_os_font_packs.h. */
 const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint);
 
 /* Next code point of a UTF-8 string, advancing *text; U+FFFD for a bad

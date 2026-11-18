@@ -27,7 +27,8 @@
 #define PACK_UNLOAD_GRACE_MS 250
 
 static const char *TAG = "fontpack";
-static const uint8_t pack_sizes[SOLAR_OS_FONT_SIZE_COUNT] = {10, 12, 14, 16, 18, 20};
+/* Size 8 is the 5x8 terminal face: regular only, cut from misc-fixed. */
+static const uint8_t pack_sizes[SOLAR_OS_FONT_SIZE_COUNT] = {8, 10, 12, 14, 16, 18, 20};
 
 typedef struct {
     bool active;

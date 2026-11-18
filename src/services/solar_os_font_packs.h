@@ -22,7 +22,7 @@
 #define SOLAR_OS_FONT_PACK_REDUCED_BYTES (24U * 1024U)
 
 #define SOLAR_OS_FONT_STYLE_COUNT 4
-#define SOLAR_OS_FONT_SIZE_COUNT 6
+#define SOLAR_OS_FONT_SIZE_COUNT 7
 
 typedef struct {
     char name[SOLAR_OS_FONT_PACK_NAME_MAX];
@@ -52,6 +52,6 @@ esp_err_t solar_os_font_pack_dir(char *path, size_t path_len);
 
 bool solar_os_font_pack_name_valid(const char *name);
 
-/* The pack face for a style (0 r, 1 b, 2 i, 3 bi) and size index (0..5 for
- * sizes 10..20) that has the glyph, or NULL. */
+/* The pack face for a style (0 r, 1 b, 2 i, 3 bi) and size index (0 for the
+ * regular-only 5x8 face, 1..6 for sizes 10..20) that has the glyph, or NULL. */
 const uint8_t *solar_os_font_pack_face(unsigned style, unsigned size_index, uint32_t codepoint);
