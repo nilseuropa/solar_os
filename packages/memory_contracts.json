@@ -8,6 +8,12 @@
     "vendor": "src/vendor and modules/*/main/vendor retain upstream contracts; linked SDK adapters or guest port shims handle their allocations."
   },
   "exceptions": {
+    "modules/c64/main/c64.cpp": {
+      "calls": {
+        "new": 1
+      },
+      "reason": "Placement construction only, in checked host-memory-service storage. The guest is destroyed before its tracked host allocation is freed."
+    },
     "modules/experimental/tinycc/native-qemu/main/main.c": {
       "calls": {
         "heap_caps_aligned_alloc": 1,
