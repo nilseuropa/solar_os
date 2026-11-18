@@ -6,6 +6,7 @@
 
 static char output[32768];
 static size_t output_len, terminal_col, terminal_row, terminal_width;
+static size_t put_char_calls;
 
 static void capture(const char *text, size_t len)
 {
@@ -57,12 +58,32 @@ void solar_os_terminal_set_bold(solar_os_terminal_t *term, bool bold)
 void solar_os_terminal_put_char(solar_os_terminal_t *term, char ch)
 {
     (void)term;
+    put_char_calls++;
     capture(&ch, 1U);
     if (ch == '\n') {
         terminal_col = 0U;
         terminal_row++;
     } else {
         /* Model delayed wrap on the display terminal. */
+        if (terminal_col >= terminal_width) {
+            terminal_row++;
+            terminal_col = 0U;
+        }
+        terminal_col++;
+    }
+}
+
+/* Model the terminal's UTF-8 decoder: a lead byte opens one cell and
+ * continuation bytes add none, so the cursor counts characters. */
+void solar_os_terminal_put_utf8_byte(solar_os_terminal_t *term, uint8_t byte)
+{
+    if (byte < 0x80U) {
+        solar_os_terminal_put_char(term, (char)byte);
+        put_char_calls--;
+        return;
+    }
+    capture((const char *)&byte, 1U);
+    if ((byte & 0xC0U) != 0x80U) {
         if (terminal_col >= terminal_width) {
             terminal_row++;
             terminal_col = 0U;
@@ -81,7 +102,7 @@ static void reset(solar_os_shell_io_t *io, size_t width, bool display)
         .rows = 100,
     };
     terminal_width = width;
-    terminal_col = terminal_row = output_len = 0U;
+    terminal_col = terminal_row = output_len = put_char_calls = 0U;
     output[0] = '\0';
 }
 
@@ -153,6 +174,16 @@ int main(void)
     reset(&io, 8U, false);
     solar_os_shell_io_write(&io, "ordinary output still wraps");
     assert(strcmp(output, "ordinary output still wraps") == 0);
+    /* UTF-8 written to a display terminal goes through the decoder: one cell
+     * per character, not one Latin-1 cell per byte. */
+    reset(&io, 80U, true);
+    assert(solar_os_shell_io_write(&io, "\xd0\xbf\xd1\x80\xe2\x82\xac!\n") == ESP_OK);
+    assert(strcmp(output, "\xd0\xbf\xd1\x80\xe2\x82\xac!\n") == 0);
+    assert(put_char_calls == 0U);
+    assert(terminal_row == 1U && terminal_col == 0U);
+    reset(&io, 80U, true);
+    assert(solar_os_shell_io_write(&io, "\xd0\xbf\xd1\x80\xe2\x82\xac") == ESP_OK);
+    assert(solar_os_shell_io_cursor_col(&io) == 3U);
     puts("shell table tests passed");
     return 0;
 }
