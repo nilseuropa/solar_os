@@ -34,6 +34,9 @@ resident until explicitly unloaded, removed, or reclaimed while unused under
 memory pressure. Installed libraries are not
 loaded by the boot scan. After restarting, consumers load them again as needed.
 
+[AOgmaNeo](aogmaneo.md) supplies online predictive hierarchies, actors and image
+encoding through a versioned native C API and a packaged SDK header.
+
 `pkg unload` releases the resident image but keeps its installed file.
 `pkg remove` unloads the library and removes the file. Both refuse while a
 consumer holds a lease or the library cannot finish shutdown. Unload an unused
