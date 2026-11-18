@@ -802,7 +802,14 @@ static bool doc_parse_heading(const char *source,
     return true;
 }
 
-static bool doc_parse_list(const char *source, size_t start, size_t end, size_t *text_start)
+typedef struct {
+    size_t text_start;
+    uint32_t number;
+    char delimiter;
+} doc_list_marker_t;
+
+static bool doc_parse_list(const char *source, size_t start, size_t end,
+                           doc_list_marker_t *marker)
 {
     size_t p = doc_skip_space(source, start, end);
     if (p >= end) {
@@ -813,18 +820,26 @@ static bool doc_parse_list(const char *source, size_t start, size_t end, size_t 
     if ((first == '-' || first == '*' || first == '+') &&
         p + 1U < end &&
         (source[p + 1U] == ' ' || source[p + 1U] == '\t')) {
-        *text_start = p + 2U;
+        *marker = (doc_list_marker_t){.text_start = p + 2U};
         return true;
     }
     if (isdigit((unsigned char)first)) {
-        size_t q = p + 1U;
+        uint32_t number = 0;
+        size_t q = p;
         while (q < end && isdigit((unsigned char)source[q])) {
+            const uint32_t digit = (uint32_t)(source[q] - '0');
+            if (number > (UINT32_MAX - digit) / 10U) {
+                return false;
+            }
+            number = number * 10U + digit;
             q++;
         }
         if (q + 1U < end &&
             (source[q] == '.' || source[q] == ')') &&
             (source[q + 1U] == ' ' || source[q + 1U] == '\t')) {
-            *text_start = q + 2U;
+            *marker = (doc_list_marker_t){
+                .text_start = q + 2U, .number = number, .delimiter = source[q],
+            };
             return true;
         }
     }
@@ -1425,9 +1440,9 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             continue;
         }
 
-        size_t ignored_list_start = 0;
+        doc_list_marker_t list_marker = {0};
         if (doc_line_is_indented_code(source, line_start, line_end) &&
-            !doc_parse_list(source, line_start, line_end, &ignored_list_start)) {
+            !doc_parse_list(source, line_start, line_end, &list_marker)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
                                                 &paragraph_len,
@@ -1613,7 +1628,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
                 return ret;
             }
             doc_set_last_raw_range(doc, line_start, next_line);
-        } else if (doc_parse_list(source, line_start, line_end, &text_start)) {
+        } else if (doc_parse_list(source, line_start, line_end, &list_marker)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
                                                 &paragraph_len,
@@ -1623,6 +1638,22 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            if (list_marker.delimiter != 0) {
+                /* Blank lines can separate items in the same numbered list. */
+                size_t previous = doc->block_count;
+                while (previous > 0 && doc->blocks[previous - 1U].type == SOLAR_OS_DOC_BLOCK_BLANK) {
+                    previous--;
+                }
+                if (previous > 0) {
+                    const solar_os_doc_block_t *item = &doc->blocks[previous - 1U];
+                    if (item->type == SOLAR_OS_DOC_BLOCK_LIST_ITEM &&
+                        item->list_delimiter == list_marker.delimiter) {
+                        list_marker.number = item->list_number < UINT32_MAX ?
+                            item->list_number + 1U : UINT32_MAX;
+                    }
+                }
+            }
+            text_start = list_marker.text_start;
             ret = doc_add_block(doc,
                                 SOLAR_OS_DOC_BLOCK_LIST_ITEM,
                                 1,
@@ -1633,6 +1664,8 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc->blocks[doc->block_count - 1U].list_delimiter = list_marker.delimiter;
+            doc->blocks[doc->block_count - 1U].list_number = list_marker.number;
             doc_set_last_raw_range(doc, line_start, next_line);
         } else if (doc_parse_quote(source, line_start, line_end, &text_start)) {
             esp_err_t ret = doc_flush_paragraph(doc,
@@ -1783,7 +1816,12 @@ esp_err_t solar_os_doc_write_markdown(const solar_os_doc_t *doc, const char *pat
             ok = ok && fprintf(file, " %s\n", text) >= 0;
             break;
         case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
-            ok = fprintf(file, "- %s\n", text) >= 0;
+            if (block->list_delimiter != 0) {
+                ok = fprintf(file, "%" PRIu32 "%c %s\n", block->list_number,
+                             block->list_delimiter, text) >= 0;
+            } else {
+                ok = fprintf(file, "- %s\n", text) >= 0;
+            }
             break;
         case SOLAR_OS_DOC_BLOCK_QUOTE:
             ok = fprintf(file, "> %s\n", text) >= 0;
@@ -2921,7 +2959,19 @@ static esp_err_t doc_layout_build(doc_layout_builder_t *builder,
             y += base.heading_gap;
             break;
         case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
-            ret = doc_layout_wrapped_block(builder, doc, i, 0, &y, width, "   ", layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            if (block->list_delimiter != 0) {
+                char marker[12];
+                const int len = snprintf(marker, sizeof(marker), "%" PRIu32 "%c",
+                                         block->list_number, block->list_delimiter);
+                int indent = (len + 1) * base.char_w;
+                if (indent > width - base.char_w) {
+                    indent = width > base.char_w ? width - base.char_w : 0;
+                }
+                ret = doc_layout_wrapped_block(builder, doc, i, indent, &y, width - indent,
+                                               NULL, layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            } else {
+                ret = doc_layout_wrapped_block(builder, doc, i, 0, &y, width, "   ", layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            }
             y += base.block_gap;
             break;
         case SOLAR_OS_DOC_BLOCK_QUOTE:
@@ -3259,7 +3309,18 @@ static void doc_render_line_decor(solar_os_gfx_t *gfx,
     case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
         if (doc_layout_is_first_line_of_block(layout, line_index)) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_circle(gfx, view->x + 5, screen_y + (line->height / 2), 2);
+            if (block->list_delimiter != 0) {
+                char marker[12];
+                const int len = snprintf(marker, sizeof(marker), "%" PRIu32 "%c",
+                                         block->list_number, block->list_delimiter);
+                const doc_style_t style = doc_base_style_for(layout->zoom);
+                solar_os_gfx_set_font(gfx, style.font);
+                doc_render_text_slice_clipped(gfx, marker, (size_t)len, view->x,
+                                              screen_y + line->baseline, style.char_w,
+                                              view->x, line->x - style.char_w);
+            } else {
+                solar_os_gfx_fill_circle(gfx, view->x + 5, screen_y + (line->height / 2), 2);
+            }
         }
         break;
     case SOLAR_OS_DOC_BLOCK_QUOTE:

@@ -77,7 +77,7 @@ usb_service_vbus_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(
 		-I$(ROOT)/src/board $(filter %.c,$^) -o $@
 
 TARGETS += can_twai_test
-TARGETS += doc_memory_test
+TARGETS += doc_memory_test doc_list_test
 TARGETS += paged_array_test
 
 paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
@@ -804,7 +804,7 @@ writer_buffer_test: writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c 
 	$(CC) $(CFLAGS) -DSOLAR_OS_WRITER_HOST_TEST -I. -I$(WRITER_DIR) \
 		writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c -o $@
 
-doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
+doc_layout_test doc_memory_test doc_list_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
 		-D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services \
@@ -1502,6 +1502,7 @@ test: $(TARGETS)
 	./syntax_test
 	./doc_layout_test
 	./doc_memory_test
+	./doc_list_test
 	./gesture_command_test
 	./shell_parse_test
 	./shell_launch_test
