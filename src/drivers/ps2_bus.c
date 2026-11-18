@@ -1,4 +1,5 @@
 #include "ps2_bus.h"
+#include "solar_os_gpio_isr.h"
 
 #include <string.h>
 
@@ -172,7 +173,7 @@ esp_err_t solar_os_ps2_bus_start(solar_os_ps2_bus_t *bus,
     }
     (void)gpio_set_level((gpio_num_t)config->data_pin, 1);
     (void)gpio_set_level((gpio_num_t)config->clock_pin, 1);
-    err = gpio_install_isr_service(0);
+    err = solar_os_gpio_isr_service_ensure();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         (void)gpio_set_intr_type((gpio_num_t)config->clock_pin, GPIO_INTR_DISABLE);
         return err;

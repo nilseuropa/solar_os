@@ -130,7 +130,7 @@ esp_err_t solar_os_bus_i2c_write_reg(const char *name, uint8_t address, uint8_t 
 static esp_err_t gpio_result(void) { return ++gpio_step == fail_gpio_step ? ESP_FAIL : ESP_OK; }
 esp_err_t gpio_config(const gpio_config_t *config)
 { assert(config->mode == GPIO_MODE_INPUT && config->intr_type == GPIO_INTR_DISABLE); return gpio_result(); }
-esp_err_t gpio_install_isr_service(int flags) { assert(flags == 0); return gpio_result(); }
+esp_err_t solar_os_gpio_isr_service_ensure(void) { return gpio_result(); }
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg)
 {
     assert(pin == 1); esp_err_t err = gpio_result();

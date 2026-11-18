@@ -26,6 +26,12 @@ static size_t contacts_test_write(const void *data, size_t size, size_t count, F
 static bool fail_history_write;
 static bool check_history_io_lock;
 static size_t history_disk_reads;
+static size_t history_disk_seeks;
+static int history_test_seek(FILE *file, long offset, int whence)
+{
+    history_disk_seeks++;
+    return fseek(file, offset, whence);
+}
 static size_t history_test_read(void *data, size_t size, size_t count, FILE *file)
 {
     history_disk_reads++;
@@ -40,9 +46,11 @@ static size_t history_test_write(const void *data, size_t size, size_t count, FI
 }
 #define fwrite history_test_write
 #define fread history_test_read
+#define fseek history_test_seek
 #include "../../src/services/solar_os_messaging.c"
 #undef fwrite
 #undef fread
+#undef fseek
 
 static char test_root[] = "/tmp/solaros-messaging-XXXXXX";
 static const char *test_default_root = test_root;
@@ -880,12 +888,38 @@ static void test_masked_provider_cursor(void)
     assert(solar_os_messaging_clear(0, NULL) == ESP_OK);
 }
 
+static void test_sequential_history_rebuild(void)
+{
+    solar_os_messaging_inbound_t in = {.provider = 1, .conversation_key = "sequential",
+        .conversation_title = "Sequential", .conversation_kind = SOLAR_OS_CONVERSATION_ROOM,
+        .sender = "peer", .body = "retained history"};
+    for (unsigned i = 1; i <= 3; i++) {
+        in.provider_message_key = i;
+        assert(solar_os_messaging_publish_inbound(&in, NULL, NULL) == ESP_OK);
+    }
+    messaging_history_lock();
+    history_disk_seeks = 0;
+    assert(messaging_history_rebuild_locked() == ESP_OK);
+    assert(messaging.disk_head > 1 && history_disk_seeks == 0);
+    FILE *file = messaging_history_fopen(messaging.store_path, "rb");
+    assert(file);
+    /* Nonsequential paging still positions the file before reading. */
+    assert(messaging_history_read_locked(file, 1, messaging.record_scratch) >= 0);
+    assert(history_disk_seeks == 1);
+    assert(messaging_history_read_locked(file, 0, messaging.record_scratch) >= 0);
+    assert(history_disk_seeks == 2);
+    assert(messaging_history_fclose(file) == 0);
+    messaging_history_unlock();
+    assert(solar_os_messaging_clear(0, NULL) == ESP_OK);
+}
+
 int main(void)
 {
     assert(mkdtemp(test_root));
     test_contacts_migration_and_import();
     test_history_migration();
     test_disk_history_beyond_cache();
+    test_sequential_history_rebuild();
     test_concurrent_history();
     test_late_sd_promotion();
     test_history_navigation_io();

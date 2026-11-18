@@ -1,3 +1,4 @@
+#include "drivers/solar_os_gpio_isr.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -1539,7 +1540,7 @@ static void key_button_init(void)
     key_ignore_until_released = key_button_is_pressed();
 
 #ifndef SOLAR_OS_BOARD_KEY_GPIO_LINE
-    esp_err_t err = gpio_install_isr_service(0);
+    esp_err_t err = solar_os_gpio_isr_service_ensure();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         SOLAR_OS_LOGW(TAG, "KEY interrupt service unavailable: %s", esp_err_to_name(err));
         return;

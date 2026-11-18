@@ -1,4 +1,5 @@
 #include "solar_os_trackball.h"
+#include "drivers/solar_os_gpio_isr.h"
 
 #include <string.h>
 #include "driver/gpio.h"
@@ -149,7 +150,7 @@ esp_err_t solar_os_trackball_attach(const char *name, const solar_os_expansion_b
     irq_slots[slot].device = device;
     const uintptr_t token = (uintptr_t)irq_slots[slot].generation << 4;
     portEXIT_CRITICAL(&edge_lock);
-    esp_err_t err = gpio_install_isr_service(0);
+    esp_err_t err = solar_os_gpio_isr_service_ensure();
     if (err == ESP_ERR_INVALID_STATE)
         err = ESP_OK;
     for (size_t i = 0; i < 4U && err == ESP_OK; i++) {

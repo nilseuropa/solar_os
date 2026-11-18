@@ -13,7 +13,7 @@ esp_err_t gpio_config(const gpio_config_t *config)
     return ESP_OK;
 }
 int gpio_get_level(gpio_num_t pin) { return levels[pin]; }
-esp_err_t gpio_install_isr_service(int flags) { (void)flags; assert(false); return ESP_FAIL; }
+esp_err_t solar_os_gpio_isr_service_ensure(void) { assert(false); return ESP_FAIL; }
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg)
 { (void)pin; (void)handler; (void)arg; assert(false); return ESP_FAIL; }
 esp_err_t gpio_isr_handler_remove(gpio_num_t pin)

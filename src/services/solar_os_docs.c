@@ -585,73 +585,57 @@ static esp_err_t docs_page_metadata(const solar_os_json_value_t *page,
     return ESP_OK;
 }
 
+/* Validate IDs once, then compare the compact sorted set. Repeated indexed
+ * lookups into a linked JSON array made duplicate detection cubic in pages. */
+static int docs_compare_page_ids(const void *first, const void *second)
+{
+    return strcmp(first, second);
+}
+
 static esp_err_t docs_validate_catalog_pages(
     const solar_os_json_value_t *pages,
     size_t page_count,
     bool require_embedded_pages)
 {
+    if (page_count == 0U || page_count > SOLAR_OS_DOCS_PAGE_COUNT_MAX) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    char (*ids)[64] = solar_os_memory_calloc(page_count, sizeof(*ids),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "docs.validation");
+    if (ids == NULL) return ESP_ERR_NO_MEM;
+    esp_err_t err = ESP_OK;
     for (size_t i = 0U; i < page_count; i++) {
         const solar_os_json_value_t *page = solar_os_json_array_get(pages, i);
-        char id[64];
         char relative[80];
         char sha[SOLAR_OS_CRYPTO_SHA256_HEX_LEN];
         uint32_t expected_size = 0U;
-        esp_err_t err = docs_page_metadata(page,
-                                           id,
-                                           sizeof(id),
-                                           relative,
-                                           sizeof(relative),
-                                           sha,
-                                           &expected_size);
-        if (err != ESP_OK) {
-            return err;
-        }
+        err = docs_page_metadata(page, ids[i], sizeof(ids[i]), relative,
+                                 sizeof(relative), sha, &expected_size);
+        if (err != ESP_OK) goto done;
         bool applies = false;
         err = docs_catalog_page_applies(page, &applies);
-        if (err != ESP_OK) {
-            return err;
-        }
-        for (size_t previous = 0U; previous < i; previous++) {
-            char previous_id[64];
-            err = solar_os_json_get_path_string(
-                solar_os_json_array_get(pages, previous),
-                "id",
-                previous_id,
-                sizeof(previous_id));
-            if (err != ESP_OK || strcmp(previous_id, id) == 0) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
+        if (err != ESP_OK) goto done;
+    }
+    qsort(ids, page_count, sizeof(*ids), docs_compare_page_ids);
+    for (size_t i = 1U; i < page_count; i++) {
+        if (strcmp(ids[i - 1U], ids[i]) == 0) {
+            err = ESP_ERR_INVALID_RESPONSE;
+            goto done;
         }
     }
-
     for (size_t topic = 0U;
          require_embedded_pages && topic < solar_os_manual_embedded_count();
          topic++) {
-        const solar_os_manual_page_t *manual =
-            solar_os_manual_embedded_get(topic);
-        bool found = false;
-        for (size_t page_index = 0U;
-             manual != NULL && page_index < page_count;
-             page_index++) {
-            char id[64];
-            const esp_err_t err = solar_os_json_get_path_string(
-                solar_os_json_array_get(pages, page_index),
-                "id",
-                id,
-                sizeof(id));
-            if (err != ESP_OK) {
-                return ESP_ERR_INVALID_RESPONSE;
-            }
-            if (strcmp(id, manual->id) == 0) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            return ESP_ERR_INVALID_RESPONSE;
+        const solar_os_manual_page_t *manual = solar_os_manual_embedded_get(topic);
+        if (manual == NULL || bsearch(manual->id, ids, page_count, sizeof(*ids),
+                                     docs_compare_page_ids) == NULL) {
+            err = ESP_ERR_INVALID_RESPONSE;
+            goto done;
         }
     }
-    return ESP_OK;
+done:
+    solar_os_memory_free(ids);
+    return err;
 }
 
 static esp_err_t docs_manual_copy_string(
