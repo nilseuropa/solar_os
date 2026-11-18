@@ -94,15 +94,12 @@ The [Himax camera driver](himax-hx6538.md) samples the OV5647 through the factor
 SSCMA firmware. Use `camera resolutions` to list its modes and
 `camera capture /sample.jpg 416x416` to save a JPEG. The default is 240x240;
 416x416, 480x480, and 640x480 are also available. Camera sampling preserves the
-Himax firmware and installed models. Model management and inference are not
-exposed by this driver.
+Himax firmware and installed models. The camera driver supplies sampling;
+the included `processor-himax` provider supplies
+[model management](himax-models.md) and [inference pipelines](pipelines.md).
 
 Battery percentage is estimated from voltage. The standalone charger operates
 in hardware; this profile does not expose charging-current control.
-
-Camera and Himax inference/programming are excluded. Their ESP32-side GPIOs
-remain reserved. SPI2 is shared electrically with Himax, whose CS21 is held
-inactive while SolarOS uses the SD card.
 
 ## Expansion connectors
 
