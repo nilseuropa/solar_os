@@ -1,0 +1,60 @@
+schema = 1
+extends = "qemu_esp32s3"
+
+[board]
+id = "qemu_esp32s3_rgb"
+name = "QEMU ESP32-S3 with virtual display"
+vendor = "Espressif"
+module = "QEMU esp32s3 machine"
+
+[build]
+# QEMU's virtual RGB panel, shown in the QEMU window (-display sdl).
+drivers = ["display_qemu_rgb"]
+capabilities = ["display"]
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600"
+# The UART0 shell stays next to the display shell; keys for the display come
+# from a terminal on UART1 (keyboard0).
+SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
+
+[runtime]
+uart_ports = ["UART_NUM_2"]
+
+[[buses]]
+name = "uart1"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_1"
+tx = 17
+rx = 18
+baud_rate = "SOLAR_OS_BUS_UART_DEFAULT_BAUD_RATE"
+
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "UART1 TX (keyboard0)"
+pwm = false
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "UART1 RX (keyboard0)"
+pwm = false
+
+[[devices]]
+driver = "qemu-rgb"
+name = "display0"
+bindings = {}
+
+[[devices]]
+driver = "uart-keyboard"
+name = "keyboard0"
+bindings = { uart = "uart1" }
+
+# QEMU's virtual Ethernet card (-nic user,model=open_eth); reports as Wi-Fi.
+[[devices]]
+driver = "qemu-eth"
+name = "eth0"
+bindings = {}

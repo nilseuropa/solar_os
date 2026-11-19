@@ -642,6 +642,11 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
+[groups.uart_keyboard]
+label = "UART terminal keyboard"
+category = "Expansion hardware"
+members = ["expansion_uart_keyboard"]
+
 [groups.inputronic_keyboard]
 label = "Soldered Inputronic keyboard"
 category = "Expansion hardware"
@@ -896,6 +901,16 @@ members = ["driver_display_spd2010"]
 label = "SPD2010 capacitive touch"
 category = "Expansion hardware"
 members = ["driver_spd2010_touch"]
+
+[groups.qemu_rgb]
+label = "QEMU virtual RGB display"
+category = "Expansion hardware"
+members = ["driver_display_qemu_rgb"]
+
+[groups.qemu_eth]
+label = "QEMU virtual Ethernet"
+category = "Expansion hardware"
+members = ["driver_network_qemu_eth"]
 
 [groups.ft6336]
 label = "FT6336 touch controller"
@@ -2171,6 +2186,16 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
+[packages.expansion_uart_keyboard]
+label = "expansion.uart-keyboard"
+expansion_drivers = ["solar_os_uart_keyboard_expansion_driver"]
+depends = ["service_expansion", "service_uart"]
+sources = [
+  "services/solar_os_uart_keyboard.c",
+  "services/solar_os_uart_keyboard_driver.c",
+]
+capabilities = ["expansion_uart"]
+
 [packages.expansion_inputronic_keyboard]
 label = "expansion.inputronic-keyboard"
 targets = ["esp32", "esp32s3"]
@@ -2951,6 +2976,30 @@ depends = ["service_expansion", "service_i2c"]
 sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
 requires = ["esp_driver_gpio", "esp_rom"]
 capabilities = ["gfx", "i2c"]
+
+[packages.driver_display_qemu_rgb]
+label = "driver.display-qemu-rgb"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_rgb_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "services/solar_os_qemu_rgb_display.c",
+]
+requires = ["esp_lcd", "espressif__esp_lcd_qemu_rgb", "u8g2"]
+capabilities = ["gfx"]
+
+[packages.driver_network_qemu_eth]
+label = "driver.network-qemu-eth"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_eth_expansion_driver"]
+depends = ["service_expansion", "service_wifi"]
+sources = [
+  "services/solar_os_qemu_eth.c",
+  "services/solar_os_qemu_eth_driver.c",
+]
+requires = ["esp_eth", "esp_event", "esp_netif"]
+capabilities = ["wifi"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"
