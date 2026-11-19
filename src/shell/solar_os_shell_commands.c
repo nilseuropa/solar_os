@@ -2028,8 +2028,8 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm backlight [0..100|follow]");
     solar_os_shell_io_writeln(term, "  setterm profile [vt100|ansi|dumb]");
     solar_os_shell_io_writeln(term, "  setterm charset [utf8|ascii]");
+    solar_os_shell_io_writeln(term, "  setterm keyboard [<layout>[,<layout>...]]");
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    solar_os_shell_io_writeln(term, "  setterm keyboard [us|de|ua|fr|ro]");
     solar_os_shell_io_writeln(term, "  setterm ble [default|on|off]");
 #endif
     solar_os_shell_io_writeln(term, "  setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]");
@@ -2708,23 +2708,28 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                      "keyboard: %s\n",
                                      solar_os_input_keyboard_layout_name(
                                          solar_os_input_keyboard_layout()));
+            char layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUT_LIST_MAX];
+            if (solar_os_input_keyboard_layout_list(layouts, sizeof(layouts)) == ESP_OK) {
+                solar_os_shell_io_printf(term, "layouts: %s\n", layouts);
+            }
             solar_os_shell_io_writeln(term, "values: us de ua fr ro");
+            solar_os_shell_io_writeln(term, "comma-separated list: Ctrl+Space switches layouts");
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(term, "setterm keyboard", argv[3],
-                                           "setterm keyboard [us|de|ua|fr|ro]");
+                                           "setterm keyboard [<layout>[,<layout>...]]");
             return;
         }
 
-        solar_os_input_keyboard_layout_t layout;
-        if (!solar_os_input_parse_keyboard_layout(argv[2], &layout)) {
+        const esp_err_t err = solar_os_input_set_keyboard_layout_list(argv[2]);
+        if (err == ESP_ERR_INVALID_ARG) {
             solar_os_shell_diag_invalid(term, "setterm keyboard", "layout", argv[2],
-                                        "us, de, ua, fr or ro", "setterm keyboard [us|de|ua|fr|ro]", false);
+                                        "unique comma-separated layouts: us, de, ua, fr, ro",
+                                        "setterm keyboard [<layout>[,<layout>...]]", false);
             return;
         }
 
-        const esp_err_t err = solar_os_input_set_keyboard_layout(layout);
         setterm_print_save_result(term, "keyboard", argv[2], err);
         return;
     }

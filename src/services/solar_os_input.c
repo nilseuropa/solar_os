@@ -26,6 +26,7 @@
 #define INPUT_NVS_REPEAT_RATE_KEY "repeat_cps"
 #define INPUT_NVS_REPEAT_DELAY_KEY "repeat_delay"
 #define INPUT_NVS_LAYOUT_KEY "layout"
+#define INPUT_NVS_LAYOUTS_KEY "layouts"
 #define INPUT_NVS_CALIBRATION_VERSION 1U
 #define INPUT_LEGACY_NVS_NAMESPACE "blekbd"
 #define INPUT_POINTER_CAPABILITIES \
@@ -133,6 +134,11 @@ static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US;
+static uint8_t input_keyboard_layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX] = {
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+};
+static size_t input_keyboard_layout_count = 1;
+static size_t input_keyboard_layout_index;
 static input_repeat_state_t input_repeat;
 static solar_os_input_pointer_filter_t input_pointer_filter;
 static void *input_pointer_filter_context;
@@ -514,6 +520,22 @@ static void input_tag_layout(solar_os_input_key_event_t *event)
     }
 }
 
+/* Mark the held press, so repeat/release stay consumed even if Ctrl is
+ * released first or the configured list changes while Space is held. */
+static void input_prepare_key_locked(solar_os_input_key_event_t *event)
+{
+    input_tag_layout(event);
+    if (input_keyboard_layout_count > 1U && event->usage == 0x2cU &&
+        (event->modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0U &&
+        (event->modifiers & (uint8_t)~SOLAR_OS_INPUT_MOD_CTRL) == 0U &&
+        input_sources[event->source - 1U].source_class == SOLAR_OS_INPUT_SOURCE_KEYBOARD &&
+        !(input_capture_owner != NULL && input_capture_source == event->source &&
+          !input_capture_session_shortcuts)) {
+        event->layout_switch = true;
+        event->key = 0;
+    }
+}
+
 /* The release of a held key carries the byte its press delivered. A layout
  * code is resolved with the modifiers of the press, not of the release, which
  * can differ (AltGr released first). Callers hold input_lock. */
@@ -601,7 +623,8 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *queued)
     if (event != NULL && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
         input_key_press_generation++;
     }
-    if (event != NULL && (input_route_key_locked(event) || input_capture_push_locked(event))) {
+    if (event != NULL && !event->layout_switch &&
+        (input_route_key_locked(event) || input_capture_push_locked(event))) {
         return true;
     }
     if (event == NULL || input_queue_count >= INPUT_QUEUE_MAX) {
@@ -613,6 +636,11 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *queued)
     const size_t index = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
     input_queue[index] = *event;
     input_queue_count++;
+    if (event->layout_switch && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
+        input_keyboard_layout_index = (input_keyboard_layout_index + 1U) % input_keyboard_layout_count;
+        input_keyboard_layout = (solar_os_input_keyboard_layout_t)
+            input_keyboard_layouts[input_keyboard_layout_index];
+    }
     input_wake_generation++;
     return true;
 }
@@ -792,6 +820,29 @@ static esp_err_t input_load_layout_namespace(const char *namespace_name,
     return err;
 }
 
+static bool input_layout_list_valid(const uint8_t *layouts, size_t count)
+{
+    if (count == 0 || count > SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX) return false;
+    unsigned seen = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (layouts[i] >= sizeof(input_keyboard_layout_names) / sizeof(input_keyboard_layout_names[0]) ||
+            (seen & (1U << layouts[i])) != 0U) return false;
+        seen |= 1U << layouts[i];
+    }
+    return true;
+}
+
+static esp_err_t input_load_layout_list(uint8_t *layouts, size_t *count)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(INPUT_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_get_blob(nvs, INPUT_NVS_LAYOUTS_KEY, layouts, count);
+    nvs_close(nvs);
+    if (err == ESP_OK && !input_layout_list_valid(layouts, *count)) return ESP_ERR_INVALID_ARG;
+    return err;
+}
+
 esp_err_t solar_os_input_init(void)
 {
     uint16_t rate_cps = INPUT_REPEAT_RATE_DEFAULT;
@@ -827,6 +878,19 @@ esp_err_t solar_os_input_init(void)
         layout_err = ESP_ERR_INVALID_ARG;
     }
 
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    size_t layout_count = sizeof(layouts);
+    const esp_err_t list_err = input_load_layout_list(layouts, &layout_count);
+    if (list_err == ESP_OK) {
+        layout_value = layouts[0];
+        layout_err = ESP_OK;
+    } else if (list_err == ESP_ERR_NVS_NOT_FOUND) {
+        layouts[0] = (uint8_t)layout_value;
+        layout_count = 1;
+    } else {
+        layout_err = list_err;
+    }
+
     portENTER_CRITICAL(&input_lock);
     if (repeat_err == ESP_OK) {
         input_repeat_rate_cps = rate_cps;
@@ -834,6 +898,9 @@ esp_err_t solar_os_input_init(void)
     }
     if (layout_err == ESP_OK) {
         input_keyboard_layout = (solar_os_input_keyboard_layout_t)layout_value;
+        memcpy(input_keyboard_layouts, layouts, layout_count);
+        input_keyboard_layout_count = layout_count;
+        input_keyboard_layout_index = 0;
     }
     input_pointer_filter = NULL;
     input_pointer_filter_context = NULL;
@@ -1567,7 +1634,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
                 .modifiers = modifiers,
                 .action = SOLAR_OS_INPUT_KEY_PRESS,
             };
-            input_tag_layout(&pressed->event);
+            input_prepare_key_locked(&pressed->event);
             if (!input_queue_push_locked(&pressed->event)) {
                 result = ESP_ERR_NO_MEM;
             } else {
@@ -1619,6 +1686,10 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
         result = ESP_ERR_INVALID_STATE;
     } else {
         input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
+        if (pressed && key && pressed->event.layout_switch && pressed->event.usage == usage) {
+            portEXIT_CRITICAL(&input_lock);
+            return ESP_OK;
+        }
         if (pressed && key && pressed->event.key == key &&
             pressed->event.usage == usage && pressed->event.modifiers == modifiers) {
             portEXIT_CRITICAL(&input_lock);
@@ -1650,7 +1721,7 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
                     .source = source, .physical_key = physical_key, .usage = usage,
                     .key = key, .modifiers = modifiers, .action = SOLAR_OS_INPUT_KEY_PRESS,
                 };
-                input_tag_layout(&next->event);
+                input_prepare_key_locked(&next->event);
                 (void)input_queue_push_locked(&next->event);
                 input_record_key_locked(&next->event);
                 input_repeat_start_locked(&next->event);
@@ -1683,7 +1754,6 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
 
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
-    const solar_os_input_key_event_t release = input_release_event(&press, 0U);
     if (!input_source_valid_locked(source) ||
         (input_sources[source - 1U].capabilities &
          SOLAR_OS_INPUT_CAP_KEY_EVENTS) == 0U) {
@@ -1692,6 +1762,8 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
                !(input_capture_owner != NULL && input_capture_source == source)) {
         result = ESP_ERR_NO_MEM;
     } else {
+        input_prepare_key_locked(&press);
+        const solar_os_input_key_event_t release = input_release_event(&press, 0U);
         (void)input_queue_push_locked(&press);
         (void)input_queue_push_locked(&release);
         input_record_key_locked(&press);
@@ -2864,28 +2936,81 @@ solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void)
     return layout;
 }
 
-esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout)
+static esp_err_t input_save_layout_list(const uint8_t *layouts, size_t count)
 {
-    if ((size_t)layout >= sizeof(input_keyboard_layout_names) /
-            sizeof(input_keyboard_layout_names[0])) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    portENTER_CRITICAL(&input_lock);
-    input_keyboard_layout = layout;
-    portEXIT_CRITICAL(&input_lock);
-
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(INPUT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = nvs_set_u16(nvs, INPUT_NVS_LAYOUT_KEY, (uint16_t)layout);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u16(nvs, INPUT_NVS_LAYOUT_KEY, layouts[0]);
     if (err == ESP_OK) {
-        err = nvs_commit(nvs);
+        if (count > 1U) {
+            err = nvs_set_blob(nvs, INPUT_NVS_LAYOUTS_KEY, layouts, count);
+        } else {
+            err = nvs_erase_key(nvs, INPUT_NVS_LAYOUTS_KEY);
+            if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+        }
     }
+    if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&input_lock);
+        memcpy(input_keyboard_layouts, layouts, count);
+        input_keyboard_layout_count = count;
+        input_keyboard_layout_index = 0;
+        input_keyboard_layout = (solar_os_input_keyboard_layout_t)layouts[0];
+        input_wake_generation++;
+        portEXIT_CRITICAL(&input_lock);
+        input_notify_wake();
+    }
     return err;
+}
+
+esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout)
+{
+    if ((unsigned)layout >= sizeof(input_keyboard_layout_names) /
+                            sizeof(input_keyboard_layout_names[0])) return ESP_ERR_INVALID_ARG;
+    const uint8_t value = (uint8_t)layout;
+    return input_save_layout_list(&value, 1);
+}
+
+esp_err_t solar_os_input_set_keyboard_layout_list(const char *text)
+{
+    if (text == NULL || text[0] == '\0') return ESP_ERR_INVALID_ARG;
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    size_t count = 0;
+    for (const char *p = text;;) {
+        const char *end = strchr(p, ',');
+        const size_t len = end != NULL ? (size_t)(end - p) : strlen(p);
+        if (len != 2U || count == sizeof(layouts)) return ESP_ERR_INVALID_ARG;
+        const char name[3] = {p[0], p[1], '\0'};
+        solar_os_input_keyboard_layout_t layout;
+        if (!solar_os_input_parse_keyboard_layout(name, &layout)) return ESP_ERR_INVALID_ARG;
+        layouts[count++] = (uint8_t)layout;
+        if (end == NULL) break;
+        p = end + 1;
+    }
+    if (!input_layout_list_valid(layouts, count)) return ESP_ERR_INVALID_ARG;
+    return input_save_layout_list(layouts, count);
+}
+
+esp_err_t solar_os_input_keyboard_layout_list(char *text, size_t text_len)
+{
+    if (text == NULL || text_len == 0) return ESP_ERR_INVALID_ARG;
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    portENTER_CRITICAL(&input_lock);
+    const size_t count = input_keyboard_layout_count;
+    memcpy(layouts, input_keyboard_layouts, count);
+    portEXIT_CRITICAL(&input_lock);
+    if (text_len < count * 3U) return ESP_ERR_INVALID_SIZE;
+    size_t pos = 0;
+    for (size_t i = 0; i < count; i++) {
+        const char *name = input_keyboard_layout_names[layouts[i]];
+        if (i != 0) text[pos++] = ',';
+        text[pos++] = name[0];
+        text[pos++] = name[1];
+    }
+    text[pos] = '\0';
+    return ESP_OK;
 }
 
 const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout)

@@ -83,6 +83,9 @@ typedef enum {
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO,
 } solar_os_input_keyboard_layout_t;
 
+#define SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX 5U
+#define SOLAR_OS_INPUT_KEYBOARD_LAYOUT_LIST_MAX (3U * SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX)
+
 typedef enum {
     SOLAR_OS_INPUT_KEY_PRESS,
     SOLAR_OS_INPUT_KEY_RELEASE,
@@ -104,6 +107,9 @@ typedef struct {
      * current layout. Set by the input queue, so a layout change between
      * queueing and reading does not change what a queued key meant. */
     uint8_t layout_tag;
+    /* Consumed Ctrl+Space transition. The input service switches on press;
+     * the desktop clears composition without forwarding this key to an app. */
+    bool layout_switch;
 } solar_os_input_key_event_t;
 
 typedef enum {
@@ -410,6 +416,10 @@ bool solar_os_input_read_captured_key(const void *owner,
 
 solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void);
 esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout);
+/* Ordered, unique comma-separated layouts. Saving selects the first layout;
+ * Ctrl+Space cycles at runtime without writing NVS. A single layout disables it. */
+esp_err_t solar_os_input_set_keyboard_layout_list(const char *text);
+esp_err_t solar_os_input_keyboard_layout_list(char *text, size_t text_len);
 const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout);
 bool solar_os_input_parse_keyboard_layout(const char *name,
                                           solar_os_input_keyboard_layout_t *layout);

@@ -211,7 +211,7 @@ TARGETS += epd_service_test
 TARGETS += epd_scan_worker_test
 TARGETS += epd_ssd1683_test epd_ssd1683_waveform_test
 TARGETS += shell_table_test
-TARGETS += font_packs_test
+TARGETS += font_packs_test keyboard_layout_switch_test
 TARGETS += io_layout_test
 TARGETS += io_layout_can_test
 TARGETS += batmon_job_test
@@ -222,6 +222,10 @@ shell_table_test: shell_table_test.c $(ROOT)/src/shell/solar_os_shell_io.c $(ROO
 		-include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		-I$(ROOT)/src/shell -I$(ROOT)/components/u8g2/src/clib \
 		shell_table_test.c $(ROOT)/src/shell/solar_os_shell_io.c -Wl,--gc-sections -o $@
+
+keyboard_layout_switch_test: keyboard_layout_switch_test.c input_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_keys.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_input_route.inc
+	$(CC) $(CFLAGS) -include compat.h -I. -Igenerated/solar_os -I$(ROOT)/src -I$(ROOT)/src/services \
+		keyboard_layout_switch_test.c $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
 font_packs_test: font_packs_test.c $(ROOT)/src/services/solar_os_font_packs.c $(ROOT)/src/services/solar_os_font_packs.h $(ROOT)/src/services/solar_os_fonts.c $(ROOT)/src/services/solar_os_fonts.h $(wildcard font_pack_stubs/*.h font_pack_stubs/freertos/*.h) $(ROOT)/fonts/packs/cyrillic.sfp $(ROOT)/fonts/packs/latin-ext.sfp
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -Ifont_pack_stubs -I. \
@@ -1606,6 +1610,7 @@ test: $(TARGETS)
 	./app_exit_result_test
 	./shell_table_test
 	./font_packs_test
+	./keyboard_layout_switch_test
 	./io_layout_test
 	./io_layout_can_test
 	./power_key_test

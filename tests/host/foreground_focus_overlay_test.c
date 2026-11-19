@@ -602,6 +602,20 @@ int main(void)
     assert(probe_char == 0xffU);
     assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     text_probe = false;
+    /* The service switches once; the desktop consumes both transitions and
+     * drops pending composition without sending a key or character to the app. */
+    assert(solar_os_input_set_keyboard_layout_list("us,ua") == ESP_OK);
+    const unsigned switches_cleared = compose_clears;
+    const unsigned keys_before_switch = guest_events, texts_before_switch = text_events;
+    assert(solar_os_input_write_key(source, 44, 44, 0, SOLAR_OS_INPUT_MOD_LEFT_CTRL,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_write_key(source, 44, 44, 0, 0,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+    dispatch_desktop_queue();
+    assert(solar_os_input_keyboard_layout() == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA);
+    assert(compose_clears == switches_cleared + 1);
+    assert(guest_events == keys_before_switch && text_events == texts_before_switch);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     solar_os_input_source_close(source);
 #ifdef CL32_KEYBOARD_TEST
     test_cl32_session_switching();

@@ -345,7 +345,7 @@ job for periodic polling.
 | `setterm` | `setterm brightness [0..100]` | Show or set display brightness. |
 | `setterm` | `setterm backlight [0..100\|follow]` | Show or set auxiliary lighting, such as the keyboard backlight, independently or following display brightness. |
 | `setterm` | `setterm profile [vt100\|ansi\|dumb]`; `setterm charset [utf8\|ascii]` | Configure escape sequences and TUI glyph output for the current port shell. |
-| `setterm` | `setterm keyboard [us\|de]`; `setterm powerkey [short\|long] [action]` | Show or set the keyboard layout and dedicated KEY action. |
+| `setterm` | `setterm keyboard [<layout>[,<layout>...]]`; `setterm powerkey [short\|long] [action]` | Save keyboard layouts (`us`, `de`, `ua`, `fr`, `ro`) and the dedicated KEY action. Ctrl+Space cycles layouts. |
 | `setterm` | `setterm keyrate [off\|1..60 [delay-ms]]` | Show or set the shared keyboard and button repeat policy. |
 | `setterm` | `setterm ble [default\|on\|off]` | Show or set the BLE preference for the next boot. |
 | `setterm` | `setterm timezone [UTC\|UTC+/-offset\|Europe/Berlin\|POSIX-TZ]` | Show or set the timezone used for local time. |
@@ -598,7 +598,7 @@ setterm brightness [0..100]
 setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
-setterm keyboard [us|de]
+setterm keyboard [<layout>[,<layout>...]]
 setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
@@ -689,6 +689,10 @@ to flash when SD is unavailable. `flash` always selects internal flash, even
 when an SD card is mounted. `sd` always selects SD and is rejected on boards
 without SD support. Use `setterm startup` without a value to show the selected
 source and currently resolved path.
+
+`setterm keyboard us,ua` saves a list and boots in `us`. Ctrl+Space cycles
+once per press without saving. The status bar shows `US`, `UA`, etc.
+A single layout disables switching.
 
 `setterm font load <pack>` loads `fonts/<pack>.sfp` from the default volume
 and `unload` drops it. Text draws characters the built-in faces lack from a

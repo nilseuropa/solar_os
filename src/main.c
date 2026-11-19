@@ -1672,6 +1672,10 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
 
     maybe_exit_suspend_for_input();
     solar_os_power_note_activity(millis_u32());
+    if (event->layout_switch) {
+        if (event->action == SOLAR_OS_INPUT_KEY_PRESS) clear_text_compose();
+        return;
+    }
     if (solar_os_input_capture_key_event(event)) {
         return;
     }
@@ -2109,13 +2113,19 @@ static void update_status(void)
     }
 
     const uint32_t now_ms = millis_u32();
+    static solar_os_input_keyboard_layout_t last_layout;
+    const solar_os_input_keyboard_layout_t layout = solar_os_input_keyboard_layout();
     if (last_status_update_ms != 0 &&
-        (now_ms - last_status_update_ms) < STATUS_UPDATE_INTERVAL_MS) {
+        (now_ms - last_status_update_ms) < STATUS_UPDATE_INTERVAL_MS && layout == last_layout) {
         return;
     }
     last_status_update_ms = now_ms;
+    last_layout = layout;
 
     solar_os_status_bar_t status = {0};
+    const char *layout_name = solar_os_input_keyboard_layout_name(layout);
+    status.keyboard_layout[0] = (char)(layout_name[0] - 'a' + 'A');
+    status.keyboard_layout[1] = (char)(layout_name[1] - 'a' + 'A');
 
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     solar_os_inbox_status_t inbox;

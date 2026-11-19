@@ -94,6 +94,11 @@ or remove built-in layouts.
 
 `us`, `de`, `ua` (Ukrainian), `fr` (French AZERTY) and `ro` (Romanian).
 
+`setterm keyboard us,ua` saves an ordered list. Ctrl+Space cycles through it
+once per press without writing NVS, and the status bar shows the active layout
+as `US`, `UA`, etc. Boot starts with the first entry. A single layout disables
+the shortcut; exclusive raw keyboard captures retain their Ctrl+Space.
+
 ## How keys type
 
 - Apps with `SOLAR_OS_APP_FLAG_TEXT_EVENTS` (Writer) get every layout

@@ -1362,6 +1362,7 @@ static bool terminal_status_bar_equal(const solar_os_status_bar_t *a,
         a->battery_percent == b->battery_percent &&
         a->battery_external_power == b->battery_external_power &&
         a->keyboard_count == b->keyboard_count &&
+        strcmp(a->keyboard_layout, b->keyboard_layout) == 0 &&
         a->bluetooth_supported == b->bluetooth_supported &&
         a->bluetooth_enabled == b->bluetooth_enabled &&
         a->bluetooth_scanning == b->bluetooth_scanning &&
@@ -2717,7 +2718,11 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     const int time_x = width - time_width - 4;
     const int clock_x = time_x - 12;
     const bool compact = width <= TERM_STATUS_BAR_COMPACT_MAX_WIDTH;
-    const int icon_right_limit = compact && !status->time_valid ? time_x : clock_x;
+    const int layout_width = (int)u8g2_GetStrWidth(u8g2, status->keyboard_layout);
+    const int layout_x = clock_x - layout_width - TERM_STATUS_BAR_ICON_GAP;
+    const bool show_layout = layout_width > 0 && layout_x >= 4;
+    const int icon_right_limit = show_layout ? layout_x - TERM_STATUS_BAR_ICON_GAP :
+        compact && !status->time_valid ? time_x : clock_x;
     char inbox_count_text[4] = {0};
     const int inbox_width = status->inbox_unread > 0
         ? terminal_inbox_icon_width(u8g2, status->inbox_unread, inbox_count_text)
@@ -2728,31 +2733,39 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     int x = 4;
 
     if (!compact) {
-        if (status->battery_external_power) {
-            terminal_draw_plug_icon(u8g2, x, icon_y);
-        } else {
-            terminal_draw_battery_icon(
-                u8g2, x, icon_y, status->battery_valid, status->battery_percent);
+        if (terminal_status_icon_fits(x, 24, leading_icon_right_limit)) {
+            if (status->battery_external_power) {
+                terminal_draw_plug_icon(u8g2, x, icon_y);
+            } else {
+                terminal_draw_battery_icon(
+                    u8g2, x, icon_y, status->battery_valid, status->battery_percent);
+            }
+            x += 28;
         }
-        x += 28;
-        terminal_draw_keyboard_icon(
-            u8g2, x, icon_y, status->keyboard_count > 0);
-        x += 26;
-        if (status->bluetooth_supported) {
+        if (terminal_status_icon_fits(x, 18, leading_icon_right_limit)) {
+            terminal_draw_keyboard_icon(
+                u8g2, x, icon_y, status->keyboard_count > 0);
+            x += 26;
+        }
+        if (status->bluetooth_supported && terminal_status_icon_fits(x, 14, leading_icon_right_limit)) {
             terminal_draw_bluetooth_icon(u8g2, x, icon_y,
                                          status->bluetooth_enabled, status->bluetooth_scanning);
             x += 18;
         }
-        terminal_draw_wifi_icon(u8g2,
-                                x,
-                                icon_y,
-                                status->wifi_started,
-                                status->wifi_connected,
-                                status->wifi_has_ip,
-                                status->wifi_level);
-        x += 22;
-        terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
-        x += 24;
+        if (terminal_status_icon_fits(x, 18, leading_icon_right_limit)) {
+            terminal_draw_wifi_icon(u8g2,
+                                    x,
+                                    icon_y,
+                                    status->wifi_started,
+                                    status->wifi_connected,
+                                    status->wifi_has_ip,
+                                    status->wifi_level);
+            x += 22;
+        }
+        if (terminal_status_icon_fits(x, 20, leading_icon_right_limit)) {
+            terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
+            x += 24;
+        }
         x = terminal_draw_radio_link_icons(
             u8g2, x, icon_y, leading_icon_right_limit,
             status->radio_attached, status->link_running);
@@ -2809,6 +2822,9 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     if (inbox_width > 0 && terminal_status_icon_fits(x, inbox_width, icon_right_limit)) {
         terminal_draw_inbox_icon(u8g2, x, icon_y, height - 3, inbox_count_text);
         x += inbox_width + TERM_STATUS_BAR_ICON_GAP;
+    }
+    if (show_layout) {
+        u8g2_DrawStr(u8g2, (u8g2_uint_t)layout_x, (u8g2_uint_t)(height - 3), status->keyboard_layout);
     }
     if ((!compact && x + 10 < clock_x) || (compact && status->time_valid)) {
         terminal_draw_clock_icon(u8g2, clock_x, icon_y, status->time_valid);
@@ -2946,6 +2962,7 @@ static uint32_t terminal_render_status_hash(const solar_os_terminal_t *terminal)
     hash = terminal_render_hash_value(hash, status->battery_percent);
     hash = terminal_render_hash_value(hash, status->battery_external_power);
     hash = terminal_render_hash_value(hash, status->keyboard_count);
+    hash = terminal_render_hash_bytes(hash, status->keyboard_layout, sizeof(status->keyboard_layout));
     hash = terminal_render_hash_value(hash, status->bluetooth_supported);
     hash = terminal_render_hash_value(hash, status->bluetooth_enabled);
     hash = terminal_render_hash_value(hash, status->bluetooth_scanning);

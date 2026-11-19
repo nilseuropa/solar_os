@@ -47,6 +47,7 @@ typedef struct {
     uint8_t battery_percent;
     bool battery_external_power;
     uint8_t keyboard_count;
+    char keyboard_layout[3];
     bool bluetooth_supported;
     bool bluetooth_enabled;
     bool bluetooth_scanning;

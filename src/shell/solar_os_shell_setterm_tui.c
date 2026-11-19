@@ -200,9 +200,8 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         break;
     }
     case SETTERM_TUI_KEYBOARD:
-        strlcpy(buffer,
-                solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout()),
-                buffer_len);
+        if (solar_os_input_keyboard_layout_list(buffer, buffer_len) != ESP_OK)
+            strlcpy(buffer, "unavailable", buffer_len);
         break;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE:
@@ -396,7 +395,7 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
-    static const char * const keyboard_values[] = {"us", "de", "ua", "fr", "ro"};
+    static const char * const keyboard_values[] = {"us", "de", "ua", "fr", "ro", "us,ua"};
     static const char * const powerkey_values[] = {
         "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
     };
@@ -613,9 +612,7 @@ static bool setterm_tui_apply_selected(void)
             solar_os_backlight_set_brightness((uint8_t)percent) == ESP_OK;
     }
     case SETTERM_TUI_KEYBOARD: {
-        solar_os_input_keyboard_layout_t layout;
-        return solar_os_input_parse_keyboard_layout(setterm_tui.edit_text, &layout) &&
-            solar_os_input_set_keyboard_layout(layout) == ESP_OK;
+        return solar_os_input_set_keyboard_layout_list(setterm_tui.edit_text) == ESP_OK;
     }
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE: {

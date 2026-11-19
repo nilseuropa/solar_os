@@ -1386,6 +1386,10 @@ hides it. Touch strokes reserved for activation or keyboard selection do not
 reach the application underneath; touches outside these regions remain normal
 application input.
 
+When multiple language layouts are configured, Ctrl+Space switches layouts.
+Use `job start screen-keyboard trigger=ctrl+alt+space` for a separate visibility
+toggle, or keep using the edge gesture and `screen-keyboard toggle` command.
+
 Full mode provides letters, numbers, one-shot Shift/Ctrl/Alt, Caps Lock, a
 symbol table, and a navigation page with Tab, Escape, arrows, Home/End,
 Page Up/Down, Delete, and Backspace. Physical Tab cycles the full-mode pages.
