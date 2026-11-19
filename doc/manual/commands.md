@@ -333,7 +333,7 @@ job for periodic polling.
 | `schedule` | `schedule remove <name>` | Remove an entry. |
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
-| `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
+| `setterm` | `setterm` | Display-shell settings: arrows select, PgUp/PgDn page, Enter edits, Esc exits. |
 | `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Save the global cursor style. Default: `block steady` on e-paper, `block blink` otherwise. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |

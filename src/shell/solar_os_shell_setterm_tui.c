@@ -339,7 +339,7 @@ static void setterm_tui_render(void)
     if (rows > 1) {
         solar_os_tui_draw_footer(&setterm_tui.tui,
                                  setterm_tui.status,
-                                 "arrows select/change  enter edit  esc exits");
+                                 "arrows/PgUp/PgDn select  enter edit  esc exits");
     }
 
     if (setterm_tui.editing && value_width > 0 && visible_items > 0) {
@@ -789,19 +789,22 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
 
     switch (key) {
     case SOLAR_OS_KEY_UP:
-        if (setterm_tui.selected > 0) {
-            setterm_tui.selected--;
-            setterm_tui_set_status("");
-            setterm_tui_render();
-        }
-        break;
     case SOLAR_OS_KEY_DOWN:
-        if (setterm_tui.selected + 1 < SETTERM_TUI_ITEM_COUNT) {
-            setterm_tui.selected++;
+    case SOLAR_OS_KEY_PAGE_UP:
+    case SOLAR_OS_KEY_PAGE_DOWN: {
+        solar_os_tui_viewport_t viewport = {
+            .cursor = setterm_tui.selected,
+            .top = setterm_tui.first_visible,
+        };
+        const size_t visible_items = solar_os_tui_screen_content_rows(&setterm_tui.tui, 1U, 1U);
+        if (solar_os_tui_viewport_key(&viewport, key, SETTERM_TUI_ITEM_COUNT, visible_items, false)) {
+            setterm_tui.selected = viewport.cursor;
+            setterm_tui.first_visible = viewport.top;
             setterm_tui_set_status("");
             setterm_tui_render();
         }
         break;
+    }
     case '\r':
     case '\n':
         setterm_tui_begin_edit();
