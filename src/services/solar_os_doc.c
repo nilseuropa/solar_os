@@ -802,7 +802,14 @@ static bool doc_parse_heading(const char *source,
     return true;
 }
 
-static bool doc_parse_list(const char *source, size_t start, size_t end, size_t *text_start)
+typedef struct {
+    size_t text_start;
+    uint32_t number;
+    char delimiter;
+} doc_list_marker_t;
+
+static bool doc_parse_list(const char *source, size_t start, size_t end,
+                           doc_list_marker_t *marker)
 {
     size_t p = doc_skip_space(source, start, end);
     if (p >= end) {
@@ -813,18 +820,26 @@ static bool doc_parse_list(const char *source, size_t start, size_t end, size_t 
     if ((first == '-' || first == '*' || first == '+') &&
         p + 1U < end &&
         (source[p + 1U] == ' ' || source[p + 1U] == '\t')) {
-        *text_start = p + 2U;
+        *marker = (doc_list_marker_t){.text_start = p + 2U};
         return true;
     }
     if (isdigit((unsigned char)first)) {
-        size_t q = p + 1U;
+        uint32_t number = 0;
+        size_t q = p;
         while (q < end && isdigit((unsigned char)source[q])) {
+            const uint32_t digit = (uint32_t)(source[q] - '0');
+            if (number > (UINT32_MAX - digit) / 10U) {
+                return false;
+            }
+            number = number * 10U + digit;
             q++;
         }
         if (q + 1U < end &&
             (source[q] == '.' || source[q] == ')') &&
             (source[q + 1U] == ' ' || source[q + 1U] == '\t')) {
-            *text_start = q + 2U;
+            *marker = (doc_list_marker_t){
+                .text_start = q + 2U, .number = number, .delimiter = source[q],
+            };
             return true;
         }
     }
@@ -1425,9 +1440,9 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             continue;
         }
 
-        size_t ignored_list_start = 0;
+        doc_list_marker_t list_marker = {0};
         if (doc_line_is_indented_code(source, line_start, line_end) &&
-            !doc_parse_list(source, line_start, line_end, &ignored_list_start)) {
+            !doc_parse_list(source, line_start, line_end, &list_marker)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
                                                 &paragraph_len,
@@ -1613,7 +1628,7 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
                 return ret;
             }
             doc_set_last_raw_range(doc, line_start, next_line);
-        } else if (doc_parse_list(source, line_start, line_end, &text_start)) {
+        } else if (doc_parse_list(source, line_start, line_end, &list_marker)) {
             esp_err_t ret = doc_flush_paragraph(doc,
                                                 &paragraph,
                                                 &paragraph_len,
@@ -1623,6 +1638,22 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            if (list_marker.delimiter != 0) {
+                /* Blank lines can separate items in the same numbered list. */
+                size_t previous = doc->block_count;
+                while (previous > 0 && doc->blocks[previous - 1U].type == SOLAR_OS_DOC_BLOCK_BLANK) {
+                    previous--;
+                }
+                if (previous > 0) {
+                    const solar_os_doc_block_t *item = &doc->blocks[previous - 1U];
+                    if (item->type == SOLAR_OS_DOC_BLOCK_LIST_ITEM &&
+                        item->list_delimiter == list_marker.delimiter) {
+                        list_marker.number = item->list_number < UINT32_MAX ?
+                            item->list_number + 1U : UINT32_MAX;
+                    }
+                }
+            }
+            text_start = list_marker.text_start;
             ret = doc_add_block(doc,
                                 SOLAR_OS_DOC_BLOCK_LIST_ITEM,
                                 1,
@@ -1633,6 +1664,8 @@ esp_err_t solar_os_doc_parse_markdown(solar_os_doc_t *doc,
             if (ret != ESP_OK) {
                 return ret;
             }
+            doc->blocks[doc->block_count - 1U].list_delimiter = list_marker.delimiter;
+            doc->blocks[doc->block_count - 1U].list_number = list_marker.number;
             doc_set_last_raw_range(doc, line_start, next_line);
         } else if (doc_parse_quote(source, line_start, line_end, &text_start)) {
             esp_err_t ret = doc_flush_paragraph(doc,
@@ -1783,7 +1816,12 @@ esp_err_t solar_os_doc_write_markdown(const solar_os_doc_t *doc, const char *pat
             ok = ok && fprintf(file, " %s\n", text) >= 0;
             break;
         case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
-            ok = fprintf(file, "- %s\n", text) >= 0;
+            if (block->list_delimiter != 0) {
+                ok = fprintf(file, "%" PRIu32 "%c %s\n", block->list_number,
+                             block->list_delimiter, text) >= 0;
+            } else {
+                ok = fprintf(file, "- %s\n", text) >= 0;
+            }
             break;
         case SOLAR_OS_DOC_BLOCK_QUOTE:
             ok = fprintf(file, "> %s\n", text) >= 0;
@@ -1921,6 +1959,74 @@ static doc_style_t doc_style_for(int zoom, uint8_t style)
     return result;
 }
 
+static bool doc_utf8_continuation(unsigned char ch)
+{
+    return (ch & 0xc0U) == 0x80U;
+}
+
+/* Text and source offsets stay in bytes; monospace geometry counts code points. */
+static size_t doc_utf8_prefix(const char *text, size_t len, size_t columns)
+{
+    size_t bytes = 0;
+    while (bytes < len && columns > 0) {
+        bytes++;
+        while (bytes < len && doc_utf8_continuation((unsigned char)text[bytes])) {
+            bytes++;
+        }
+        columns--;
+    }
+    return bytes;
+}
+
+static size_t doc_utf8_columns(const char *text, size_t len)
+{
+    size_t columns = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (!doc_utf8_continuation((unsigned char)text[i])) {
+            columns++;
+        }
+    }
+    return columns;
+}
+
+static const char *doc_layout_run_text(const solar_os_doc_layout_t *layout,
+                                       const solar_os_doc_layout_run_t *run)
+{
+    if (run->text_offset == SIZE_MAX) {
+        return run->literal;
+    }
+    const solar_os_doc_t *doc = layout->doc;
+    if (doc == NULL) {
+        return NULL;
+    }
+    if (run->raw_source) {
+        return doc->source != NULL ? doc->source + run->text_offset : NULL;
+    }
+    if (run->block_index >= doc->block_count || doc->blocks[run->block_index].text == NULL) {
+        return NULL;
+    }
+    return doc->blocks[run->block_index].text + run->text_offset;
+}
+
+int solar_os_doc_layout_run_source_x(const solar_os_doc_layout_t *layout,
+                                      const solar_os_doc_layout_run_t *run,
+                                      size_t source_offset)
+{
+    size_t pos = source_offset > run->source_start ? source_offset - run->source_start : 0;
+    if (pos > run->text_len) {
+        pos = run->text_len;
+    }
+    const char *text = doc_layout_run_text(layout, run);
+    if (text != NULL) {
+        while (pos > 0 && pos < run->text_len &&
+               doc_utf8_continuation((unsigned char)text[pos])) {
+            pos--;
+        }
+        pos = doc_utf8_columns(text, pos);
+    }
+    return run->x + (int)pos * run->char_w;
+}
+
 void solar_os_doc_layout_init(solar_os_doc_layout_t *layout)
 {
     if (layout != NULL) {
@@ -2040,7 +2146,7 @@ static esp_err_t doc_layout_add_run(doc_layout_builder_t *builder,
                                     int style_zoom,
                                     int x,
                                     int y,
-                                    const char *literal)
+                                    const char *text)
 {
     solar_os_doc_layout_t *layout = builder->layout;
     esp_err_t ret = builder->measuring ? ESP_OK :
@@ -2056,7 +2162,7 @@ static esp_err_t doc_layout_add_run(doc_layout_builder_t *builder,
     *run = (solar_os_doc_layout_run_t){
         .x = x,
         .y = y,
-        .width = (int)text_len * style.char_w,
+        .width = (int)(text != NULL ? doc_utf8_columns(text, text_len) : text_len) * style.char_w,
         .height = style.line_h,
         .baseline = style.baseline,
         .block_index = block_index,
@@ -2071,8 +2177,8 @@ static esp_err_t doc_layout_add_run(doc_layout_builder_t *builder,
         .pixel_size = style.pixel_size,
         .face = style.face,
     };
-    if (literal != NULL) {
-        strlcpy(run->literal, literal, sizeof(run->literal));
+    if (text_offset == SIZE_MAX && text != NULL) {
+        strlcpy(run->literal, text, sizeof(run->literal));
     }
 
     doc_layout_update_line(doc_layout_line(builder, line_index), run);
@@ -2166,11 +2272,11 @@ static esp_err_t doc_layout_add_text_range(doc_layout_builder_t *builder,
                                            style_zoom,
                                            *x,
                                            y,
-                                           NULL);
+                                           block->text + offset);
         if (ret != ESP_OK) {
             return ret;
         }
-        *x += (int)(end - offset) * metrics.char_w;
+        *x += (int)doc_utf8_columns(block->text + offset, end - offset) * metrics.char_w;
         offset = end;
     }
     return ESP_OK;
@@ -2263,9 +2369,10 @@ static esp_err_t doc_layout_wrapped_block(doc_layout_builder_t *builder,
             break;
         }
 
+        size_t remaining_columns = doc_utf8_columns(text + word, word_end - word);
         while (word < word_end) {
             const size_t remaining_len = word_end - word;
-            const int word_width = (int)remaining_len * base.char_w;
+            const int word_width = (int)remaining_columns * base.char_w;
             const size_t gap_chars = line_has_text && word > line_text_end ?
                 word - line_text_end :
                 (line_has_text ? 1U : 0U);
@@ -2294,15 +2401,15 @@ static esp_err_t doc_layout_wrapped_block(doc_layout_builder_t *builder,
             if (fit_chars == 0) {
                 fit_chars = 1;
             }
-            if (fit_chars > remaining_len) {
-                fit_chars = remaining_len;
-            }
+            const size_t fit_bytes = doc_utf8_prefix(text + word, remaining_len, fit_chars);
 
             line_text_start = word;
-            line_text_end = word + fit_chars;
-            current_x += (int)fit_chars * base.char_w;
+            line_text_end = word + fit_bytes;
+            const size_t fit_columns = doc_utf8_columns(text + word, fit_bytes);
+            current_x += (int)fit_columns * base.char_w;
+            remaining_columns -= fit_columns;
             line_has_text = true;
-            word += fit_chars;
+            word += fit_bytes;
 
             if (word < word_end) {
                 DOC_LAYOUT_FLUSH_WRAPPED_TEXT();
@@ -2331,17 +2438,15 @@ static esp_err_t doc_layout_wrapped_block(doc_layout_builder_t *builder,
         if (fit_chars == 0) {
             fit_chars = 1;
         }
-        if (fit_chars > remaining) {
-            fit_chars = remaining;
-        }
+        const size_t fit_bytes = doc_utf8_prefix(text + offset, remaining, fit_chars);
 
         if (!line_has_text) {
             line_text_start = offset;
         }
-        line_text_end = offset + fit_chars;
-        current_x += (int)fit_chars * base.char_w;
+        line_text_end = offset + fit_bytes;
+        current_x += (int)doc_utf8_columns(text + offset, fit_bytes) * base.char_w;
         line_has_text = true;
-        offset += fit_chars;
+        offset += fit_bytes;
     }
 
     DOC_LAYOUT_FLUSH_WRAPPED_TEXT();
@@ -2399,7 +2504,7 @@ static esp_err_t doc_layout_pre_block(doc_layout_builder_t *builder,
         bool emitted = false;
         while (chunk < end || !emitted) {
             const size_t remaining = end > chunk ? end - chunk : 0;
-            const size_t chunk_len = remaining > max_chars ? max_chars : remaining;
+            const size_t chunk_len = doc_utf8_prefix(text + chunk, remaining, max_chars);
             size_t line_index = 0;
             esp_err_t ret = doc_layout_begin_line(builder, block_index, x, *y, &style, &line_index);
             if (ret != ESP_OK) {
@@ -2417,7 +2522,7 @@ static esp_err_t doc_layout_pre_block(doc_layout_builder_t *builder,
                                      layout->zoom,
                                      x,
                                      *y,
-                                     NULL);
+                                     text + chunk);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -2605,7 +2710,9 @@ static esp_err_t doc_layout_table_row(doc_layout_builder_t *builder,
             if (available < style.char_w) {
                 available = style.char_w;
             }
-            size_t end = range->start + (size_t)(available / style.char_w);
+            size_t end = range->start + doc_utf8_prefix(text + range->start,
+                                                        range->end - range->start,
+                                                        (size_t)(available / style.char_w));
             if (end > range->end) {
                 end = range->end;
             } else if (end < range->end) {
@@ -2754,11 +2861,6 @@ static bool doc_block_is_revealed(const solar_os_doc_t *doc,
     return false;
 }
 
-static bool doc_utf8_continuation(unsigned char ch)
-{
-    return (ch & 0xc0U) == 0x80U;
-}
-
 static esp_err_t doc_layout_raw_block(doc_layout_builder_t *builder,
                                       const solar_os_doc_t *doc,
                                       size_t block_index,
@@ -2806,23 +2908,7 @@ static esp_err_t doc_layout_raw_block(doc_layout_builder_t *builder,
         size_t chunk = line_start;
         bool emitted_line = false;
         while (chunk < line_end || !emitted_line) {
-            size_t chunk_len = line_end - chunk;
-            if (chunk_len > max_chars) {
-                chunk_len = max_chars;
-            }
-            if (chunk + chunk_len < line_end) {
-                while (chunk_len > 0 &&
-                       doc_utf8_continuation((unsigned char)doc->source[chunk + chunk_len])) {
-                    chunk_len--;
-                }
-                if (chunk_len == 0) {
-                    chunk_len = 1;
-                    while (chunk + chunk_len < line_end &&
-                           doc_utf8_continuation((unsigned char)doc->source[chunk + chunk_len])) {
-                        chunk_len++;
-                    }
-                }
-            }
+            const size_t chunk_len = doc_utf8_prefix(doc->source + chunk, line_end - chunk, max_chars);
             size_t line_index = 0;
             esp_err_t ret = doc_layout_begin_line(builder,
                                                   block_index,
@@ -2849,7 +2935,7 @@ static esp_err_t doc_layout_raw_block(doc_layout_builder_t *builder,
                                      layout->zoom,
                                      0,
                                      *y,
-                                     NULL);
+                                     doc->source + chunk);
             if (ret != ESP_OK) {
                 return ret;
             }
@@ -2881,6 +2967,7 @@ static esp_err_t doc_layout_build(doc_layout_builder_t *builder,
     solar_os_doc_layout_t *layout = builder->layout;
     solar_os_work_begin(&builder->work);
 
+    layout->doc = doc;
     layout->line_count = 0;
     layout->run_count = 0;
     layout->width = width;
@@ -2921,7 +3008,19 @@ static esp_err_t doc_layout_build(doc_layout_builder_t *builder,
             y += base.heading_gap;
             break;
         case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
-            ret = doc_layout_wrapped_block(builder, doc, i, 0, &y, width, "   ", layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            if (block->list_delimiter != 0) {
+                char marker[12];
+                const int len = snprintf(marker, sizeof(marker), "%" PRIu32 "%c",
+                                         block->list_number, block->list_delimiter);
+                int indent = (len + 1) * base.char_w;
+                if (indent > width - base.char_w) {
+                    indent = width > base.char_w ? width - base.char_w : 0;
+                }
+                ret = doc_layout_wrapped_block(builder, doc, i, indent, &y, width - indent,
+                                               NULL, layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            } else {
+                ret = doc_layout_wrapped_block(builder, doc, i, 0, &y, width, "   ", layout->zoom, SOLAR_OS_DOC_RUN_PLAIN);
+            }
             y += base.block_gap;
             break;
         case SOLAR_OS_DOC_BLOCK_QUOTE:
@@ -3021,11 +3120,12 @@ static void doc_render_text_slice_clipped(solar_os_gfx_t *gfx,
     if (x < clip_x) {
         const int hidden_px = clip_x - x;
         const size_t skip = (size_t)((hidden_px + char_w - 1) / char_w);
-        if (skip >= len) {
+        const size_t skip_bytes = doc_utf8_prefix(text, len, skip);
+        if (skip_bytes >= len) {
             return;
         }
-        text += skip;
-        len -= skip;
+        text += skip_bytes;
+        len -= skip_bytes;
         x += (int)skip * char_w;
     }
     if (x >= clip_right) {
@@ -3036,19 +3136,23 @@ static void doc_render_text_slice_clipped(solar_os_gfx_t *gfx,
     if (visible_chars == 0) {
         return;
     }
-    if (visible_chars > len) {
-        visible_chars = len;
-    }
+    size_t visible_bytes = doc_utf8_prefix(text, len, visible_chars);
 
     char temp[160];
-    while (visible_chars > 0) {
-        size_t n = visible_chars < sizeof(temp) - 1U ? visible_chars : sizeof(temp) - 1U;
+    while (visible_bytes > 0) {
+        size_t n = visible_bytes < sizeof(temp) - 1U ? visible_bytes : sizeof(temp) - 1U;
+        while (n < visible_bytes && n > 0 && doc_utf8_continuation((unsigned char)text[n])) {
+            n--;
+        }
+        if (n == 0) {
+            return;
+        }
         memcpy(temp, text, n);
         temp[n] = '\0';
         solar_os_gfx_text(gfx, x, baseline, temp);
+        x += (int)doc_utf8_columns(text, n) * char_w;
         text += n;
-        visible_chars -= n;
-        x += (int)n * char_w;
+        visible_bytes -= n;
     }
 }
 
@@ -3259,7 +3363,18 @@ static void doc_render_line_decor(solar_os_gfx_t *gfx,
     case SOLAR_OS_DOC_BLOCK_LIST_ITEM:
         if (doc_layout_is_first_line_of_block(layout, line_index)) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_fill_circle(gfx, view->x + 5, screen_y + (line->height / 2), 2);
+            if (block->list_delimiter != 0) {
+                char marker[12];
+                const int len = snprintf(marker, sizeof(marker), "%" PRIu32 "%c",
+                                         block->list_number, block->list_delimiter);
+                const doc_style_t style = doc_base_style_for(layout->zoom);
+                solar_os_gfx_set_font(gfx, style.font);
+                doc_render_text_slice_clipped(gfx, marker, (size_t)len, view->x,
+                                              screen_y + line->baseline, style.char_w,
+                                              view->x, line->x - style.char_w);
+            } else {
+                solar_os_gfx_fill_circle(gfx, view->x + 5, screen_y + (line->height / 2), 2);
+            }
         }
         break;
     case SOLAR_OS_DOC_BLOCK_QUOTE:
@@ -3445,19 +3560,8 @@ bool solar_os_doc_layout_source_to_xy(const solar_os_doc_layout_t *layout,
             source_offset >= run->source_start && source_offset < run->source_end :
             source_offset == run->source_start;
         if (contains) {
-            const size_t span = run->source_end > run->source_start ?
-                run->source_end - run->source_start :
-                1U;
-            size_t pos = source_offset - run->source_start;
-            if (pos > span) {
-                pos = span;
-            }
-            if (pos > run->text_len) {
-                pos = run->text_len;
-            }
-            const int char_w = run->char_w > 0 ? run->char_w : doc_base_style_for(layout->zoom).char_w;
             if (x != NULL) {
-                *x = run->x + ((int)pos * char_w);
+                *x = solar_os_doc_layout_run_source_x(layout, run, source_offset);
             }
             if (y != NULL) {
                 *y = run->y;
@@ -3528,7 +3632,9 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
         const size_t source_span = run->source_end > run->source_start ?
             run->source_end - run->source_start :
             run->text_len;
-        const size_t visual_span = run->text_len > 0 ? run->text_len : source_span;
+        const char *text = doc_layout_run_text(layout, run);
+        const size_t visual_span = run->text_len > 0 && text != NULL ?
+            doc_utf8_columns(text, run->text_len) : source_span;
         const int char_w = run->char_w > 0 ? run->char_w : doc_base_style_for(layout->zoom).char_w;
         const int hit_width = run->width > 0 ? run->width : (int)visual_span * char_w;
         if (x < run->x + hit_width) {
@@ -3539,6 +3645,9 @@ bool solar_os_doc_layout_hit_test(const solar_os_doc_layout_t *layout,
             size_t pos = char_w > 0 ? (size_t)((rel + (char_w / 2)) / char_w) : 0;
             if (pos > visual_span) {
                 pos = visual_span;
+            }
+            if (text != NULL && run->text_len > 0) {
+                pos = doc_utf8_prefix(text, run->text_len, pos);
             }
             if (pos > source_span) {
                 pos = source_span;

@@ -23,6 +23,9 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+#include "solar_os_aogmaneo.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
 #endif
@@ -348,6 +351,9 @@ typedef enum {
 
 typedef struct {
     solua_state_t app;
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+    solar_os_aogmaneo_context_t aogmaneo;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     solar_os_midi_subscription_t midi_subscription;
     bool midi_subscribed;
@@ -5605,7 +5611,7 @@ static int solua_ble_layout(lua_State *L)
 
     solar_os_ble_keyboard_layout_t layout;
     if (!solar_os_ble_keyboard_parse_layout(luaL_checkstring(L, 1), &layout)) {
-        return luaL_error(L, "expected us or de");
+        return luaL_error(L, "expected us, de, ua, fr or ro");
     }
     return solua_check_esp(L, solar_os_ble_keyboard_set_layout(layout));
 }
@@ -7160,6 +7166,17 @@ static int solua_gfx_size(lua_State *L)
     return 2;
 }
 
+static int solua_gfx_bounds(lua_State *L, bool panel)
+{
+    const solar_os_display_rect_t r = panel ? solar_os_gfx_panel_bounds(solua_current_gfx()) :
+        solar_os_gfx_canvas_bounds(solua_current_gfx());
+    lua_pushinteger(L, r.x); lua_pushinteger(L, r.y);
+    lua_pushinteger(L, r.width); lua_pushinteger(L, r.height);
+    return 4;
+}
+static int solua_gfx_canvas_bounds(lua_State *L) { return solua_gfx_bounds(L, false); }
+static int solua_gfx_panel_bounds(lua_State *L) { return solua_gfx_bounds(L, true); }
+
 static int solua_gfx_clear(lua_State *L)
 {
     const solar_os_gfx_color_t color =
@@ -7508,10 +7525,12 @@ static int solua_gfx_text(lua_State *L)
 #include "solar_os_lua_usb_serial.inc"
 #include "solar_os_lua_imlib.inc"
 #include "solar_os_lua_inference.inc"
+#include "solar_os_lua_agent.inc"
 #include "solar_os_lua_pipeline.inc"
 #include "solar_os_lua_dlp.inc"
 #include "solar_os_lua_emotion.inc"
 #include "solar_os_lua_jet.inc"
+#include "solar_os_lua_aogmaneo.inc"
 
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
 static void solua_push_contact(lua_State *L,
@@ -8217,6 +8236,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
     solua_dlp_destroy();
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_aogmaneo_cleanup();
     solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     solua_http_stream_destroy();
@@ -8333,6 +8353,7 @@ done:
         solua_dlp_destroy();
         solua_emotion_destroy();
         solua_jet_destroy();
+        solua_aogmaneo_cleanup();
         solua_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         solua_http_stream_destroy();
@@ -8630,7 +8651,7 @@ static void solua_stop(solar_os_context_t *ctx)
              * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
             while ((__atomic_load_n(&solua_media_session, __ATOMIC_ACQUIRE) != NULL ||
-                    solua_inference_active() || solua_imlib_active() || solua_emotion_active() || solua_jet_active()) &&
+                    solua_inference_active() || solua_imlib_active() || solua_emotion_active() || solua_jet_active() || solua_aogmaneo_active()) &&
                    !solua_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(solua_task_stopped, NULL,
                     SOLUA_STOP_WAIT_MS, 20U);
@@ -8671,6 +8692,7 @@ static void solua_stop(solar_os_context_t *ctx)
     }
     solua_emotion_destroy();
     solua_jet_destroy();
+    solua_aogmaneo_cleanup();
     solua_robot_destroy();
     solua_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH

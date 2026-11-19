@@ -19,6 +19,7 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
+| `seeed_sensecap_watcher` | `seeed_sensecap_watcher` | [Seeed Studio SenseCAP Watcher](https://wiki.seeedstudio.com/watcher_hardware_overview/) | 412x412 SPD2010 QSPI display and touch, Himax HX6538 JPEG camera sampling, ES8311/ES7243E audio, microSD, battery ADC, PCF8563 RTC, wheel with push switch, one RGB LED, Wi-Fi, BLE keyboard input, and an optional USB-to-UART console. J2 exposes GPIO19/20 and shared I2C; Grove carries the same I2C bus. See [Watcher](watcher.md). |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, ICS-43432 microphone, shared PCM5102A line output and MAX98357A speaker output, DAC/amp power enabled by default on GPIO21, MAX17048G fuel gauge, DS3231MZ RTC, microSD, and CH340/UART console. GPIO18/19/20/38 belong to the I/O board's USB host wiring. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B RGB LED, native USB CDC/host switching, and UART/I2C/GPIO expansion connectors. |
@@ -56,7 +57,7 @@ RLCD modules without register readback are identified through their reset/TE
 response on GPIO14; the SSD1685 software-reset BUSY pulse distinguishes e-paper.
 
 T-Deck Plus registers its factory L76K or MIA-M10Q receiver as `gnss0` through
-the `nmea` driver, listening at 9600 baud and trying 38400 if needed. Use
+the `nmea` driver, listening at 38400 baud and trying 9600 if needed. Use
 `gnss list` and `gnss fix gnss0` to inspect it. This NMEA path supplies position,
 UTC, and satellite information; position accuracy and PDOP are unavailable.
 The receiver has no independent power control. The standard T-Deck Plus has no

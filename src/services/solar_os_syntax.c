@@ -25,6 +25,9 @@ solar_os_syntax_language_t solar_os_syntax_language_for_path(const char *path)
     if (syntax_has_suffix(path, ".lua")) {
         return SOLAR_OS_SYNTAX_LUA;
     }
+    if (syntax_has_suffix(path, ".c") || syntax_has_suffix(path, ".h")) {
+        return SOLAR_OS_SYNTAX_C;
+    }
     return SOLAR_OS_SYNTAX_NONE;
 }
 
@@ -36,6 +39,10 @@ void solar_os_syntax_state_init(solar_os_syntax_state_t *state)
 
     state->mode = SOLAR_OS_SYNTAX_MODE_NORMAL;
     state->lua_long_equals = 0;
+    state->c_escaped = false;
+    state->c_continued = false;
+    state->c_directive = false;
+    state->c_include = false;
 }
 
 static void syntax_mark(size_t visible_offset,
@@ -535,6 +542,187 @@ static void lua_highlight_line(solar_os_syntax_state_t *state,
     }
 }
 
+static bool c_keyword(const char *word, size_t len)
+{
+    static const char *const keywords[] = {
+        "auto", "break", "case", "char", "const", "continue", "default",
+        "do", "double", "else", "enum", "extern", "float", "for", "goto",
+        "if", "inline", "int", "long", "register", "restrict", "return",
+        "short", "signed", "sizeof", "static", "struct", "switch", "typedef",
+        "union", "unsigned", "void", "volatile", "while", "_Alignas",
+        "_Alignof", "_Atomic", "_Bool", "_Complex", "_Generic", "_Imaginary",
+        "_Noreturn", "_Static_assert", "_Thread_local",
+        /* Common standard-header types and constants. */
+        "bool", "true", "false", "NULL", "size_t", "ptrdiff_t", "intptr_t",
+        "uintptr_t", "intmax_t", "uintmax_t", "int8_t", "int16_t", "int32_t",
+        "int64_t", "uint8_t", "uint16_t", "uint32_t", "uint64_t",
+    };
+
+    return syntax_keyword_match(word, len, keywords, sizeof(keywords) / sizeof(keywords[0]));
+}
+
+static size_t c_parse_comment(solar_os_syntax_state_t *state,
+                              const char *line, size_t line_len, size_t pos)
+{
+    while (pos + 1 < line_len) {
+        if (line[pos] == '*' && line[pos + 1] == '/') {
+            state->mode = SOLAR_OS_SYNTAX_MODE_NORMAL;
+            return pos + 2;
+        }
+        pos++;
+    }
+    state->mode = SOLAR_OS_SYNTAX_MODE_C_COMMENT;
+    return line_len;
+}
+
+static size_t c_parse_quote(solar_os_syntax_state_t *state,
+                            const char *line, size_t line_len, size_t pos, char quote)
+{
+    bool escaped = state->c_escaped;
+    while (pos < line_len) {
+        const char ch = line[pos++];
+        if (escaped) {
+            escaped = false;
+        } else if (ch == '\\') {
+            escaped = true;
+        } else if (ch == quote) {
+            state->mode = SOLAR_OS_SYNTAX_MODE_NORMAL;
+            state->c_escaped = false;
+            return pos;
+        }
+    }
+    /* C removes the final backslash and newline before interpreting escapes. */
+    state->c_escaped = state->c_continued && !escaped;
+    if (!state->c_continued) state->mode = SOLAR_OS_SYNTAX_MODE_NORMAL;
+    return line_len;
+}
+
+static bool c_quote_start(const char *line, size_t line_len, size_t pos, size_t *quote)
+{
+    size_t i = pos;
+    if (line[i] == 'L' || line[i] == 'u' || line[i] == 'U') {
+        i++;
+        if (line[pos] == 'u' && i < line_len && line[i] == '8') i++;
+    }
+    if (i < line_len && (line[i] == '\'' || line[i] == '"')) {
+        *quote = i;
+        return true;
+    }
+    return false;
+}
+
+static void c_highlight_line(solar_os_syntax_state_t *state,
+                             const char *line, size_t line_len,
+                             size_t visible_offset, uint8_t *styles, size_t visible_len)
+{
+    size_t i = 0;
+    bool line_start = !state->c_continued;
+    bool directive = state->c_directive;
+    bool include = state->c_include;
+    if (line_len > 0 && line[line_len - 1] == '\r') line_len--;
+    state->c_continued = line_len > 0 && line[line_len - 1] == '\\';
+    state->c_directive = false;
+    state->c_include = false;
+
+    if (state->mode == SOLAR_OS_SYNTAX_MODE_C_LINE_COMMENT) {
+        syntax_mark(visible_offset, styles, visible_len, 0, line_len,
+                    SOLAR_OS_SYNTAX_STYLE_COMMENT);
+        state->mode = state->c_continued ? SOLAR_OS_SYNTAX_MODE_C_LINE_COMMENT :
+            SOLAR_OS_SYNTAX_MODE_NORMAL;
+        return;
+    }
+    if (state->mode == SOLAR_OS_SYNTAX_MODE_C_COMMENT) {
+        i = c_parse_comment(state, line, line_len, 0);
+        syntax_mark(visible_offset, styles, visible_len, 0, i, SOLAR_OS_SYNTAX_STYLE_COMMENT);
+        if (state->mode != SOLAR_OS_SYNTAX_MODE_NORMAL) goto done;
+    } else if (state->mode == SOLAR_OS_SYNTAX_MODE_C_STRING ||
+               state->mode == SOLAR_OS_SYNTAX_MODE_C_CHARACTER) {
+        const char quote = state->mode == SOLAR_OS_SYNTAX_MODE_C_STRING ? '"' : '\'';
+        i = c_parse_quote(state, line, line_len, 0, quote);
+        syntax_mark(visible_offset, styles, visible_len, 0, i, SOLAR_OS_SYNTAX_STYLE_STRING);
+        line_start = false;
+        if (state->mode != SOLAR_OS_SYNTAX_MODE_NORMAL) goto done;
+    }
+
+    while (i < line_len) {
+        const char ch = line[i];
+        if (isspace((unsigned char)ch)) { i++; continue; }
+        if (ch == '\\' && i + 1 == line_len) { i++; continue; }
+        if (ch == '/' && i + 1 < line_len && line[i + 1] == '/') {
+            syntax_mark(visible_offset, styles, visible_len, i, line_len,
+                        SOLAR_OS_SYNTAX_STYLE_COMMENT);
+            state->mode = state->c_continued ? SOLAR_OS_SYNTAX_MODE_C_LINE_COMMENT :
+                SOLAR_OS_SYNTAX_MODE_NORMAL;
+            break;
+        }
+        if (ch == '/' && i + 1 < line_len && line[i + 1] == '*') {
+            const size_t end = c_parse_comment(state, line, line_len, i + 2);
+            syntax_mark(visible_offset, styles, visible_len, i, end, SOLAR_OS_SYNTAX_STYLE_COMMENT);
+            i = end;
+            if (state->mode != SOLAR_OS_SYNTAX_MODE_NORMAL) break;
+            continue;
+        }
+        if (line_start && ch == '#') {
+            syntax_mark(visible_offset, styles, visible_len, i, i + 1,
+                        SOLAR_OS_SYNTAX_STYLE_KEYWORD);
+            directive = true;
+            line_start = false;
+            i++;
+            continue;
+        }
+        line_start = false;
+        if (directive && syntax_ident_start(ch)) {
+            const size_t start = i++;
+            while (i < line_len && syntax_ident(line[i])) i++;
+            syntax_mark(visible_offset, styles, visible_len, start, i, SOLAR_OS_SYNTAX_STYLE_KEYWORD);
+            include = (i - start == 7 && strncmp(&line[start], "include", 7) == 0) ||
+                (i - start == 12 && strncmp(&line[start], "include_next", 12) == 0);
+            directive = false;
+            continue;
+        }
+        directive = false;
+        if (include && ch == '<') {
+            const size_t start = i++;
+            while (i < line_len && line[i] != '>') i++;
+            if (i < line_len) i++;
+            syntax_mark(visible_offset, styles, visible_len, start, i, SOLAR_OS_SYNTAX_STYLE_STRING);
+            include = false;
+            continue;
+        }
+        include = false;
+        size_t quote;
+        if (c_quote_start(line, line_len, i, &quote)) {
+            const size_t start = i;
+            state->mode = line[quote] == '"' ? SOLAR_OS_SYNTAX_MODE_C_STRING :
+                SOLAR_OS_SYNTAX_MODE_C_CHARACTER;
+            state->c_escaped = false;
+            i = c_parse_quote(state, line, line_len, quote + 1, line[quote]);
+            syntax_mark(visible_offset, styles, visible_len, start, i, SOLAR_OS_SYNTAX_STYLE_STRING);
+            if (state->mode != SOLAR_OS_SYNTAX_MODE_NORMAL) break;
+            continue;
+        }
+        if (isdigit((unsigned char)ch) ||
+            (ch == '.' && i + 1 < line_len && isdigit((unsigned char)line[i + 1]))) {
+            const size_t end = syntax_parse_number(line, line_len, i);
+            syntax_mark(visible_offset, styles, visible_len, i, end, SOLAR_OS_SYNTAX_STYLE_NUMBER);
+            i = end;
+            continue;
+        }
+        if (syntax_ident_start(ch)) {
+            const size_t start = i++;
+            while (i < line_len && syntax_ident(line[i])) i++;
+            if (c_keyword(&line[start], i - start)) {
+                syntax_mark(visible_offset, styles, visible_len, start, i, SOLAR_OS_SYNTAX_STYLE_KEYWORD);
+            }
+            continue;
+        }
+        i++;
+    }
+done:
+    state->c_directive = state->c_continued && directive;
+    state->c_include = state->c_continued && include;
+}
+
 void solar_os_syntax_highlight_line(solar_os_syntax_language_t language,
                                     solar_os_syntax_state_t *state,
                                     const char *line,
@@ -556,6 +744,9 @@ void solar_os_syntax_highlight_line(solar_os_syntax_language_t language,
         break;
     case SOLAR_OS_SYNTAX_LUA:
         lua_highlight_line(state, line, line_len, visible_offset, styles, visible_len);
+        break;
+    case SOLAR_OS_SYNTAX_C:
+        c_highlight_line(state, line, line_len, visible_offset, styles, visible_len);
         break;
     case SOLAR_OS_SYNTAX_NONE:
     default:

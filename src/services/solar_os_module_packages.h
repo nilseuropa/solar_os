@@ -18,6 +18,8 @@ extern "C" {
 #define SOLAR_OS_MODULE_PACKAGE_URL_MAX 320U
 #define SOLAR_OS_MODULE_PACKAGE_SHA256_MAX 65U
 #define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 16U
+#define SOLAR_OS_MODULE_DEPENDENCIES_MAX 4U
+#define SOLAR_OS_MODULE_SERVICES_MAX 8U
 #define SOLAR_OS_MODULE_APP_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_FOREGROUND_LIFECYCLE_ABI 2U
 #define SOLAR_OS_MODULE_JOB_LIFECYCLE_ABI 1U
@@ -33,6 +35,17 @@ typedef enum {
 } solar_os_module_type_t;
 
 typedef struct {
+    char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
+    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
+} solar_os_module_dependency_t;
+
+typedef struct {
+    char name[32];
+    uint32_t abi;
+    uint32_t minimum_struct_size;
+} solar_os_module_service_requirement_t;
+
+typedef struct {
     solar_os_module_type_t type;
     char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
     char name[SOLAR_OS_MODULE_PACKAGE_NAME_MAX];
@@ -43,6 +56,10 @@ typedef struct {
     uint32_t artifact_size;
     uint32_t lifecycle_abi;
     uint32_t minimum_host_api_size;
+    uint8_t dependency_count;
+    uint8_t service_count;
+    solar_os_module_dependency_t dependencies[SOLAR_OS_MODULE_DEPENDENCIES_MAX];
+    solar_os_module_service_requirement_t services[SOLAR_OS_MODULE_SERVICES_MAX];
     bool compatible;
     bool installed;
     char incompatibility[96];

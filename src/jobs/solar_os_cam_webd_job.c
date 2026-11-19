@@ -22,7 +22,6 @@
 #define CAM_WEBD_WORKER_PRIORITY (tskIDLE_PRIORITY + 1)
 #define CAM_WEBD_DEFAULT_FPS 5U
 #define CAM_WEBD_MAX_FPS 30U
-#define CAM_WEBD_JPEG_QUALITY 12U
 #define CAM_WEBD_RETRY_MS 100U
 #define CAM_WEBD_STOP_POLL_MS 50U
 #define CAM_WEBD_BOUNDARY "solaros-camera-frame"
@@ -189,7 +188,7 @@ static esp_err_t cam_webd_status_handler(httpd_req_t *req, void *user)
         sizeof(response),
         "{\"running\":%s,\"draining\":%s,\"stream_active\":%s,"
         "\"auth\":\"%s\","
-        "\"frame_size\":\"%s\",\"format\":\"jpeg\",\"jpeg_quality\":%u,"
+        "\"frame_size\":\"%ux%u\",\"format\":\"jpeg\",\"jpeg_quality\":%u,"
         "\"fps\":%u,\"streams\":%" PRIu32 ",\"frames\":%" PRIu32 ","
         "\"jpeg_bytes\":%" PRIu64 ",\"capture_errors\":%" PRIu32 ","
         "\"send_errors\":%" PRIu32 ",\"last_error\":\"%s\"}",
@@ -197,7 +196,7 @@ static esp_err_t cam_webd_status_handler(httpd_req_t *req, void *user)
         state.draining ? "true" : "false",
         state.stream_active ? "true" : "false",
         state.auth_required ? "required" : "none",
-        solar_os_camera_frame_size_name(state.camera_config.frame_size),
+        (unsigned)state.camera_config.width, (unsigned)state.camera_config.height,
         (unsigned)state.camera_config.jpeg_quality,
         (unsigned)state.fps,
         state.stream_count,
@@ -378,7 +377,6 @@ static esp_err_t cam_webd_job_start(solar_os_context_t *ctx,
     }
 
     solar_os_camera_config_t config = solar_os_camera_default_config();
-    config.jpeg_quality = CAM_WEBD_JPEG_QUALITY;
     uint8_t fps = CAM_WEBD_DEFAULT_FPS;
     bool auth_required = false;
     bool frame_size_set = false;
@@ -388,11 +386,7 @@ static esp_err_t cam_webd_job_start(solar_os_context_t *ctx,
         if (argv[i] == NULL || argv[i][0] == '\0') {
             return ESP_ERR_INVALID_ARG;
         }
-        if (!frame_size_set && strcmp(argv[i], "qvga") == 0) {
-            config.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_QVGA;
-            frame_size_set = true;
-        } else if (!frame_size_set && strcmp(argv[i], "vga") == 0) {
-            config.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
+        if (!frame_size_set && solar_os_camera_parse_resolution(argv[i], &config.width, &config.height)) {
             frame_size_set = true;
         } else if (!fps_set && cam_webd_parse_fps(argv[i], &fps)) {
             fps_set = true;
@@ -473,8 +467,8 @@ static esp_err_t cam_webd_job_start(solar_os_context_t *ctx,
     }
 
     SOLAR_OS_LOGI(TAG,
-                  "started: %s JPEG quality=%u fps=%u auth=%s",
-                  solar_os_camera_frame_size_name(config.frame_size),
+                  "started: %ux%u JPEG quality=%u fps=%u auth=%s",
+                  (unsigned)config.width, (unsigned)config.height,
                   (unsigned)config.jpeg_quality,
                   (unsigned)fps,
                   auth_required ? "required" : "none");
@@ -558,10 +552,10 @@ static void cam_webd_job_detail(solar_os_context_t *ctx)
     cam_webd_snapshot(&state);
     solar_os_shell_io_printf(
         io,
-        "  camera: %s JPEG quality=%u fps=%u auth=%s client=%s\n"
+        "  camera: %ux%u JPEG quality=%u fps=%u auth=%s client=%s\n"
         "  stream: count=%" PRIu32 " frames=%" PRIu32 " bytes=%" PRIu64
         " capture-errors=%" PRIu32 " send-errors=%" PRIu32 " last=%s\n",
-        solar_os_camera_frame_size_name(state.camera_config.frame_size),
+        (unsigned)state.camera_config.width, (unsigned)state.camera_config.height,
         (unsigned)state.camera_config.jpeg_quality,
         (unsigned)state.fps,
         state.auth_required ? "required" : "none",

@@ -1,0 +1,11 @@
+# Compiler and command state are accessed only by ordinary tasks with caches
+# enabled. Their joined worker stacks remain internal through the thread ABI.
+[scheme:solar_cc_state]
+entries:
+    bss -> extern_ram
+
+[mapping:solar_cc_state]
+archive: libsolar_os_cc.a
+entries:
+    if ESP_ALLOW_BSS_SEG_EXTERNAL_MEMORY = y:
+        * (solar_cc_state)

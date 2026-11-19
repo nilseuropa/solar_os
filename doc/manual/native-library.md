@@ -3,7 +3,7 @@ id = "native-library"
 title = "Native libraries"
 summary = "Install reusable native libraries and manage their lifetime"
 section = "api"
-keywords = "native library resident module provider lease unload ABI"
+keywords = "native library resident module provider lease unload ABI C compiler cc tinycc build sdk headers"
 packages_any = ["service_native_modules"]
 agent_reference_sections = true
 +++
@@ -34,6 +34,9 @@ resident until explicitly unloaded, removed, or reclaimed while unused under
 memory pressure. Installed libraries are not
 loaded by the boot scan. After restarting, consumers load them again as needed.
 
+[AOgmaNeo](aogmaneo.md) supplies online predictive hierarchies, actors and image
+encoding through a versioned native C API and a packaged SDK header.
+
 `pkg unload` releases the resident image but keeps its installed file.
 `pkg remove` unloads the library and removes the file. Both refuse while a
 consumer holds a lease or the library cannot finish shutdown. Unload an unused
@@ -42,6 +45,13 @@ library before reinstalling it.
 `mem reclaim` unloads unused libraries together and reports free PSRAM and the
 largest free block before and after cleanup. Active leases prevent reclamation.
 Application sessions, including suspended foreground apps, keep their state.
+
+`cc` compiles C sources into native SolarOS executables. It is included in the
+`full` flavor on ESP32-S3 boards with PSRAM. Other builds can select the `cc`
+firmware group or install it with `pkg install cc`. Run `cc` or `cc --help`
+to display usage successfully. Compile with `cc main.c -o main.elf`, then run
+`load main.elf`; use `cc build [cc.toml]` for projects and `cc sdk list` to
+discover headers.
 
 ## Developer reference
 
@@ -99,6 +109,132 @@ Firmware consumers use `solar_os_native_library_acquire`, `retain`, `release`,
 and `unload` through `solar_os_native.h`; they use the same stable result codes.
 These APIs do not expose arbitrary firmware symbols to external libraries.
 
+## Compile C on the device
+
+The `full` flavor includes the `cc` command and TinyCC provider on every
+supported ESP32-S3 board with PSRAM. Check `pkg system` for the compiled
+`app.cc` package. Other flavors can enable the `cc` group in a custom build,
+or use `pkg install cc` to install the command and its matching `tinycc`
+library from the signed catalog. The built-in form needs no compiler packages
+on storage. See [firmware packages and flavors](packages.md).
+
+Run `cc` or `cc --help` to show usage. Both return success without starting a
+compilation. To try a complete program, save this as `hello.c` with `edit`:
+
+```c
+#include <stdio.h>
+
+int main(int argc, char **argv)
+{
+    puts("Hello from SolarOS C");
+    return 0;
+}
+```
+
+Compile it from the same directory, then run the generated executable:
+
+```text
+cc hello.c -o hello.elf
+load hello.elf
+```
+
+For multiple source files, use `cc main.c helpers.c -I include -o project.elf`.
+Source and output paths use the launching shell's current directory. Use
+`-I directory` for local headers, or the project file below for repeatable
+builds. The compiler validates the generated ELF before replacing an existing
+output; compilation errors and cooperative cancellation preserve that output.
+
+Both compiler forms use the same SDK and limits: up to eight source files
+totalling 64 KiB, eight include directories, a 2 MiB private compiler heap and
+a 20-second cooperative deadline. The SDK provides SolarOS ABI headers and a
+bounded C library. Variable-length arrays, inline assembly, optimization and
+general object/archive linking are unavailable. See the
+[compiler reference](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc#c-sdk-and-projects)
+for supported language features and C library functions.
+
+## C headers in library packages
+
+Native C projects can declare exact SDK dependencies in `cc.toml`:
+
+```toml
+sources = ["main.c", "helpers.c"]
+include_dirs = ["include"]
+output = "build/demo.elf"
+dependencies = [{ id = "jet", version = "1.12.0" }]
+```
+
+Run `cc build` beside the project file, or `cc build /dev/demo/cc.toml` from
+another directory. Relative paths belong to the project file's directory.
+`sources` is required; include directories and dependencies default to empty,
+and the default output is `a.elf`. Projects support at most eight sources,
+eight include directories and eight dependencies in an 8 KiB file. Use explicit
+source paths. The format accepts single or double quoted strings, comments,
+multiline arrays and inline dependency tables. Unknown or duplicate keys,
+other TOML tables, multiline strings and escapes other than `\\` and `\"`
+are rejected with a line number.
+
+Builds check installed library SDK versions without loading providers or
+downloading packages. Missing dependencies report `pkg install ID`; the
+repository must provide the exact declared version. After compilation and ELF
+validation succeed, missing output directories are created and the executable
+is replaced. Build errors and cooperative cancellation preserve the existing
+output. Applications still acquire and release their runtime library leases.
+
+Libraries can embed their public C headers in the same ELF as their executable
+code. Declare the exported paths in `module.toml`:
+
+```toml
+[sdk.headers]
+"hello_library_api.h" = "main/hello_library_api.h"
+```
+
+Use `cmake/solar_os_native_sdk.cmake` to produce the typed artifact from the
+original build ELF. The `hello-library` example shows the complete setup.
+`scripts/pack_native_sdk.py` validates the declared files and adds a
+non-allocated `.solaros.sdk` section. The package catalog's artifact hash covers
+both code and headers. Installing, updating or removing the ELF does the same
+for its headers; there are no separate header files to keep in sync.
+
+The `cc` compiler discovers these declarations by module ID:
+
+```c
+#include <hello-library/hello_library_api.h>
+```
+
+Jet includes its public headers in the library package. With `cc` available,
+run `pkg install jet`, then use `#include <jet/solar_os_jet_abi.h>`. The
+[native C graphics example](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc/examples/jet-cube)
+shows a resumable foreground app with input and explicit library cleanup.
+
+No manual header copy or `-I` option is needed for installed library headers.
+Quoted relative includes within a packaged header stay in that library's
+namespace. Headers can include published SolarOS ABI headers from the compiler
+SDK or namespaced headers from other installed libraries. They must remain
+compatible with the provider's versioned API table.
+
+Browse the compiler's built-in SDK and installed library SDKs with:
+
+```text
+cc sdk list
+cc sdk show solar_os_native_app_abi.h
+cc sdk show jet/solar_os_jet_abi.h
+cc sdk export /dev/sdk
+edit /dev/sdk/jet/solar_os_jet_abi.h
+```
+
+`list` includes provider package versions and header sizes. Browsing reads ELF
+metadata without activating the library providers. The built-in SDK version is
+the TinyCC package version. `export` requires a new directory and preserves
+the header namespaces and relative includes; an existing directory is refused.
+Exported files can be browsed with `edit` or supplied through `-I /dev/sdk`.
+
+The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
+256 KiB of text in total. Exported names include the module ID and fit in
+95 bytes. Names use letters, digits, underscores, hyphens, dots and directory
+separators; absolute paths and parent traversal in declarations are rejected.
+Builds that share public headers can pass an explicit `--source-root` to the
+packer. Declared files, including symlinks, must stay within that root.
+
 ## Runtime helpers
 
 Providers can request these optional version-one tables through `get_service`.
@@ -109,7 +245,16 @@ Pass the size of the public table and check for NULL before use:
 | `time` | `solar_os_native_time_abi.h` | Monotonic microseconds and cooperative sleep on the calling task |
 | `thread` | `solar_os_native_thread_abi.h` | Normal/recursive mutexes, conditions, task-local keys and joinable workers |
 | `controllers` | `solar_os_native_controllers_abi.h` | Owned PID instances in the OS registry; caller supplies timestamped samples and handles its actuator |
-| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float parsing and math helpers |
+| `libc` | `solar_os_native_libc_abi.h` | Bounded formatting, float/double parsing and math helpers |
+| `camera.sscma` | `solar_os_native_sscma_abi.h` | Exclusive shared-camera control, bounded SSCMA exchanges and JPEG reply decoding for the HX6538 driver |
+| `storage.files` | `solar_os_native_data_abi.h` | Read-only file leases, bounded reads, streaming SHA-256, atomic small-file replacement and optional persistent namespaces on internal flash |
+| `json` | `solar_os_native_data_abi.h` | Strict bounded JSON parsing, borrowed object/array values and owned root lifetime |
+
+The `libc` table appends `parse_double` (`strtod`) and `scale_double` (`ldexp`).
+Consumers that need these methods must check `struct_size` through the relevant
+field and check its pointer before calling it. Consumers that only need older
+methods can request the table prefix ending before `parse_double` to retain
+compatibility with earlier firmware. The service ABI remains version one.
 
 Thread operations return POSIX error numbers. Destroy synchronization objects
 and clear task-local values before deleting their keys. Key deletion does not

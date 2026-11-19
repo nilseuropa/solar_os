@@ -35,6 +35,8 @@
 typedef struct {
     bool started;
     bool clock_cleanup_pending;
+    bool sensor_identified;
+    framesize_t max_frame_size;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char i2c_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int pins[16];
@@ -124,10 +126,25 @@ static esp_err_t camera_validate_bindings(
     return ESP_ERR_INVALID_ARG;
 }
 
-static framesize_t native_frame_size(solar_os_camera_frame_size_t frame_size)
+static framesize_t native_frame_size(uint16_t width, uint16_t height)
 {
-    return frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ?
-        FRAMESIZE_VGA : FRAMESIZE_QVGA;
+    for (int i = 0; i < FRAMESIZE_INVALID; i++) {
+        if (resolution[i].width == width && resolution[i].height == height)
+            return (framesize_t)i;
+    }
+    return FRAMESIZE_INVALID;
+}
+
+static esp_err_t camera_resolutions(void *ctx, solar_os_camera_resolution_t *out,
+                                     size_t capacity, size_t *count)
+{
+    const camera_esp32_state_t *state = ctx;
+    if (!state->sensor_identified) return ESP_ERR_INVALID_STATE;
+    *count = (size_t)state->max_frame_size + 1U;
+    for (size_t i = 0; i < *count && i < capacity; i++) {
+        out[i] = (solar_os_camera_resolution_t){resolution[i].width, resolution[i].height};
+    }
+    return ESP_OK;
 }
 
 static const char *sensor_name(uint16_t product_id)
@@ -187,6 +204,10 @@ static esp_err_t camera_start(void *ctx,
     if (state->started) {
         return ESP_ERR_INVALID_STATE;
     }
+    const framesize_t selected_size = native_frame_size(config->width, config->height);
+    if (selected_size == FRAMESIZE_INVALID ||
+        (state->sensor_identified && selected_size > state->max_frame_size))
+        return ESP_ERR_NOT_SUPPORTED;
 
     int sccb_port = -1;
     if (state->i2c_bus[0] != '\0') {
@@ -214,7 +235,7 @@ static esp_err_t camera_start(void *ctx,
         .ledc_timer = CAMERA_LEDC_TIMER,
         .ledc_channel = CAMERA_LEDC_CHANNEL,
         .pixel_format = PIXFORMAT_JPEG,
-        .frame_size = native_frame_size(config->frame_size),
+        .frame_size = selected_size,
         .jpeg_quality = config->jpeg_quality,
         .fb_count = 1U,
         .fb_location = CAMERA_FB_IN_PSRAM,
@@ -281,6 +302,18 @@ static esp_err_t camera_start(void *ctx,
             if (shared_sccb) camera_sccb_unlock();
             return configure_error == ESP_OK ? ESP_ERR_INVALID_RESPONSE : configure_error;
         }
+    }
+    for (size_t i = 0; i < CAMERA_MODEL_MAX; i++) {
+        if ((uint16_t)camera_sensor[i].pid == sensor->id.PID) {
+            state->max_frame_size = camera_sensor[i].max_size;
+            state->sensor_identified = true;
+            break;
+        }
+    }
+    if (sensor->status.framesize != selected_size) {
+        (void)camera_deinit(state);
+        if (shared_sccb) camera_sccb_unlock();
+        return ESP_ERR_NOT_SUPPORTED;
     }
     solar_os_camera_orientation_t applied = orientation;
     const esp_err_t orientation_error = apply_orientation(sensor, orientation, &applied);
@@ -406,6 +439,7 @@ static esp_err_t camera_attach(const char *name,
         .release = camera_release,
         .publish = camera_publish,
         .unpublish = camera_unpublish,
+        .get_resolutions = camera_resolutions,
     };
     const solar_os_camera_backend_t backend = {
         .driver = "esp32-camera",

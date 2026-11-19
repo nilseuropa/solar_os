@@ -3,6 +3,7 @@
 static const solar_os_expansion_binding_spec_t binding_specs[] = {
     {.key = "a", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "a", .required = true},
     {.key = "b", .value_hint = "gpio", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .role = "b", .required = true},
+    {.key = "button", .value_hint = "gpio|controller:line", .kind = SOLAR_OS_EXPANSION_BINDING_GPIO_LINE, .role = "button"},
 };
 
 const solar_os_expansion_driver_t solar_os_rotary_encoder_expansion_driver = {

@@ -1,4 +1,5 @@
 #include "solar_os_logic.h"
+#include "drivers/solar_os_gpio_isr.h"
 
 #include <string.h>
 
@@ -74,7 +75,7 @@ static esp_err_t logic_wait_for_trigger(uint8_t pin)
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t err = gpio_install_isr_service(0);
+    esp_err_t err = solar_os_gpio_isr_service_ensure();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         return err;
     }

@@ -44,7 +44,7 @@ members = ["service_audio"]
 [groups.camera]
 label = "Camera"
 category = "Hardware interfaces"
-members = ["driver_camera_esp32", "job_cam_webd"]
+members = ["driver_camera_esp32", "driver_himax_hx6538", "job_cam_webd"]
 
 [groups.rtsp]
 label = "RTSP streaming"
@@ -84,7 +84,12 @@ members = ["app_zoo"]
 [groups.pipelines]
 label = "Native image pipelines"
 category = "Media"
-members = ["service_pipeline"]
+members = ["service_pipeline", "job_model_upload"]
+
+[groups.himax_backend]
+label = "Built-in Himax processor"
+category = "Media"
+members = ["backend_processor_himax"]
 
 [groups.input_keymap]
 label = "Source keymaps"
@@ -527,6 +532,11 @@ label = "Image viewer"
 category = "Media"
 members = ["app_view"]
 
+[groups.photo]
+label = "Camera viewfinder"
+category = "Media"
+members = ["app_photo", "service_rtsp_client"]
+
 [groups.vplay]
 label = "MPEG-1 media player"
 category = "Media"
@@ -545,12 +555,17 @@ members = ["app_invaders"]
 [groups.python]
 label = "Python"
 category = "Scripting"
-members = ["app_python", "service_emotion", "service_jet", "service_robot"]
+members = ["app_python", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
+
+[groups.cc]
+label = "Built-in C compiler"
+category = "Scripting"
+members = ["app_cc"]
 
 [groups.lua]
 label = "Lua"
 category = "Scripting"
-members = ["app_lua", "service_emotion", "service_jet", "service_robot"]
+members = ["app_lua", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
 
 [groups.playground]
 label = "Playground package manager"
@@ -727,6 +742,11 @@ label = "XL9555 GPIO controller"
 category = "Expansion hardware"
 members = ["xl9555"]
 
+[groups.pca9535]
+label = "PCA9535 GPIO controller"
+category = "Expansion hardware"
+members = ["pca9535"]
+
 [groups.m5ioe1]
 label = "M5IOE1 GPIO controller"
 category = "Expansion hardware"
@@ -817,13 +837,18 @@ label = "INMP441 / ICS-43432 microphone and shared I2S playback"
 category = "Expansion hardware"
 members = ["expansion_inmp441"]
 
+[groups.es7243]
+label = "ES7243 and ES7243E microphone ADCs"
+category = "Expansion hardware"
+members = ["expansion_es7243"]
+
 [groups.es7210]
 label = "ES7210 audio input"
 category = "Expansion hardware"
 members = ["expansion_es7210"]
 
 [groups.es8311]
-label = "ES8311/ES7210 audio codecs"
+label = "ES8311 audio codecs"
 category = "Expansion hardware"
 members = ["driver_audio_es8311_codecs"]
 
@@ -866,6 +891,16 @@ members = ["driver_display_cvbs_pal"]
 label = "VGA display"
 category = "Expansion hardware"
 members = ["driver_display_vga32"]
+
+[groups.spd2010]
+label = "SPD2010 QSPI color display"
+category = "Expansion hardware"
+members = ["driver_display_spd2010"]
+
+[groups.spd2010_touch]
+label = "SPD2010 capacitive touch"
+category = "Expansion hardware"
+members = ["driver_spd2010_touch"]
 
 [groups.qemu_rgb]
 label = "QEMU virtual RGB display"
@@ -990,6 +1025,7 @@ sources = [
   "solar_os_scheduler.c",
   "solar_os_task.c",
   "drivers/flash_storage.c",
+  "drivers/solar_os_gpio_isr.c",
   "apps/solar_os_app_file_types.c",
   "apps/solar_os_app_registry.c",
   "jobs/solar_os_job_registry.c",
@@ -1000,11 +1036,14 @@ sources = [
   "services/solar_os_clipboard.c",
   "services/solar_os_shutdown.c",
   "services/solar_os_display.c",
+  "services/solar_os_display_geometry.c",
   "services/solar_os_display_layer.c",
   "services/solar_os_display_scale.c",
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
   "services/solar_os_frame_presenter.c",
+  "services/solar_os_font_packs.c",
+  "services/solar_os_fonts.c",
   "services/solar_os_gfx.c",
   "services/solar_os_gfx_icons.c",
   "services/solar_os_identity.c",
@@ -1075,7 +1114,9 @@ depends = [
 sources = [
   "services/solar_os_module_packages.c",
   "services/solar_os_native.c",
+  "services/solar_os_native_storage.c",
   "services/solar_os_native_media.c",
+  "services/solar_os_native_data.c",
   "services/solar_os_native_motion.c",
   "services/solar_os_native_foreground.c",
   "services/solar_os_native_elf.c",
@@ -1246,6 +1287,13 @@ requires = ["esp_timer"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
 
+[packages.service_aogmaneo]
+label = "service.aogmaneo"
+depends = ["service_native_modules"]
+sources = ["services/solar_os_aogmaneo.c"]
+targets = ["esp32s3"]
+capabilities = ["psram"]
+
 [packages.service_robot]
 label = "service.robot"
 depends = ["service_native_modules", "service_controllers"]
@@ -1373,13 +1421,15 @@ capabilities = ["wifi"]
 
 [packages.service_agent]
 label = "service.agent"
-depends = ["service_crypto", "service_http_client", "service_json"]
+depends = ["service_crypto", "service_http_client", "service_json", "service_media_sample_source"]
 sources = [
+  "services/solar_os_agent_images.c",
   "services/solar_os_agent.c",
   "services/solar_os_agent_conversation.c",
   "services/solar_os_agent_reference.c",
   "services/solar_os_agent_openai.c",
   "services/solar_os_agent_tools.c",
+  "services/solar_os_script_agent.c",
 ]
 requires = ["heap", "nvs_flash"]
 capabilities = ["psram", "wifi"]
@@ -1398,6 +1448,17 @@ sources = [
   "services/solar_os_raster_image.c",
 ]
 requires = ["stb_image", "webp_decoder"]
+
+[packages.service_media_sample]
+label = "service.media-sample"
+sources = ["services/solar_os_media_sample.c"]
+capabilities = ["psram"]
+
+[packages.service_media_sample_source]
+label = "service.media-sample-source"
+depends = ["service_media_sample", "service_script_media"]
+sources = ["services/solar_os_media_sample_source.c"]
+requires = ["esp_timer"]
 
 [packages.service_media]
 label = "service.media"
@@ -1431,6 +1492,13 @@ requires = ["esp-dl", "espdl_schema", "esp_timer"]
 capabilities = ["psram"]
 targets = ["esp32s3"]
 
+[packages.backend_processor_himax]
+label = "backend.processor-himax"
+depends = ["service_pipeline", "service_native_modules", "driver_himax_hx6538", "job_model_upload"]
+sources = ["../modules/himax/provider.c", "../modules/himax/manager.c"]
+capabilities = ["psram", "expansion_spi"]
+targets = ["esp32s3"]
+
 [packages.service_imlib]
 label = "service.imlib"
 depends = ["service_image"]
@@ -1440,7 +1508,7 @@ capabilities = ["psram"]
 
 [packages.service_pipeline]
 label = "service.pipeline"
-depends = ["service_image", "service_json", "service_script_media"]
+depends = ["service_image", "service_json", "service_script_media", "service_media_sample"]
 sources = ["services/solar_os_processor.c", "services/solar_os_pipeline.c", "shell/solar_os_shell_pipeline.c"]
 requires = ["esp_timer"]
 capabilities = ["psram"]
@@ -1544,6 +1612,15 @@ expansion_drivers = ["solar_os_camera_esp32_expansion_driver"]
 requires = ["espressif__esp32-camera"]
 targets = ["esp32s3"]
 capabilities = ["psram", "expansion_gpio"]
+
+[packages.driver_himax_hx6538]
+label = "driver.himax-hx6538"
+depends = ["service_camera", "service_expansion", "service_json_scan"]
+sources = ["drivers/himax_hx6538.c", "services/solar_os_himax_hx6538.c"]
+expansion_drivers = ["solar_os_himax_hx6538_expansion_driver"]
+requires = ["esp_driver_spi", "esp_timer", "mbedtls"]
+targets = ["esp32s3"]
+capabilities = ["psram", "expansion_spi"]
 
 [packages.service_audio]
 label = "service.audio"
@@ -2347,6 +2424,14 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["i2c"]
 
+[packages.pca9535]
+label = "expansion.pca9535"
+depends = ["service_expansion", "service_i2c"]
+expansion_drivers = ["solar_os_pca9535_expansion_driver"]
+sources = ["drivers/pca9535.c", "services/solar_os_pca9535.c", "services/solar_os_pca9535_driver.c"]
+requires = ["esp_driver_i2c"]
+capabilities = ["i2c"]
+
 [packages.m5ioe1]
 label = "expansion.m5ioe1"
 depends = ["service_expansion", "service_i2c"]
@@ -2730,6 +2815,15 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_i2s"]
 capabilities = ["expansion_i2s"]
 
+[packages.expansion_es7243]
+label = "expansion.es7243"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_es7243_expansion_driver", "solar_os_es7243e_expansion_driver"]
+depends = ["service_audio", "service_expansion", "service_i2c"]
+sources = ["services/solar_os_es7243.c", "services/solar_os_es7243_driver.c"]
+requires = ["esp_codec_dev", "esp_driver_i2s"]
+capabilities = ["i2c", "expansion_i2s"]
+
 [packages.expansion_es7210]
 label = "expansion.es7210"
 targets = ["esp32s3"]
@@ -2748,12 +2842,15 @@ targets = ["esp32s3"]
 expansion_drivers = [
   "solar_os_es8311_es7210_expansion_driver",
   "solar_os_es8311_duplex_expansion_driver",
+  "solar_os_es8311_es7243_expansion_driver",
+  "solar_os_es8311_es7243e_expansion_driver",
 ]
 depends = ["service_audio", "service_expansion", "service_i2c"]
 sources = [
   "drivers/audio_codec_board.c",
   "services/solar_os_audio_backend.c",
   "services/solar_os_audio_codec_expansion.c",
+  "services/solar_os_es7243_pair.c",
 ]
 requires = ["esp_codec_dev", "esp_driver_i2s"]
 capabilities = ["i2c", "expansion_i2s"]
@@ -2836,6 +2933,15 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.driver_display_spd2010]
+label = "driver.display-spd2010"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_spd2010_expansion_driver"]
+depends = ["service_expansion", "service_resources", "driver_pwm_port"]
+sources = ["board/solar_os_board_display_expansion.c", "drivers/spd2010.c", "drivers/solar_os_rgb_panel_buffer.c", "services/solar_os_spd2010_display.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi", "esp_lcd_spd2010", "u8g2"]
+capabilities = ["gfx", "psram", "expansion_gpio"]
+
 [packages.driver_display_cvbs_pal]
 label = "driver.display-cvbs-pal"
 targets = ["esp32"]
@@ -2861,6 +2967,15 @@ sources = [
 ]
 requires = ["esp_driver_gpio", "esp_hw_support", "esp_rom", "esp_system", "hal", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
+
+[packages.driver_spd2010_touch]
+label = "driver.spd2010-touch"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_spd2010_touch_expansion_driver"]
+depends = ["service_expansion", "service_i2c"]
+sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
+requires = ["esp_driver_gpio", "esp_rom"]
+capabilities = ["gfx", "i2c"]
 
 [packages.driver_display_qemu_rgb]
 label = "driver.display-qemu-rgb"
@@ -3206,7 +3321,7 @@ capabilities = ["psram"]
 
 [packages.app_agent]
 label = "app.agent"
-depends = ["service_agent"]
+depends = ["service_agent", "service_media_sample_source"]
 sources = [
   "apps/solar_os_agent_app.c",
   "shell/solar_os_shell_agent.c",
@@ -3245,6 +3360,12 @@ depends = ["service_image", "service_vector"]
 sources = ["apps/solar_os_view.c"]
 capabilities = ["psram", "gfx"]
 
+[packages.app_photo]
+label = "app.photo"
+depends = ["service_image", "service_script_media", "service_media_widgets"]
+sources = ["apps/solar_os_photo.c"]
+capabilities = ["psram", "gfx"]
+
 [packages.app_vplay]
 label = "app.vplay"
 depends = ["service_mpeg", "service_audio", "service_media_widgets", "service_media_playlist", "service_storage_browser", "service_media_preferences"]
@@ -3277,6 +3398,13 @@ depends = ["service_script_net", "service_script_runner", "service_script_media"
 sources = ["apps/solar_os_python.c"]
 requires = ["micropython_embed"]
 capabilities = ["psram"]
+
+[packages.app_cc]
+label = "app.cc"
+depends = ["service_native_modules"]
+sources = ["shell/solar_os_shell_cc.c"]
+capabilities = ["psram"]
+targets = ["esp32s3"]
 
 [packages.app_lua]
 label = "app.lua"
@@ -3441,6 +3569,13 @@ capabilities = ["gfx"]
 [packages.app_sheet]
 label = "app.sheet"
 sources = ["apps/solar_os_sheet.c"]
+
+[packages.job_model_upload]
+label = "job.model-upload"
+depends = ["service_pipeline", "service_native_modules"]
+sources = ["jobs/solar_os_model_upload_job.c"]
+capabilities = ["psram"]
+targets = ["esp32s3"]
 
 [packages.job_httpd]
 label = "job.httpd"

@@ -17,7 +17,8 @@
 #include "solar_os_resources.h"
 #include "solar_os_stream.h"
 
-const camera_sensor_info_t camera_sensor[] = {{0x26, "OV2640"}, {OV5640_PID, "OV5640"}};
+const camera_sensor_info_t camera_sensor[] = {{0x26, "OV2640", FRAMESIZE_VGA}, {OV5640_PID, "OV5640", FRAMESIZE_VGA}};
+const resolution_info_t resolution[] = {{320, 240}, {320, 320}, {640, 480}};
 static sensor_t sensor = {.id.PID = 0x26};
 static sensor_t reconfigured_sensor;
 static sensor_t *active_sensor = &sensor;
@@ -160,12 +161,14 @@ esp_err_t esp_camera_init(const camera_config_t *config)
     xclk_low = xclk_output = false;
     if (fail_start) return ESP_ERR_NO_MEM;
     starts++;
+    if (!sensor.id.PID && active_sensor) sensor.id.PID = active_sensor->id.PID;
     active_sensor = &sensor;
     sensor.set_hmirror = set_mirror;
     sensor.set_vflip = set_flip;
     sensor.status.hmirror = sensor.status.vflip = 0;
-    fb.width = native.frame_size == FRAMESIZE_VGA ? 640 : 320;
-    fb.height = native.frame_size == FRAMESIZE_VGA ? 480 : 240;
+    sensor.status.framesize = native.frame_size;
+    fb.width = resolution[native.frame_size].width;
+    fb.height = resolution[native.frame_size].height;
     return ESP_OK;
 }
 esp_err_t esp_camera_deinit(void)
@@ -530,6 +533,18 @@ int main(void)
     assert(driver->attach("camera0", pins, 16U) == ESP_OK);
     assert(solar_os_stream_open("camera0", "viewer", &handle) == ESP_OK);
     assert(native.pin_xclk == 2 && xclk_routed);
+    assert(solar_os_stream_close_ex(&handle) == ESP_OK);
+    solar_os_camera_resolution_t modes[3];
+    size_t count = 0;
+    assert(solar_os_camera_get_resolutions(modes, 3, &count) == ESP_OK && count == 3);
+    assert(modes[1].width == 320 && modes[1].height == 320);
+    options.requested_video.width = 416; options.requested_video.height = 416;
+    assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_ERR_NOT_SUPPORTED);
+    options.requested_video.width = options.requested_video.height = 320;
+    assert(solar_os_stream_open_ex("camera0", "viewer", &options, &handle) == ESP_OK);
+    assert(native.frame_size == FRAMESIZE_320X320);
+    assert(solar_os_stream_acquire_frame(&handle, &frame) == ESP_OK && frame.width == 320 && frame.height == 320);
+    assert(solar_os_stream_release_frame(&handle, &frame) == ESP_OK);
     assert(solar_os_stream_close_ex(&handle) == ESP_OK);
     assert_xclk_stopped();
     assert(driver->detach("camera0") == ESP_OK);

@@ -11,7 +11,8 @@ class NativeVisionServicesTest(unittest.TestCase):
     def test_public_headers_compile_without_sdk_in_c_and_cpp(self):
         headers = ["solar_os_native_abi.h", "solar_os_native_job_abi.h",
                    "solar_os_native_image_abi.h", "solar_os_native_media_abi.h",
-                   "solar_os_native_vision_abi.h", "solar_os_native_inference_abi.h"]
+                   "solar_os_native_vision_abi.h", "solar_os_native_inference_abi.h",
+                   "solar_os_native_sscma_abi.h", "solar_os_native_data_abi.h", "solar_os_processor_provider_abi.h"]
         code = "".join(f'#include "{name}"\n' for name in headers)
         with tempfile.TemporaryDirectory() as tmp:
             for compiler, suffix, standard in (("cc", "c", "c11"), ("c++", "cpp", "c++17")):

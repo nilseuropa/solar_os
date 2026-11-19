@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 #include "solar_os_pipeline.h"
 #include "solar_os_processor.h"
 #include "solar_os_vision.h"
@@ -95,7 +96,7 @@ esp_err_t solar_os_raster_image_open(const char *path, solar_os_raster_image_t *
     return *out ? ESP_OK : ESP_ERR_NO_MEM;
 }
 esp_err_t solar_os_raster_image_decode(const uint8_t *data, size_t n, solar_os_raster_image_t **out)
-{ assert(data && n && atomic_load(&leases) == 1); return fail_decode ? ESP_FAIL : solar_os_raster_image_open("/test.png", out); }
+{ assert(data && n && !atomic_load(&leases)); return fail_decode ? ESP_FAIL : solar_os_raster_image_open("/test.png", out); }
 void solar_os_raster_image_release(solar_os_raster_image_t *image) { solar_os_memory_free(image); }
 uint32_t solar_os_raster_image_width(const solar_os_raster_image_t *image) { (void)image; return 1280; }
 uint32_t solar_os_raster_image_height(const solar_os_raster_image_t *image) { (void)image; return 960; }
@@ -183,13 +184,28 @@ static solar_os_pipeline_status_t finish(uint32_t id)
     assert(0); return s;
 }
 static bool never_cancel(void *user) { (void)user; return false; }
+static char sample_file[128];
+static void create_sample_file(void)
+{
+    snprintf(sample_file,sizeof(sample_file),"/tmp/solaros-pipeline-%ld.jpg",(long)getpid());
+    FILE *file=fopen(sample_file,"wb"); assert(file);
+    assert(fwrite("\xff\xd8\xff\x00",1,4,file)==4); assert(!fclose(file));
+}
 int main(void)
 {
+    create_sample_file();
     uint32_t id; char *json = NULL;
-    solar_os_pipeline_config_t c = {.source = "/test.png", .processor = "qr", .timeout_ms = 10000};
+    solar_os_pipeline_config_t c = {.source = sample_file, .processor = "qr", .timeout_ms = 10000};
     assert(!solar_os_pipeline_start(&c, &id));
     solar_os_pipeline_status_t s = finish(id); assert(s.frames == 1 && s.sequence == 1 && !s.last_error);
-    assert(!solar_os_pipeline_result(id, 0, &json) && json);
+    solar_os_media_sample_t *sample=NULL;
+    failures=0;
+    assert(solar_os_pipeline_result_sample(id,0,&json,&sample)==ESP_ERR_NO_MEM && !json && !sample);
+    failures=-1;
+    assert(!solar_os_pipeline_result_sample(id, 0, &json, &sample) && json && sample);
+    const solar_os_media_sample_image_t *encoded=solar_os_media_sample_image(sample);
+    assert(encoded->length==4 && !memcmp(encoded->data,"\xff\xd8\xff\x00",4));
+    assert(!strcmp(encoded->mime_type,"image/jpeg") && !strcmp(encoded->metadata.source,sample_file));
     cJSON *r = cJSON_Parse(json); assert(r);
     cJSON *qr = cJSON_GetObjectItemCaseSensitive(r, "result"), *code = cJSON_GetArrayItem(cJSON_GetObjectItemCaseSensitive(qr, "codes"), 0);
     assert(!strcmp(cJSON_GetObjectItemCaseSensitive(code, "payload_hex")->valuestring, "00ff41"));
@@ -197,7 +213,9 @@ int main(void)
     cJSON_Delete(r); solar_os_memory_free(json);
     assert(!solar_os_pipeline_result(id, 1, &json) && !json);
     assert(!solar_os_jobs_start(NULL, s.job, 0, NULL)); s = finish(id); assert(s.sequence == 2);
-    assert(!solar_os_pipeline_destroy(id)); assert(!allocations && !workers);
+    assert(!solar_os_pipeline_destroy(id));
+    assert(solar_os_media_sample_image(sample)==encoded && encoded->length==4);
+    solar_os_media_sample_release(sample); assert(!allocations && !workers);
     assert(solar_os_pipeline_status(id, &s) == ESP_ERR_NOT_FOUND);
     c.processor = "model"; c.model = 1; c.source = "rtsp://test/camera"; c.limit = 3;
     assert(!solar_os_pipeline_start(&c, &id)); s = finish(id);
@@ -216,7 +234,7 @@ int main(void)
     entered = 0; stop_restarts = true; assert(!solar_os_pipeline_stop(id)); while (!entered) vTaskDelay(1);
     assert(references == 1 && workers == 1); assert(!solar_os_pipeline_status(id,&s) && !strcmp(s.state,"running"));
     assert(!solar_os_pipeline_stop(id)); assert(!solar_os_pipeline_destroy(id)); blocked = 0;
-    c.processor = "qr"; c.model = 0; c.source = "/test.png"; busy = 2;
+    c.processor = "qr"; c.model = 0; c.source = sample_file; busy = 2;
     assert(!solar_os_pipeline_start(&c, &id)); s = finish(id); assert(s.busy_frames == 2 && s.frames == 1);
     assert(!solar_os_pipeline_destroy(id));
     c.source = "/missing.png"; assert(!solar_os_pipeline_start(&c, &id)); s = finish(id);
@@ -262,6 +280,7 @@ int main(void)
     solar_os_raster_image_t *image; assert(!solar_os_raster_image_open("/test.png", &image)); raw_result = true;
     assert(solar_os_processor_run(p, image, &json) == ESP_ERR_INVALID_SIZE && !json);
     solar_os_raster_image_release(image); solar_os_processor_destroy(p); assert(!references && !allocations);
+    assert(!unlink(sample_file));
     puts("native pipeline ownership/cancellation/result tests passed");
     return 0;
 }

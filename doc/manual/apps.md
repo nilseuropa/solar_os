@@ -259,8 +259,9 @@ Bare `rtsp` opens the playlist view, including an empty list, without connecting
 Direct URLs also work without mounted
 storage, with a list kept only for that session. M3U files are plain text;
 use `rtsp-auth` accounts to keep passwords out of saved URLs.
-`F` toggles fullscreen, hiding the header and controls while retaining aspect-fit
-video or expanding the audio-only oscilloscope to the whole screen. `D` toggles
+`F` toggles fullscreen, using the entire display panel and hiding the header and
+controls while retaining aspect-fit video or expanding the audio-only oscilloscope
+to the whole panel. `D` toggles
 the separate frame diagnostic overlay: received, displayed, network/app drops,
 and displayed frames per second. `Q`, Escape, or the normal application-exit key
 closes playback.
@@ -311,8 +312,6 @@ agent config reasoning medium
 agent config tools confirm
 agent config max-tools 16
 agent
-job start speechd /voices/en-US
-agent --tts
 agent list
 agent resume SLOT
 agent ask How much memory is free on this device?
@@ -326,17 +325,47 @@ after leaving the app or rebooting. `agent delete SLOT` removes one conversation
 without changing provider credentials. Responses uses its saved provider
 continuation ID; Chat Completions uses bounded local history. Slots are `1` to
 `3` on internal flash or `1` to `8` on SD; the oldest is reused when full.
-`agent ask`
-performs one unsaved request but likewise waits for `Esc` or the app-exit key
-after completion, so display-shell output is not immediately replaced by the
-shell screen.
+`agent ask` performs one unsaved foreground request. `Esc` or the app-exit key
+cancels an active request.
+
+### Image input
+
+Use a vision-capable model and add `--image SOURCE` before the question. Sources
+include stored images, `stream:ID` camera frames, `rtsp://` JPEG frames, and the
+image retained with a completed pipeline result:
+
+```text
+agent ask --image /pictures/sample.jpg Describe this picture.
+agent ask --image stream:camera0 What do you see?
+agent ask --image pipeline:1 Describe this processed frame.
+```
+
+Inside a chat, use `/image SOURCE QUESTION`. Up to two images may total 512 KiB.
+See [Agent image questions](agent.md#ask-about-an-image) for formats and ownership.
+
+### Speech output
 
 `agent --tts`, `agent --tts new`, `agent --tts resume SLOT`, and
 `agent --tts ask PROMPT` keep the written answer and also queue the successful
-final model response through the running local PicoTTS `speechd`. Start
-`speechd` with a voice directory first. Status and retry messages, tool calls,
+final model response through local PicoTTS. Select the `speech` package and copy
+a voice folder containing `ta.bin` and `sg.bin` to SD or flash, then start
+`speechd` with that directory:
+
+```text
+job start speechd /voices/en-US
+say "Solar O S is ready"
+agent --tts
+agent --tts ask --image stream:camera0 Describe the scene.
+```
+
+Speech uses the global `audio level` and can wait behind another audio user.
+Status and retry messages, tool calls,
 tool results, confirmations, and intermediate text before a tool call are not
-spoken.
+spoken. The provider supplies text; synthesis and voice selection happen on
+the device. See [Agent speech output](agent.md#speech-output) for voice setup,
+language selection, and troubleshooting.
+
+### Provider settings and tools
 
 Use `agent config key clear` for an endpoint that does not require bearer
 authentication. `agent status` shows configuration, request counters, HTTP
@@ -972,6 +1001,12 @@ Text editor for files on mounted storage. It supports cursor navigation,
 selection, clipboard operations, text-size changes, and syntax highlighting for
 known source files. The editor supports files up to 256 KiB on boards with
 PSRAM and 32 KiB on boards without PSRAM. Use `hexedit` for binary files.
+
+Highlighting follows the filename: C source and headers (`.c`, `.h`), Python
+(`.py`, `.pyw`), and Lua (`.lua`). C highlighting covers keywords and standard
+types, preprocessor directives, comments, string and character literals, and
+numbers. Multiline comments and continued literals retain their highlighting
+when scrolling. It works in the display editor and port terminals.
 
 Usage:
 
@@ -1720,6 +1755,46 @@ Controls:
 - `Left`/`Right` collapse/expand a category.
 - `q`, `Esc`, or app-exit key exits.
 
+## photo
+
+Live viewfinder and still capture from a registered JPEG video source or an
+RTSP JPEG camera. The default source is `camera0`; this application requires
+a graphical display and PSRAM. Select the `photo` package group. Local camera
+providers are supplied by the `camera` group; RTSP reception is included on
+Wi-Fi boards and uses the same UDP JPEG transport as the `rtsp` application.
+JPEG frames are limited to 2 megapixels and 512 KiB.
+
+```text
+photo
+photo --fullscreen
+photo camera0 --size 640x480
+photo rtsp://192.168.1.238/media --dir /photos
+photo --key SPACE --dir /photos
+```
+
+Press **Enter** or tap the shutter button to save the currently displayed frame.
+`--key KEY` selects a different logical key, such as `SPACE` or `F1`; Escape,
+the app-exit key, and `f`/`F` are reserved. Press `f` to toggle between the canvas
+viewfinder and the full panel, including circular panels. `--fullscreen` starts
+in full-panel mode. Escape or the app-exit key closes the application.
+The status line reports successful saves and storage errors.
+
+Files are named `photo-000001.jpg`, `photo-000002.jpg`, and so on in the launch
+directory, or in the existing directory selected by `--dir`. Existing files
+are skipped and never replaced. The saved JPEG retains the source resolution
+and encoded bytes; preview resizing does not reduce the captured image.
+
+`--size WIDTHxHEIGHT` requests a native mode from a registered stream and also
+accepts `qvga`/`vga` aliases. Use `camera resolutions` for built-in camera modes.
+RTSP URLs use the remote camera's resolution and do not accept `--size`.
+Autocomplete suggests video sources, options, capture keys, output directories,
+and the selected stream's advertised default dimensions without opening it.
+
+Preview acquisition, decoding, and saving run on a worker, with a preview rate
+limit of 10 frames per second. Actual speed depends on the source and display.
+Suspending releases the source; resuming opens it again. Exclusive sources
+cannot be shared with another camera owner such as `rtspd` or `cam-webd`.
+
 ## plot
 
 Graphical plotter for DAQ CSV files and live scalar streams. It is compatible
@@ -2158,9 +2233,9 @@ view [-fit|-actual] <image>
 Controls:
 
 - Arrows pan.
-- `f` toggles fit/actual mode. Fit mode scales the image up or down to the screen.
+- `f` toggles fullscreen, using the entire display panel instead of the canvas.
 - `0` selects actual size.
-- `1` selects fit-to-screen.
+- `1` selects fit-to-screen, scaling the image up or down to the current viewport.
 - `Esc` or app-exit key exits.
 
 ## vplay
@@ -2202,7 +2277,8 @@ Controls:
   Changes save to M3U immediately.
 - The shared Previous, Rewind, Stop/Play, Forward, and Next buttons provide
   the same actions when clicked or tapped.
-- `f` toggles full screen, hiding the header, volume strip, and transport buttons.
+- `f` toggles full screen, using the entire display panel and hiding the header,
+  volume strip, and transport buttons.
 - `0` selects actual size and `1` selects fit.
   Actual-size video larger than the viewport is cropped centrally.
 - `d` toggles frame/timing log diagnostics.
@@ -2315,7 +2391,8 @@ Controls:
 
 Browse the hosted model zoo and install complete model bundles on mounted SD
 or flash storage. The text interface works on the display and VT100 port shells.
-It requires the Zoo package, ESP32-S3, PSRAM, and networking.
+It requires the Zoo package, ESP32-S3, and PSRAM. Networking is needed to refresh
+the catalog or download a bundle; browsing and removing installed bundles work offline.
 
 ```text
 zoo
@@ -2323,21 +2400,39 @@ zoo refresh
 zoo source [HTTPS-CATALOG-URL|reset]
 zoo storage [sd|flash]
 zoo install ID VERSION
+zoo installed
+zoo remove ID VERSION
 ```
 
-The default source is `https://solar-os.eu/zoo/catalog.json`. The first launch
-fetches it; later launches use the cached catalog. `r` refreshes the cache.
-Up/Down and Page Up/Page Down select entries, Enter opens details, Alt+S searches,
-and `d` downloads the selected version. Arrows and page keys scroll long details.
-`*` marks an installed bundle and `!`
-marks an incompatible entry. `c` or Esc cancels a running operation. `q` or Esc returns
-from details or exits the browser; the app-exit key exits from either view.
+The default source is `https://solar-os.eu/zoo/catalog-v2.json`. Zoo opens immediately
+using its cached catalog and installed inventory. Press `r` or run `zoo refresh`
+to fetch the catalog, including on first use. Models are grouped into folders by
+execution target and backend, such as `esp32s3 (espdl)` and `hx6538 (himax)`.
+Explicit source preferences are preserved; use `zoo source reset` to switch an
+older saved source to the current default. The legacy `catalog.json` endpoint
+continues to serve ESP-DL entries for older clients.
+The browser uses the same expandable tree and dialogs as `pkg`. Up/Down and
+Page Up/Page Down select entries; Enter toggles a target folder or opens model
+details. Right expands a folder or opens details. Left selects the parent folder,
+collapses a selected folder, or returns from details. `/` or Alt+S searches, and
+`t` toggles installed models only. `i` installs the selected version and `u` removes
+its stored bundle; both ask for confirmation. The older `d` download and `x` remove
+shortcuts also work. `zoo remove ID VERSION` removes a bundle directly. Unload
+resident ESP-DL models before removing their bundles. Arrows and page keys scroll
+long details. `[I]` marks an installed bundle and `[!]` marks an incompatible entry.
+Esc or `c` cancels a running operation. Enter or Esc closes the result dialog.
+`q` or Esc returns from details to the tree, then exits; the app-exit key exits
+from any view. Alt+Enter toggles fullscreen, which uses all available content rows.
 
 Source and storage preferences persist. Without an explicit storage preference,
 Zoo uses mounted SD, then flash. Files are stored under `dl/zoo/` on that volume;
 each installed bundle is in `models/ID/VERSION/`. Downloads are streamed to storage,
 checked against archive, manifest, model, and asset hashes, and installed through
 a staged directory swap. Interrupted downloads preserve the previous installation.
+The installed inventory is rebuilt from local manifests and installation receipts.
+It remains available if the cached catalog is missing, a repository removes a model,
+or the configured source changes. `zoo installed` lists installed versions and paths
+without contacting the repository.
 
 The browser shows task, modality, result adapter, license, validation status, and
 reported free-memory requirements. Runtime compatibility is not a
@@ -2345,7 +2440,10 @@ device inference test, and unreported memory remains unknown. The device accepts
 catalogs up to 512 KiB and 256 entries; larger catalogs fail without replacing the
 cache. Installation also needs enough storage for the ZIP and extracted files.
 
-Installation does not load a model. Use the displayed `bundle.json` path with
+Installation downloads a bundle to storage. Himax downloads do not program or
+select an accelerator model; use [Himax model management](himax-models.md) for that separate step.
+Removing a bundle never erases a model from accelerator flash.
+For ESP-DL, use the displayed `bundle.json` path with
 `model bundle PATH` or the native, Python, or Lua inference APIs. Loaded models
 remain resident until explicitly unloaded or the device reboots. See
 [Model bundles](model-bundles.md) for inputs, results, and execution, and

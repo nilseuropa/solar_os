@@ -44,6 +44,8 @@ class JetFramebufferTest(unittest.TestCase):
             tmp = Path(temporary)
             source = (ROOT / "src/services/solar_os_display.c").read_text()
             (tmp / "display_terminal_policy.inc").write_text(production_functions(source, (
+                "display_find_slot_locked", "display_find_slot_by_u8g2_locked",
+                "solar_os_display_is_epaper",
                 "solar_os_display_set_orientation_locked", "display_profile_orientation_allowed",
                 "solar_os_display_set_terminal_blocked", "solar_os_display_terminal_draw_state",
                 "solar_os_display_release")))

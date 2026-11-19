@@ -44,6 +44,7 @@ void mp_embed_init(void *gc_heap, size_t gc_heap_size, void *stack_top) {
     gc_init(gc_heap, (uint8_t *)gc_heap + gc_heap_size);
     MP_STATE_VM(solar_os_active_parse_tree_chunk) = NULL;
     mp_init();
+    solar_os_micropython_interrupt_reset();
 }
 
 #if MICROPY_ENABLE_COMPILER

@@ -231,5 +231,8 @@ bool solar_os_input_route_read(const void *owner, solar_os_input_route_event_t *
         input_route.head = (input_route.head + 1U) % INPUT_ROUTE_MAX; input_route.count--;
     }
     portEXIT_CRITICAL(&input_lock);
+    /* The owner gets the byte key like every other consumer, not a layout code. */
+    if (found && event && event->type == SOLAR_OS_INPUT_ROUTE_KEY)
+        (void)solar_os_input_resolve_layout_key(&event->data.key);
     return found;
 }

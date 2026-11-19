@@ -66,6 +66,38 @@ Changes made through direct file APIs may take up to 30 seconds to appear.
 The package catalog has application, job, driver and
 [library](native-library.md) categories.
 
+## Storage for synchronous native commands
+
+Synchronous native commands launched with `load` or by installed app name
+can request `get_service("storage", 1, sizeof(solar_os_native_storage_api_v1_t))`.
+The table is declared in `solar_os_native_storage_abi.h`. Check for a null
+result on firmware without this service.
+
+Pass the returned `context` to each method. `resolve_path` captures the
+launching shell's working directory; a null path returns that directory.
+`file_size`, `read_file` and `replace_file` require resolved absolute paths.
+Reads accept offsets up to 2 GiB minus one and at most 64 KiB per call;
+replacement accepts at most 2 MiB. Paths must fit in 160 bytes including
+the terminator. `replace_file` syncs a staging file and uses backup/restore
+to preserve the previous output on ordinary filesystem errors. It reserves
+`.native.tmp` and `.native.bak` siblings. An existing staging file refuses
+replacement. This does not guarantee atomic visibility or power-loss recovery.
+
+The appended `directory_entry`, `make_directories` and `remove_path` methods
+support directory traversal and output cleanup. Request the full table to use
+them; older firmware supports the prefix `SOLAR_OS_NATIVE_STORAGE_BASE_SIZE`.
+`directory_entry` returns one entry in filesystem order and indicates whether
+more follow. `remove_path` removes one file or empty directory and remains
+available after cancellation so a caller can clean up its own unfinished files.
+
+Poll `stop_requested(context)` during long operations. It latches Ctrl+C,
+Ctrl+] and shell shutdown requests from the launching display or port shell.
+The service table and context live until the command's native entry returns.
+Joined workers may use them while the entry waits; stop and join those
+workers before returning. Resident libraries must not cache these pointers
+for subsequent calls. Foreground lifecycle apps use their foreground storage
+methods instead.
+
 ## Developer reference: resource declaration
 
 `solar_os_native_app_abi.h` defines the exported, pointer-free

@@ -13,27 +13,36 @@ ROOT = Path(__file__).resolve().parents[1]
 class SleepWakeTest(unittest.TestCase):
     def test_keyboard_interrupt_and_dedicated_key_sleep_paths(self):
         source = (ROOT / "src/main.c").read_text()
-        macros = source[source.index("#ifdef SOLAR_OS_BOARD_PIN_SLEEP_WAKE"):
+        macros = source[source.index("#ifdef SOLAR_OS_BOARD_PIN_KEY_WAKE"):
                         source.index("#define BLE_SLEEP_DISCONNECT_TIMEOUT_MS")]
         functions = production_functions(source, (
+            "key_level_is_pressed", "key_rtc_is_pressed", "key_wake_released",
             "key_button_configure_gpio", "prepare_rtc_wake_gpio",
+            "configure_rtc_wakeup",
             "sleep_wake_configure_gpio", "sleep_wake_restore_gpio",
             "wait_sleep_wake_released_stable", "enter_suspend",
             "maybe_exit_suspend_for_input", "enter_sleep",
         ))
-        for board_id in ("cl_32", "solar_term"):
+        for board_id in ("cl_32", "solar_term", "seeed_sensecap_watcher"):
             with self.subTest(board=board_id), tempfile.TemporaryDirectory() as tmp:
                 board = load_board_manifest(ROOT / f"boards/manifests/{board_id}.toml")
                 names = ("SOLAR_OS_BOARD_PIN_SLEEP_WAKE", "SOLAR_OS_BOARD_SLEEP_WAKE_ACTIVE_LEVEL",
                          "SOLAR_OS_BOARD_SLEEP_WAKE_PULL_UP", "SOLAR_OS_BOARD_SLEEP_WAKE_PULL_DOWN",
                          "SOLAR_OS_BOARD_PIN_KEY", "SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL",
-                         "SOLAR_OS_BOARD_KEY_PULL_UP", "SOLAR_OS_BOARD_KEY_PULL_DOWN")
-                defines = {name: "0" for name in names if "SLEEP_WAKE" not in name}
+                         "SOLAR_OS_BOARD_KEY_PULL_UP", "SOLAR_OS_BOARD_KEY_PULL_DOWN",
+                         "SOLAR_OS_BOARD_PIN_KEY_WAKE", "SOLAR_OS_BOARD_KEY_GPIO_LINE",
+                         "SOLAR_OS_BOARD_KEY_WAKE_ACTIVE_LEVEL", "SOLAR_OS_BOARD_KEY_WAKE_PULL_UP",
+                         "SOLAR_OS_BOARD_KEY_WAKE_PULL_DOWN", "SOLAR_OS_BOARD_KEY_WAKE_EXT0",
+                         "SOLAR_OS_BOARD_SLEEP_SUSPEND_DISPLAY")
+                defines = {name: "0" for name in ("SOLAR_OS_BOARD_PIN_KEY", "SOLAR_OS_BOARD_KEY_ACTIVE_LEVEL",
+                    "SOLAR_OS_BOARD_KEY_PULL_UP", "SOLAR_OS_BOARD_KEY_PULL_DOWN",
+                    "SOLAR_OS_BOARD_SLEEP_SUSPEND_DISPLAY")}
                 defines.update({name: value for name, value in board["defines"].items() if name in names})
                 defines["SOLAR_OS_BOARD_HAS_KEY"] = str(int("key" in board["build"]["capabilities"]))
                 defines["SOLAR_OS_BOARD_HAS_WIRED_KEYBOARD"] = str(int(board_id == "cl_32"))
                 preamble = "\n".join(f"#define {name} {value}" for name, value in defines.items())
-                Path(tmp, "sleep.inc").write_text(preamble + "\n" + macros + "\n" + functions)
+                Path(tmp, "board.inc").write_text(preamble)
+                Path(tmp, "sleep.inc").write_text(macros + "\n" + functions)
                 binary = Path(tmp, "sleep")
                 subprocess.run([
                     "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",

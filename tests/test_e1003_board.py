@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from solaros_board_manifest import generate_header, load_board_manifest, load_driver_catalog, required_packages, validate_board
 from tests.test_foreground_presenter import production_functions
+from tests.test_keyboard_layouts import write_keyboard_layouts
 
 
 class E1003BoardTest(unittest.TestCase):
@@ -175,6 +176,7 @@ int main(void) {
             Path(tmp, "solar_os_board.h").write_text(header)
             path, binary = Path(tmp, "buttons.c"), Path(tmp, "buttons")
             path.write_text(source)
+            write_keyboard_layouts(tmp)
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-include", str(ROOT / "tests/host/compat.h"), "-I", tmp,
                 "-I", str(ROOT / "tests/host/gpio_controller_stubs"), "-I", str(ROOT / "tests/host"),

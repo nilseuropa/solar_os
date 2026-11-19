@@ -19,11 +19,9 @@ static esp_err_t camera_open(void *user, const char *owner,
     const solar_os_stream_video_format_t *requested = &options->requested_video;
     if (requested->codec != SOLAR_OS_STREAM_VIDEO_JPEG) return ESP_ERR_NOT_SUPPORTED;
     if (requested->width != 0U || requested->height != 0U) {
-        if (requested->width == 640U && requested->height == 480U) {
-            config.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
-        } else if (requested->width != 320U || requested->height != 240U) {
-            return ESP_ERR_NOT_SUPPORTED;
-        }
+        if (!requested->width || !requested->height) return ESP_ERR_INVALID_ARG;
+        config.width = requested->width;
+        config.height = requested->height;
     }
     if (requested->jpeg_quality != 0U) config.jpeg_quality = requested->jpeg_quality;
     if (config.jpeg_quality > 63U) return ESP_ERR_INVALID_ARG;
@@ -38,8 +36,8 @@ static esp_err_t camera_open(void *user, const char *owner,
     handle->private_data[0] = token.generation;
     handle->video = (solar_os_stream_video_format_t){
         .codec = SOLAR_OS_STREAM_VIDEO_JPEG,
-        .width = config.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ? 640U : 320U,
-        .height = config.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA ? 480U : 240U,
+        .width = config.width,
+        .height = config.height,
         .jpeg_quality = config.jpeg_quality,
     };
     return ESP_OK;
@@ -85,7 +83,14 @@ static esp_err_t camera_release_frame(void *user, solar_os_stream_handle_t *hand
 
 esp_err_t solar_os_camera_stream_register(const char *name)
 {
-    if (name == NULL || name[0] == '\0' ||
+    const solar_os_camera_config_t config = {.width = 320U, .height = 240U, .jpeg_quality = 12U};
+    return solar_os_camera_stream_register_config(name, &config);
+}
+
+esp_err_t solar_os_camera_stream_register_config(const char *name,
+                                                  const solar_os_camera_config_t *config)
+{
+    if (config == NULL || name == NULL || name[0] == '\0' ||
         strnlen(name, SOLAR_OS_STREAM_DEVICE_MAX) >= SOLAR_OS_STREAM_DEVICE_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -94,9 +99,10 @@ esp_err_t solar_os_camera_stream_register(const char *name)
             .provider = "camera", .type = SOLAR_OS_STREAM_TYPE_VIDEO,
             .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
             .sharing = SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
-            .unit = "frame", .format = "jpeg", .summary = "DVP JPEG camera",
+            .unit = "frame", .format = "jpeg", .summary = "JPEG camera",
             .video = {.codec = SOLAR_OS_STREAM_VIDEO_JPEG,
-                      .width = 320U, .height = 240U, .jpeg_quality = 12U},
+                      .width = config->width, .height = config->height,
+                      .jpeg_quality = config->jpeg_quality},
         },
         .open = camera_open, .close_checked = camera_close,
         .acquire_frame = camera_acquire_frame, .release_frame = camera_release_frame,

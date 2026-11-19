@@ -501,12 +501,12 @@ role = "camera D5"
 expansion = true
 [[pins]]
 gpio = 19
-policy = "fixed"
+policy = "releasable"
 role = "USB D-/CDC or host"
 expansion = true
 [[pins]]
 gpio = 20
-policy = "fixed"
+policy = "releasable"
 role = "USB D+/CDC or host"
 expansion = true
 [[pins]]

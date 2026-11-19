@@ -22,6 +22,11 @@ bool solar_os_json_scan_object_string(const char *json,
 bool solar_os_json_scan_object_uint64(const char *json,
                                       const char *key,
                                       uint64_t *out);
+/* Borrow a complete value from the supplied NUL-terminated JSON. */
+bool solar_os_json_scan_object_value(const char *json, const char *key,
+                                      const char **value, size_t *length);
+bool solar_os_json_scan_array_value(const char *json, size_t index,
+                                     const char **value, size_t *length);
 
 esp_err_t solar_os_json_escape_string(const char *source,
                                       char *out,

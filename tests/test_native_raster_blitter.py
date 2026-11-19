@@ -43,6 +43,7 @@ class NativeRasterBlitterTest(unittest.TestCase):
             decoder_consumers,
             {
                 "src/apps/solar_os_view.c",
+                "src/apps/solar_os_photo.c",
                 "src/apps/solar_os_web.c",
                 "src/apps/solar_os_rtsp_app.c",
                 "src/apps/solar_os_sketch.c",

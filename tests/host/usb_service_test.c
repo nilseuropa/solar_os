@@ -7,15 +7,34 @@
 #include "solar_os_cdc.h"
 #include "solar_os_resources.h"
 #include "solar_os_usb_hid_input.h"
+#include "driver/gpio.h"
+#include "solar_os_board_caps.h"
 
 struct usb_test_pm_lock { bool held; };
 static unsigned pm_locks;
-static bool fail_pm, cdc_ready = SOLAR_OS_BOARD_HAS_CDC, cdc_busy, active, partial_start;
+static bool fail_pm, cdc_ready, cdc_busy, active, partial_start;
+static bool pads_enabled = true, fail_pin_reset;
+static unsigned pin_resets;
+#define USB_DEVICE_CLAIM_COUNT (SOLAR_OS_BOARD_HAS_CDC ? 3U : 0U)
 static esp_err_t start_error, stop_error, cdc_error;
 static esp_err_t enable_error;
 static unsigned starts;
 static usb_host_port_callback_t callback;
 static solar_os_usb_hid_input_t *opened_input;
+
+esp_err_t gpio_config(const gpio_config_t *config)
+{
+    assert(config->pin_bit_mask == ((1ULL << 19) | (1ULL << 20)));
+    assert(config->mode == GPIO_MODE_DISABLE && !config->pull_up_en && !config->pull_down_en && !config->intr_type);
+    solar_os_resource_claim_t claim;
+    assert(solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, 19, -1, &claim));
+    assert(!strcmp(claim.owner, "usb-host"));
+    assert(!active && !cdc_ready);
+    if (fail_pin_reset) return ESP_FAIL;
+    pads_enabled = false;
+    pin_resets++;
+    return ESP_OK;
+}
 #ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
 #include "driver/gpio.h"
 #define USB_HOST_CLAIM_COUNT 4U
@@ -92,6 +111,14 @@ esp_err_t solar_os_cdc_init(void)
     assert(SOLAR_OS_BOARD_HAS_CDC); /* UART-only boards must never touch CDC. */
     assert(!active); /* Never restore CDC over an incompletely stopped host. */
     if (cdc_error != ESP_OK) return cdc_error;
+    const solar_os_resource_request_t pins[] = {
+        {SOLAR_OS_RESOURCE_USB_PORT, 0, -1, "USB"},
+        {SOLAR_OS_RESOURCE_GPIO_PIN, 19, -1, "D-"},
+        {SOLAR_OS_RESOURCE_GPIO_PIN, 20, -1, "D+"},
+    };
+    esp_err_t ret = solar_os_resource_claim_bundle(pins, 3, "usb-device", NULL);
+    if (ret != ESP_OK) return ret;
+    pads_enabled = true;
     cdc_ready = true;
     return ESP_OK;
 }
@@ -100,13 +127,18 @@ esp_err_t solar_os_cdc_deinit(void)
     assert(SOLAR_OS_BOARD_HAS_CDC);
     if (cdc_busy) return ESP_ERR_INVALID_STATE;
     cdc_ready = false;
+    pads_enabled = false;
+    solar_os_resource_release_owner("usb-device");
     return ESP_OK;
 }
+void solar_os_cdc_get_status(solar_os_cdc_status_t *status)
+{ *status = (solar_os_cdc_status_t){.initialized = cdc_ready, .driver_installed = cdc_ready}; }
 esp_err_t usb_host_port_start(usb_host_port_callback_t cb)
 {
     assert(!cdc_ready && !active && pm_locks == 2 && vbus_ready(false));
     starts++; callback = cb;
     active = start_error == ESP_OK || partial_start;
+    if (active) pads_enabled = true;
     return start_error;
 }
 esp_err_t usb_host_port_stop(void)
@@ -157,6 +189,7 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 
 static solar_os_usb_status_t status(solar_os_usb_mode_t mode)
 {
+    if (mode == SOLAR_OS_USB_MODE_DEVICE && !SOLAR_OS_BOARD_HAS_CDC) mode = SOLAR_OS_USB_MODE_OFF;
     solar_os_usb_status_t result;
     solar_os_usb_get_status(&result);
     assert(result.mode == mode);
@@ -175,37 +208,66 @@ static bool device_ready(void)
 
 int main(void)
 {
+#if SOLAR_OS_BOARD_HAS_CDC && !SOLAR_OS_BOARD_USB_DEFAULT_OFF
+    cdc_error = ESP_ERR_NO_MEM;
+    assert(solar_os_usb_init() == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_FAULT);
+    assert(solar_os_usb_init() == ESP_ERR_INVALID_STATE);
+    assert(pads_enabled && !solar_os_resource_claim_count());
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_OK);
+    assert(!pads_enabled && !solar_os_resource_claim_count());
+    cdc_error = ESP_OK;
+#else
+    assert(solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN, 19, -1, "other", "busy") == ESP_OK);
+    assert(solar_os_usb_init() == ESP_ERR_INVALID_STATE);
+    status(SOLAR_OS_USB_MODE_FAULT);
+    assert(pads_enabled && solar_os_resource_claim_count() == 1);
+    solar_os_resource_release_owner("other");
+#endif
+    assert(solar_os_usb_init() == ESP_OK);
+#if SOLAR_OS_BOARD_USB_DEFAULT_OFF
+    status(SOLAR_OS_USB_MODE_OFF);
+    assert(!pads_enabled && !cdc_ready && solar_os_resource_claim_count() == 0);
+#endif
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
     status(SOLAR_OS_USB_MODE_DEVICE);
     assert(pm_locks == 0 && starts == 0);
 #if SOLAR_OS_BOARD_HAS_CDC
     cdc_busy = true;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_ERR_INVALID_STATE);
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);
-    assert(cdc_ready && !active && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(cdc_ready && !active && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     cdc_busy = false;
 #endif
 
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_OK);
     for (int pin = 19; pin <= 20; pin++) {
         assert(solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, "other", "busy") == ESP_OK);
+        unsigned resets = pin_resets;
+        assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_OK);
         assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);
-        assert(device_ready() && starts == 0 && solar_os_resource_claim_count() == 1);
+        if (SOLAR_OS_BOARD_HAS_CDC) assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_ERR_INVALID_STATE);
+        assert(!cdc_ready && !pads_enabled && pin_resets == resets && starts == 0 && solar_os_resource_claim_count() == 1);
+        status(SOLAR_OS_USB_MODE_OFF);
         solar_os_resource_release_owner("other");
     }
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
 #ifdef SOLAR_OS_BOARD_PIN_USB_VBUS_EN
     assert(solar_os_resource_claim(SOLAR_OS_RESOURCE_GPIO_PIN, 18, -1, "other", "busy") == ESP_OK);
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);
-    assert(device_ready() && starts == 0 && solar_os_resource_claim_count() == 1);
+    assert(device_ready() && starts == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT + 1);
     solar_os_resource_release_owner("other");
 #endif
 
     fail_pm = true;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
-    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     fail_pm = false;
 
     start_error = ESP_ERR_NO_MEM;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
     status(SOLAR_OS_USB_MODE_DEVICE);
-    assert(device_ready() && !active && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(device_ready() && !active && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     partial_start = true; stop_error = ESP_ERR_TIMEOUT;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
     assert(status(SOLAR_OS_USB_MODE_FAULT).rollback_error == ESP_ERR_TIMEOUT);
@@ -220,7 +282,7 @@ int main(void)
     fail_vbus_enable = true;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_FAIL);
     status(SOLAR_OS_USB_MODE_DEVICE);
-    assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     fail_vbus_enable = false;
 
     unsigned previous_power_ons = power_ons;
@@ -228,7 +290,7 @@ int main(void)
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_FAIL);
     status(SOLAR_OS_USB_MODE_DEVICE);
     assert(power_ons == previous_power_ons + 1); /* Rollback after VBUS was enabled. */
-    assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     enable_error = ESP_OK;
 
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
@@ -239,7 +301,7 @@ int main(void)
     assert(solar_os_resource_claim_count() == USB_HOST_CLAIM_COUNT);
     fail_vbus_disable = false;
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
-    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
 #endif
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
     assert(active && !cdc_ready && pm_locks == 2 && callback);
@@ -309,13 +371,13 @@ int main(void)
     fail_pm = true;
     assert(solar_os_usb_resume() == ESP_ERR_NO_MEM);
     status(SOLAR_OS_USB_MODE_DEVICE);
-    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+    assert(device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     fail_pm = false;
 
     for (unsigned i = 0; i < 50; i++) {
         assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
         assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
-        assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == 0);
+        assert(!active && device_ready() && pm_locks == 0 && solar_os_resource_claim_count() == USB_DEVICE_CLAIM_COUNT);
     }
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     storage_start_error = ESP_ERR_NO_MEM;
@@ -335,6 +397,41 @@ int main(void)
     assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_INVALID_STATE);
     assert(solar_os_usb_resume() == ESP_OK);
     status(SOLAR_OS_USB_MODE_DEVICE);
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_OK);
+    unsigned resets = pin_resets;
+    assert(solar_os_usb_prepare_sleep() == ESP_OK);
+    assert(status(SOLAR_OS_USB_MODE_OFF).sleep_prepared);
+    assert(solar_os_usb_resume() == ESP_OK && pin_resets == resets);
+    assert(!pads_enabled && !pm_locks && solar_os_resource_claim_count() == 0);
+    start_error = ESP_ERR_NO_MEM;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_OFF);
+    assert(!pads_enabled && !cdc_ready && !pm_locks && !solar_os_resource_claim_count());
+    start_error = ESP_OK;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
+    fail_pin_reset = true;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_FAIL);
+    status(SOLAR_OS_USB_MODE_FAULT);
+    assert(!active && pm_locks == 2 && solar_os_resource_claim_count() == USB_HOST_CLAIM_COUNT);
+    fail_pin_reset = false;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_OFF) == ESP_OK);
+    assert(!pads_enabled && !pm_locks && !solar_os_resource_claim_count());
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_HOST) == ESP_OK);
+    assert(solar_os_usb_prepare_sleep() == ESP_OK);
+    fail_pm = true;
+    assert(solar_os_usb_resume() == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_OFF);
+    assert(!pads_enabled && !cdc_ready && !pm_locks && !solar_os_resource_claim_count());
+    fail_pm = false;
+#if SOLAR_OS_BOARD_HAS_CDC
+    cdc_error = ESP_ERR_NO_MEM;
+    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_ERR_NO_MEM);
+    status(SOLAR_OS_USB_MODE_OFF);
+    assert(!pads_enabled && !solar_os_resource_claim_count());
+    cdc_error = ESP_OK;
+#endif
+    assert(solar_os_usb_init() == ESP_OK); /* Repeated init never changes a user-selected mode. */
+    status(SOLAR_OS_USB_MODE_OFF);
     puts("USB service lifecycle tests: ok");
     return 0;
 }

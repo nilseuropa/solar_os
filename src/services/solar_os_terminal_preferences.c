@@ -4,6 +4,7 @@
 
 #include "nvs.h"
 #include "solar_os_board.h"
+#include "solar_os_display.h"
 
 #define TERM_NVS_NAMESPACE "terminal"
 #define TERM_NVS_ORIENTATION_KEY "orientation"
@@ -13,9 +14,12 @@
 #define TERM_NVS_STATUS_BAR_KEY "statusbar"
 #define TERM_NVS_CURSOR_KEY "cursor"
 
-/* One atomic value keeps shape/mode consistent across display and port shells.
- * Bits: 1 = underscore, 0 = steady. Zero is the factory block/blink setting. */
-static atomic_uint cursor_preference = ATOMIC_VAR_INIT(4);
+/* Bits: 1 = underscore, 0 = steady. All four saved values, including zero
+ * (block/blink), are explicit overrides. Keep an absent preference distinct
+ * so defaults can follow each display, even when it registers after a query. */
+#define TERM_CURSOR_UNSET 4U
+#define TERM_CURSOR_UNLOADED 5U
+static atomic_uint cursor_preference = ATOMIC_VAR_INIT(TERM_CURSOR_UNLOADED);
 #define TERM_DEFAULT_FONT SOLAR_OS_TERMINAL_FONT_COMPACT
 /* A board may pick a different factory default text size for its panel via
  * SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE (a solar_os_terminal_text_size_t
@@ -112,19 +116,26 @@ static esp_err_t save_u16(const char *key, uint16_t value)
 void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *shape,
                                               bool *blink)
 {
+    solar_os_terminal_get_cursor_preference_for_display(NULL, shape, blink);
+}
+
+void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
     unsigned value = atomic_load(&cursor_preference);
-    if (value > 3U) {
-        uint16_t saved = 0;
+    if (value == TERM_CURSOR_UNLOADED) {
+        uint16_t saved = TERM_CURSOR_UNSET;
         nvs_handle_t nvs;
         if (nvs_open(TERM_NVS_NAMESPACE, NVS_READONLY, &nvs) == ESP_OK) {
             if (nvs_get_u16(nvs, TERM_NVS_CURSOR_KEY, &saved) != ESP_OK || saved > 3U)
-                saved = 0;
+                saved = TERM_CURSOR_UNSET;
             nvs_close(nvs);
         }
-        unsigned expected = 4;
+        unsigned expected = TERM_CURSOR_UNLOADED;
         atomic_compare_exchange_strong(&cursor_preference, &expected, saved);
         value = atomic_load(&cursor_preference);
     }
+    if (value == TERM_CURSOR_UNSET) value = solar_os_display_is_epaper(u8g2) ? 1U : 0U;
     if (shape != NULL) *shape = (solar_os_terminal_cursor_shape_t)(value >> 1U);
     if (blink != NULL) *blink = (value & 1U) == 0;
 }

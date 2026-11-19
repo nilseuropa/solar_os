@@ -3,12 +3,13 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "solar_os_media_sample.h"
 
 #define SOLAR_OS_PIPELINES_MAX 4U
 typedef struct {
     /* Absolute file path, native video stream ID, or rtsp:// JPEG URL. */
     const char *source;
-    const char *processor; /* qr or model */
+    const char *processor; /* qr, model, or processor-<kind> native provider */
     uint32_t model, limit, interval_ms, timeout_ms;
 } solar_os_pipeline_config_t;
 typedef struct {
@@ -29,5 +30,10 @@ esp_err_t solar_os_pipeline_status(uint32_t id, solar_os_pipeline_status_t *stat
  * owns the copied JSON (solar_os_memory_free). Sequence and frame timing are
  * included in each result to keep them consistent with that frame. */
 esp_err_t solar_os_pipeline_result(uint32_t id, uint64_t after, char **json);
+/* Atomic result + matching encoded image snapshot. Either output is optional;
+ * both are NULL when no newer result exists. Free JSON and release the sample; that
+ * reference survives replacement, stop, restart, and pipeline destruction. */
+esp_err_t solar_os_pipeline_result_sample(uint32_t id, uint64_t after, char **json,
+    solar_os_media_sample_t **sample);
 esp_err_t solar_os_pipeline_stop(uint32_t id);
 esp_err_t solar_os_pipeline_destroy(uint32_t id);

@@ -322,3 +322,14 @@ esp_err_t solar_os_gpio_line_write(const solar_os_gpio_line_ref_t *line, bool le
     end_call(&call);
     return ret;
 }
+
+esp_err_t solar_os_gpio_line_acknowledge_interrupt(const solar_os_gpio_line_ref_t *line)
+{
+    if (solar_os_gpio_line_is_native(line)) return ESP_OK;
+    gpio_controller_call_t call;
+    ESP_RETURN_ON_ERROR(begin_call(line, &call), "gpio-controller", "line unavailable");
+    const esp_err_t ret = call.ops->acknowledge_interrupt ?
+        call.ops->acknowledge_interrupt(call.ctx) : ESP_ERR_NOT_SUPPORTED;
+    end_call(&call);
+    return ret;
+}

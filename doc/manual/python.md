@@ -34,6 +34,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 
 | Topic | Services |
 | --- | --- |
+| [AOgmaNeo online learning](aogmaneo.md) | `solaros.aogmaneo` predictive hierarchies, actors and image encoding |
 | [Storage and files](python.storage.md) | `solaros.storage` |
 | [Time and scheduling](python.time.md) | `solaros.time`, `solaros.rtc`, `solaros.schedule` |
 | [Networking](python.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.sftpsync`, `solaros.ssh_keys` |
@@ -52,6 +53,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Camera, streams, and RTSP](python.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
 | [Computer vision](vision.md) | `solaros.vision` |
 | [Model inference](inference.md) | `solaros.inference` |
+| [Agent text, image, and audio questions](python.agent.md) | `solaros.agent` |
 | [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Conventions

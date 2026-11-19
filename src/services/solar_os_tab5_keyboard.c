@@ -1,4 +1,5 @@
 #include "solar_os_tab5_keyboard.h"
+#include "drivers/solar_os_gpio_isr.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -230,7 +231,7 @@ static esp_err_t attach_locked(const char *name,
         dev->pin_configured = true;
         err = gpio_config(&config);
         if (err == ESP_OK) {
-            err = gpio_install_isr_service(0);
+            err = solar_os_gpio_isr_service_ensure();
             if (err == ESP_ERR_INVALID_STATE) err = ESP_OK;
         }
     }

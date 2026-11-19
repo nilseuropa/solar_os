@@ -72,14 +72,16 @@ schema is invented here.
 Available when `service.camera` is compiled:
 
 - `solaros.camera.status()`: backend, sensor, owner, initialized/leased flags,
-  selected size/quality, `orientation` (`normal`, `mirror`, `flip`, or `180`),
+  selected `size`, `width`, `height`, quality, `orientation` (`normal`, `mirror`, `flip`, or `180`),
   `frame_buffer_count`, capture count, and last error name.
 - `snapshot([size[, jpeg_quality[, source]]])`: return a native JPEG frame
-  handle. Defaults are `qvga`, quality 12, and `camera0`.
+  handle. Dimensions and quality default to the camera backend's configuration;
+  the source defaults to `camera0`.
 - `capture(path[, size[, jpeg_quality[, source]]])`: capture directly to a
   JPEG file and release the temporary source, including on write failure.
 
-Sizes are `qvga` (320x240) and `vga` (640x480). A snapshot owns a temporary
+Sizes accept `WIDTHxHEIGHT`, with `qvga` (320x240) and `vga` (640x480) shortcuts.
+Use `camera resolutions` in the shell to inspect supported modes. A snapshot owns a temporary
 camera source until `streams.release_frame(frame)`. For repeated captures,
 open the stream once and acquire/release frames in a loop instead of restarting
 the camera each time. Files are overwritten by capture/frame_save.

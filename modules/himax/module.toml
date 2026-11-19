@@ -1,0 +1,12 @@
+schema_version = 2
+type = "library"
+id = "processor-himax"
+name = "Himax HX6538 processor"
+version = "1.2.1"
+description = "SSCMA model discovery, slot programming, selection and camera-bound inference through the shared HX6538 driver."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "processor-himax.library.elf"

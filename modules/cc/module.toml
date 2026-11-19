@@ -1,0 +1,20 @@
+schema_version = 2
+type = "app"
+id = "cc"
+name = "C compiler"
+version = "0.7.0"
+description = "Compile C source files into native SolarOS applications."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "cc.app.elf"
+dependencies = [{ id = "tinycc", version = "0.6.0" }]
+required_services = [
+    { name = "storage", abi = 1, minimum_struct_size = 44 },
+    { name = "memory", abi = 1, minimum_struct_size = 48 },
+    { name = "library", abi = 1, minimum_struct_size = 24 },
+    { name = "libc", abi = 1, minimum_struct_size = 12 },
+    { name = "time", abi = 1, minimum_struct_size = 16 },
+]

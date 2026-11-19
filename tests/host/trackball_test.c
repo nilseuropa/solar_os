@@ -31,10 +31,9 @@ esp_err_t gpio_reset_pin(gpio_num_t pin)
     configured[pin] = false;
     return ESP_OK;
 }
-esp_err_t gpio_install_isr_service(int flags)
+esp_err_t solar_os_gpio_isr_service_ensure(void)
 {
-    (void)flags;
-    return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
 }
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg)
 {

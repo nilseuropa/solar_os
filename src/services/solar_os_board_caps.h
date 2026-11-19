@@ -68,6 +68,9 @@ typedef uint64_t solar_os_board_capability_t;
 #ifndef SOLAR_OS_BOARD_HAS_USB_HOST
 #define SOLAR_OS_BOARD_HAS_USB_HOST 0
 #endif
+#ifndef SOLAR_OS_BOARD_USB_DEFAULT_OFF
+#define SOLAR_OS_BOARD_USB_DEFAULT_OFF 0
+#endif
 #ifndef SOLAR_OS_BOARD_HAS_UART
 #define SOLAR_OS_BOARD_HAS_UART 0
 #endif

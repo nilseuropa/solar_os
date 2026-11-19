@@ -12,7 +12,7 @@ MANUAL = (ROOT / "doc/manual/jobs.reference.md").read_text(encoding="utf-8")
 class CameraWebJobTest(unittest.TestCase):
     def test_camera_group_installs_job_and_dependencies(self):
         self.assertIn(
-            'members = ["driver_camera_esp32", "job_cam_webd"]',
+            'members = ["driver_camera_esp32", "driver_himax_hx6538", "job_cam_webd"]',
             PACKAGES,
         )
         package = PACKAGES.split("[packages.job_cam_webd]", 1)[1].split(

@@ -4,8 +4,8 @@ title = "Agent service and tool reference"
 section = "app"
 summary = "Configure providers, inspect tools, and understand request limits"
 aliases = ["agent.tools"]
-keywords = "agent service responses api tools policy memory bounds provider"
-packages_any = ["app_agent"]
+keywords = "agent service responses api tools policy memory bounds provider speech tts images audio wav mp3 python lua ask_audio"
+packages_any = ["service_agent"]
 +++
 # Native Agent Service
 
@@ -76,9 +76,8 @@ For a single request, use:
 agent ask Describe the current device status.
 ```
 
-The one-request frontend stays open after completion so the response remains
-readable. It is not persisted. Use `Esc` or the app-exit key to return to the
-shell.
+One-request answers are not persisted. `Esc` or the app-exit key cancels an
+active request.
 
 With Python or Lua included, run a source string or file:
 
@@ -104,6 +103,61 @@ validation uses the firmware certificate bundle. A stateless local provider
 turn that contains neither text nor a tool call is retried once; a second empty
 turn is reported as an invalid response instead of silently returning to the
 prompt.
+
+## Speech output and image input
+
+The foreground Agent app can queue final written answers for local PicoTTS
+playback. Start `speechd` with an installed voice directory, then launch with
+`--tts` immediately after `agent`:
+
+```text
+job start speechd /voices/en-US
+agent --tts
+agent --tts resume SLOT
+agent --tts ask --image stream:camera0 Describe the scene.
+```
+
+The `speech` package, audio output, and voice files are required. Speech starts
+after a successful final answer; tool activity and intermediate responses stay
+silent. The full text remains visible. Voice selection and playback belong to
+the local speech job; the provider returns text. See [Agent speech output](agent.md#speech-output)
+for voice installation and troubleshooting, and [speechd](jobs.reference.md#speechd)
+for queue behavior.
+
+Use `agent ask --image SOURCE QUESTION` or `/image SOURCE QUESTION` inside a
+chat for image input. File, `stream:ID`, `rtsp://`, and `pipeline:ID` sources use
+the same bounded encoded attachments. See [image questions](agent.md#ask-about-an-image)
+for supported formats, limits, source ownership, and conversation history.
+
+## Python and Lua
+
+Scripts can call `solaros.agent.ask(prompt[, images[, conversation_id]])` and
+receive a reply with text, usage, and an optional saved conversation ID. Images
+accept one source string or up to two file, stream, RTSP, or pipeline sources.
+Bindings also expose provider configuration, status, cancellation, and saved
+conversation management. See [Python agent API](python.agent.md) and
+[Lua agent API](lua.agent.md) for arguments, examples, limits, and tool policy.
+
+## Audio-file input
+
+The native request accepts one borrowed encoded audio sample in `audio`.
+Use `solar_os_media_sample_open_audio_bounded()` to load a resolved file with
+a size bound and cancellation callback, then call `solar_os_agent_run()` and
+release the sample with `solar_os_media_sample_release()` after it returns.
+
+Audio accepts WAV or MP3 up to 1 MiB. The Chat Completions adapter sends the
+file as base64 `input_audio` with its detected format and requests text output.
+Select an audio-capable model; for OpenAI, use the complete
+`https://api.openai.com/v1/chat/completions` endpoint and an audio model such
+as `gpt-audio-1.5`. Responses endpoints return `ESP_ERR_NOT_SUPPORTED` without
+uploading audio. See the [provider audio reference](https://developers.openai.com/api/docs/guides/audio-chat-completions).
+
+Python and Lua expose this as `solaros.agent.ask_audio(prompt, path[, conversation_id])`.
+The return value matches `ask()`. File reads and HTTP polling support script
+cancellation and deadlines; all native samples are released on every return
+path. The service forwards encoded bytes without recording or transcoding.
+Audio stays in the current request's tool continuations. Saved history stores
+an attachment notice and text, with audio bytes omitted.
 
 ## Typed tools
 
@@ -238,10 +292,23 @@ the model.
 
 ## Resource bounds
 
+Native requests accept `images` and `image_count` alongside `prompt`. Each
+entry is an immutable `solar_os_media_sample_t` reference that the caller keeps
+alive until `solar_os_agent_run()` returns. Up to two JPEG, PNG, GIF, or WebP
+images may total 512 KiB. The service validates this before network admission.
+Encoded consumers require no raster decoder or display service. Image-capable
+provider adapters advertise `SOLAR_OS_AGENT_PROVIDER_CAP_IMAGES`; model support
+still depends on provider configuration.
+
+Image requests reserve PSRAM for bounded base64 content and a JSON body in
+addition to the encoded samples. Text-only request bounds are unchanged.
+Responses tool continuations reuse the provider response ID; Chat Completions
+continuations retain the original images through the final answer. Local
+conversation files contain attachment notices rather than image bytes.
+
 - Foreground worker stack: 16 KiB internal RAM.
 - Stream-line buffer: 24 KiB, PSRAM preferred. Responses completion events
   contain the assembled output as one event.
-- Request body: 16 KiB, PSRAM preferred.
 - Prompt: 1023 bytes.
 - Tool discovery query: 159 bytes.
 - Tool descriptor buffer: 6 KiB, allocated in PSRAM. At most three bootstrap
@@ -267,7 +334,7 @@ the model.
 - Manual script output: 4095 bytes, allocated in PSRAM.
 - Manual script deadline: 30 seconds.
 - Model output: 16 KiB per provider turn.
-- Provider request body: 32 KiB in PSRAM, including at most 8 KiB of raw local
+- Text-only provider request body: 32 KiB in PSRAM, including at most 8 KiB of raw local
   history serialized into a 16 KiB history fragment for Chat Completions.
 - Assistant capture for a completed turn: 16 KiB in PSRAM.
 - Conversation file: 10 KiB on internal flash or 48 KiB on SD; three flash
@@ -287,7 +354,7 @@ for available operations and their policy.
 
 ## Quick reference
 
-The native agent uses the configured OpenAI-compatible Responses endpoint,
+The native agent uses the configured OpenAI-compatible Responses or Chat Completions endpoint,
 applies the selected confirmation policy, and exposes bounded typed tools for
 installed SolarOS features. Completed chat turns are stored locally;
 `agent list`, `agent resume SLOT`, and `agent delete SLOT` manage them. Responses
@@ -295,3 +362,11 @@ uses a provider continuation ID and Chat Completions uses bounded local
 history. `agent status` reports provider, policy, requests, tool activity, and
 memory. This page defines the tool contract and resource limits; `man agent` is
 the task-oriented usage guide.
+
+For audio files, use `solaros.agent.ask_audio(prompt, path[, conversation_id])`
+in Python or Lua with an audio-capable Chat Completions model. WAV/MP3 input
+is bounded to 1 MiB and returns text; Responses rejects audio input.
+
+`agent --tts` speaks final answers using a running local PicoTTS `speechd` job.
+`agent [--tts] ask --image SOURCE QUESTION` combines image input with optional
+speech output. In chat, `/image SOURCE QUESTION` attaches an image to a turn.

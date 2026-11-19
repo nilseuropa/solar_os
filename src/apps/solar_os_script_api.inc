@@ -54,6 +54,25 @@ SOLAR_OS_SCRIPT_API_MODULE_BEGIN(board);
 SOLAR_OS_SCRIPT_API_FUNCTION(board, info, info);
 SOLAR_OS_SCRIPT_API_MODULE_END(board);
 
+#if SOLAR_OS_PACKAGE_SERVICE_AGENT
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(agent);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, status, status);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, ask, ask);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, ask_audio, ask_audio);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_endpoint, set_endpoint);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_model, set_model);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_api_key, set_api_key);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_reasoning_effort, set_reasoning_effort);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_tool_policy, set_tool_policy);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, set_max_tools, set_max_tools);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, cancel, cancel);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, forget, forget);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, conversations, conversations);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, conversation_info, conversation_info);
+SOLAR_OS_SCRIPT_API_FUNCTION(agent, delete_conversation, delete_conversation);
+SOLAR_OS_SCRIPT_API_MODULE_END(agent);
+#endif
+
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(storage);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, status, status);
 SOLAR_OS_SCRIPT_API_FUNCTION(storage, is_mounted, is_mounted);
@@ -119,6 +138,25 @@ SOLAR_OS_SCRIPT_API_MODULE_END(emotion);
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(jet);
 SOLAR_OS_SCRIPT_API_FUNCTION(jet, open, open);
 SOLAR_OS_SCRIPT_API_MODULE_END(jet);
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(aogmaneo);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, INPUT, SOLAR_OS_AOGMANEO_INPUT);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, PREDICTION, SOLAR_OS_AOGMANEO_PREDICTION);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, ACTION, SOLAR_OS_AOGMANEO_ACTION);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, destroy, destroy);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, step, step);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, prediction, prediction);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, activations, activations);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, values, values);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, hidden, hidden);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_create, image_create);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_step, image_step);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_reconstruct, image_reconstruct);
+SOLAR_OS_SCRIPT_API_MODULE_END(aogmaneo);
 #endif
 
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(time);
@@ -1165,6 +1203,7 @@ SOLAR_OS_SCRIPT_API_MODULE_END(inference);
 
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(pipeline);
+SOLAR_OS_SCRIPT_API_FUNCTION(pipeline, info, info);
 SOLAR_OS_SCRIPT_API_FUNCTION(pipeline, start, start);
 SOLAR_OS_SCRIPT_API_FUNCTION(pipeline, list, list);
 SOLAR_OS_SCRIPT_API_FUNCTION(pipeline, status, status);
@@ -1222,6 +1261,8 @@ SOLAR_OS_SCRIPT_API_FUNCTION(gfx, end, end);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, width, width);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, height, height);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, size, size);
+SOLAR_OS_SCRIPT_API_FUNCTION(gfx, canvas_bounds, canvas_bounds);
+SOLAR_OS_SCRIPT_API_FUNCTION(gfx, panel_bounds, panel_bounds);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, clear, clear);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, gray, gray);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, rgb, rgb);

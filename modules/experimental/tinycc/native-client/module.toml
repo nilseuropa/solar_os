@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "cc"
+name = "C compiler prototype"
+version = "0.4.0"
+description = "Compile C files and local headers into validated SolarOS native ELF."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "cc.app.elf"

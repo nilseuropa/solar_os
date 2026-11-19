@@ -1,5 +1,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
 #include "solar_os_pipeline.h"
+#include "solar_os_processor.h"
 #include "cJSON.h"
 static uint32_t solua_pipeline_uint(lua_State *L, int index)
 {
@@ -59,12 +60,8 @@ static void solua_pipeline_json_value(lua_State *L, const cJSON *value)
 }
 static int solua_pipeline_json_callback(lua_State *L)
 { solua_pipeline_json_value(L, lua_touserdata(L, 1)); return 1; }
-static int solua_pipeline_result(lua_State *L)
+static int solua_pipeline_push_json(lua_State *L, char *json)
 {
-    luaL_checkstack(L, 4, "pipeline result");
-    char *json = NULL;
-    (void)solua_check_esp(L, solar_os_pipeline_result(solua_pipeline_uint(L, 1),
-        lua_isnoneornil(L, 2) ? 0 : solua_pipeline_uint(L, 2), &json));
     if (!json) { lua_pushnil(L); return 1; }
     cJSON *value = cJSON_Parse(json); solar_os_memory_free(json);
     if (!value) return luaL_error(L, "pipeline JSON allocation failed");
@@ -72,6 +69,28 @@ static int solua_pipeline_result(lua_State *L)
     int status = lua_pcall(L, 1, 1, 0); cJSON_Delete(value);
     if (status != LUA_OK) return lua_error(L);
     return 1;
+}
+static int solua_pipeline_result(lua_State *L)
+{
+    luaL_checkstack(L, 4, "pipeline result");
+    char *json = NULL;
+    (void)solua_check_esp(L, solar_os_pipeline_result(solua_pipeline_uint(L, 1),
+        lua_isnoneornil(L, 2) ? 0 : solua_pipeline_uint(L, 2), &json));
+    return solua_pipeline_push_json(L, json);
+}
+static int solua_pipeline_info(lua_State *L)
+{
+    luaL_checkstack(L, 4, "processor info");
+    const char *values[3];
+    for (int i = 0; i < 3; ++i) {
+        size_t length;
+        values[i] = i == 0 ? luaL_checklstring(L, i + 1, &length) :
+            luaL_optlstring(L, i + 1, i == 1 ? "camera0" : "info", &length);
+        if (memchr(values[i], 0, length)) luaL_error(L, "embedded NUL in processor query");
+    }
+    char *json = NULL;
+    (void)solua_check_esp(L, solar_os_processor_query(values[0], values[1], values[2], &json));
+    return solua_pipeline_push_json(L, json);
 }
 static int solua_pipeline_stop(lua_State *L)
 { (void)solua_check_esp(L, solar_os_pipeline_stop(solua_pipeline_uint(L, 1))); return 0; }

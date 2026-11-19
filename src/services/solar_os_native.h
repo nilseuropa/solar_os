@@ -33,9 +33,19 @@ typedef struct {
 /* Only the calling execution task can obtain its host-owned service state. */
 void *solar_os_native_run_service_user(void);
 
+/* Firmware capabilities only; does not create or expose a caller's scope. */
+bool solar_os_native_service_available(const char *name, uint32_t abi, uint32_t minimum_size);
+
 typedef struct {
     solar_os_native_elf_info_t elf;
 } solar_os_native_run_result_t;
+
+/* Run trusted firmware code with the same task-local services and cleanup as
+ * an ELF command. Its entry status is returned separately from setup errors. */
+esp_err_t solar_os_native_run_builtin(int (*entry)(int, char **), int argc,
+                                      char **argv,
+                                      const solar_os_native_run_options_t *options,
+                                      int *exit_status);
 
 esp_err_t solar_os_native_run(const char *path,
                               int argc,

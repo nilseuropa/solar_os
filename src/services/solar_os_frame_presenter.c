@@ -331,6 +331,8 @@ static void frame_prepare_mono_palette(solar_os_frame_presenter_t *presenter)
 
 static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
 {
+    solar_os_display_rect_t panel = {0};
+    if (presenter->config.fullscreen) panel = solar_os_gfx_panel_bounds(presenter->config.gfx);
     solar_os_display_raster_t frame = {
         .data = presenter->presenting,
         .data_size = presenter->source_size,
@@ -368,6 +370,8 @@ static esp_err_t frame_present(solar_os_frame_presenter_t *presenter)
         frame.clear_background = false;
         frame.background_index = 0U;
     }
+    if (presenter->config.fullscreen) return solar_os_gfx_present_frame_at(presenter->config.gfx,
+        &frame, presenter->output_x + panel.x, presenter->output_y + panel.y);
     return solar_os_gfx_present_frame(presenter->config.gfx, &frame);
 }
 
@@ -537,7 +541,10 @@ static esp_err_t frame_refresh_output(solar_os_frame_presenter_t *presenter)
 {
     solar_os_display_target_t target;
     if (!solar_os_display_find_target(presenter->target_name, &target)) return ESP_ERR_NOT_FOUND;
-    const uint16_t width = target.width, height = target.height;
+    solar_os_display_rect_t bounds = presenter->config.fullscreen ?
+        solar_os_gfx_panel_bounds(presenter->config.gfx) :
+        (solar_os_display_rect_t){0, 0, solar_os_gfx_width(presenter->config.gfx), solar_os_gfx_height(presenter->config.gfx)};
+    const uint16_t width = bounds.width, height = bounds.height;
     if (width == presenter->viewport_width && height == presenter->viewport_height)
         return ESP_OK;
     frame_choose_output(presenter, width, height);
@@ -560,9 +567,11 @@ static esp_err_t frame_present_current_output(solar_os_frame_presenter_t *presen
         err = frame_present(presenter);
         if (err == ESP_OK) return err;
         solar_os_display_target_t target;
+        solar_os_display_rect_t bounds = presenter->config.fullscreen ?
+            solar_os_gfx_panel_bounds(presenter->config.gfx) :
+            (solar_os_display_rect_t){0, 0, solar_os_gfx_width(presenter->config.gfx), solar_os_gfx_height(presenter->config.gfx)};
         if (!solar_os_display_find_target(presenter->target_name, &target) ||
-            (presenter->viewport_width == target.width &&
-             presenter->viewport_height == target.height)) return err;
+            (presenter->viewport_width == bounds.width && presenter->viewport_height == bounds.height)) return err;
     }
 }
 
@@ -611,10 +620,11 @@ esp_err_t solar_os_frame_presenter_init(
     if (presenter->present_fps == 0U) presenter->present_fps = 25U;
     if (presenter->present_fps > 30U) presenter->present_fps = 30U;
     /* Fit the source before checking whether its output fits the display. */
-    frame_choose_output(presenter, presenter->target.width, presenter->target.height);
+    solar_os_display_rect_t bounds = config->fullscreen ? solar_os_gfx_panel_bounds(config->gfx) :
+        (solar_os_display_rect_t){0, 0, solar_os_gfx_width(config->gfx), solar_os_gfx_height(config->gfx)};
+    frame_choose_output(presenter, bounds.width, bounds.height);
     if (presenter->output_width == 0U || presenter->output_height == 0U ||
-        presenter->output_width > presenter->target.width ||
-        presenter->output_height > presenter->target.height) {
+        presenter->output_width > bounds.width || presenter->output_height > bounds.height) {
         solar_os_memory_free(presenter);
         return ESP_ERR_NOT_SUPPORTED;
     }

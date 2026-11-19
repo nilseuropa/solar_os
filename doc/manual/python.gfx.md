@@ -20,6 +20,21 @@ name.
 Graphics ownership does not deliver input implicitly. Use
 `solaros.input.read()` for touch coordinates, mouse deltas, and joystick axes.
 
+## Canvas and panel bounds
+
+`width()`, `height()`, and `size()` describe the canvas used for layout.
+`canvas_bounds()` returns `(0, 0, width, height)`. Rectangular displays default
+to a full-panel canvas; circular displays default to an inscribed rectangle.
+
+`panel_bounds()` returns `(x, y, width, height)` in the same canvas coordinates.
+Its origin can be negative: on the 412x412 Watcher, the default canvas is
+291x291 and the panel bounds are `(-60, -60, 412, 412)`.
+Drawing can use negative coordinates or extend past the canvas width/height;
+only the panel clips it. `clear()` clears the entire panel. Absolute touch
+events delivered to foreground apps use these same canvas coordinates.
+
+Use `display canvas <target>` to inspect or change the runtime layout rectangle.
+
 ## Draw on the current display
 
 ```python

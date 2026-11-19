@@ -1,4 +1,5 @@
 #include "solar_os_agent.h"
+#include "solar_os_agent_images.h"
 
 #include <stdbool.h>
 #include <inttypes.h>
@@ -66,6 +67,8 @@ typedef struct {
     bool initialized;
     bool running;
     bool cancel_requested;
+    solar_os_agent_cancel_fn should_cancel;
+    void *cancel_user_data;
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
     uint8_t max_tools;
@@ -525,8 +528,10 @@ bool solar_os_agent_provider_cancel_requested(void)
 {
     portENTER_CRITICAL(&agent_lock);
     const bool cancel = agent.cancel_requested;
+    solar_os_agent_cancel_fn should_cancel = agent.should_cancel;
+    void *user_data = agent.cancel_user_data;
     portEXIT_CRITICAL(&agent_lock);
-    return cancel;
+    return cancel || (should_cancel != NULL && should_cancel(user_data));
 }
 
 void solar_os_agent_provider_bind_request(solar_os_http_request_t *request)
@@ -905,6 +910,8 @@ static void agent_finish_request(esp_err_t error,
     portENTER_CRITICAL(&agent_lock);
     agent.running = false;
     agent.cancel_requested = false;
+    agent.should_cancel = NULL;
+    agent.cancel_user_data = NULL;
     agent.last_error = error;
     agent.last_internal_after = internal_after;
     agent.last_internal_largest_after = internal_largest_after;
@@ -927,7 +934,11 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         !agent_string_valid(request->prompt, SOLAR_OS_AGENT_PROMPT_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
+    esp_err_t err = solar_os_agent_images_validate(request->images, request->image_count);
+    if (err != ESP_OK) return err;
+    err = solar_os_agent_audio_validate(request->audio);
+    if (err != ESP_OK) return err;
+    err = solar_os_agent_init();
     if (err != ESP_OK) {
         return err;
     }
@@ -952,6 +963,8 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     max_tools = agent.max_tools;
     agent.running = true;
     agent.cancel_requested = false;
+    agent.should_cancel = request->should_cancel;
+    agent.cancel_user_data = request->user_data;
     agent.request_count++;
     agent.last_http_status = -1;
     agent.last_error = ESP_OK;
@@ -1063,6 +1076,9 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     }
     solar_os_agent_provider_turn_t turn = {
         .prompt = request->prompt,
+        .images = request->images,
+        .image_count = request->image_count,
+        .audio = request->audio,
         .history = history.messages,
         .history_count = history.message_count,
         .previous_response_id =
@@ -1305,16 +1321,30 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         const char *saved_assistant =
             run->capture.assistant_len > 0 ?
                 run->capture.assistant : "[No text response]";
-        err = solar_os_agent_conversation_commit(
+        char *saved_prompt = NULL;
+        if (request->image_count || request->audio) {
+            saved_prompt = solar_os_memory_alloc(SOLAR_OS_AGENT_PROMPT_MAX + 128,
+                SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "agent.image-history");
+            if (saved_prompt) {
+                if (request->audio) snprintf(saved_prompt, SOLAR_OS_AGENT_PROMPT_MAX + 128,
+                    "%s\n[Attachments: %u image(s), 1 audio file; encoded content omitted from local history.]",
+                    request->prompt, (unsigned)request->image_count);
+                else snprintf(saved_prompt, SOLAR_OS_AGENT_PROMPT_MAX + 128,
+                    "%s\n[Image attachments: %u; image content omitted from local history.]",
+                    request->prompt, (unsigned)request->image_count);
+            }
+        }
+        err = (request->image_count || request->audio) && !saved_prompt ? ESP_ERR_NO_MEM : solar_os_agent_conversation_commit(
             request->conversation_id,
             solar_os_agent_openai_provider.name,
             config.model,
-            request->prompt,
+            saved_prompt ? saved_prompt : request->prompt,
             saved_assistant,
             run->tool_summary,
             run->provider_result.response_id,
             request->next_conversation_id,
             request->next_conversation_id_len);
+        solar_os_memory_free(saved_prompt);
         if (err != ESP_OK) {
             (void)agent_emit(request,
                              SOLAR_OS_AGENT_EVENT_ERROR,

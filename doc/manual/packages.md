@@ -35,6 +35,35 @@ jobs
 native modules. A compiled driver is available to use, but does not mean its
 hardware is attached; check `expansion devices`.
 
+Native packages can require exact versions of library packages and minimum
+firmware service tables. `pkg install cc` installs its matching `tinycc` library
+first. Installation verifies the complete dependency graph and required services
+before downloading artifacts. A dependency already on storage is reused only
+when its size and SHA-256 match the signed catalog. Close or unload active
+modules before replacing them.
+
+For ESP32-S3 boards with PSRAM, the optional `cc` firmware group includes the C
+command and TinyCC provider in the image. The `full` flavor enables it by
+default on supported boards. Other flavors can enable `cc = true` under
+`[groups]`; set it to `false` in a custom flavor to omit it. The built-in command
+needs no installed compiler ELFs and supports the same projects, SDK headers and
+limits as the external packages. Code stays in firmware flash; private compiler
+state is placed in PSRAM when external BSS is enabled. The compiler heap and
+joined worker stack are allocated on demand. The built-in provider takes
+precedence over an installed `tinycc` library; leases protect it until clients
+finish, and unloading releases its runtime snapshot without removing firmware
+code. See [C development](native-library.md).
+
+Python and Lua are also compiled into the firmware when their `python` and
+`lua` groups are selected. The `full` flavor enables both on boards with PSRAM;
+custom flavors can omit either runtime independently. Inspect `pkg system`
+for `app.python`, `app.lua`, and `app.cc` in the running image.
+
+Each artifact is validated and replaced separately. If a later download fails,
+successfully installed dependencies remain available and the previous requested
+module is preserved. Removing a library can leave its consumers unable to run;
+reinstall the consumer to restore its declared dependencies.
+
 ## Choose features
 
 Use the [SolarOS Builder](#solaros-builder) to select a board and flavor, or
@@ -43,6 +72,7 @@ where the board supports them:
 
 | Group | Use | Guide |
 | --- | --- | --- |
+| `cc` | Compile native C applications with the built-in command and TinyCC provider on ESP32-S3 boards with PSRAM. | [C development](native-library.md) |
 | `vision` | Decode QR codes and process images. | [Computer vision](vision.md) |
 | `inference` | Run resident models on ESP32-S3 with PSRAM. | [Model inference](inference.md) |
 | `inference_backend` | Include the ESP-DL engine in firmware; otherwise install the `espdl` library. | [Model inference](inference.md) |
@@ -127,6 +157,7 @@ output.
 | --- | --- |
 | `launcher` | Graphics. |
 | `image_viewer` | Graphics and PSRAM for decoded images. |
+| `photo` | Live JPEG viewfinder and still capture; graphics and PSRAM, with RTSP reception on Wi-Fi boards. |
 | `sketch` | Graphics; accepts absolute or relative pointers when available. |
 | `player` | A playback output for local WAV/MP3 files; supports saved playlists. |
 | `webradio` | Wi-Fi and a playback output for HTTP(S) MP3 streams. |

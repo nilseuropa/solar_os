@@ -63,6 +63,8 @@ typedef struct {
 typedef struct {
     solar_os_doc_block_type_t type;
     uint8_t level;
+    char list_delimiter; /* '.' or ')' for numbered lists; zero for bullets. */
+    uint32_t list_number;
     size_t raw_source_start;
     size_t raw_source_end;
     size_t source_start;
@@ -135,6 +137,8 @@ typedef struct {
 } solar_os_doc_layout_line_t;
 
 typedef struct {
+    /* Borrowed document; keep its text unchanged until the layout is rebuilt. */
+    const solar_os_doc_t *doc;
     solar_os_paged_array_t lines;
     size_t line_count;
     size_t line_capacity;
@@ -185,6 +189,9 @@ esp_err_t solar_os_doc_layout_build_ex(solar_os_doc_layout_t *layout,
                                        int zoom,
                                        const solar_os_doc_reveal_range_t *reveal_ranges,
                                        size_t reveal_range_count);
+int solar_os_doc_layout_run_source_x(const solar_os_doc_layout_t *layout,
+                                      const solar_os_doc_layout_run_t *run,
+                                      size_t source_offset);
 void solar_os_doc_layout_render(solar_os_gfx_t *gfx,
                                 const solar_os_doc_t *doc,
                                 const solar_os_doc_layout_t *layout,

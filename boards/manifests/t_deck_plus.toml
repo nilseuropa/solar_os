@@ -121,7 +121,7 @@ sharing = "exclusive"
 port = "UART_NUM_1"
 tx = 43
 rx = 44
-baud_rate = "9600"
+baud_rate = "38400"
 
 [[devices]]
 driver = "st7789"
@@ -170,11 +170,11 @@ name = "radio0"
 bindings = { spi = "spi0", cs = 9, busy = 13, reset = 17, irq = 45 }
 
 [[devices]]
-# Both factory GNSS variants stream NMEA: L76K at 9600, MIA-M10Q at 38400.
+# Prefer MIA-M10Q at 38400; retain detection of L76K at 9600.
 driver = "nmea"
 name = "gnss0"
 detachable = true
-bindings = { uart = "uart0", alt_baud = 38400 }
+bindings = { uart = "uart0", alt_baud = 9600 }
 
 [[pins]]
 gpio = 0

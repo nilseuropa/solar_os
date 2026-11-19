@@ -153,7 +153,7 @@ int main(void)
     assert(deinited == 2);
     register_error = ESP_OK;
     assert(solar_os_ssd2677_attach("epd0", bindings, 6) == ESP_OK);
-    assert(target.width == 800 && target.height == 480 && !target.black_is_one);
+    assert(target.width == 800 && target.height == 480 && !target.black_is_one && target.epaper);
     assert(strcmp(target.driver, "ssd2677") == 0 && strcmp(target.controller, "SSD2677") == 0);
     assert(target.frame_formats == SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT && target.preferred_stream_fps == 10);
     test_raster_forwarding(target.frame_context, target.present_frame);
@@ -173,7 +173,8 @@ int main(void)
     assert(solar_os_ssd2677_detach("epd0") == ESP_ERR_NOT_FOUND);
     primary = true;
     assert(solar_os_ssd2677_attach("display0", bindings, 6) == ESP_OK);
-    assert(primary_display->ready && strcmp(primary_display->controller, "SSD2677") == 0);
+    assert(primary_display->ready && primary_display->epaper &&
+        strcmp(primary_display->controller, "SSD2677") == 0);
     assert(primary_display->frame_formats == SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT);
     assert(primary_display->preferred_stream_fps == 10 && primary_display->ops->present_mono_xbm);
     test_raster_forwarding(primary_display, primary_present);

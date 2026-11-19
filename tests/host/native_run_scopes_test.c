@@ -128,6 +128,17 @@ static int esp_elf_request(esp_elf_t *elf, int unused, int argc, char **argv) {
     --depth;
     return 0;
 }
+static unsigned builtin_cleanups;
+static void builtin_cleanup(void *user) {
+    assert(user == current_task && solar_os_native_run_service_user() == user);
+    builtin_cleanups++;
+}
+static int builtin_entry(int argc, char **argv) {
+    assert(argc == 1 && argv && !active_images && !allocation_count);
+    assert(native_job_get_service("foreground", 1U, 8U) == current_task);
+    assert(native_write_utf8("x", 1) == ESP_OK);
+    return 23;
+}
 int main(void) {
     current_task = &outer;
     char *argv[] = {"app"};
@@ -147,6 +158,11 @@ int main(void) {
     fail_relocate = 0; foreground_image = true;
     assert(solar_os_native_run("foreground", 1, argv, &opts, NULL, NULL, 0) == ESP_ERR_INVALID_STATE);
     assert(!active_images && !allocation_count && !native_run_scope_top && !atomic_load(&native_running));
+    opts.cleanup = builtin_cleanup;
+    int status = -1;
+    assert(solar_os_native_run_builtin(NULL, 1, argv, &opts, &status) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_native_run_builtin(builtin_entry, 1, argv, &opts, &status) == ESP_OK);
+    assert(status == 23 && builtin_cleanups == 1 && !native_run_scope_top && !active_images);
     puts("Native execution scopes preserve task ownership and clean up before ELF unload");
     return 0;
 }

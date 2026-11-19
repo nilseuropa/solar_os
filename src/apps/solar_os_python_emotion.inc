@@ -188,8 +188,8 @@ static MP_DEFINE_CONST_OBJ_TYPE(solaros_emotion_face_type, MP_QSTR_emotion_face,
     MP_TYPE_FLAG_NONE, locals_dict, &solaros_emotion_face_locals);
 static mp_obj_t solaros_emotion_open(size_t count, const mp_obj_t *args, mp_map_t *kwargs)
 {
-    const char *names[] = {"display", "sound", "fg", "bg", "fps", "motion"}; mp_obj_t v[6];
-    python_emotion_args(count, args, kwargs, names, 6, v);
+    const char *names[] = {"display", "sound", "fg", "bg", "fps", "motion", "fullscreen"}; mp_obj_t v[7];
+    python_emotion_args(count, args, kwargs, names, 7, v);
     solar_os_emotion_options_t options = {.motion = -1};
     if (v[0] != MP_OBJ_NULL && v[0] != mp_const_none) options.display = python_emotion_string(v[0]);
     if (v[1] != MP_OBJ_NULL) options.sound = mp_obj_is_true(v[1]);
@@ -205,6 +205,7 @@ static mp_obj_t solaros_emotion_open(size_t count, const mp_obj_t *args, mp_map_
         options.fps = fps;
     }
     if (v[5] != MP_OBJ_NULL && v[5] != mp_const_none) options.motion = mp_obj_is_true(v[5]);
+    if (v[6] != MP_OBJ_NULL) options.fullscreen = mp_obj_is_true(v[6]);
     char current[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
     if (python_app.session_gfx) solar_os_gfx_display_target_name(python_app.session_gfx, current, sizeof(current));
     bool foreground = *current && (!options.display || !strcmp(options.display, current));

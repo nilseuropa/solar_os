@@ -275,7 +275,9 @@ axes mean; SolarOS does not turn them into arrows or other keys.
 The `screen-keyboard` background job provides a full virtual keyboard or a
 symbol palette above display applications. Start it with
 `job start screen-keyboard mode=full` or `mode=symbols`, then toggle it with
-Ctrl+Space or an upward swipe from the bottom edge. See
+Ctrl+Space or an upward swipe from the bottom edge. With multiple keyboard
+layouts, Ctrl+Space switches layouts; start the job with
+`trigger=ctrl+alt+space` to give it a separate toggle. See
 [screen-keyboard](jobs.reference.md#screen-keyboard) for controls and bindings.
 
 ## Audio

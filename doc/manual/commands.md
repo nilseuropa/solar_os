@@ -276,6 +276,7 @@ job for periodic polling.
 | `pkg` | `pkg remove <module>` | Remove an installed native module. |
 | `pkg` | `pkg unload <library>` | Unload an unused library while keeping its installed file. |
 | `load` | `load <file.elf> [args...]` | Validate, relocate, run, and unload one native ELF module from storage. |
+| `cc` | `cc [--help]`; `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Included in `full` on ESP32-S3 boards with PSRAM; other builds can enable the `cc` group or install `cc`. Bare `cc` and `cc --help` display usage successfully. See [C development](c.md). |
 | `board` | `board` | Print board ID, name, and capabilities. |
 | `identity` | `identity [status]` | Show the configured user and hostname. |
 | `identity` | `identity user <name>` | Save the SolarOS user and default SSH/SCP username in NVS. |
@@ -284,6 +285,7 @@ job for periodic polling.
 | `display` | `display [list]`; `display layouts`; `display test <target>`; `display mode <target> [mode]` | List targets and layouts, draw a test pattern, or change driver-specific display settings. |
 | `display` | `display orientation <target> [0\|90\|180\|270]` | Show or change orientation for text, graphics and touch. Runtime only; does not change NVS. |
 | `display` | `display scale <target> [1..4]` | Show or change runtime integer pixel scaling without changing NVS. |
+| `display` | `display canvas <target> [default\|full\|x y width height]` | Query panel/canvas bounds or change the runtime layout rectangle. No persistence. |
 | `display` | `display relax [<target> [seconds]]` | Run timed native black/white recovery cycles on supported EPDs, then restore the saved image and refresh mode. Without arguments, use the first supported display for 1 second. |
 | `dlp` | `dlp serve <display> stream=<byte-stream>`; `dlp status`; `dlp stop <display>` | Receive DLP images on a named display through an exclusive duplex byte stream. See [DLP](apps.md#dlp). |
 | `display` | `display join <name> --horizontal\|--vertical <target> <target> [target ...]`; `display unjoin <name>` | Join two to four physical targets into one logical display, or remove the join. |
@@ -333,19 +335,19 @@ job for periodic polling.
 | `schedule` | `schedule remove <name>` | Remove an entry. |
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
-| `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Show or save the global local-terminal cursor style. Defaults to `block blink`. |
+| `setterm` | `setterm` | Display-shell settings: arrows select, PgUp/PgDn page, Enter edits, Esc exits. |
+| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Save the global cursor style. Default: `block steady` on e-paper, `block blink` otherwise. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
-| `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
+| `setterm` | `setterm font [mono\|compact\|load <pack>\|unload <pack>]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size, and load or unload a font pack for characters the built-in faces lack. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
 | `setterm` | `setterm statusbar [show\|hide]` | Show or hide the graphical shell status bar. |
 | `setterm` | `setterm brightness [0..100]` | Show or set display brightness. |
 | `setterm` | `setterm backlight [0..100\|follow]` | Show or set auxiliary lighting, such as the keyboard backlight, independently or following display brightness. |
 | `setterm` | `setterm profile [vt100\|ansi\|dumb]`; `setterm charset [utf8\|ascii]` | Configure escape sequences and TUI glyph output for the current port shell. |
-| `setterm` | `setterm keyboard [us\|de]`; `setterm powerkey [short\|long] [action]` | Show or set the keyboard layout and dedicated KEY action. |
+| `setterm` | `setterm keyboard [<layout>[,<layout>...]]`; `setterm powerkey [short\|long] [action]` | Save keyboard layouts (`us`, `de`, `ua`, `fr`, `ro`) and the dedicated KEY action. Ctrl+Space cycles layouts. |
 | `setterm` | `setterm keyrate [off\|1..60 [delay-ms]]` | Show or set the shared keyboard and button repeat policy. |
 | `setterm` | `setterm ble [default\|on\|off]` | Show or set the BLE preference for the next boot. |
 | `setterm` | `setterm timezone [UTC\|UTC+/-offset\|Europe/Berlin\|POSIX-TZ]` | Show or set the timezone used for local time. |
@@ -361,99 +363,8 @@ Gesture completion lists gesture-capable sources after `source=`, limits
 
 ### Native ELF modules
 
-`load` is the low-level maintainer interface for the native-module runtime. It
-is compiled only for ESP32-S3 boards with PSRAM. The command resolves the ELF
-path through the calling shell's current directory, reads at most 2 MiB into
-PSRAM, validates every ELF header and table boundary, checks for an Xtensa
-ELF32 dynamic object, relocates it into executable PSRAM, and calls its entry
-point with the supplied arguments.
-
-Native modules import the single versioned `solar_os_native_host_v1` symbol.
-The returned function table reports the ABI version, target, firmware version,
-and provides UTF-8 output through the shell that invoked `load`. Its optional
-`get_service` extension discovers versioned image, video, vision and inference
-interfaces; see [Native media and inference](native-media.md). Existing modules
-using the original output-only prefix remain compatible. Arbitrary SolarOS
-internals are not exported through this interface. Native ELF code is not sandboxed; `load` is for trusted,
-maintainer-produced modules only.
-
-ELFs declaring lifecycle-2 app metadata launch through the
-[foreground app runtime](native-app.md), retaining their image while suspended.
-Installed apps launch by module name.
-Ctrl+Alt+Del, Ctrl+] or closing the session requests cooperative shutdown.
-The host restarts the device if shutdown does not finish within five seconds.
-
-The ordinary `load` runner is for short-lived command-style modules. A module must stop
-all of its work and release every callback and resource before its entry point
-returns, because the runner immediately unloads its code and data. Installed
-jobs, drivers, and libraries use separate resident lifecycle ABIs instead of this runner.
-
-The standalone `modules/examples/hello` ESP-IDF project builds a small acceptance
-module.
-
-Official native-module catalogs are versioned with the host firmware. `pkg`
-accepts a catalog only when its ECDSA signature, SolarOS version, ESP target,
-and native ABI match the running firmware. Each downloaded ELF must match the
-signed size and SHA-256, pass the same ELF validation as `load`, and is staged
-before atomic activation. The signed type selects the storage and lifecycle
-boundary: application modules use `/modules/apps/<module>.elf`, jobs use
-`/modules/jobs`, drivers use `/modules/drivers`, and libraries use
-`/modules/libraries`. Every entry separately
-declares its lifecycle ABI and its type-specific native host API size.
-Application lifecycle ABI 1 is the synchronous `main(argc, argv)`
-run-and-unload contract. Job lifecycle ABI 1 registers start, stop, and tick
-callbacks and keeps the ELF resident until the stopped job is removed. Driver
-lifecycle ABI 1 registers a zero-binding utility driver contract and keeps the
-ELF resident until all devices are detached and the module is removed.
-Library lifecycle ABI 1 registers a versioned API table. Consumers acquire
-leases that prevent unloading while calls, objects, or workers use that API.
-Libraries load on demand from installed storage; `pkg unload ID` unloads an
-unused library and retains its file. See [Native libraries](native-library.md).
-Application lifecycle ABI 2 declares a foreground app manifest and runs
-`main(argc, argv)` on its declared worker. Display, input, storage, timing and
-optional audio are provided by the versioned foreground service. Resumable apps
-retain their ELF and guest state across session switches.
-
-Run `pkg` without arguments to open the package manager. It loads the saved
-signed catalog without a network request and checks its signature and host
-compatibility again. Apps, Jobs, Libraries and Drivers appear as collapsible
-folders, including when empty. Arrows navigate the
-tree, Enter opens a folder or module details, and Left returns to the parent.
-Installed entries show `[I]` and incompatible entries show `[!]`.
-
-Press `R` to refresh and save the signed catalog, `I` to install or replace the
-selected module, or `U` to remove it. Install and removal require confirmation.
-Operations show progress popups and a result popup; Esc cancels a download or
-closes a popup. Confirmation defaults to No. The catalog and signature are
-stored under `/modules/.catalog/` on the preferred storage volume. A failed
-refresh leaves the previous catalog available. A catalog for a different host
-firmware version is not used; press `R` after a firmware update.
-After a successful catalog check, `pkg install` completion uses that verified
-catalog. `pkg remove` completion and `pkg installed` read the installed module
-directories directly.
-
-Installed application modules are shell commands: the module ID resolves under
-`/modules/apps` after built-in commands, compiled applications, and aliases.
-Command completion lists installed applications. `load` remains available for
-explicit paths and diagnostics. Reinstalling an application from the schema-v1
-layout moves it into `/modules/apps`; `pkg remove` also recognizes the legacy
-flat application path during this transition.
-
-The job and driver acceptance modules exercise their resident paths. Use `pkg install hello-job`,
-then `job start hello-job`, `job status hello-job`, and `job stop hello-job`.
-Use `pkg install hello-driver`, then `expansion attach hello-driver hello0` and
-`expansion detach hello0`. The hello driver claims no GPIO or bus. `pkg remove`
-rejects a running job or a driver with an attached device.
-
-For example:
-
-```text
-pkg available
-pkg installed
-pkg install hello
-hello SolarOS
-pkg remove hello
-```
+See [Native ELF modules](native-modules.md) for loading, installing,
+updating, and removing native apps, jobs, drivers, and libraries.
 
 ### Power, RTC, schedules, and terminal settings
 
@@ -587,7 +498,7 @@ setterm
 setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
 setterm scale [1..4]
 setterm orientation [0|90|180|270]
-setterm font [mono|compact]
+setterm font [mono|compact|load <pack>|unload <pack>]
 setterm textsize [8|10|12|14|16|18|20]
 setterm cursor [block|underscore] [blink|steady]
 setterm palette [normal|inverted]
@@ -598,7 +509,7 @@ setterm brightness [0..100]
 setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
-setterm keyboard [us|de]
+setterm keyboard [<layout>[,<layout>...]]
 setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
@@ -607,8 +518,9 @@ setterm startup [auto|flash|sd]
 setterm otaurl [url]
 ```
 
-`setterm cursor` saves the global local CLI/TUI style across reboots. Default:
-`block blink`, 500 ms per phase. Omitting the mode preserves it. Typing or moving
+`setterm cursor` saves the global local CLI/TUI style across reboots, overriding
+each display's default: `block steady` on e-paper, `block blink` otherwise
+(500 ms per phase). Omitting the mode preserves it. Typing or moving
 makes the cursor visible. Blocks invert the cell to keep text readable. Apps can
 hide the cursor. Graphical apps and external terminal clients keep their own
 cursors.
@@ -689,6 +601,15 @@ when an SD card is mounted. `sd` always selects SD and is rejected on boards
 without SD support. Use `setterm startup` without a value to show the selected
 source and currently resolved path.
 
+`setterm keyboard us,ua` saves a list and boots in `us`. Ctrl+Space cycles
+once per press without saving. The status bar shows `US`, `UA`, etc.
+A single layout disables switching.
+
+`setterm font load <pack>` loads `fonts/<pack>.sfp` from the default volume
+and `unload` drops it. Text draws characters the built-in faces lack from a
+loaded pack, at every size. The set is saved and restored at boot. Without
+PSRAM only faces that fit in 24 KB load. `setterm font` lists the packs.
+
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure
 them from a port shell. `profile` controls terminal escape sequences;
@@ -730,6 +651,19 @@ and touch coordinates together. Shell output, history and unfinished input are
 preserved. Both `display orientation` and `display scale` are runtime-only,
 including changes made by gesture bindings. `setterm orientation`, `setterm scale`
 and the settings TUI use the same display operations and save their values in NVS.
+
+Every display has panel bounds and a canvas rectangle. Apps and terminal/TUI
+layouts use the canvas size and an origin of `(0, 0)` at its top-left corner.
+Drawing may extend beyond the canvas into the rest of the panel. Rectangular
+panels default to a full-panel canvas; circular panels default to a centered
+inscribed square.
+
+`display canvas display0` reports both bounds. Set a rectangle with
+`display canvas display0 60 60 291 291`; its position and size are measured in
+the current oriented/scaled panel coordinates. `display canvas display0 full`
+uses the entire panel, and `display canvas display0 default` restores the panel
+default. Changes are rejected while graphics or an overlay claims the target.
+Canvas settings disappear at reboot or display removal and never write NVS.
 
 `display scale display0` shows the display's integer pixel scale. Values `1` through
 `4` apply to the entire display canvas, including text, graphics, icons and
@@ -781,7 +715,7 @@ Compact displays omit icons that do not fit before the clock and unread count.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `apps` | `apps` | List registered foreground apps compiled into the firmware. |
-| `agent` | `agent`; `agent new`; `agent ask PROMPT...` | Open a new native LLM agent TUI or make one unsaved foreground request. |
+| `agent` | `agent [--tts] [new\|ask [--image SOURCE] PROMPT...]` | Text/image questions and speech. [Guide](agent.md). |
 | `agent` | `agent list`; `agent resume SLOT`; `agent delete SLOT` | List, restore, or delete durable local conversation slots. |
 | `agent` | `agent status`; `agent tools` | Inspect provider state, request statistics, typed tools, risk, and policy. |
 | `agent` | `agent config endpoint\|model\|key\|reasoning\|tools\|max-tools VALUE` | Configure the provider and tool policy. |
@@ -812,6 +746,9 @@ Use `--term vt100` or `--term ansi` to force escape-sequence output,
 dimensions without probing. Character encoding is independent of that profile:
 port shells default to `--charset utf8`; use `--charset ascii` when a legacy
 terminal displays Unicode TUI glyphs as unrelated code-page characters.
+
+Closing a port shell releases its worker stack, including the worker reserved
+for a board's default boot console. Reopening a shell allocates a new worker.
 
 `jobs` prints a compact table that fits the built-in display terminal:
 
@@ -867,8 +804,8 @@ job start gestures
 job start httpd /www
 job start meshcore-ble 68:ee:8f:69:5f:35 public 123456
 job start displayd [display-target]   # display0 by default, web0 when headless
-job start cam-webd [qvga|vga] [fps] [auth=none|required]  # QVGA, 5 fps, no auth by default
-job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=qvga|vga] [fps=0..30] [port=<port>]
+job start cam-webd [<width>x<height>|qvga|vga] [fps] [auth=none|required]
+job start rtspd [video=<stream>|none] [audio=<stream>|none] [size=<width>x<height>|qvga|vga] [fps=0..30] [port=<port>]
 job start ntp-sync once
 job start batmon 60
 job start slip uart0 115200
@@ -944,17 +881,19 @@ policy.
 | `stream` | `stream ble connect <name> <address> <public\|random\|rpa_public\|rpa_random>` | Register an outbound CoC stream. Connects when claimed. Use the address and type reported by `ble scan`. |
 | `stream` | `stream ble status <name>` | Show connection state, negotiated SDU sizes, queued bytes, and connection interval. |
 | `stream` | `stream ble remove <name>` | Remove an unclaimed BLE stream. |
-| `model` | `model backend`; `model list`; `model info <handle>` | Check engine availability and inspect resident models, interfaces, memory, mode, and references. |
+| `model` | `model backend`; `model list`; `model info <handle>` | Inspect engine, model inventories across backends, or a resident handle. |
 | `model` | `model load <file.espdl> [timeout_ms]`; `model bundle <bundle.json> [timeout_ms]` | Load a resident raw model or a checked model bundle from storage. |
 | `model` | `model mode <handle> <single\|auto\|dual>` | Select execution mode without reloading the model. |
 | `model` | `model unload <handle\|all>` | Explicitly unload models; active operations and retained model references report busy. |
-| `pipeline` | `pipeline list` | List OS-owned native image pipelines. |
-| `pipeline` | `pipeline start qr <source> [limit] [interval_ms]` | Decode QR codes from an image file, video stream ID, or JPEG RTSP URL in a native background job. |
-| `pipeline` | `pipeline start model <source> <model> [limit] [interval_ms]` | Run a resident bundle with one image input. The job retains the model until processing ends or is stopped. |
-| `pipeline` | `pipeline status <id>` | Show job state, frame counts, last error, and the latest frame timings. |
-| `pipeline` | `pipeline result <id>` | Print the latest result as JSON. |
-| `pipeline` | `pipeline stop <id>` | Cancel and join native workers, release the source and model reference, and keep the latest result. |
-| `pipeline` | `pipeline destroy <id>` | Stop and remove the job, configuration, and latest result. |
+| `model` | `model slots <processor> <source>`; `model select <processor> <source> <slot>` | List accelerator inventory or select a slot. |
+| `model` | `model upload <processor> <source> <bundle.json> <slot> [--replace]` | Start the model-upload background job; inspect or cancel with job status/stop model-upload. |
+| `pipeline` | `pipeline list`; `pipeline status <id>` | Inspect native processing jobs, errors and timings. |
+| `pipeline` | `pipeline info <processor> [source] [query]` | Query processor capabilities and models; source defaults to camera0. |
+| `pipeline` | `pipeline start qr <source> [limit] [interval_ms]` | Decode QR codes from files, streams or JPEG RTSP. |
+| `pipeline` | `pipeline start model <source> <model> [limit] [interval_ms]` | Process images with a retained resident bundle. |
+| `pipeline` | `pipeline start himax <camera-id> [limit] [interval_ms]` | Capture and infer with the current HX6538 model through its optional provider. |
+| `pipeline` | `pipeline result <id>` | Read the latest JSON result. |
+| `pipeline` | `pipeline stop <id>`; `pipeline destroy <id>` | Join and release workers; stop keeps the latest result, destroy removes it. |
 | `daq` | `daq help` | Print DAQ usage. |
 | `daq` | `daq status` | Show DAQ job status. |
 | `daq` | `daq streams` | List stream IDs. |
@@ -1158,7 +1097,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit. |
 | `netscan` | `netscan <host\|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
-| `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
+| `ntp` | `ntp [server]` | Sync the wall clock from NTP (default server `pool.ntp.org`). Waits up to 40 s, so lwIP can retry one lost packet, then prints `ntp: sync timed out`. |
 
 Wi-Fi is enabled by default when no saved setting exists, including after `nvs
 clear`. `wifi on` and `wifi off` control the radio in the current boot. The
@@ -1286,7 +1225,7 @@ available for the compiled board.
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `usb` | `usb [status\|devices\|mode <device\|host>\|serial ...]` | [USB host](usb.host.md) and serial controls. |
+| `usb` | `usb [status\|devices\|mode <off\|device\|host>\|serial ...]` | [USB modes](usb.host.md) and GPIO reuse. |
 | `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
 | `battery` | `battery config` | Show battery capacity and voltage thresholds. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
@@ -1307,10 +1246,11 @@ available for the compiled board.
 | `audio` | `audio off` | Stop audio output. |
 | `say` | `say [-v <0..100>] [--volume <0..100>] [--pitch <50..200>] [--speed <20..500>] [--drop-if-busy] (--file <path> \| [--] <text...>)` | Queue text for offline speech, or stream a plain UTF-8 text file aloud with live progress. Pitch and speed default to 100. File mode submits bounded chunks through one continuous PicoTTS/audio session, completes paths with Tab, and remains responsive; press Esc or Ctrl+C to stop. Start `speechd` with a PicoTTS voice directory first. |
 | `led` | `led [status\|on\|off\|toggle]` | Inspect or control the built-in status LED when available. |
-| `camera` | `camera [status]` | Initialize the camera on first use and show the detected sensor, JPEG configuration, orientation, current owner and frame lease, capture count, and last error. |
-| `camera` | `camera capture <path> [qvga\|vga]` | Capture one JPEG into a caller-selected SolarOS path. The default is QVGA; changing size reinitializes the idle camera. Existing files are replaced. |
-| `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set sensor orientation: normal, horizontal mirror, vertical flip, or 180° rotation (both). Changes apply to future frames, including active RTSP/web streams, and survive camera stop/start and size changes until reboot or camera detach. No setting is saved. The JPEG path does not support 90°/270° rotation. |
-| `camera` | `camera off` | Deinitialize an idle camera and release its framebuffer and driver resources. On ESP32-S3, disconnect the sensor clock and hold it low. |
+| `camera` | `camera [status]` | Initialize on first use; show sensor, settings, owner, leases, captures, and last error. |
+| `camera` | `camera resolutions` | Probe the camera and list its supported image dimensions. |
+| `camera` | `camera capture <path> [<width>x<height>\|qvga\|vga]` | Save a JPEG, replacing the file. Driver defaults apply; aliases mean 320x240 and 640x480. Unsupported sizes fail. |
+| `camera` | `camera orientation [normal\|mirror\|flip\|180]` | Show or set normal, horizontal mirror, vertical flip, or both. Applies to future frames until reboot or detach; never saved. Support depends on the driver; 90°/270° is unavailable. |
+| `camera` | `camera off` | Stop an idle camera and free its image buffers. The native ESP32 driver also stops the sensor clock. |
 | `expansion` | `expansion` | Open the expansion device manager. Browse attached devices and driver categories, inspect details, attach supported drivers, save runtime attachments to the selected startup script, and detach runtime devices. Bus lifecycle remains in the `io` app. |
 | `expansion` | `expansion status` | Show expansion capabilities, named buses and leases, connector resources, active devices, and resource claims. |
 | `expansion` | `expansion layout [connector]` | Draw the board's physical connector map with live free, releasable, claimed, fixed, power, ground, and NC markers. |
@@ -1693,9 +1633,9 @@ Mode output separates distinct `frame-count`/`frame-interval-us` from physical
 `scan-count`/`scan-interval-us`, and reports `pulse-transfer-us` and
 `pulse-busy-us` separately. Requested cadence does not guarantee optical settling.
 Panel presets, waveform constraints and native fallback behavior are described
-under [SolarWriter](boards.md#solarwriter), [CrowPanel 4.2](boards.md#elecrow-crowpanel-esp32-s3-42-inch-e-paper),
+under [SolarWriter](boards.md#solarwriter), [CrowPanel 4.2](boards.md#elecrow-crowpanel-esp32-s3-4-2-inch-e-paper),
 [Waveshare 4G E-paper](boards.md#waveshare-4g-e-paper),
-[Sticky](boards.md#seeed-reterminal-sticky), and
+[Sticky](boards.md#seeed-studio-reterminal-sticky), and
 [SSD1685](expansion.reference.md#gdey029t71h-e-paper-ssd1685).
 
 Packet radio devices are datagram endpoints registered by expansion drivers, not

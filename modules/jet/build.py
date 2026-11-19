@@ -103,6 +103,9 @@ def build(environment, output, cached=None):
     run('strip', '--strip-unneeded', '--remove-section=.got.loc', '--remove-section=.dynamic',
         '--remove-section=.xt.lit', '--remove-section=.xt.prop', '--remove-section=.xtensa.info', artifact)
     verify(artifact, expected)
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    from pack_native_sdk import pack_elf
+    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / 'module.toml', ROOT / 'include'))
     report = {'environment': environment, 'artifact_bytes': artifact.stat().st_size,
               'sha256': hashlib.sha256(artifact.read_bytes()).hexdigest(), 'imports': imports}
     (output / 'build.json').write_text(json.dumps(report, indent=2) + '\n')

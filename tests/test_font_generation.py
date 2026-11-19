@@ -32,6 +32,7 @@ class FontGenerationTest(unittest.TestCase):
             subprocess.run([
                 "cc", "-std=c11", "-O2", "-ffunction-sections", "-fdata-sections",
                 "-I" + str(component / "src/clib"),
+                "-I" + str(REPOSITORY / "src/services"),
                 "-I" + directory,
                 str(REPOSITORY / "tests/host/terminal_bitmap_font_test.c"),
                 *sources, "-Wl,--gc-sections", "-o", binary,

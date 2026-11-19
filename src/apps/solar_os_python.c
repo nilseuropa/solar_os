@@ -34,6 +34,9 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+#include "solar_os_aogmaneo.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
 #endif
@@ -359,6 +362,9 @@ typedef enum {
 
 typedef struct {
     python_app_state_t app;
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+    solar_os_aogmaneo_context_t aogmaneo;
+#endif
     solar_os_shell_io_t fallback_io;
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     solar_os_midi_subscription_t midi_subscription;
@@ -1444,7 +1450,7 @@ static mp_obj_t solaros_time_sleep_ms(mp_obj_t duration_obj)
         vTaskDelay(slice > 0 ? slice : 1);
     }
     if (solar_os_micropython_stop_requested()) {
-        mp_raise_type(&mp_type_KeyboardInterrupt);
+        solar_os_micropython_check_interrupt();
     }
     return mp_const_none;
 }
@@ -2787,7 +2793,7 @@ static mp_obj_t solaros_midi_read(size_t n_args, const mp_obj_t *args)
             return mp_const_none;
         }
         if (solar_os_micropython_stop_requested()) {
-            mp_raise_type(&mp_type_KeyboardInterrupt);
+            solar_os_micropython_check_interrupt();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -5969,7 +5975,7 @@ static mp_obj_t solaros_ble_layout(size_t n_args, const mp_obj_t *args)
 
     solar_os_ble_keyboard_layout_t layout;
     if (!solar_os_ble_keyboard_parse_layout(mp_obj_str_get_str(args[0]), &layout)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected us or de"));
+        mp_raise_ValueError(MP_ERROR_TEXT("expected us, de, ua, fr or ro"));
     }
     python_check_esp(solar_os_ble_keyboard_set_layout(layout));
     return mp_const_none;
@@ -7416,7 +7422,7 @@ static mp_obj_t solaros_input_read(size_t n_args, const mp_obj_t *args)
             return mp_const_none;
         }
         if (solar_os_micropython_stop_requested()) {
-            mp_raise_type(&mp_type_KeyboardInterrupt);
+            solar_os_micropython_check_interrupt();
         }
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -8072,6 +8078,19 @@ static mp_obj_t solaros_gfx_size(void)
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_size_obj, solaros_gfx_size);
 
+static mp_obj_t python_gfx_bounds(bool panel)
+{
+    const solar_os_display_rect_t r = panel ? solar_os_gfx_panel_bounds(python_current_gfx()) :
+        solar_os_gfx_canvas_bounds(python_current_gfx());
+    mp_obj_t items[] = {mp_obj_new_int(r.x), mp_obj_new_int(r.y),
+        mp_obj_new_int(r.width), mp_obj_new_int(r.height)};
+    return mp_obj_new_tuple(4, items);
+}
+static mp_obj_t solaros_gfx_canvas_bounds(void) { return python_gfx_bounds(false); }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_canvas_bounds_obj, solaros_gfx_canvas_bounds);
+static mp_obj_t solaros_gfx_panel_bounds(void) { return python_gfx_bounds(true); }
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_gfx_panel_bounds_obj, solaros_gfx_panel_bounds);
+
 static mp_obj_t solaros_gfx_clear(size_t n_args, const mp_obj_t *args)
 {
     const solar_os_gfx_color_t color =
@@ -8452,10 +8471,12 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #include "solar_os_python_usb_serial.inc"
 #include "solar_os_python_imlib.inc"
 #include "solar_os_python_inference.inc"
+#include "solar_os_python_agent.inc"
 #include "solar_os_python_pipeline.inc"
 #include "solar_os_python_dlp.inc"
 #include "solar_os_python_emotion.inc"
 #include "solar_os_python_jet.inc"
+#include "solar_os_python_aogmaneo.inc"
 
 static void python_module_store(mp_obj_t module, const char *name, mp_obj_t value)
 {
@@ -8759,8 +8780,8 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 
     int stack_top = 0;
     python_runner_control = &control;
-    python_app.vm_active = true;
     mp_embed_init(heap, PYTHON_HEAP_SIZE, &stack_top);
+    python_app.vm_active = true;
     python_register_solaros_module();
     python_setup_import_path(request->input_type == SOLAR_OS_SCRIPT_INPUT_FILE
                                  ? request->input
@@ -8801,6 +8822,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
     python_dlp_destroy();
     python_emotion_destroy();
     python_jet_destroy();
+    python_aogmaneo_cleanup();
     python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
@@ -8987,8 +9009,8 @@ static void python_task(void *arg)
     }
 
     int stack_top = 0;
-    python_app.vm_active = true;
     mp_embed_init(heap, PYTHON_HEAP_SIZE, &stack_top);
+    python_app.vm_active = true;
     python_register_solaros_module();
     python_setup_import_path(python_app.mode == PYTHON_MODE_SCRIPT
                                  ? python_app.path
@@ -8997,7 +9019,7 @@ static void python_task(void *arg)
     python_setup_interactive_helpers();
 
     if (python_app.stop_requested) {
-        mp_sched_keyboard_interrupt();
+        solar_os_micropython_request_interrupt();
     } else if (python_app.mode == PYTHON_MODE_REPL) {
         success = python_run_repl();
     } else {
@@ -9026,6 +9048,7 @@ static void python_task(void *arg)
         python_dlp_destroy();
         python_emotion_destroy();
         python_jet_destroy();
+        python_aogmaneo_cleanup();
         python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         python_http_stream_destroy();
@@ -9454,11 +9477,13 @@ static void python_interrupt(void)
              python_app.vm_active,
              python_app.running,
              python_app.interrupted);
-    python_app.stop_requested = true;
     python_app.interrupted = true;
+    /* Publish stop after queueing the exception so a blocking API consumes
+     * that same interrupt instead of unwinding before it has been queued. */
     if (python_app.vm_active) {
-        mp_sched_keyboard_interrupt();
+        solar_os_micropython_request_interrupt();
     }
+    python_app.stop_requested = true;
 }
 
 static bool python_task_stopped(void *user)
@@ -9492,7 +9517,7 @@ static void python_stop(solar_os_context_t *ctx)
              * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
             while ((__atomic_load_n(&python_media_session, __ATOMIC_ACQUIRE) != NULL ||
-                    python_inference_active() || python_imlib_active() || python_emotion_active() || python_jet_active()) &&
+                    python_inference_active() || python_imlib_active() || python_emotion_active() || python_jet_active() || python_aogmaneo_active()) &&
                    !python_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(python_task_stopped, NULL,
                     PYTHON_STOP_WAIT_MS, 20U);
@@ -9539,6 +9564,7 @@ static void python_stop(solar_os_context_t *ctx)
     }
     python_emotion_destroy();
     python_jet_destroy();
+    python_aogmaneo_cleanup();
     python_robot_destroy();
     python_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH

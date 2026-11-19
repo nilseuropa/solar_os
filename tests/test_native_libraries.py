@@ -17,6 +17,7 @@ class NativeLibrariesTest(unittest.TestCase):
             for name in ("native_resident_slot", "native_library_lease"))
         functions = production_functions(source, (
             "native_descriptor_text_valid", "native_register_library", "native_library_result",
+            "native_initialize_builtin_library",
             "native_library_link_lease", "native_library_acquire_loaded", "native_library_id_valid",
             "solar_os_native_library_acquire", "solar_os_native_library_retain",
             "solar_os_native_library_release", "solar_os_native_library_unload",

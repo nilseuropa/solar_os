@@ -10,27 +10,13 @@
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
 
-static const char * const camera_subcommands[] = {"status", "capture", "orientation", "off"};
+static const char * const camera_subcommands[] = {"status", "resolutions", "capture", "orientation", "off"};
 static const char * const orientation_values[] = {"normal", "mirror", "flip", "180"};
 #define CAMERA_SHELL_OWNER "shell:camera"
 
 static solar_os_shell_io_t *terminal(solar_os_context_t *ctx)
 {
     return solar_os_shell_command_io(ctx);
-}
-
-static bool parse_frame_size(const char *text,
-                             solar_os_camera_frame_size_t *frame_size)
-{
-    if (strcmp(text, "qvga") == 0) {
-        *frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_QVGA;
-        return true;
-    }
-    if (strcmp(text, "vga") == 0) {
-        *frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
-        return true;
-    }
-    return false;
 }
 
 static void print_status(solar_os_shell_io_t *io)
@@ -59,16 +45,19 @@ static void print_status(solar_os_shell_io_t *io)
                                  esp_err_to_name(error), (unsigned)error);
         return;
     }
+    char quality[12];
+    if (status.sensor.jpeg_quality_fixed) strcpy(quality, "firmware");
+    else snprintf(quality, sizeof(quality), "%u", (unsigned)status.config.jpeg_quality);
     solar_os_shell_io_printf(
         io,
-        "driver=%s sensor=%s pid=0x%04x format=jpeg size=%s "
-        "quality=%u orientation=%s buffers=%u storage=psram owner=%s frame=%s captures=%lu "
+        "driver=%s sensor=%s pid=0x%04x format=jpeg size=%ux%u "
+        "quality=%s orientation=%s buffers=%u storage=psram owner=%s frame=%s captures=%lu "
         "timeout=%ums last=%s\r\n",
         status.driver,
         status.sensor.name,
         (unsigned)status.sensor.product_id,
-        solar_os_camera_frame_size_name(status.config.frame_size),
-        (unsigned)status.config.jpeg_quality,
+        (unsigned)status.config.width, (unsigned)status.config.height,
+        quality,
         solar_os_camera_orientation_name(status.orientation),
         (unsigned)status.sensor.frame_buffer_count,
         status.owner_leased ? status.owner : "-",
@@ -81,7 +70,7 @@ static void print_status(solar_os_shell_io_t *io)
 static void capture(solar_os_context_t *ctx,
                     solar_os_shell_io_t *io,
                     const char *path_argument,
-                    solar_os_camera_frame_size_t frame_size)
+                    const solar_os_camera_config_t *requested)
 {
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     if (!solar_os_shell_resolve_path_for_command(
@@ -89,8 +78,7 @@ static void capture(solar_os_context_t *ctx,
         return;
     }
 
-    solar_os_camera_config_t config = solar_os_camera_default_config();
-    config.frame_size = frame_size;
+    const solar_os_camera_config_t config = *requested;
     solar_os_camera_owner_t owner = {0};
     esp_err_t error = solar_os_camera_acquire(CAMERA_SHELL_OWNER, &owner);
     if (error != ESP_OK) {
@@ -156,6 +144,20 @@ static void capture(solar_os_context_t *ctx,
 void solar_os_shell_cmd_camera(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *io = terminal(ctx);
+    if (argc == 2 && strcmp(argv[1], "resolutions") == 0) {
+        /* Probe in the same way as status before asking the backend for modes. */
+        print_status(io);
+        solar_os_camera_resolution_t modes[32];
+        size_t count = 0;
+        const esp_err_t error = solar_os_camera_get_resolutions(modes, 32, &count);
+        if (error != ESP_OK) {
+            solar_os_shell_io_printf(io, "camera: resolutions failed: %s\r\n", esp_err_to_name(error));
+            return;
+        }
+        for (size_t i = 0; i < count && i < 32; i++)
+            solar_os_shell_io_printf(io, "%ux%u\r\n", (unsigned)modes[i].width, (unsigned)modes[i].height);
+        return;
+    }
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
         print_status(io);
         return;
@@ -224,29 +226,28 @@ void solar_os_shell_cmd_camera(solar_os_context_t *ctx, int argc, char **argv)
         if (argc < 3) {
             solar_os_shell_diag_missing(
                 io, "camera capture", "path",
-                "camera capture <path> [qvga|vga]");
+                "camera capture <path> [<width>x<height>|qvga|vga]");
             return;
         }
         if (argc > 4) {
             solar_os_shell_diag_unexpected(
                 io, "camera capture", argv[4],
-                "camera capture <path> [qvga|vga]");
+                "camera capture <path> [<width>x<height>|qvga|vga]");
             return;
         }
-        solar_os_camera_frame_size_t frame_size =
-            SOLAR_OS_CAMERA_FRAME_SIZE_QVGA;
-        if (argc == 4 && !parse_frame_size(argv[3], &frame_size)) {
+        solar_os_camera_config_t config = solar_os_camera_default_config();
+        if (argc == 4 && !solar_os_camera_parse_resolution(argv[3], &config.width, &config.height)) {
             solar_os_shell_diag_invalid(
-                io, "camera capture", "size", argv[3], "qvga or vga",
-                "camera capture <path> [qvga|vga]", false);
+                io, "camera capture", "size", argv[3], "WIDTHxHEIGHT, qvga, or vga",
+                "camera capture <path> [<width>x<height>|qvga|vga]", false);
             return;
         }
-        capture(ctx, io, argv[2], frame_size);
+        capture(ctx, io, argv[2], &config);
         return;
     }
     solar_os_shell_diag_subcommand(
         io, "camera", argc, argv,
-        "camera [status] | camera capture <path> [qvga|vga] | "
+        "camera [status] | camera resolutions | camera capture <path> [<width>x<height>|qvga|vga] | "
         "camera orientation [normal|mirror|flip|180] | camera off",
         camera_subcommands,
         sizeof(camera_subcommands) / sizeof(camera_subcommands[0]));

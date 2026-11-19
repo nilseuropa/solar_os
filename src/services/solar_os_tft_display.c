@@ -249,6 +249,7 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
     strlcpy(target.role, "aux", sizeof(target.role));
     target.width = attached->display.width;
     target.height = attached->display.height;
+    target.round = attached->display.round;
     target.ready = true;
     target.brightness_supported = brightness_supported(&attached->display);
     target.surface_formats = attached->display.surface_formats;
@@ -380,6 +381,7 @@ static esp_err_t attach_tft(const char *name,
         .controller = gc9a01 ? "GC9A01" : (st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341")),
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
+        .round = gc9a01,
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT |
             SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT,

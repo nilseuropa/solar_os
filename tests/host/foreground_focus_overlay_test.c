@@ -41,6 +41,14 @@ static bool dispatch_text_to_input_focus(uint8_t ch)
     text_char = ch;
     return false;
 }
+static bool input_focus_accepts_text_events(void) { return false; }
+static bool dispatch_layout_text_to_input_focus(solar_os_input_text_t text)
+{
+    return dispatch_text_to_input_focus(text.dead == 0U && text.codepoint < 0x100U ?
+                                        (uint8_t)text.codepoint : 0U);
+}
+static unsigned compose_clears;
+static void clear_text_compose(void) { compose_clears++; }
 static void process_app_requests(void) {}
 static bool solar_os_sessions_cycle_display_focus(void) { display_moves[0]++; return true; }
 static bool solar_os_sessions_cycle_display_focus_previous(void) { display_moves[1]++; return true; }
@@ -91,11 +99,15 @@ static void test_cl32_session_switching(void)
                 const uint8_t physical_key = direction ? 120U : 119U;
                 const unsigned previous = previous_sessions, next = next_sessions;
                 const unsigned guest_before = guest_events;
+                const unsigned clears_before = compose_clears;
                 publish_wire_event(&device, 101U | 0x80U);
                 publish_wire_event(&device, physical_key | 0x80U);
                 dispatch_desktop_queue();
                 assert(previous_sessions == previous + (direction == 0));
                 assert(next_sessions == next + (direction != 0));
+                /* Switching sessions drops a pending dead key, even when the
+                 * next switch returns to the same session. */
+                assert(compose_clears > clears_before);
                 assert(guest_events == guest_before);
                 assert(!overlay_active && !session_switch_alt_held && session_switch_nav_held == 0);
 
@@ -174,8 +186,8 @@ esp_err_t gpio_config(const gpio_config_t *config)
 }
 
 int gpio_get_level(gpio_num_t pin) { return trackball_levels[pin]; }
-esp_err_t gpio_install_isr_service(int flags)
-{ assert(flags == 0); return ESP_ERR_INVALID_STATE; /* Already shared with BOOT. */ }
+esp_err_t solar_os_gpio_isr_service_ensure(void)
+{ return ESP_OK; /* Already shared with BOOT. */ }
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg)
 {
     if (pin == fail_trackball_pin) return ESP_FAIL;
@@ -419,8 +431,10 @@ static void test_trackball_session_switching(void)
     assert(solar_os_input_read_events(focus, 2) == 2);
     assert(focus[0].key == SOLAR_OS_KEY_UP);
     const unsigned up_moves = display_moves[3];
+    const unsigned display_clears = compose_clears;
     dispatch_input_key(&focus[0]); dispatch_input_key(&focus[1]);
     assert(display_moves[3] == up_moves + 1 && session_switch_nav_held == 0);
+    assert(compose_clears == display_clears + 1);
     close_session_overlay(); /* The mock has no timer for transient overlays. */
     solar_os_input_composition_set_modifiers(keyboard, 0);
     solar_os_input_source_close(keyboard);
@@ -574,7 +588,34 @@ int main(void)
     control.key = SOLAR_OS_KEY_LEFT;
     dispatch_input_key(&control);
     assert(probe_char == SOLAR_OS_KEY_CTRL_LEFT);
+    /* Ctrl+@ is a real NUL and still reaches the shell. */
+    probe_char = 0xffU;
+    control.key = '@';
+    dispatch_input_key(&control);
+    assert(probe_char == 0U);
+    /* A layout key whose text no byte carries (Cyrillic) sends nothing to it. */
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA) == ESP_OK);
+    probe_char = 0xffU;
+    solar_os_input_key_event_t cyrillic = {.source = source, .usage = 0x04,
+        .key = SOLAR_OS_KEY_LAYOUT_TEXT, .action = SOLAR_OS_INPUT_KEY_PRESS};
+    dispatch_input_key(&cyrillic);
+    assert(probe_char == 0xffU);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     text_probe = false;
+    /* The service switches once; the desktop consumes both transitions and
+     * drops pending composition without sending a key or character to the app. */
+    assert(solar_os_input_set_keyboard_layout_list("us,ua") == ESP_OK);
+    const unsigned switches_cleared = compose_clears;
+    const unsigned keys_before_switch = guest_events, texts_before_switch = text_events;
+    assert(solar_os_input_write_key(source, 44, 44, 0, SOLAR_OS_INPUT_MOD_LEFT_CTRL,
+                                    SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+    assert(solar_os_input_write_key(source, 44, 44, 0, 0,
+                                    SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+    dispatch_desktop_queue();
+    assert(solar_os_input_keyboard_layout() == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA);
+    assert(compose_clears == switches_cleared + 1);
+    assert(guest_events == keys_before_switch && text_events == texts_before_switch);
+    assert(solar_os_input_set_keyboard_layout(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US) == ESP_OK);
     solar_os_input_source_close(source);
 #ifdef CL32_KEYBOARD_TEST
     test_cl32_session_switching();
