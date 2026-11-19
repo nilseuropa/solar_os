@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include "solar_os_fonts.h"
 #include "solar_os_terminal_internal.h"
 
 #define TERM_MARGIN_X 4
@@ -43,6 +44,8 @@ static void terminal_apply_settings(solar_os_terminal_t *t, bool clear)
 static uint8_t terminal_text_scale(const solar_os_terminal_t *t) { (void)t; return 1; }
 static const uint8_t *terminal_selected_font(const solar_os_terminal_t *t, bool b, bool i)
 { (void)t; (void)b; (void)i; return u8g2_font_5x8_tf; }
+const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
+{ (void)font; (void)codepoint; return NULL; }
 static bool terminal_draw_box_cell(u8g2_t *u, int x, int y, int w, int h, uint16_t c)
 { (void)u; (void)x; (void)y; (void)w; (void)h; (void)c; return false; }
 #define terminal_draw_block_cell terminal_draw_box_cell
