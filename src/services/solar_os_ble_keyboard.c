@@ -429,6 +429,9 @@ static esp_err_t stop_scanning(void)
 static const char *keyboard_layout_names[] = {
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE] = "de",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_UA] = "ua",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_FR] = "fr",
+    [SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO] = "ro",
 };
 
 static const char *addr_type_name(uint8_t addr_type);
@@ -759,35 +762,6 @@ bool solar_os_ble_nimble_keyboard_bond_remembered(const ble_addr_t *address)
 static bool name_matches_remembered_peer(const char *name)
 {
     return remembered_peer_index_by_name(name) >= 0;
-}
-
-static esp_err_t load_keyboard_layout(void)
-{
-    nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(BLE_KEYBOARD_NVS_NAMESPACE, NVS_READONLY, &nvs);
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
-    }
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    uint16_t value = 0;
-    ret = nvs_get_u16(nvs, BLE_KEYBOARD_NVS_LAYOUT_KEY, &value);
-    nvs_close(nvs);
-
-    if (ret == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
-    }
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    if (value >= sizeof(keyboard_layout_names) / sizeof(keyboard_layout_names[0])) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    return solar_os_input_set_keyboard_layout(
-        (solar_os_input_keyboard_layout_t)value);
 }
 
 static esp_err_t save_keyboard_layout(solar_os_ble_keyboard_layout_t layout)
@@ -1579,9 +1553,9 @@ static void keyboard_report_state_publish(uint8_t modifiers, const uint8_t *keys
     if (keys != NULL) {
         for (size_t i = 0; i < BLE_KEYBOARD_MAX_KEYS; i++) {
             next.keycodes[i] = keys[i];
-            next.chars[i] = solar_os_input_translate_hid_usage(keys[i],
-                                                               modifiers,
-                                                               caps_lock);
+            next.chars[i] = solar_os_input_translate_hid_usage_byte(keys[i],
+                                                                    modifiers,
+                                                                    caps_lock);
         }
     }
 
@@ -1933,10 +1907,8 @@ esp_err_t solar_os_ble_backend_init(void)
     }
 
     ESP_RETURN_ON_ERROR(init_nvs(), TAG, "nvs init failed");
-    esp_err_t layout_ret = load_keyboard_layout();
-    if (layout_ret != ESP_OK) {
-        SOLAR_OS_LOGW(TAG, "load keyboard layout failed: %s", esp_err_to_name(layout_ret));
-    }
+    /* The shared input service restores language layouts, including legacy
+     * BLE preferences. Starting BLE must not replace its configured list. */
     esp_err_t peer_ret = load_remembered_peers();
     if (peer_ret != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "load remembered keyboard failed: %s", esp_err_to_name(peer_ret));

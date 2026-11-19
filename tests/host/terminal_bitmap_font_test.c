@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
+#include "solar_os_fonts.h"
 
 extern const uint8_t u8g2_font_5x8_tf[];
 static uint8_t pixels[240 * 64 / 8];
@@ -25,6 +26,9 @@ static bool terminal_draw_box_cell(u8g2_t *u, int x, int y, int w, int h, uint16
 #define terminal_draw_block_cell terminal_draw_box_cell
 static const uint8_t *terminal_selected_font(const solar_os_terminal_t *t, bool b, bool i) {
     (void)t; (void)b; (void)i; return u8g2_font_5x8_tf;
+}
+const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint) {
+    (void)font; (void)codepoint; return NULL;
 }
 #include "terminal_cell.inc"
 int main(int argc, char **argv) {

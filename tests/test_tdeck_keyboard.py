@@ -6,6 +6,7 @@ import unittest
 
 from tests.test_foreground_presenter import production_functions
 from tests.test_shutdown_policy import run_c
+from tests.test_keyboard_layouts import write_keyboard_layouts
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,6 +70,7 @@ int main(void) {
             Path(tmp, "solar_os_board.h").write_text('#pragma once\n#include "solar_os_keys.h"\n' + ''.join(
                 f'#define {name} {defines[name]}\n' for name in (
                     "SOLAR_OS_BOARD_TDECK_KEYMAP", "SOLAR_OS_BOARD_INPUT_CHORDS")))
+            write_keyboard_layouts(tmp)
             binary = Path(tmp, "keyboard")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",

@@ -14,6 +14,7 @@ agent_reference_sections = true
 ## `solaros.time`
 
 - `solaros.time`: `uptime_ms`, `sleep_ms`, `uptime`, `datetime`, `utc_datetime`, `set_datetime`, `set_utc_datetime`, `utc_to_local`, `local_to_utc`, `is_valid`, `timezone`, `set_timezone`, `ntp_sync`. `sleep_ms` is cancellation-aware and accepts delays up to one hour.
+- `ntp_sync([server[, timeout_ms]])` returns `{utc = ..., ["local"] = ...}`. `server` defaults to `pool.ntp.org`, `timeout_ms` to `40000`. With less than 40000, a sync whose first packet is lost can fail before lwIP's retry.
 
 ## `solaros.rtc`
 

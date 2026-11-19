@@ -237,6 +237,14 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source, uint16_t phys
     return ESP_OK;
 }
 
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source, uint16_t physical,
+    uint16_t usage, uint8_t key, uint8_t mods)
+{
+    esp_err_t err = solar_os_input_write_key(source, physical, usage, key, mods, SOLAR_OS_INPUT_KEY_PRESS);
+    return err != ESP_OK ? err :
+        solar_os_input_write_key(source, physical, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+}
+
 BaseType_t solar_os_task_create_pinned_internal(TaskFunction_t function, const char *name,
     uint32_t stack, void *arg, UBaseType_t priority, TaskHandle_t *task,
     BaseType_t core, solar_os_task_role_t role)

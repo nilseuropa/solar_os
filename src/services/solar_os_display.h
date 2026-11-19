@@ -74,6 +74,7 @@ typedef struct {
     void *relax_context;
     uint16_t native_width;
     uint16_t native_height;
+    bool epaper;
 } solar_os_display_target_t;
 
 /* Runtime-only layout rectangle in the current panel's oriented/scaled pixels.
@@ -130,6 +131,8 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
 bool solar_os_display_target_name_for_u8g2(const u8g2_t *u8g2,
                                            char *name,
                                            size_t name_len);
+/* NULL selects display0. Unknown or unregistered displays return false. */
+bool solar_os_display_is_epaper(const u8g2_t *u8g2);
 esp_err_t solar_os_display_get_terminal_profile(
     const char *name,
     solar_os_terminal_profile_t *profile);

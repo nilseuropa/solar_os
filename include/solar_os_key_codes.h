@@ -52,4 +52,10 @@
 #define SOLAR_OS_KEY_CTRL_MINUS 0x1fu
 #define SOLAR_OS_KEY_CTRL 0xacu
 #define SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE 0xadu
+/* A language layout character that no key byte can carry (outside ASCII and
+ * Latin-1 letters, or a dead key). The character follows from the event's
+ * usage and modifiers, see solar_os_input_resolve_layout_key(); input
+ * consumers receive the resolved byte instead of these codes. */
+#define SOLAR_OS_KEY_LAYOUT_TEXT 0xaeu
+#define SOLAR_OS_KEY_LAYOUT_TEXT_CAPS 0xafu
 #define SOLAR_OS_KEY_ESCAPE 0x1bu

@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
+#include "solar_os_font_packs.h"
+#include "solar_os_fonts.h"
 #include "solar_os_terminal_internal.h"
 
 #define TERM_MARGIN_X 4
@@ -14,6 +16,8 @@ static uint32_t now_ms;
 static unsigned presents;
 static bool display_available = true;
 static uint32_t display_epoch;
+static uint32_t font_pack_generation;
+static bool font_change_on_present;
 static solar_os_terminal_cursor_shape_t preference_shape;
 static bool preference_blink = true;
 
@@ -23,12 +27,24 @@ void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *s
     if (shape) *shape = preference_shape;
     if (blink) *blink = preference_blink;
 }
+void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
+    (void)u8g2;
+    solar_os_terminal_get_cursor_preference(shape, blink);
+}
 static bool solar_os_display_terminal_draw_state(u8g2_t *u, uint32_t *epoch)
 { (void)u; *epoch = display_epoch; return display_available; }
 static int solar_os_display_request_present_mode(u8g2_t *u, int mode)
 { (void)u; (void)mode; return 0; }
 static void solar_os_display_present(u8g2_t *u, int mode)
-{ (void)u; (void)mode; presents++; }
+{
+    (void)u; (void)mode; presents++;
+    if (font_change_on_present) {
+        font_change_on_present = false;
+        font_pack_generation++;
+    }
+}
 static size_t terminal_rows(const solar_os_terminal_t *t) { return t->rows; }
 static size_t terminal_cols(const solar_os_terminal_t *t) { return t->cols; }
 static void terminal_return_to_live(solar_os_terminal_t *t) { t->scrollback_offset = 0; }
@@ -37,6 +53,9 @@ static void terminal_apply_settings(solar_os_terminal_t *t, bool clear)
 static uint8_t terminal_text_scale(const solar_os_terminal_t *t) { (void)t; return 1; }
 static const uint8_t *terminal_selected_font(const solar_os_terminal_t *t, bool b, bool i)
 { (void)t; (void)b; (void)i; return u8g2_font_5x8_tf; }
+const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
+{ (void)font; (void)codepoint; return NULL; }
+uint32_t solar_os_font_pack_generation(void) { return font_pack_generation; }
 static bool terminal_draw_box_cell(u8g2_t *u, int x, int y, int w, int h, uint16_t c)
 { (void)u; (void)x; (void)y; (void)w; (void)h; (void)c; return false; }
 #define terminal_draw_block_cell terminal_draw_box_cell
@@ -152,6 +171,47 @@ static void assert_cell(const uint8_t *background, size_t col, size_t row,
         if (underscore) expected |= 0x40;
         assert(pixels[row * 240 + x] == expected);
     }
+}
+
+static void test_font_pack_redraw(u8g2_t *u)
+{
+    static solar_os_terminal_t t, other;
+    init_terminal(&t, u);
+    t.cursor_visible = false;
+    solar_os_terminal_draw(&t);
+    uint8_t expected[sizeof(pixels)];
+    memcpy(expected, pixels, sizeof(pixels));
+    init_terminal(&other, u);
+    other.cursor_visible = false;
+    solar_os_terminal_draw(&other);
+
+    /* Loading, reloading and unloading must repaint every cached row without
+     * waiting for text, status or cursor changes. Each terminal tracks its own frame. */
+    for (unsigned change = 0; change < 3; change++) {
+        assert(!t.dirty && !other.dirty);
+        font_pack_generation++;
+        assert(solar_os_terminal_needs_draw(&t));
+        assert(solar_os_terminal_needs_draw(&other));
+        memset(pixels, 0xff, sizeof(pixels));
+        const unsigned before = presents;
+        solar_os_terminal_draw(&t);
+        assert(presents == before + 1 && !memcmp(expected, pixels, sizeof(pixels)));
+        assert(!solar_os_terminal_needs_draw(&t));
+        assert(solar_os_terminal_needs_draw(&other));
+        solar_os_terminal_draw(&other);
+        assert(!solar_os_terminal_needs_draw(&other));
+        solar_os_terminal_draw(&t);
+        assert(presents == before + 2);
+    }
+
+    /* A pack changed during the frame still needs another draw. */
+    font_change_on_present = true;
+    font_pack_generation++;
+    solar_os_terminal_draw(&t);
+    assert(solar_os_terminal_needs_draw(&t));
+    solar_os_terminal_draw(&t);
+    assert(!solar_os_terminal_needs_draw(&t));
+    puts("font pack changes repaint cached rows independently for each terminal");
 }
 
 int main(void)
@@ -283,5 +343,6 @@ int main(void)
     puts("terminal cursor pixels, caching, blink, visibility, edges and rollover passed");
     test_command();
     puts("setterm cursor query, updates, validation and save-error reporting passed");
+    test_font_pack_redraw(&u);
     return 0;
 }

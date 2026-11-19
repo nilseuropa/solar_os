@@ -1,6 +1,11 @@
 #pragma once
 
 #include "solar_os_terminal.h"
+#include "u8g2.h"
+
+/* The saved global choice overrides the display's factory default. */
+void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink);
 
 bool solar_os_terminal_profile_is_valid(const solar_os_terminal_profile_t *profile);
 void solar_os_terminal_profile_load_preferences(solar_os_terminal_profile_t *profile);

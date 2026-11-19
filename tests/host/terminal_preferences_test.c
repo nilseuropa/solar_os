@@ -32,6 +32,14 @@ static esp_err_t scale_write_error;
 static uint16_t display_orientations[2];
 static bool orientation_present[2];
 static esp_err_t orientation_write_error;
+static bool primary_epaper;
+static bool nvs_unavailable;
+static u8g2_t epaper_canvas, lcd_canvas;
+
+bool solar_os_display_is_epaper(const u8g2_t *u8g2)
+{
+    return u8g2 == &epaper_canvas || (u8g2 == NULL && primary_epaper);
+}
 
 static stored_value_t *find_value(const char *key)
 {
@@ -46,7 +54,7 @@ static stored_value_t *find_value(const char *key)
 esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
 {
     assert(strcmp(name, "terminal") == 0 || strcmp(name, "display_scale") == 0 || !strcmp(name,"display_orient"));
-    (void)mode;
+    if (nvs_unavailable && mode == NVS_READONLY) return ESP_ERR_NVS_NOT_FOUND;
     *handle = strcmp(name, "terminal") == 0 ? 1 : !strcmp(name,"display_scale") ? 2 : 3;
     return ESP_OK;
 }
@@ -111,16 +119,39 @@ esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value)
 
 int main(int argc, char **argv)
 {
-    if (argc == 2) {
+    if (argc >= 2) {
+        primary_epaper = argc > 2 && strcmp(argv[2], "epaper") == 0;
+        const bool present = strcmp(argv[1], "missing") != 0 &&
+            strcmp(argv[1], "unavailable") != 0;
+        nvs_unavailable = strcmp(argv[1], "unavailable") == 0;
         const unsigned saved = (unsigned)strtoul(argv[1], NULL, 10);
-        find_value("cursor")->present = true;
+        const bool override = present && saved <= 3;
+        find_value("cursor")->present = present;
         find_value("cursor")->value = saved;
         solar_os_terminal_cursor_shape_t shape;
         bool blink;
         solar_os_terminal_get_cursor_preference(&shape, &blink);
-        assert(shape == (saved <= 3 ? (solar_os_terminal_cursor_shape_t)(saved >> 1) :
+        assert(shape == (override ? (solar_os_terminal_cursor_shape_t)(saved >> 1) :
                                        SOLAR_OS_TERMINAL_CURSOR_BLOCK));
-        assert(blink == (saved > 3 || !(saved & 1U)));
+        assert(blink == (override ? !(saved & 1U) : !primary_epaper));
+        /* Missing/invalid NVS stays a default, even after a late registration
+         * or a display change. A saved zero remains an explicit blink choice. */
+        primary_epaper = !primary_epaper;
+        solar_os_terminal_get_cursor_preference(NULL, &blink);
+        assert(blink == (override ? !(saved & 1U) : !primary_epaper));
+        solar_os_terminal_get_cursor_preference_for_display(&epaper_canvas, &shape, &blink);
+        assert(shape == (override ? (solar_os_terminal_cursor_shape_t)(saved >> 1) :
+                                       SOLAR_OS_TERMINAL_CURSOR_BLOCK));
+        assert(blink == (override && !(saved & 1U)));
+        solar_os_terminal_get_cursor_preference_for_display(&lcd_canvas, NULL, &blink);
+        assert(blink == (!override || !(saved & 1U)));
+        assert(commit_count == 0);
+        /* A failed save must preserve either the override or display default. */
+        orientation_write_error = ESP_FAIL;
+        assert(solar_os_terminal_set_cursor_preference(SOLAR_OS_TERMINAL_CURSOR_BLOCK,
+                                                       false) == ESP_FAIL);
+        solar_os_terminal_get_cursor_preference_for_display(&lcd_canvas, NULL, &blink);
+        assert(blink == (!override || !(saved & 1U)));
         return 0;
     }
     solar_os_terminal_profile_t profile;
@@ -234,6 +265,10 @@ int main(int argc, char **argv)
         solar_os_terminal_cursor_shape_t actual;
         bool actual_blink;
         solar_os_terminal_get_cursor_preference(&actual, &actual_blink);
+        assert(actual == shape && actual_blink == blink);
+        solar_os_terminal_get_cursor_preference_for_display(&epaper_canvas, &actual, &actual_blink);
+        assert(actual == shape && actual_blink == blink);
+        solar_os_terminal_get_cursor_preference_for_display(&lcd_canvas, &actual, &actual_blink);
         assert(actual == shape && actual_blink == blink);
     }
     assert(solar_os_terminal_set_cursor_preference((solar_os_terminal_cursor_shape_t)2, true) ==

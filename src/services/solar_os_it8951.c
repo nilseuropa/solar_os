@@ -144,7 +144,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     device->display = (solar_os_board_display_t){.ops = &ops, .driver = &device->driver,
         .driver_name = "it8951", .controller = "IT8951/ED103TC2", .u8g2 = &device->driver.u8g2,
         .width = u8g2_GetDisplayWidth(&device->driver.u8g2),
-        .height = u8g2_GetDisplayHeight(&device->driver.u8g2), .ready = true,
+        .height = u8g2_GetDisplayHeight(&device->driver.u8g2), .ready = true, .epaper = true,
         .frame_formats = FRAME_FORMATS, .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
         .preferred_stream_fps = 1};
     if (device->primary) err = solar_os_board_display_register_primary(&device->display);
@@ -158,6 +158,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         target.u8g2 = device->display.u8g2;
         target.width = device->display.width; target.height = device->display.height;
         target.ready = true;
+        target.epaper = true;
         target.controller_context = &device->driver;
         target.controller_mode = target_mode; target.controller_mode_values = target_modes;
         target.set_controller_mode = target_set_mode;

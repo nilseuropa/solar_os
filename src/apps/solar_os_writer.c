@@ -967,6 +967,20 @@ static bool writer_handle_dialog(solar_os_context_t *ctx, uint8_t ch)
     return true;
 }
 
+static void writer_insert_key(uint8_t ch)
+{
+    if (ch >= 0x20U && ch < 0x7fU) {
+        const char value = (char)ch;
+        (void)writer_insert(&value, 1);
+    } else if (ch >= 0xc0U) {
+        const char value[] = {
+            (char)(0xc0U | (ch >> 6)),
+            (char)(0x80U | (ch & 0x3fU)),
+        };
+        (void)writer_insert(value, sizeof(value));
+    }
+}
+
 static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
 {
     writer_wake_cursor();
@@ -1083,11 +1097,21 @@ static bool writer_handle_char(solar_os_context_t *ctx, uint8_t ch)
         }
         break;
     default:
-        if (ch >= 0x20U && ch != 0x7fU) {
-            const char value = (char)ch;
-            (void)writer_insert(&value, 1);
-        }
+        writer_insert_key(ch);
         break;
+    }
+    return true;
+}
+
+static bool writer_handle_text(solar_os_context_t *ctx, const char *text)
+{
+    writer_wake_cursor();
+    const size_t len = strlen(text);
+    if (writer.dialog != WRITER_DIALOG_NONE) {
+        return len == 1U ? writer_handle_dialog(ctx, (uint8_t)text[0]) : true;
+    }
+    if (len > 0U) {
+        (void)writer_insert(text, len);
     }
     return true;
 }
@@ -1209,9 +1233,11 @@ static void writer_draw_highlight(solar_os_gfx_t *gfx, const solar_os_doc_view_t
         if (to <= from) {
             continue;
         }
-        const int x = view->x + run->x + ((int)from * run->char_w);
+        const int start_x = solar_os_doc_layout_run_source_x(&writer.layout, run, run->source_start + from);
+        const int end_x = solar_os_doc_layout_run_source_x(&writer.layout, run, run->source_start + to);
+        const int x = view->x + start_x;
         const int y = view->y + run->y - view->scroll_y;
-        solar_os_gfx_fill_rect(gfx, x, y, (int)(to - from) * run->char_w, run->height);
+        solar_os_gfx_fill_rect(gfx, x, y, end_x - start_x, run->height);
     }
 }
 
@@ -1524,6 +1550,9 @@ static bool writer_event(solar_os_context_t *ctx, const solar_os_event_t *event)
     if (event->type == SOLAR_OS_EVENT_CHAR) {
         return writer_handle_char(ctx, (uint8_t)event->data.ch);
     }
+    if (event->type == SOLAR_OS_EVENT_TEXT) {
+        return writer_handle_text(ctx, event->data.text);
+    }
     if (event->type == SOLAR_OS_EVENT_TICK) {
         writer.last_tick_ms = event->data.tick_ms;
         if (writer.dirty && !writer.recovery_written &&
@@ -1573,7 +1602,7 @@ const solar_os_app_t solar_os_writer_app = {
     .name = "writer",
     .summary = "hybrid WYSIWYG Markdown editor",
     .app_class = SOLAR_OS_APP_CLASS_GUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_TEXT_EVENTS,
     .start = writer_start,
     .suspend = writer_suspend,
     .resume = writer_resume,

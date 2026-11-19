@@ -843,6 +843,7 @@ static const char * const display_orientation_values[] = {"0", "90", "180", "270
 static const char * const display_canvas_values[] = {"default", "full"};
 static const char * const display_scale_values[] = {"1", "2", "3", "4"};
 static const char * const setterm_font_values[] = {"mono", "compact"};
+static const char * const setterm_font_pack_values[] = {"mono", "compact", "load", "unload"};
 static const char * const setterm_textsize_values[] = {"8", "10", "12", "14", "16", "18", "20"};
 static const char * const setterm_cursor_shapes[] = {"block", "underscore"};
 static const char * const setterm_cursor_modes[] = {"blink", "steady"};
@@ -852,7 +853,7 @@ static const char * const setterm_brightness_values[] = {"0", "25", "50", "75", 
 static const char * const setterm_backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
 static const char * const setterm_profile_values[] = {"vt100", "ansi", "dumb"};
 static const char * const setterm_charset_values[] = {"utf8", "ascii"};
-static const char * const setterm_keyboard_values[] = {"us", "de"};
+static const char * const setterm_keyboard_values[] = {"us", "de", "ua", "fr", "ro", "us,ua"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
 static const char * const setterm_ble_values[] = {"default", "on", "off"};
 #endif
@@ -3565,7 +3566,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_setterm_orientation, display_orientation_values),
     SHELL_COMPLETION_STATIC(path_setterm_scale, display_scale_values),
     SHELL_COMPLETION_STATIC(path_setterm_display_scale, display_scale_values),
-    SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_values),
+    SHELL_COMPLETION_STATIC(path_setterm_font, setterm_font_pack_values),
     SHELL_COMPLETION_STATIC(path_setterm_textsize, setterm_textsize_values),
     SHELL_COMPLETION_STATIC(path_setterm_cursor, setterm_cursor_shapes),
     SHELL_COMPLETION_STATIC(path_setterm_cursor_mode, setterm_cursor_modes),

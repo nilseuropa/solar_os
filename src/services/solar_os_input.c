@@ -1,7 +1,6 @@
 #include "solar_os_input.h"
 #include "solar_os_input_route.h"
 
-#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -11,6 +10,7 @@
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "nvs.h"
+#include "solar_os_keyboard_layouts_generated.h"
 #include "solar_os_keys.h"
 #include "solar_os_memory.h"
 
@@ -26,6 +26,7 @@
 #define INPUT_NVS_REPEAT_RATE_KEY "repeat_cps"
 #define INPUT_NVS_REPEAT_DELAY_KEY "repeat_delay"
 #define INPUT_NVS_LAYOUT_KEY "layout"
+#define INPUT_NVS_LAYOUTS_KEY "layouts"
 #define INPUT_NVS_CALIBRATION_VERSION 1U
 #define INPUT_LEGACY_NVS_NAMESPACE "blekbd"
 #define INPUT_POINTER_CAPABILITIES \
@@ -55,14 +56,6 @@ typedef struct {
     uint32_t pressed_ms, tap_ms;
     char target[SOLAR_OS_INPUT_POINTER_TARGET_MAX];
 } input_touch_state_t;
-
-#define INPUT_LATIN1_A_UMLAUT_UPPER ((uint8_t)0xc4)
-#define INPUT_LATIN1_O_UMLAUT_UPPER ((uint8_t)0xd6)
-#define INPUT_LATIN1_U_UMLAUT_UPPER ((uint8_t)0xdc)
-#define INPUT_LATIN1_SHARP_S ((uint8_t)0xdf)
-#define INPUT_LATIN1_A_UMLAUT_LOWER ((uint8_t)0xe4)
-#define INPUT_LATIN1_O_UMLAUT_LOWER ((uint8_t)0xf6)
-#define INPUT_LATIN1_U_UMLAUT_LOWER ((uint8_t)0xfc)
 
 typedef struct {
     uint32_t key_events;
@@ -141,6 +134,11 @@ static uint16_t input_repeat_rate_cps = INPUT_REPEAT_RATE_DEFAULT;
 static uint16_t input_repeat_delay_ms = INPUT_REPEAT_DELAY_DEFAULT_MS;
 static solar_os_input_keyboard_layout_t input_keyboard_layout =
     SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US;
+static uint8_t input_keyboard_layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX] = {
+    SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+};
+static size_t input_keyboard_layout_count = 1;
+static size_t input_keyboard_layout_index;
 static input_repeat_state_t input_repeat;
 static solar_os_input_pointer_filter_t input_pointer_filter;
 static void *input_pointer_filter_context;
@@ -252,7 +250,25 @@ static bool input_capture_push_locked(const solar_os_input_key_event_t *event)
 static const char *const input_keyboard_layout_names[] = {
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US] = "us",
     [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE] = "de",
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA] = "ua",
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR] = "fr",
+    [SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO] = "ro",
 };
+
+/* Layout indexes are stored in NVS and must match the generated table order. */
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_US == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_DE == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_UA == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_FR == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_INDEX_RO == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO,
+               "keyboard layout table order");
+_Static_assert(SOLAR_OS_KEYBOARD_LAYOUT_COUNT ==
+                   sizeof(input_keyboard_layout_names) / sizeof(input_keyboard_layout_names[0]),
+               "keyboard layout table count");
 
 static const char *const input_source_class_names[] = {
     [SOLAR_OS_INPUT_SOURCE_OTHER] = "other",
@@ -487,6 +503,53 @@ static void input_increment_counter(uint32_t *counter)
     }
 }
 
+static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
+                                                      solar_os_input_keyboard_layout_t layout);
+
+static bool input_key_is_layout_code(const solar_os_input_key_event_t *event)
+{
+    return event->key == SOLAR_OS_KEY_LAYOUT_TEXT || event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS;
+}
+
+/* A layout code means what the layout in force when the key was typed says,
+ * so it is tagged when it enters the queue. Callers hold input_lock. */
+static void input_tag_layout(solar_os_input_key_event_t *event)
+{
+    if (input_key_is_layout_code(event) && event->layout_tag == 0U) {
+        event->layout_tag = (uint8_t)((unsigned)input_keyboard_layout + 1U);
+    }
+}
+
+/* Mark the held press, so repeat/release stay consumed even if Ctrl is
+ * released first or the configured list changes while Space is held. */
+static void input_prepare_key_locked(solar_os_input_key_event_t *event)
+{
+    input_tag_layout(event);
+    if (input_keyboard_layout_count > 1U && event->usage == 0x2cU &&
+        (event->modifiers & SOLAR_OS_INPUT_MOD_CTRL) != 0U &&
+        (event->modifiers & (uint8_t)~SOLAR_OS_INPUT_MOD_CTRL) == 0U &&
+        input_sources[event->source - 1U].source_class == SOLAR_OS_INPUT_SOURCE_KEYBOARD &&
+        !(input_capture_owner != NULL && input_capture_source == event->source &&
+          !input_capture_session_shortcuts)) {
+        event->layout_switch = true;
+        event->key = 0;
+    }
+}
+
+/* The release of a held key carries the byte its press delivered. A layout
+ * code is resolved with the modifiers of the press, not of the release, which
+ * can differ (AltGr released first). Callers hold input_lock. */
+static solar_os_input_key_event_t input_release_event(const solar_os_input_key_event_t *held,
+                                                      uint8_t modifiers)
+{
+    solar_os_input_key_event_t release = *held;
+    input_tag_layout(&release);
+    (void)input_resolve_layout_key(&release, input_keyboard_layout);
+    release.action = SOLAR_OS_INPUT_KEY_RELEASE;
+    release.modifiers = modifiers;
+    return release;
+}
+
 static void input_record_key_locked(const solar_os_input_key_event_t *event)
 {
     input_source_diagnostics_state_t *diagnostics =
@@ -494,6 +557,7 @@ static void input_record_key_locked(const solar_os_input_key_event_t *event)
     input_increment_counter(&diagnostics->key_events);
     diagnostics->has_key = true;
     diagnostics->last_key = *event;
+    (void)input_resolve_layout_key(&diagnostics->last_key, input_keyboard_layout);
 }
 
 static bool input_repeat_config_valid(uint16_t rate_cps, uint16_t delay_ms)
@@ -545,14 +609,22 @@ static input_pressed_slot_t *input_alloc_pressed_locked(void)
     return NULL;
 }
 
-static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
+static bool input_queue_push_locked(const solar_os_input_key_event_t *queued)
 {
+    solar_os_input_key_event_t tagged;
+    const solar_os_input_key_event_t *event = queued;
+    if (queued != NULL) {
+        tagged = *queued;
+        input_tag_layout(&tagged);
+        event = &tagged;
+    }
     /* Count before capture/queueing: a foreground owner may consume the key
      * before the desktop polls, and a full queue must not hide wake activity. */
     if (event != NULL && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
         input_key_press_generation++;
     }
-    if (event != NULL && (input_route_key_locked(event) || input_capture_push_locked(event))) {
+    if (event != NULL && !event->layout_switch &&
+        (input_route_key_locked(event) || input_capture_push_locked(event))) {
         return true;
     }
     if (event == NULL || input_queue_count >= INPUT_QUEUE_MAX) {
@@ -564,6 +636,11 @@ static bool input_queue_push_locked(const solar_os_input_key_event_t *event)
     const size_t index = (input_queue_head + input_queue_count) % INPUT_QUEUE_MAX;
     input_queue[index] = *event;
     input_queue_count++;
+    if (event->layout_switch && event->action == SOLAR_OS_INPUT_KEY_PRESS) {
+        input_keyboard_layout_index = (input_keyboard_layout_index + 1U) % input_keyboard_layout_count;
+        input_keyboard_layout = (solar_os_input_keyboard_layout_t)
+            input_keyboard_layouts[input_keyboard_layout_index];
+    }
     input_wake_generation++;
     return true;
 }
@@ -743,6 +820,29 @@ static esp_err_t input_load_layout_namespace(const char *namespace_name,
     return err;
 }
 
+static bool input_layout_list_valid(const uint8_t *layouts, size_t count)
+{
+    if (count == 0 || count > SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX) return false;
+    unsigned seen = 0;
+    for (size_t i = 0; i < count; i++) {
+        if (layouts[i] >= sizeof(input_keyboard_layout_names) / sizeof(input_keyboard_layout_names[0]) ||
+            (seen & (1U << layouts[i])) != 0U) return false;
+        seen |= 1U << layouts[i];
+    }
+    return true;
+}
+
+static esp_err_t input_load_layout_list(uint8_t *layouts, size_t *count)
+{
+    nvs_handle_t nvs;
+    esp_err_t err = nvs_open(INPUT_NVS_NAMESPACE, NVS_READONLY, &nvs);
+    if (err != ESP_OK) return err;
+    err = nvs_get_blob(nvs, INPUT_NVS_LAYOUTS_KEY, layouts, count);
+    nvs_close(nvs);
+    if (err == ESP_OK && !input_layout_list_valid(layouts, *count)) return ESP_ERR_INVALID_ARG;
+    return err;
+}
+
 esp_err_t solar_os_input_init(void)
 {
     uint16_t rate_cps = INPUT_REPEAT_RATE_DEFAULT;
@@ -778,6 +878,19 @@ esp_err_t solar_os_input_init(void)
         layout_err = ESP_ERR_INVALID_ARG;
     }
 
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    size_t layout_count = sizeof(layouts);
+    const esp_err_t list_err = input_load_layout_list(layouts, &layout_count);
+    if (list_err == ESP_OK) {
+        layout_value = layouts[0];
+        layout_err = ESP_OK;
+    } else if (list_err == ESP_ERR_NVS_NOT_FOUND) {
+        layouts[0] = (uint8_t)layout_value;
+        layout_count = 1;
+    } else {
+        layout_err = list_err;
+    }
+
     portENTER_CRITICAL(&input_lock);
     if (repeat_err == ESP_OK) {
         input_repeat_rate_cps = rate_cps;
@@ -785,6 +898,9 @@ esp_err_t solar_os_input_init(void)
     }
     if (layout_err == ESP_OK) {
         input_keyboard_layout = (solar_os_input_keyboard_layout_t)layout_value;
+        memcpy(input_keyboard_layouts, layouts, layout_count);
+        input_keyboard_layout_count = layout_count;
+        input_keyboard_layout_index = 0;
     }
     input_pointer_filter = NULL;
     input_pointer_filter_context = NULL;
@@ -1296,9 +1412,7 @@ void solar_os_input_source_release_all(solar_os_input_source_t source)
         if (!input_pressed[i].active || input_pressed[i].event.source != source) {
             continue;
         }
-        solar_os_input_key_event_t release = input_pressed[i].event;
-        release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-        release.modifiers = 0;
+        const solar_os_input_key_event_t release = input_release_event(&input_pressed[i].event, 0);
         if (input_queue_push_locked(&release)) {
             input_record_key_locked(&release);
         }
@@ -1389,9 +1503,8 @@ void solar_os_input_source_close(solar_os_input_source_t source)
     }
     for (size_t i = 0; i < SOLAR_OS_INPUT_MAX_PRESSED_KEYS; i++) {
         if (input_pressed[i].active && input_pressed[i].event.source == source) {
-            solar_os_input_key_event_t release = input_pressed[i].event;
-            release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-            release.modifiers = 0;
+            const solar_os_input_key_event_t release =
+                input_release_event(&input_pressed[i].event, 0);
             if (input_queue_push_locked(&release)) {
                 input_record_key_locked(&release);
                 memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
@@ -1521,6 +1634,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
                 .modifiers = modifiers,
                 .action = SOLAR_OS_INPUT_KEY_PRESS,
             };
+            input_prepare_key_locked(&pressed->event);
             if (!input_queue_push_locked(&pressed->event)) {
                 result = ESP_ERR_NO_MEM;
             } else {
@@ -1531,9 +1645,7 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source,
     } else if (action == SOLAR_OS_INPUT_KEY_RELEASE) {
         input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
         if (pressed != NULL) {
-            solar_os_input_key_event_t release = pressed->event;
-            release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-            release.modifiers = modifiers;
+            const solar_os_input_key_event_t release = input_release_event(&pressed->event, modifiers);
             memset(pressed, 0, sizeof(*pressed));
             input_repeat_stop_locked(source, physical_key);
             if (!input_queue_push_locked(&release)) {
@@ -1574,6 +1686,10 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
         result = ESP_ERR_INVALID_STATE;
     } else {
         input_pressed_slot_t *pressed = input_find_pressed_locked(source, physical_key);
+        if (pressed && key && pressed->event.layout_switch && pressed->event.usage == usage) {
+            portEXIT_CRITICAL(&input_lock);
+            return ESP_OK;
+        }
         if (pressed && key && pressed->event.key == key &&
             pressed->event.usage == usage && pressed->event.modifiers == modifiers) {
             portEXIT_CRITICAL(&input_lock);
@@ -1592,9 +1708,8 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
             result = ESP_ERR_NO_MEM;
         } else {
             if (pressed) {
-                solar_os_input_key_event_t release = pressed->event;
-                release.action = SOLAR_OS_INPUT_KEY_RELEASE;
-                release.modifiers = modifiers;
+                const solar_os_input_key_event_t release =
+                    input_release_event(&pressed->event, modifiers);
                 (void)input_queue_push_locked(&release);
                 input_record_key_locked(&release);
                 input_repeat_stop_locked(source, physical_key);
@@ -1606,6 +1721,7 @@ esp_err_t solar_os_input_set_key(solar_os_input_source_t source,
                     .source = source, .physical_key = physical_key, .usage = usage,
                     .key = key, .modifiers = modifiers, .action = SOLAR_OS_INPUT_KEY_PRESS,
                 };
+                input_prepare_key_locked(&next->event);
                 (void)input_queue_push_locked(&next->event);
                 input_record_key_locked(&next->event);
                 input_repeat_start_locked(&next->event);
@@ -1635,9 +1751,6 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
         .modifiers = modifiers,
         .action = SOLAR_OS_INPUT_KEY_PRESS,
     };
-    solar_os_input_key_event_t release = press;
-    release.modifiers = 0U;
-    release.action = SOLAR_OS_INPUT_KEY_RELEASE;
 
     esp_err_t result = ESP_OK;
     portENTER_CRITICAL(&input_lock);
@@ -1649,6 +1762,8 @@ esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source,
                !(input_capture_owner != NULL && input_capture_source == source)) {
         result = ESP_ERR_NO_MEM;
     } else {
+        input_prepare_key_locked(&press);
+        const solar_os_input_key_event_t release = input_release_event(&press, 0U);
         (void)input_queue_push_locked(&press);
         (void)input_queue_push_locked(&release);
         input_record_key_locked(&press);
@@ -2579,6 +2694,9 @@ bool solar_os_input_read_captured_key(const void *owner,
         }
     }
     portEXIT_CRITICAL(&input_lock);
+    if (found && !*reset) {
+        (void)solar_os_input_resolve_layout_key(event);
+    }
     return found;
 }
 
@@ -2740,8 +2858,12 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
     size_t count = 0;
     for (size_t i = 0; i < input_queue_count; i++) {
         const size_t read_index = (input_queue_head + i) % INPUT_QUEUE_MAX;
-        const solar_os_input_key_event_t event = input_queue[read_index];
-        const bool selected = !filter_source || event.source == source;
+        const solar_os_input_key_event_t queued = input_queue[read_index];
+        const bool selected = !filter_source || queued.source == source;
+        /* Character readers get the byte key, like every other consumer; a
+         * retained event keeps its layout code for the next reader. */
+        solar_os_input_key_event_t event = queued;
+        (void)input_resolve_layout_key(&event, input_keyboard_layout);
         const bool emits_char =
             (event.action == SOLAR_OS_INPUT_KEY_PRESS ||
              event.action == SOLAR_OS_INPUT_KEY_REPEAT) &&
@@ -2756,7 +2878,7 @@ static size_t input_read_chars_for_source(solar_os_input_source_t source,
              tui_fullscreen_altgr);
         const size_t needed = emits_char ? (emits_alt_prefix ? 2U : 1U) : 0U;
         if (!selected || count + needed > buffer_len) {
-            retained[kept++] = event;
+            retained[kept++] = queued;
             continue;
         }
         if (emits_alt_prefix) {
@@ -2814,28 +2936,81 @@ solar_os_input_keyboard_layout_t solar_os_input_keyboard_layout(void)
     return layout;
 }
 
-esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout)
+static esp_err_t input_save_layout_list(const uint8_t *layouts, size_t count)
 {
-    if ((size_t)layout >= sizeof(input_keyboard_layout_names) /
-            sizeof(input_keyboard_layout_names[0])) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    portENTER_CRITICAL(&input_lock);
-    input_keyboard_layout = layout;
-    portEXIT_CRITICAL(&input_lock);
-
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(INPUT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = nvs_set_u16(nvs, INPUT_NVS_LAYOUT_KEY, (uint16_t)layout);
+    if (err != ESP_OK) return err;
+    err = nvs_set_u16(nvs, INPUT_NVS_LAYOUT_KEY, layouts[0]);
     if (err == ESP_OK) {
-        err = nvs_commit(nvs);
+        if (count > 1U) {
+            err = nvs_set_blob(nvs, INPUT_NVS_LAYOUTS_KEY, layouts, count);
+        } else {
+            err = nvs_erase_key(nvs, INPUT_NVS_LAYOUTS_KEY);
+            if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+        }
     }
+    if (err == ESP_OK) err = nvs_commit(nvs);
     nvs_close(nvs);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&input_lock);
+        memcpy(input_keyboard_layouts, layouts, count);
+        input_keyboard_layout_count = count;
+        input_keyboard_layout_index = 0;
+        input_keyboard_layout = (solar_os_input_keyboard_layout_t)layouts[0];
+        input_wake_generation++;
+        portEXIT_CRITICAL(&input_lock);
+        input_notify_wake();
+    }
     return err;
+}
+
+esp_err_t solar_os_input_set_keyboard_layout(solar_os_input_keyboard_layout_t layout)
+{
+    if ((unsigned)layout >= sizeof(input_keyboard_layout_names) /
+                            sizeof(input_keyboard_layout_names[0])) return ESP_ERR_INVALID_ARG;
+    const uint8_t value = (uint8_t)layout;
+    return input_save_layout_list(&value, 1);
+}
+
+esp_err_t solar_os_input_set_keyboard_layout_list(const char *text)
+{
+    if (text == NULL || text[0] == '\0') return ESP_ERR_INVALID_ARG;
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    size_t count = 0;
+    for (const char *p = text;;) {
+        const char *end = strchr(p, ',');
+        const size_t len = end != NULL ? (size_t)(end - p) : strlen(p);
+        if (len != 2U || count == sizeof(layouts)) return ESP_ERR_INVALID_ARG;
+        const char name[3] = {p[0], p[1], '\0'};
+        solar_os_input_keyboard_layout_t layout;
+        if (!solar_os_input_parse_keyboard_layout(name, &layout)) return ESP_ERR_INVALID_ARG;
+        layouts[count++] = (uint8_t)layout;
+        if (end == NULL) break;
+        p = end + 1;
+    }
+    if (!input_layout_list_valid(layouts, count)) return ESP_ERR_INVALID_ARG;
+    return input_save_layout_list(layouts, count);
+}
+
+esp_err_t solar_os_input_keyboard_layout_list(char *text, size_t text_len)
+{
+    if (text == NULL || text_len == 0) return ESP_ERR_INVALID_ARG;
+    uint8_t layouts[SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX];
+    portENTER_CRITICAL(&input_lock);
+    const size_t count = input_keyboard_layout_count;
+    memcpy(layouts, input_keyboard_layouts, count);
+    portEXIT_CRITICAL(&input_lock);
+    if (text_len < count * 3U) return ESP_ERR_INVALID_SIZE;
+    size_t pos = 0;
+    for (size_t i = 0; i < count; i++) {
+        const char *name = input_keyboard_layout_names[layouts[i]];
+        if (i != 0) text[pos++] = ',';
+        text[pos++] = name[0];
+        text[pos++] = name[1];
+    }
+    text[pos] = '\0';
+    return ESP_OK;
 }
 
 const char *solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout_t layout)
@@ -2963,103 +3138,239 @@ bool solar_os_input_parse_key_chord(const char *text,
     return true;
 }
 
-static uint8_t input_shifted_digit(uint16_t usage)
+/* Key events carry ASCII or Latin-1 letters from U+00C0; 0x80-0xbf are
+ * SolarOS key codes, so other characters cannot be sent as a key. */
+static bool input_key_event_char(uint16_t codepoint)
 {
-    static const uint8_t shifted[] = {'!', '@', '#', '$', '%', '^', '&', '*', '(', ')'};
-    return shifted[usage - 0x1eU];
+    return (codepoint >= 0x20U && codepoint < 0x7fU) ||
+        (codepoint >= 0xc0U && codepoint <= 0xffU);
 }
 
-static uint8_t input_unshifted_digit(uint16_t usage)
+static const solar_os_keyboard_layout_key_t *input_layout_key(
+    const solar_os_keyboard_layout_t *table, uint16_t usage)
 {
-    return usage == 0x27U ? '0' : (uint8_t)('1' + usage - 0x1eU);
+    for (uint8_t i = 0; i < table->key_count; i++) {
+        if (table->keys[i].usage == usage) {
+            return &table->keys[i];
+        }
+    }
+    return NULL;
 }
 
-static uint8_t input_usage_to_us(uint16_t usage, bool shift, bool caps_lock)
+static const solar_os_keyboard_layout_t *input_layout_table(
+    solar_os_input_keyboard_layout_t layout)
 {
-    if (usage >= 0x04U && usage <= 0x1dU) {
-        const bool upper = shift ^ caps_lock;
-        return (uint8_t)((upper ? 'A' : 'a') + usage - 0x04U);
-    }
-    if (usage >= 0x1eU && usage <= 0x27U) {
-        return shift ? input_shifted_digit(usage) : input_unshifted_digit(usage);
-    }
-    switch (usage) {
-    case 0x28: return '\n';
-    case 0x29: return SOLAR_OS_KEY_ESCAPE;
-    case 0x2a: return '\b';
-    case 0x2b: return '\t';
-    case 0x2c: return ' ';
-    case 0x2d: return shift ? '_' : '-';
-    case 0x2e: return shift ? '+' : '=';
-    case 0x2f: return shift ? '{' : '[';
-    case 0x30: return shift ? '}' : ']';
-    case 0x31: return shift ? '|' : '\\';
-    case 0x32: return shift ? '~' : '#';
-    case 0x33: return shift ? ':' : ';';
-    case 0x34: return shift ? '"' : '\'';
-    case 0x35: return shift ? '~' : '`';
-    case 0x36: return shift ? '<' : ',';
-    case 0x37: return shift ? '>' : '.';
-    case 0x38: return shift ? '?' : '/';
-    default: return 0;
-    }
+    return &solar_os_keyboard_layouts[(size_t)layout < SOLAR_OS_KEYBOARD_LAYOUT_COUNT ?
+                                      (size_t)layout : 0U];
 }
 
-static uint8_t input_usage_to_de(uint16_t usage,
-                                 uint8_t modifiers,
-                                 bool caps_lock)
+/* Text of one table entry: a character, or a dead key index. */
+static solar_os_input_text_t input_layout_entry(const solar_os_keyboard_layout_key_t *key,
+                                                unsigned index)
 {
+    if ((key->dead & (1U << index)) != 0U &&
+        key->chars[index] < SOLAR_OS_KEYBOARD_DEAD_KEY_COUNT) {
+        return (solar_os_input_text_t){
+            .codepoint = solar_os_keyboard_dead_keys[key->chars[index]].spacing,
+            .dead = (uint8_t)(key->chars[index] + 1U),
+        };
+    }
+    return (solar_os_input_text_t){.codepoint = key->chars[index]};
+}
+
+/* Latin letters: Basic Latin to Latin Extended-B, and Latin Extended Additional. */
+static bool input_codepoint_latin(uint16_t codepoint)
+{
+    return codepoint < 0x0250U || (codepoint >= 0x1e00U && codepoint < 0x1f00U);
+}
+
+/* Keys whose base character is a non-Latin letter (Cyrillic, ...) type their
+ * US character with shortcut modifiers, so Ctrl, Alt and GUI shortcuts work in
+ * every layout. */
+static bool input_layout_key_non_latin(const solar_os_keyboard_layout_key_t *key)
+{
+    return key != NULL && (key->dead & 1U) == 0U && !input_codepoint_latin(key->chars[0]);
+}
+
+/* The text a layout key types and the byte key consumers get for it. */
+static bool input_layout_lookup(uint16_t usage, uint8_t modifiers, bool caps_lock,
+                                solar_os_input_keyboard_layout_t layout,
+                                solar_os_input_text_t *text, uint8_t *byte)
+{
+    const solar_os_keyboard_layout_t *table = input_layout_table(layout);
+    const solar_os_keyboard_layout_key_t *key = input_layout_key(table, usage);
+    if (input_layout_key_non_latin(key) &&
+        (modifiers & (SOLAR_OS_INPUT_MOD_CTRL | SOLAR_OS_INPUT_MOD_LEFT_ALT |
+                      SOLAR_OS_INPUT_MOD_LEFT_GUI | SOLAR_OS_INPUT_MOD_RIGHT_GUI)) != 0U) {
+        table = input_layout_table(SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US);
+        key = input_layout_key(table, usage);
+    }
+    if (key == NULL) {
+        return false;
+    }
     const bool shift = (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0;
-    const bool altgr = (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
-    if (altgr) {
-        switch (usage) {
-        case 0x28: return SOLAR_OS_KEY_ENTER;
-        case 0x2b: return '\t';
-        case 0x14: return '@';
-        case 0x24: return '{';
-        case 0x25: return '[';
-        case 0x26: return ']';
-        case 0x27: return '}';
-        case 0x2d: return '\\';
-        case 0x30: return '~';
-        case 0x64: return '|';
-        default: return 0;
-        }
+    const bool altgr = table->altgr && (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
+    const unsigned level = (shift ? SOLAR_OS_KEYBOARD_LAYOUT_LEVEL_SHIFT : 0U) +
+        (altgr ? SOLAR_OS_KEYBOARD_LAYOUT_LEVEL_ALTGR : 0U);
+    const solar_os_input_text_t plain = input_layout_entry(key, level);
+    const solar_os_input_text_t caps =
+        input_layout_entry(key, SOLAR_OS_KEYBOARD_LAYOUT_CAPS + level);
+    *text = caps_lock ? caps : plain;
+    /* A Caps Lock result that cannot be a key byte (such as capital sharp s)
+     * falls back to the character without Caps Lock. */
+    if (caps_lock && input_key_event_char(caps.codepoint)) {
+        *byte = (uint8_t)caps.codepoint;
+    } else {
+        *byte = input_key_event_char(plain.codepoint) ? (uint8_t)plain.codepoint : 0U;
     }
-    if (usage >= 0x04U && usage <= 0x1dU) {
-        uint8_t base = (uint8_t)('a' + usage - 0x04U);
-        if (base == 'y') {
-            base = 'z';
-        } else if (base == 'z') {
-            base = 'y';
-        }
-        return (shift ^ caps_lock) ? (uint8_t)toupper(base) : base;
-    }
-    if (usage >= 0x1eU && usage <= 0x27U) {
-        static const uint8_t shifted[] = {'!', '"', '#', '$', '%', '&', '/', '(', ')', '='};
-        return shift ? shifted[usage - 0x1eU] : input_unshifted_digit(usage);
-    }
+    return true;
+}
+
+static uint8_t input_usage_to_layout_char(uint16_t usage,
+                                          uint8_t modifiers,
+                                          bool caps_lock,
+                                          solar_os_input_keyboard_layout_t layout)
+{
+    const bool altgr = input_layout_table(layout)->altgr &&
+        (modifiers & SOLAR_OS_INPUT_MOD_RIGHT_ALT) != 0;
     switch (usage) {
-    case 0x28: return '\n';
-    case 0x29: return SOLAR_OS_KEY_ESCAPE;
-    case 0x2a: return '\b';
+    case 0x28: return altgr ? SOLAR_OS_KEY_ENTER : '\n';
+    case 0x29: return altgr ? 0 : SOLAR_OS_KEY_ESCAPE;
+    case 0x2a: return altgr ? 0 : '\b';
     case 0x2b: return '\t';
-    case 0x2c: return ' ';
-    case 0x2d: return shift ? '?' : INPUT_LATIN1_SHARP_S;
-    case 0x2e: return shift ? '`' : 0;
-    case 0x2f: return shift ? INPUT_LATIN1_U_UMLAUT_UPPER : INPUT_LATIN1_U_UMLAUT_LOWER;
-    case 0x30: return shift ? '*' : '+';
-    case 0x31:
-    case 0x32: return shift ? '\'' : '#';
-    case 0x33: return shift ? INPUT_LATIN1_O_UMLAUT_UPPER : INPUT_LATIN1_O_UMLAUT_LOWER;
-    case 0x34: return shift ? INPUT_LATIN1_A_UMLAUT_UPPER : INPUT_LATIN1_A_UMLAUT_LOWER;
-    case 0x35: return shift ? 0 : '^';
-    case 0x36: return shift ? ';' : ',';
-    case 0x37: return shift ? ':' : '.';
-    case 0x38: return shift ? '_' : '-';
-    case 0x64: return shift ? '>' : '<';
-    default: return 0;
+    default: break;
     }
+    solar_os_input_text_t text;
+    uint8_t byte;
+    if (!input_layout_lookup(usage, modifiers, caps_lock, layout, &text, &byte)) {
+        return 0;
+    }
+    /* Text that the byte does not carry is resolved again from the event's
+     * usage and modifiers; the key code keeps the Caps Lock state. */
+    if (text.dead != 0U || (text.codepoint != 0U && text.codepoint != byte)) {
+        return caps_lock ? SOLAR_OS_KEY_LAYOUT_TEXT_CAPS : SOLAR_OS_KEY_LAYOUT_TEXT;
+    }
+    return byte;
+}
+
+solar_os_input_text_t solar_os_input_key_text(uint8_t key)
+{
+    return (solar_os_input_text_t){
+        .codepoint = input_key_event_char(key) ? key : 0U,
+    };
+}
+
+solar_os_input_text_t solar_os_input_resolve_layout_key(solar_os_input_key_event_t *event)
+{
+    return input_resolve_layout_key(event, solar_os_input_keyboard_layout());
+}
+
+uint8_t solar_os_input_translate_hid_usage_byte(uint16_t usage,
+                                                uint8_t modifiers,
+                                                bool caps_lock)
+{
+    solar_os_input_key_event_t event = {
+        .usage = usage,
+        .key = solar_os_input_translate_hid_usage(usage, modifiers, caps_lock),
+        .modifiers = modifiers,
+    };
+    (void)solar_os_input_resolve_layout_key(&event);
+    return event.key;
+}
+
+/* Callers holding input_lock pass the layout they read under it. */
+static solar_os_input_text_t input_resolve_layout_key(solar_os_input_key_event_t *event,
+                                                      solar_os_input_keyboard_layout_t layout)
+{
+    if (event == NULL) {
+        return (solar_os_input_text_t){0};
+    }
+    if (event->key != SOLAR_OS_KEY_LAYOUT_TEXT && event->key != SOLAR_OS_KEY_LAYOUT_TEXT_CAPS) {
+        return solar_os_input_key_text(event->key);
+    }
+    solar_os_input_text_t text = {0};
+    uint8_t byte = 0;
+    if (event->layout_tag != 0U &&
+        (unsigned)event->layout_tag - 1U <= (unsigned)SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO) {
+        layout = (solar_os_input_keyboard_layout_t)(event->layout_tag - 1U);
+    }
+    if (!input_layout_lookup(event->usage, event->modifiers,
+                             event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS,
+                             layout, &text, &byte)) {
+        text = (solar_os_input_text_t){0};
+    }
+    event->key = byte;
+    return text;
+}
+
+static uint16_t input_compose(uint8_t dead, uint16_t base)
+{
+    const solar_os_keyboard_dead_key_t *key = &solar_os_keyboard_dead_keys[dead - 1U];
+    size_t low = key->first;
+    size_t high = (size_t)key->first + key->count;
+    while (low < high) {
+        const size_t mid = low + (high - low) / 2U;
+        if (solar_os_keyboard_compose[mid].base == base) {
+            return solar_os_keyboard_compose[mid].result;
+        }
+        if (solar_os_keyboard_compose[mid].base < base) {
+            low = mid + 1U;
+        } else {
+            high = mid;
+        }
+    }
+    return 0;
+}
+
+size_t solar_os_input_compose_feed(solar_os_input_compose_t *state,
+                                   solar_os_input_text_t text,
+                                   uint16_t out[2])
+{
+    if (state == NULL || out == NULL) {
+        return 0;
+    }
+    if (text.dead > SOLAR_OS_KEYBOARD_DEAD_KEY_COUNT) {
+        text = (solar_os_input_text_t){0};
+    }
+    const uint8_t pending = state->dead <= SOLAR_OS_KEYBOARD_DEAD_KEY_COUNT ? state->dead : 0U;
+    size_t count = 0;
+    if (pending == 0U) {
+        if (text.dead != 0U) {
+            state->dead = text.dead;
+        } else if (text.codepoint != 0U) {
+            out[count++] = text.codepoint;
+        }
+        return count;
+    }
+    const uint16_t spacing = solar_os_keyboard_dead_keys[pending - 1U].spacing;
+    state->dead = 0;
+    if (text.dead == pending || (text.dead == 0U && text.codepoint == ' ')) {
+        /* Dead key twice or dead key + space: the spacing character. */
+        if (spacing != 0U) {
+            out[count++] = spacing;
+        }
+        return count;
+    }
+    if (text.dead != 0U) {
+        if (spacing != 0U) {
+            out[count++] = spacing;
+        }
+        state->dead = text.dead;
+        return count;
+    }
+    if (text.codepoint == 0U) {
+        return 0;
+    }
+    const uint16_t composed = input_compose(pending, text.codepoint);
+    if (composed != 0U) {
+        out[count++] = composed;
+        return count;
+    }
+    if (spacing != 0U) {
+        out[count++] = spacing;
+    }
+    out[count++] = text.codepoint;
+    return count;
 }
 
 static uint8_t input_usage_to_function_key(uint16_t usage)
@@ -3126,16 +3437,17 @@ uint8_t solar_os_input_translate_char_key(uint8_t key, uint8_t modifiers)
 static uint8_t input_usage_to_control(uint16_t usage,
                                       solar_os_input_keyboard_layout_t layout)
 {
-    if (usage >= 0x04U && usage <= 0x1dU) {
-        uint8_t base = (uint8_t)('a' + usage - 0x04U);
-        if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
-            if (base == 'y') {
-                base = 'z';
-            } else if (base == 'z') {
-                base = 'y';
-            }
-        }
+    /* Ctrl+letter follows the letter the layout puts on the key (Ctrl+Z on
+     * the German Z key, Ctrl+A on the AZERTY A key). Letter keys with a
+     * non-Latin letter keep their US letter. */
+    const solar_os_keyboard_layout_key_t *key =
+        input_layout_key(input_layout_table(layout), usage);
+    const uint16_t base = key != NULL && (key->dead & 1U) == 0U ? key->chars[0] : 0U;
+    if (base >= 'a' && base <= 'z') {
         return (uint8_t)(base - 'a' + 1U);
+    }
+    if (usage >= 0x04U && usage <= 0x1dU && (base == 0U || !input_codepoint_latin(base))) {
+        return (uint8_t)(usage - 0x04U + 1U);
     }
     switch (usage) {
     case 0x23: return 0x1e;
@@ -3180,12 +3492,7 @@ uint8_t solar_os_input_translate_hid_usage(uint16_t usage,
     if (key != 0) {
         return key;
     }
-    if (layout == SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE) {
-        return input_usage_to_de(usage, modifiers, caps_lock);
-    }
-    return input_usage_to_us(usage,
-                             (modifiers & SOLAR_OS_INPUT_MOD_SHIFT) != 0,
-                             caps_lock);
+    return input_usage_to_layout_char(usage, modifiers, caps_lock, layout);
 }
 
 void solar_os_input_get_repeat(uint16_t *rate_cps, uint16_t *delay_ms)

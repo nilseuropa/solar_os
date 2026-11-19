@@ -1,8 +1,11 @@
 from pathlib import Path
 import os
+import re
 import subprocess
 import tempfile
 import unittest
+
+from test_foreground_presenter import production_functions
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +24,36 @@ def function(name):
 
 
 class StatusBarIconsTest(unittest.TestCase):
+    def test_layout_text_fits_with_icons_and_clock(self):
+        component = ROOT / "components/u8g2"
+        cmake = (component / "CMakeLists.txt").read_text().split("\n)", 1)[0]
+        sources = [str(component / name) for name in re.findall(r'"([^"]+\.c)"', cmake)]
+        font = ROOT / "fonts/build/u8g2/u8g2_font_solar_os_default_r_12_tf.c"
+        flags = ["-DSOLAR_OS_TEST_REAL_STATUS_FONT", str(font)] if font.exists() else []
+        with tempfile.TemporaryDirectory() as directory:
+            icons = SOURCE[SOURCE.index("static void terminal_draw_status_slash("):
+                           SOURCE.index("static void terminal_draw_footer(")]
+            checks = production_functions(SOURCE, (
+                "terminal_status_bar_equal", "terminal_render_hash_bytes",
+                "terminal_render_hash_value", "terminal_render_status_hash",
+            ))
+            Path(directory, "status_bar_layout.inc").write_text(icons + checks)
+            binary = Path(directory) / "status-layout"
+            subprocess.run([
+                "cc", "-std=c11", "-O1", "-g", "-fsanitize=address,undefined",
+                "-fno-omit-frame-pointer", "-ffunction-sections", "-fdata-sections",
+                "-include", str(ROOT / "tests/host/compat.h"),
+                "-I" + str(component / "src/clib"), "-I" + directory,
+                "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src"),
+                "-I" + str(ROOT / "src/services"),
+                str(ROOT / "tests/host/status_bar_layout_test.c"), *sources, *flags,
+                "-Wl,--gc-sections", "-o", str(binary),
+            ], check=True)
+            preview = os.environ.get("SOLAROS_LAYOUT_PREVIEW")
+            if preview:
+                Path(preview).mkdir(parents=True, exist_ok=True)
+            subprocess.run([str(binary), *([preview] if preview else [])], check=True)
+
     def test_production_icon_pixels(self):
         helpers = "\n".join(function(name) for name in (
             "terminal_draw_status_slash", "terminal_draw_diag_down",

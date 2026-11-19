@@ -9,6 +9,7 @@
 
 #include "solar_os_board.h"
 #include "solar_os_display.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -1363,6 +1364,7 @@ static bool terminal_status_bar_equal(const solar_os_status_bar_t *a,
         a->battery_percent == b->battery_percent &&
         a->battery_external_power == b->battery_external_power &&
         a->keyboard_count == b->keyboard_count &&
+        strcmp(a->keyboard_layout, b->keyboard_layout) == 0 &&
         a->bluetooth_supported == b->bluetooth_supported &&
         a->bluetooth_enabled == b->bluetooth_enabled &&
         a->bluetooth_scanning == b->bluetooth_scanning &&
@@ -1891,10 +1893,12 @@ bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
     uint32_t epoch;
     solar_os_terminal_cursor_shape_t shape;
     bool blink;
-    solar_os_terminal_get_cursor_preference(&shape, &blink);
+    solar_os_terminal_get_cursor_preference_for_display(terminal != NULL ? terminal->u8g2 : NULL,
+                                                       &shape, &blink);
     return terminal != NULL &&
         solar_os_display_terminal_draw_state(terminal->u8g2, &epoch) &&
         (terminal->dirty || terminal->rendered_display_epoch != epoch ||
+         terminal->rendered_font_pack_generation != solar_os_font_pack_generation() ||
          terminal->rendered_cursor_shape != shape || terminal->rendered_cursor_blink != blink ||
          terminal->rendered_cursor_on != terminal_cursor_is_drawn(terminal, blink));
 }
@@ -2155,7 +2159,16 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
         return;
     }
 
-    u8g2_SetFont(u8g2, terminal_selected_font(terminal, bold, italic));
+    const uint8_t *cell_font = terminal_selected_font(terminal, bold, italic);
+    u8g2_SetFont(u8g2, cell_font);
+    if (cell > 0xffU && !u8g2_IsGlyph(u8g2, cell)) {
+        /* The built-in face lacks the glyph; a loaded font pack has it for the
+         * same cell, so it draws in the same place. */
+        const uint8_t *extra = solar_os_font_fallback(cell_font, cell);
+        if (extra != NULL) {
+            u8g2_SetFont(u8g2, extra);
+        }
+    }
     if (text_scale == 2) {
         (void)solar_os_canvas_glyph_x2(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, cell);
     } else {
@@ -2706,7 +2719,11 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     const int time_x = width - time_width - 4;
     const int clock_x = time_x - 12;
     const bool compact = width <= TERM_STATUS_BAR_COMPACT_MAX_WIDTH;
-    const int icon_right_limit = compact && !status->time_valid ? time_x : clock_x;
+    const int layout_width = (int)u8g2_GetStrWidth(u8g2, status->keyboard_layout);
+    const int layout_x = clock_x - layout_width - TERM_STATUS_BAR_ICON_GAP;
+    const bool show_layout = layout_width > 0 && layout_x >= 4;
+    const int icon_right_limit = show_layout ? layout_x - TERM_STATUS_BAR_ICON_GAP :
+        compact && !status->time_valid ? time_x : clock_x;
     char inbox_count_text[4] = {0};
     const int inbox_width = status->inbox_unread > 0
         ? terminal_inbox_icon_width(u8g2, status->inbox_unread, inbox_count_text)
@@ -2717,31 +2734,39 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     int x = 4;
 
     if (!compact) {
-        if (status->battery_external_power) {
-            terminal_draw_plug_icon(u8g2, x, icon_y);
-        } else {
-            terminal_draw_battery_icon(
-                u8g2, x, icon_y, status->battery_valid, status->battery_percent);
+        if (terminal_status_icon_fits(x, 24, leading_icon_right_limit)) {
+            if (status->battery_external_power) {
+                terminal_draw_plug_icon(u8g2, x, icon_y);
+            } else {
+                terminal_draw_battery_icon(
+                    u8g2, x, icon_y, status->battery_valid, status->battery_percent);
+            }
+            x += 28;
         }
-        x += 28;
-        terminal_draw_keyboard_icon(
-            u8g2, x, icon_y, status->keyboard_count > 0);
-        x += 26;
-        if (status->bluetooth_supported) {
+        if (terminal_status_icon_fits(x, 18, leading_icon_right_limit)) {
+            terminal_draw_keyboard_icon(
+                u8g2, x, icon_y, status->keyboard_count > 0);
+            x += 26;
+        }
+        if (status->bluetooth_supported && terminal_status_icon_fits(x, 14, leading_icon_right_limit)) {
             terminal_draw_bluetooth_icon(u8g2, x, icon_y,
                                          status->bluetooth_enabled, status->bluetooth_scanning);
             x += 18;
         }
-        terminal_draw_wifi_icon(u8g2,
-                                x,
-                                icon_y,
-                                status->wifi_started,
-                                status->wifi_connected,
-                                status->wifi_has_ip,
-                                status->wifi_level);
-        x += 22;
-        terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
-        x += 24;
+        if (terminal_status_icon_fits(x, 18, leading_icon_right_limit)) {
+            terminal_draw_wifi_icon(u8g2,
+                                    x,
+                                    icon_y,
+                                    status->wifi_started,
+                                    status->wifi_connected,
+                                    status->wifi_has_ip,
+                                    status->wifi_level);
+            x += 22;
+        }
+        if (terminal_status_icon_fits(x, 20, leading_icon_right_limit)) {
+            terminal_draw_speaker_icon(u8g2, x, icon_y, status->audio_enabled, status->audio_volume);
+            x += 24;
+        }
         x = terminal_draw_radio_link_icons(
             u8g2, x, icon_y, leading_icon_right_limit,
             status->radio_attached, status->link_running);
@@ -2798,6 +2823,9 @@ static void terminal_draw_status_bar(solar_os_terminal_t *terminal, u8g2_t *u8g2
     if (inbox_width > 0 && terminal_status_icon_fits(x, inbox_width, icon_right_limit)) {
         terminal_draw_inbox_icon(u8g2, x, icon_y, height - 3, inbox_count_text);
         x += inbox_width + TERM_STATUS_BAR_ICON_GAP;
+    }
+    if (show_layout) {
+        u8g2_DrawStr(u8g2, (u8g2_uint_t)layout_x, (u8g2_uint_t)(height - 3), status->keyboard_layout);
     }
     if ((!compact && x + 10 < clock_x) || (compact && status->time_valid)) {
         terminal_draw_clock_icon(u8g2, clock_x, icon_y, status->time_valid);
@@ -2935,6 +2963,7 @@ static uint32_t terminal_render_status_hash(const solar_os_terminal_t *terminal)
     hash = terminal_render_hash_value(hash, status->battery_percent);
     hash = terminal_render_hash_value(hash, status->battery_external_power);
     hash = terminal_render_hash_value(hash, status->keyboard_count);
+    hash = terminal_render_hash_bytes(hash, status->keyboard_layout, sizeof(status->keyboard_layout));
     hash = terminal_render_hash_value(hash, status->bluetooth_supported);
     hash = terminal_render_hash_value(hash, status->bluetooth_enabled);
     hash = terminal_render_hash_value(hash, status->bluetooth_scanning);
@@ -2991,7 +3020,11 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
 
     uint32_t epoch;
     if (!solar_os_display_terminal_draw_state(terminal->u8g2, &epoch)) return;
-    if (terminal->rendered_display_epoch != epoch) terminal->render_valid = false;
+    const uint32_t font_pack_generation = solar_os_font_pack_generation();
+    if (terminal->rendered_display_epoch != epoch ||
+        terminal->rendered_font_pack_generation != font_pack_generation) {
+        terminal->render_valid = false;
+    }
 
     u8g2_t *u8g2 = terminal->u8g2;
     (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
@@ -3001,7 +3034,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     const uint8_t text_scale = terminal_text_scale(terminal);
     solar_os_terminal_cursor_shape_t cursor_shape;
     bool cursor_blink;
-    solar_os_terminal_get_cursor_preference(&cursor_shape, &cursor_blink);
+    solar_os_terminal_get_cursor_preference_for_display(u8g2, &cursor_shape, &cursor_blink);
     if (terminal->rendered_cursor_shape != cursor_shape ||
         terminal->rendered_cursor_blink != cursor_blink) terminal_wake_cursor(terminal);
     const bool cursor_on = terminal_cursor_is_drawn(terminal, cursor_blink);
@@ -3091,6 +3124,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
     terminal->rendered_profile_hash = profile_hash;
     terminal->rendered_display_epoch = epoch;
+    terminal->rendered_font_pack_generation = font_pack_generation;
     terminal->rendered_status_hash = status_hash;
     terminal->rendered_footer_hash = footer_hash;
     terminal->rendered_cursor_on = cursor_on;
