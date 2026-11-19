@@ -1,6 +1,7 @@
 #include "solar_os_font_packs.h"
 
 #include <dirent.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -45,6 +46,7 @@ typedef struct {
 
 static font_pack_t packs[SOLAR_OS_FONT_PACK_MAX];
 static SemaphoreHandle_t pack_lock;
+static atomic_uint pack_generation = ATOMIC_VAR_INIT(0);
 
 typedef struct {
     uint8_t style;
@@ -530,6 +532,7 @@ esp_err_t solar_os_font_pack_load(const char *name)
     }
     fresh.active = true;
     *slot = fresh;
+    atomic_fetch_add_explicit(&pack_generation, 1U, memory_order_release);
     pack_lock_give();
 
     if (replaced) {
@@ -557,8 +560,14 @@ esp_err_t solar_os_font_pack_unload(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     pack_discard(pack);
+    atomic_fetch_add_explicit(&pack_generation, 1U, memory_order_release);
     pack_lock_give();
     return ESP_OK;
+}
+
+uint32_t solar_os_font_pack_generation(void)
+{
+    return atomic_load_explicit(&pack_generation, memory_order_acquire);
 }
 
 size_t solar_os_font_pack_count(void)

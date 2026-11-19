@@ -71,6 +71,7 @@ struct solar_os_terminal {
     uint32_t rendered_footer_hash;
     uint32_t rendered_profile_hash;
     uint32_t rendered_display_epoch;
+    uint32_t rendered_font_pack_generation;
     bool render_valid;
     bool dirty;
 };

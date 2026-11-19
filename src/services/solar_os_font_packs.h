@@ -37,6 +37,10 @@ typedef struct {
 esp_err_t solar_os_font_pack_load(const char *name);
 esp_err_t solar_os_font_pack_unload(const char *name);
 
+/* Changes on every successful load, reload or unload. Renderers can compare
+ * this across tasks to invalidate cached text when the available faces change. */
+uint32_t solar_os_font_pack_generation(void);
+
 size_t solar_os_font_pack_count(void);
 bool solar_os_font_pack_get(size_t index, solar_os_font_pack_info_t *info);
 

@@ -39,6 +39,7 @@ typedef struct {
     bool rendered_cursor_on,rendered_cursor_blink;
     solar_os_terminal_cursor_shape_t rendered_cursor_shape;
     uint32_t rendered_display_epoch,rendered_profile_hash,rendered_status_hash,rendered_footer_hash;
+    uint32_t rendered_font_pack_generation;
     uint32_t rendered_row_hash[1],inverse[1][1];
     unsigned baseline_offset,line_height,char_width,cursor_row,cursor_col;
 } solar_os_terminal_t;
@@ -78,6 +79,7 @@ static int solar_os_display_request_present_mode(u8g2_t *u,int mode) {(void)u;(v
 static void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
     solar_os_terminal_cursor_shape_t *shape,bool *blink)
 { (void)u8g2; *shape=SOLAR_OS_TERMINAL_CURSOR_BLOCK; *blink=false; }
+static uint32_t solar_os_font_pack_generation(void) { return 0; }
 #include "terminal_draw_policy.inc"
 int main(void) {
     u8g2_t screens[3]={{0},{1},{2}};

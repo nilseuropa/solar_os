@@ -9,6 +9,7 @@
 
 #include "solar_os_board.h"
 #include "solar_os_display.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -1895,6 +1896,7 @@ bool solar_os_terminal_needs_draw(const solar_os_terminal_t *terminal)
     return terminal != NULL &&
         solar_os_display_terminal_draw_state(terminal->u8g2, &epoch) &&
         (terminal->dirty || terminal->rendered_display_epoch != epoch ||
+         terminal->rendered_font_pack_generation != solar_os_font_pack_generation() ||
          terminal->rendered_cursor_shape != shape || terminal->rendered_cursor_blink != blink ||
          terminal->rendered_cursor_on != terminal_cursor_is_drawn(terminal, blink));
 }
@@ -3000,7 +3002,11 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
 
     uint32_t epoch;
     if (!solar_os_display_terminal_draw_state(terminal->u8g2, &epoch)) return;
-    if (terminal->rendered_display_epoch != epoch) terminal->render_valid = false;
+    const uint32_t font_pack_generation = solar_os_font_pack_generation();
+    if (terminal->rendered_display_epoch != epoch ||
+        terminal->rendered_font_pack_generation != font_pack_generation) {
+        terminal->render_valid = false;
+    }
 
     u8g2_t *u8g2 = terminal->u8g2;
     (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
@@ -3100,6 +3106,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
     terminal->rendered_profile_hash = profile_hash;
     terminal->rendered_display_epoch = epoch;
+    terminal->rendered_font_pack_generation = font_pack_generation;
     terminal->rendered_status_hash = status_hash;
     terminal->rendered_footer_hash = footer_hash;
     terminal->rendered_cursor_on = cursor_on;

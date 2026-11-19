@@ -380,6 +380,27 @@ static void test_selection(void)
     unload_all();
 }
 
+static void test_generation(void)
+{
+    const uint32_t before = solar_os_font_pack_generation();
+    psram_bytes = 8U * 1024U * 1024U;
+    assert(solar_os_font_pack_load("missing") == ESP_ERR_NOT_FOUND);
+    assert(solar_os_font_pack_load("bad") == ESP_ERR_INVALID_RESPONSE);
+    assert(solar_os_font_pack_generation() == before);
+    assert(solar_os_font_pack_load("cyrillic") == ESP_OK);
+    assert(solar_os_font_pack_generation() == before + 1U);
+    /* A reload must invalidate text even though the loaded count is unchanged. */
+    assert(solar_os_font_pack_load("cyrillic") == ESP_OK);
+    assert(solar_os_font_pack_count() == 1U);
+    assert(solar_os_font_pack_generation() == before + 2U);
+    assert(solar_os_font_pack_load("broken") == ESP_ERR_INVALID_RESPONSE);
+    assert(solar_os_font_pack_unload("missing") == ESP_ERR_NOT_FOUND);
+    assert(solar_os_font_pack_generation() == before + 2U);
+    assert(solar_os_font_pack_unload("cyrillic") == ESP_OK);
+    assert(solar_os_font_pack_generation() == before + 3U);
+    assert(live_allocs == 0U);
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/font_packs_test.XXXXXX";
@@ -397,6 +418,7 @@ int main(void)
     test_full_load_with_psram();
     test_reduced_load_without_psram();
     test_selection();
+    test_generation();
 
     char cmd[600];
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", volume);
