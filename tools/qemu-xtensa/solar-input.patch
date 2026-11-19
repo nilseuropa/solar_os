@@ -8,19 +8,28 @@ index 90a2149..cab08fd 100644
  system_ss.add(when: 'CONFIG_ADB', if_true: files('adb.c', 'adb-mouse.c', 'adb-kbd.c'))
  system_ss.add(when: 'CONFIG_PCKBD', if_true: files('pckbd.c'))
  system_ss.add(when: 'CONFIG_PL050', if_true: files('pl050.c'))
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -1,3 +1,4 @@
++system_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files('solar_os_hostfs.c'))
+ system_ss.add(when: 'CONFIG_APPLESMC', if_true: files('applesmc.c'))
+ system_ss.add(when: 'CONFIG_EDU', if_true: files('edu.c'))
+ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
 diff --git a/hw/xtensa/esp32s3.c b/hw/xtensa/esp32s3.c
 index 5a60acf..0a3fa58 100644
 --- a/hw/xtensa/esp32s3.c
 +++ b/hw/xtensa/esp32s3.c
-@@ -69,6 +69,7 @@
+@@ -69,6 +69,8 @@
  
  #include "hw/misc/esp32c3_jtag.h"
  #include "hw/display/esp_rgb.h"
 +#include "solar_os_qemu_input_protocol.h"
++#include "solar_os_qemu_hostfs_protocol.h"
  
  #define TYPE_ESP32S3_SOC "xtensa.esp32s3"
  #define ESP32S3_SOC(obj) OBJECT_CHECK(Esp32s3SocState, (obj), TYPE_ESP32S3_SOC)
-@@ -999,6 +1000,15 @@ static void esp32s3_machine_init(MachineState *machine)
+@@ -999,6 +1001,23 @@ static void esp32s3_machine_init(MachineState *machine)
          memory_region_add_subregion_overlap(sys_mem, esp32s3_memmap[ESP32S3_MEMREGION_FRAMEBUF].base, &ss->rgb.vram, 0);
      }
  
@@ -31,6 +40,14 @@ index 5a60acf..0a3fa58 100644
 +        sysbus_realize_and_unref(SYS_BUS_DEVICE(input), &error_fatal);
 +        memory_region_add_subregion_overlap(sys_mem, SOLAR_OS_QEMU_INPUT_BASE,
 +            sysbus_mmio_get_region(SYS_BUS_DEVICE(input), 0), 0);
++    }
++
++    {
++        DeviceState *hostfs = qdev_new("solar-os-hostfs");
++        object_property_add_child(OBJECT(ss), "solar-hostfs", OBJECT(hostfs));
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(hostfs), &error_fatal);
++        memory_region_add_subregion_overlap(sys_mem, SOLAR_OS_QEMU_HOSTFS_BASE,
++            sysbus_mmio_get_region(SYS_BUS_DEVICE(hostfs), 0), 0);
 +    }
 +
      esp32s3_soc_add_unimp_device(sys_mem, "esp32s3.rmt", DR_REG_RMT_BASE, 0x1000);

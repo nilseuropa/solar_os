@@ -128,3 +128,4 @@ tests/host/sticky_display_test
 /protocol/sc2/build/
 
 /tests/host/stream_test
+/qemu-storage/

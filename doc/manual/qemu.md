@@ -30,15 +30,14 @@ For the headless target:
 pio run -e qemu_esp32s3 -t qemu
 ```
 
-The `qemu` target builds the firmware, downloads the pinned Espressif Xtensa
-QEMU release for your host when needed, prepares a 16 MB virtual flash image,
-and launches the emulator. The display target builds a cached QEMU extension
-for native input from pinned source. The headless target uses the prebuilt
-Espressif tool. There is no separate image merge command. PlatformIO caches the emulator in its `tool-solaros-qemu`
-package and reuses it on later runs. Prebuilt tools are available for Linux
-and macOS on x86-64 and ARM64, and Windows on x86-64. The native-input display
-target currently builds on Linux and macOS; use WSL on Windows, or configure
-a QEMU executable built with the SolarOS input extension.
+The `qemu` target builds the firmware, prepares a 16 MB virtual flash image,
+and launches the emulator. Native input and host-directory storage use a cached
+QEMU extension built from pinned Espressif source on Linux and macOS.
+PlatformIO keeps the emulator in its `tool-solaros-qemu` package and reuses it
+on later runs. A headless target with host storage disabled can use the prebuilt
+Espressif tool instead. Prebuilt tools are available for Linux and macOS on
+x86-64 and ARM64, and Windows on x86-64. Use WSL on Windows for the extended
+emulator, or configure an executable built with the SolarOS extensions.
 
 On Linux and macOS, UART0 is a host pseudo-terminal (PTY) on both targets.
 The launcher prints its stable path, `.pio/build/<env>/uart0`, which points
@@ -56,9 +55,11 @@ While a serial client is connected, UART0 output is saved to
 
 ### Connect to UART0
 
-From a separate terminal with VT100 support, use PlatformIO's raw monitor:
+From a separate terminal with VT100 support, disable host software flow control
+so Ctrl+S/Ctrl+Q reach SolarOS, then use PlatformIO's raw monitor:
 
 ```sh
+stty -ixon -ixoff
 pio device monitor -p .pio/build/qemu_esp32s3_rgb/uart0 -b 115200 --raw --eol CR --exit-char 30 --menu-char 31
 ```
 
@@ -89,10 +90,46 @@ on any host, add `custom_qemu_uart0 = stdio` to the environment. In that mode,
 Ctrl+A, then X exits QEMU, and Ctrl+A, then C switches to its monitor. These
 shortcuts apply in the host console, independently of the graphical window.
 
+## Host directory storage
+
+On Linux and macOS, both targets expose the checkout's `qemu-storage` directory
+at `/host` in SolarOS. The launcher creates the directory when needed and prints
+the host path. It is outside `.pio`, so cleaning or rebuilding firmware does not
+remove its files. Files saved under `/host` update the host directory directly;
+host edits are visible when the guest reopens or refreshes them.
+
+```text
+ls /host
+cd /host
+python /host/demo.py
+```
+
+To share another folder, set its path in the target's `platformio.ini` environment:
+
+```ini
+custom_qemu_storage = /path/to/shared-folder
+```
+
+Relative paths are resolved from the checkout root. The mount supports files,
+directories, seek, append, truncation, timestamps, rename, and filesystem usage.
+The Files app lists `/host` among the available mounts. The guest's internal
+flash remains a separate filesystem.
+
+Only the selected directory tree is exposed. Symlinks inside it are not followed, and
+parent traversal outside the mount is rejected. Existing SolarOS and host tools
+can read and modify the same files; finish a save before opening its result in
+the other system.
+
+Set `custom_qemu_storage = none` to disable the share. Native Windows disables
+it by default; use WSL or a supplied extended emulator for host storage.
+`disk mount host` and `disk umount /host` control the guest mount. Unmounting
+refuses open files, directories, and disk images using the share. Host directories
+are not block devices and cannot be formatted with `disk format`.
+
 ### Host dependencies
 
-The display target also needs a C compiler, Git, pkg-config, and development
-libraries to build its emulator extension once. On Ubuntu or Debian:
+Targets using native input or host storage need a C compiler, Git, pkg-config,
+and development libraries to build their emulator extension once. On Ubuntu or Debian:
 
 ```sh
 sudo apt-get install build-essential git python3-venv pkg-config libglib2.0-dev libpixman-1-dev libsdl2-dev libslirp-dev libgcrypt20-dev
@@ -160,7 +197,7 @@ Ctrl+Alt+G releases a grabbed relative mouse.
 
 For an externally built emulator, set `custom_qemu_executable = /path/to/qemu-system-xtensa`
 in the target environment. It must include `tools/qemu-xtensa/solar-input.patch`
-and the accompanying device source and shared protocol header.
+and the accompanying device sources and shared protocol headers.
 
 ## Network
 
@@ -208,7 +245,7 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
   Likely cause, read from the code: shutdown waits for the BOOT key (GPIO0) to
   be released, and GPIO0 reads 0, the key's active level.
 - Changes to the firmware's flash inputs recreate the virtual flash image,
-  clearing guest files and settings.
+  clearing files and settings stored in that image. Host-directory files persist.
 
 ## Quick reference
 

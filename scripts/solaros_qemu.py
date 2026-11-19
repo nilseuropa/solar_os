@@ -16,6 +16,15 @@ QEMU_BOARDS = ("qemu_esp32s3", "qemu_esp32s3_rgb")
 DEFAULT_UART0_MODE = "stdio" if sys.platform == "win32" else "pty"
 
 
+def prepare_host_storage(project: Path, configured: str) -> Path | None:
+    if configured.strip().lower() in ("none", "off", ""):
+        return None
+    directory = Path(configured).expanduser()
+    if not directory.is_absolute(): directory = project / directory
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory.resolve()
+
+
 def ensure_qemu(package: Path, framework: Path) -> Path:
     manifest = package / "tools.json"
     tool = json.loads(manifest.read_text())["tools"][0]
@@ -93,7 +102,8 @@ def launch_qemu(command: list[str], build: Path) -> int:
 
 
 def qemu_command(executable: Path, board: str, image: Path,
-                 pointer_mode: str = "touch", uart0_mode: str = DEFAULT_UART0_MODE) -> list[str]:
+                 pointer_mode: str = "touch", uart0_mode: str = DEFAULT_UART0_MODE,
+                 storage: Path | None = None) -> list[str]:
     if board not in QEMU_BOARDS:
         raise ValueError(f"Not a QEMU board: {board}")
     graphical = board == "qemu_esp32s3_rgb"
@@ -125,4 +135,6 @@ def qemu_command(executable: Path, board: str, image: Path,
                     "-nic", "user,model=open_eth"]
     else:
         command += ["-nic", "none"]
+    if storage is not None:
+        command += ["-global", "solar-os-hostfs.root=" + str(storage).replace(",", ",,")]
     return command

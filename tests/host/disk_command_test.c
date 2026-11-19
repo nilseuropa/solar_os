@@ -83,6 +83,13 @@ int main(void)
     volume_error = ESP_OK;
     run_mount("flash", NULL, NULL, false);
     run_mount("sd0p1", "/sdcard", NULL, false);
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    run_mount("host", NULL, NULL, false);
+    run_mount("host", "/host", NULL, false);
+    run_mount("/host", NULL, NULL, false);
+#else
+    run_mount("host", "/mnt", NULL, true);
+#endif
     run_mount("usb0.img", "/mnt", NULL, true);
     run_mount("./usb0", "/mnt", NULL, true);
     run_mount("/sdcard/disk.img", "/mnt", "2", true);

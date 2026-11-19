@@ -17,10 +17,12 @@ class DiskImageTest(unittest.TestCase):
             stage = Path(directory)
             (stage / "disk_command.inc").write_text(production_functions(source, ("solar_os_shell_cmd_disk",)))
             binary = stage / "disk_command"
-            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                            "-I", str(stage), "-I", str(ROOT / "tests/host"),
-                            str(ROOT / "tests/host/disk_command_test.c"), "-o", str(binary)], check=True)
-            subprocess.run([str(binary)], check=True)
+            for host in (0, 1):
+                subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                                f"-DSOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST={host}",
+                                "-I", str(stage), "-I", str(ROOT / "tests/host"),
+                                str(ROOT / "tests/host/disk_command_test.c"), "-o", str(binary)], check=True)
+                subprocess.run([str(binary)], check=True)
 
     def test_sd_partitions_share_drive_numbers_with_flash_and_images(self):
         source = (ROOT / "src/drivers/sd_card.c").read_text()

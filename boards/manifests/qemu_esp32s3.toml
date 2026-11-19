@@ -22,12 +22,13 @@ drivers = [
   "pwm_esp_idf",
 ]
 capabilities = [
+  "qemu",
   "psram", "simd", "gfx", "usb_host", "uart", "i2c", "spi", "wifi",
   "key", "gpio", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_pwm",
   "expansion_i2s",
 ]
-required_packages = []
+required_packages = ["driver_storage_qemu_host"]
 psram_bytes = 8388608
 
 [defines]

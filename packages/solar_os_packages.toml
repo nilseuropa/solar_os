@@ -912,6 +912,11 @@ label = "QEMU virtual input"
 category = "Expansion hardware"
 members = ["driver_input_qemu"]
 
+[groups.qemu_storage]
+label = "QEMU host directory"
+category = "Expansion hardware"
+members = ["driver_storage_qemu_host"]
+
 [groups.ft6336]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
@@ -2977,7 +2982,7 @@ sources = [
   "services/solar_os_qemu_rgb_display.c",
 ]
 requires = ["esp_lcd", "espressif__esp_lcd_qemu_rgb", "u8g2"]
-capabilities = ["gfx"]
+capabilities = ["qemu", "gfx"]
 
 [packages.driver_network_qemu_eth]
 label = "driver.network-qemu-eth"
@@ -2989,7 +2994,7 @@ sources = [
   "services/solar_os_qemu_eth_driver.c",
 ]
 requires = ["esp_eth", "esp_event", "esp_netif"]
-capabilities = ["wifi"]
+capabilities = ["qemu", "wifi"]
 
 [packages.driver_input_qemu]
 label = "driver.input-qemu"
@@ -3001,7 +3006,14 @@ sources = [
   "services/solar_os_qemu_input_codec.c",
   "services/solar_os_qemu_input_driver.c",
 ]
-capabilities = ["display", "gfx"]
+capabilities = ["qemu", "display", "gfx"]
+
+[packages.driver_storage_qemu_host]
+label = "driver.storage-qemu-host"
+targets = ["esp32s3"]
+sources = ["services/solar_os_qemu_hostfs.c"]
+requires = ["vfs"]
+capabilities = ["qemu"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

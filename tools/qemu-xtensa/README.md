@@ -1,15 +1,15 @@
 # SolarOS QEMU tools
 
-The headless target uses the official binary release described by `tools.json`.
-The display target builds the same pinned Espressif revision with native input:
+Targets with native input or host storage build this pinned Espressif revision.
+Headless targets with host storage disabled use the binary in `tools.json`:
 
 ```text
 7411393a2f61e6f0b05af00276d30780769e0839
 esp-develop-9.2.2-20261109
 ```
 
-`scripts/solaros_qemu_build.py` applies `solar-input.patch`, copies the device
-under `overlay/`, and shares `include/solar_os_qemu_input_protocol.h` with the
+`scripts/solaros_qemu_build.py` applies `solar-input.patch`, copies the devices
+under `overlay/`, and shares `include/solar_os_qemu_*_protocol.h` with the
 guest firmware. It builds only the ESP32-S3 machine and caches the source,
 build tree, and installed binary under PlatformIO's `tool-solaros-qemu` package.
 The cache stamp covers the source pin, overlay, protocol, build profile, and
@@ -29,6 +29,16 @@ input device. Both touch and relative mouse handlers are registered with QEMU,
 so standard `info mice` / `mouse_set` monitor commands select the pointer mode.
 The `focused` QOM property uses the same device callback for automated tests.
 
+The `solar-os-hostfs` device at `0x600f8000` exposes a selected host directory.
+Its `root` property is configured by the launcher; without it the device reports
+not ready. A synchronous command register, four arguments, portable errno codes,
+and a 4096-byte transfer buffer implement file and directory operations. File
+metadata and seek offsets use explicitly encoded little-endian 64-bit values.
+Host descriptors are private to the device and closed on reset. Each path is
+resolved relative to the root descriptor without following symlinks. The guest
+registers an ESP-IDF VFS at `/host` and includes it in the storage mount registry.
+The `qemu` board capability excludes all these packages from physical targets.
+
 Run the firmware codec tests with:
 
 ```sh
@@ -40,7 +50,7 @@ Run the emulator device tests against a built extension with:
 
 ```sh
 SOLAR_OS_QEMU_INPUT_TEST_BINARY=/path/to/qemu-system-xtensa \
-  python3 -m pytest -q tests/test_qemu_input_device.py
+  python3 -m pytest -q tests/test_qemu_input_device.py tests/test_qemu_hostfs.py tests/test_qemu_serial.py
 ```
 
 These use QMP input injection and the qtest MMIO interface to test the real

@@ -378,6 +378,7 @@ The current capability flags are:
 | `POINTER` | Board-integrated absolute or relative pointing input. Events carry a source, pointer ID, display target, coordinates, deltas, buttons, and press/move/release action. |
 | `STREAMING_DISPLAY` | The board's primary display has a bounded-cadence raster-frame presenter suitable for animation or games. This is separate from ordinary terminal and GUI drawing. |
 | `CAMERA` | A board-integrated camera interface and fixed pin contract are present. This hardware fact does not by itself imply that a camera driver or capture service is included. |
+| `QEMU` | An emulated board. Virtual input, display, network, and host-directory packages are restricted to these targets. |
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 

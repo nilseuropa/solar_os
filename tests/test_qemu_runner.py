@@ -91,6 +91,19 @@ class InstallerTests(unittest.TestCase):
 
 
 class LauncherTests(unittest.TestCase):
+    def test_host_storage_is_live_directory_outside_the_build_tree(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            shared = qemu.prepare_host_storage(project, "qemu-storage")
+            self.assertEqual(shared, project / "qemu-storage")
+            (shared / "keep").write_text("saved")
+            self.assertEqual(qemu.prepare_host_storage(project, "qemu-storage"), shared)
+            self.assertEqual((shared / "keep").read_text(), "saved")
+            for value in ("none", "off", ""):
+                self.assertIsNone(qemu.prepare_host_storage(project, value))
+            command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3", project / "flash.bin", storage=project / "path with,comma")
+            self.assertIn("solar-os-hostfs.root=" + str(project / "path with,,comma"), command)
+
     def test_headless_has_console_and_no_display_or_network(self):
         command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3", Path("build/flash.bin"))
         self.assertEqual(command[command.index("-display") + 1], "none")

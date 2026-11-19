@@ -1,4 +1,4 @@
-"""Build the pinned QEMU extension for native SolarOS window input."""
+"""Build the pinned QEMU extensions for native input and host storage."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ QEMU_TAG = "esp-develop-9.2.2-20261109"
 
 def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
     overlay = project / "tools/qemu-xtensa"
-    protocol = project / "include/solar_os_qemu_input_protocol.h"
+    protocols = sorted((project / "include").glob("solar_os_qemu_*_protocol.h"))
     cache = package / "cache/solar-input"
     source, build, installed = (cache / name for name in ("source", "build", "installed"))
     executable = installed / "bin/qemu-system-xtensa"
     stamp = cache / "source.sha256"
-    inputs = [overlay / "solar-input.patch", overlay / "xtensa-softmmu.mak", protocol,
+    inputs = [overlay / "solar-input.patch", overlay / "xtensa-softmmu.mak", *protocols,
               Path(__file__), *sorted((overlay / "overlay").rglob("*.c"))]
     digest = hashlib.sha256((QEMU_COMMIT + platform.system() + platform.machine()).encode())
     for path in inputs:
@@ -55,7 +55,7 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
     if commit != QEMU_COMMIT:
         raise RuntimeError(f"Unexpected QEMU source revision: {commit}")
     # Only these managed source files are reset before reapplying the overlay.
-    patched = ["hw/input/meson.build", "hw/xtensa/esp32s3.c", "include/ui/input.h",
+    patched = ["hw/input/meson.build", "hw/misc/meson.build", "hw/xtensa/esp32s3.c", "include/ui/input.h",
                "ui/input.c", "ui/sdl2.c"]
     subprocess.run(["git", "restore", "--source=" + QEMU_COMMIT, "--", *patched], cwd=source, check=True)
     subprocess.run(["git", "apply", str(overlay / "solar-input.patch")], cwd=source, check=True)
@@ -63,15 +63,16 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
         target = source / path.relative_to(overlay / "overlay")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
-    shutil.copyfile(protocol, source / "include/solar_os_qemu_input_protocol.h")
+    for protocol in protocols:
+        shutil.copyfile(protocol, source / "include" / protocol.name)
     shutil.copyfile(overlay / "xtensa-softmmu.mak", source / "configs/devices/xtensa-softmmu/default.mak")
     build.mkdir(parents=True, exist_ok=True)
-    print("Building Espressif QEMU with native SolarOS input (cached after the first build)", flush=True)
+    print("Building Espressif QEMU with SolarOS input and host storage (cached after the first build)", flush=True)
     subprocess.run([
         str(source / "configure"), "--target-list=xtensa-softmmu", "--without-default-features",
         "--enable-tcg", "--enable-sdl", "--enable-pixman", "--enable-slirp", "--enable-gcrypt",
         "--disable-docs", "--disable-werror", "--disable-debug-info", "--disable-tools",
-        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-input1",
+        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-os2",
         "--prefix=" + str(installed), "--ninja=" + str(ninja),
     ], cwd=build, env=environment, check=True)
     subprocess.run([str(ninja), "-j", str(min(os.cpu_count() or 2, 8)), "install"],
