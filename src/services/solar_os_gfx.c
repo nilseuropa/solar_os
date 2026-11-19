@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "solar_os_display.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -939,6 +940,75 @@ solar_os_gfx_font_t solar_os_gfx_font(const solar_os_gfx_t *gfx)
     return gfx != NULL ? gfx->font : SOLAR_OS_GFX_FONT_MONO;
 }
 
+/* Text that the current face lacks glyphs for (Cyrillic and so on) is drawn
+ * glyph by glyph, taking those from a loaded font pack. Text the face covers,
+ * or that no pack can complete, takes the plain U8g2 path. */
+static bool gfx_text_needs_pack(solar_os_gfx_t *gfx, const char *text)
+{
+    if (solar_os_font_pack_count() == 0) {
+        return false;
+    }
+    const uint8_t *base = gfx_font_data(gfx->font);
+    for (const char *p = text; ; ) {
+        const uint32_t codepoint = solar_os_utf8_next(&p);
+        if (codepoint == 0) {
+            return false;
+        }
+        if (codepoint > 0xffU && codepoint <= 0xffffU &&
+            !u8g2_IsGlyph(gfx->u8g2, (uint16_t)codepoint) &&
+            solar_os_font_fallback(base, codepoint) != NULL) {
+            return true;
+        }
+    }
+}
+
+static int gfx_utf8_walk(solar_os_gfx_t *gfx,
+                         int x,
+                         int baseline_y,
+                         const char *text,
+                         bool draw)
+{
+    const uint8_t *base = gfx_font_data(gfx->font);
+    int advance = 0;
+    for (const char *p = text; ; ) {
+        const uint32_t codepoint = solar_os_utf8_next(&p);
+        if (codepoint == 0) {
+            break;
+        }
+        const uint16_t glyph = codepoint > 0xffffU ? 0xfffdU : (uint16_t)codepoint;
+        u8g2_SetFont(gfx->u8g2, base);
+        if (glyph > 0xffU && !u8g2_IsGlyph(gfx->u8g2, glyph)) {
+            const uint8_t *extra = solar_os_font_fallback(base, glyph);
+            if (extra != NULL) {
+                u8g2_SetFont(gfx->u8g2, extra);
+            }
+        }
+        if (draw) {
+            advance += (int)u8g2_DrawGlyph(gfx->u8g2, (u8g2_uint_t)(x + advance),
+                                           (u8g2_uint_t)baseline_y, glyph);
+        } else {
+            advance += (int)u8g2_GetGlyphWidth(gfx->u8g2, glyph);
+        }
+    }
+    u8g2_SetFont(gfx->u8g2, base);
+    return advance;
+}
+
+static int gfx_utf8_width(solar_os_gfx_t *gfx, const char *text)
+{
+    return gfx_text_needs_pack(gfx, text) ? gfx_utf8_walk(gfx, 0, 0, text, false)
+                                          : (int)u8g2_GetUTF8Width(gfx->u8g2, text);
+}
+
+static void gfx_draw_utf8(solar_os_gfx_t *gfx, int x, int baseline_y, const char *text)
+{
+    if (gfx_text_needs_pack(gfx, text)) {
+        (void)gfx_utf8_walk(gfx, x, baseline_y, text, true);
+    } else {
+        u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)baseline_y, text);
+    }
+}
+
 size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx, const char *text)
 {
     if (!gfx_ready(gfx) || text == NULL) {
@@ -946,7 +1016,7 @@ size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx, const char *text)
     }
 
     gfx_apply_draw_state(gfx);
-    return (size_t)u8g2_GetUTF8Width(gfx->u8g2, text);
+    return (size_t)gfx_utf8_width(gfx, text);
 }
 
 void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t style)
@@ -1218,7 +1288,7 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
 
     gfx_apply_draw_state(gfx);
     if (gfx_uses_index8(gfx)) {
-        const int text_width = (int)u8g2_GetUTF8Width(gfx->u8g2, text);
+        const int text_width = gfx_utf8_width(gfx, text);
         const int ascent = (int)u8g2_GetAscent(gfx->u8g2);
         const int descent = (int)u8g2_GetDescent(gfx->u8g2);
         int x0 = x - 2;
@@ -1234,8 +1304,7 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
             u8g2_DrawBox(gfx->u8g2, (u8g2_uint_t)x0, (u8g2_uint_t)y0,
                          (u8g2_uint_t)(x1 - x0), (u8g2_uint_t)(y1 - y0));
             u8g2_SetDrawColor(gfx->u8g2, 1);
-            u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x,
-                          (u8g2_uint_t)baseline_y, text);
+            gfx_draw_utf8(gfx, x, baseline_y, text);
             for (int row = y0; row < y1; row++) {
                 for (int column = x0; column < x1; column++) {
                     if (gfx_u8g2_mask_pixel(gfx, column, row)) {
@@ -1248,7 +1317,7 @@ void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline_y, const char *t
             gfx_mark_index8_dirty_rect(gfx, x0, y0, x1 - x0, y1 - y0);
         }
     } else {
-        u8g2_DrawUTF8(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)baseline_y, text);
+        gfx_draw_utf8(gfx, x, baseline_y, text);
     }
     gfx_mark_dirty(gfx);
 }

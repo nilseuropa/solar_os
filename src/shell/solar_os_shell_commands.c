@@ -42,6 +42,7 @@
 #include "solar_os_display.h"
 #include "solar_os_backlight.h"
 #include "solar_os_display_layout.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_fonts.h"
 #include "solar_os_identity.h"
 #include "solar_os_input.h"
@@ -2016,7 +2017,7 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]");
     solar_os_shell_io_writeln(term, "  setterm scale [1..4]");
     solar_os_shell_io_writeln(term, "  setterm orientation [0|90|180|270]");
-    solar_os_shell_io_writeln(term, "  setterm font [mono|compact]");
+    solar_os_shell_io_writeln(term, "  setterm font [mono|compact|load <pack>|unload <pack>]");
     solar_os_shell_io_writeln(term, "  setterm textsize [8|10|12|14|16|18|20]");
     solar_os_shell_io_writeln(term, "  setterm cursor [block|underscore] [blink|steady]");
     solar_os_shell_io_writeln(term, "  setterm palette [normal|inverted]");
@@ -2038,6 +2039,75 @@ static void setterm_print_usage(solar_os_shell_io_t *term)
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
     solar_os_shell_io_writeln(term, "  setterm otaurl [url]");
 #endif
+}
+
+static void setterm_font_pack_list_cb(const char *name, void *ctx)
+{
+    solar_os_shell_io_t *term = ctx;
+    solar_os_shell_io_printf(term, " %s", name);
+}
+
+static void setterm_font_packs_status(solar_os_shell_io_t *term)
+{
+    const size_t loaded = solar_os_font_pack_count();
+    if (loaded == 0) {
+        solar_os_shell_io_writeln(term, "font packs: none loaded");
+    }
+    for (size_t i = 0; i < loaded; i++) {
+        solar_os_font_pack_info_t info;
+        if (solar_os_font_pack_get(i, &info)) {
+            solar_os_shell_io_printf(term,
+                                     "font pack: %s, %u of %u faces, %u bytes%s\n",
+                                     info.name,
+                                     (unsigned)info.faces_loaded,
+                                     (unsigned)info.faces_total,
+                                     (unsigned)info.bytes,
+                                     info.reduced ? " (reduced: no PSRAM)" : "");
+        }
+    }
+    solar_os_shell_io_writeln(term, "available packs:");
+    char dir[SOLAR_OS_STORAGE_PATH_MAX];
+    if (solar_os_font_pack_dir(dir, sizeof(dir)) == ESP_OK) {
+        solar_os_shell_io_printf(term, " in %s:", dir);
+    }
+    if (solar_os_font_pack_list_files(setterm_font_pack_list_cb, term) != ESP_OK) {
+        solar_os_shell_io_writeln(term, " none (no fonts directory)");
+        return;
+    }
+    solar_os_shell_io_writeln(term, "");
+}
+
+/* setterm font load|unload <pack>: the pack's glyphs fill in for characters
+ * the built-in faces lack. The loaded set is saved and restored at boot. */
+static void setterm_font_pack_command(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    static const char *const usage = "setterm font [load <pack>|unload <pack>]";
+    if (argc != 4) {
+        solar_os_shell_diag_missing(term, "setterm font", "pack", usage);
+        return;
+    }
+    const bool load = strcmp(argv[2], "load") == 0;
+    if (!solar_os_font_pack_name_valid(argv[3])) {
+        solar_os_shell_diag_invalid(term, "setterm font", "pack", argv[3],
+                                    "lowercase letters, digits, - and _ (up to 15)", usage, false);
+        return;
+    }
+    esp_err_t err = load ? solar_os_font_pack_load(argv[3]) : solar_os_font_pack_unload(argv[3]);
+    if (err == ESP_ERR_NOT_FOUND) {
+        solar_os_shell_io_printf(term,
+                                 load ? "font pack %s: not found in the fonts directory\n"
+                                      : "font pack %s: not loaded\n",
+                                 argv[3]);
+        return;
+    }
+    if (err == ESP_OK) {
+        err = solar_os_font_pack_save_selection();
+    }
+    if (err != ESP_OK) {
+        solar_os_shell_io_printf(term, "font pack %s: %s\n", argv[3], solar_os_shell_error_text(err));
+        return;
+    }
+    solar_os_shell_io_printf(term, "font pack %s: %s\n", argv[3], load ? "loaded" : "unloaded");
 }
 
 static void setterm_print_save_result(solar_os_shell_io_t *term,
@@ -2282,18 +2352,23 @@ void solar_os_shell_cmd_setterm(solar_os_context_t *ctx, int argc, char **argv)
                                              display_profile.font :
                                              solar_os_terminal_font(display)));
             solar_os_shell_io_writeln(term, "values: mono compact");
+            setterm_font_packs_status(term);
+            return;
+        }
+        if (argc >= 3 && (strcmp(argv[2], "load") == 0 || strcmp(argv[2], "unload") == 0)) {
+            setterm_font_pack_command(term, argc, argv);
             return;
         }
         if (argc != 3) {
             solar_os_shell_diag_unexpected(term, "setterm font", argv[3],
-                                           "setterm font [mono|compact]");
+                                           "setterm font [mono|compact|load <pack>|unload <pack>]");
             return;
         }
 
         solar_os_terminal_font_t font;
         if (!solar_os_terminal_parse_font(argv[2], &font)) {
             solar_os_shell_diag_invalid(term, "setterm font", "font", argv[2],
-                                        "mono or compact", "setterm font [mono|compact]", false);
+                                        "mono, compact, load or unload", "setterm font [mono|compact|load <pack>|unload <pack>]", false);
             return;
         }
 

@@ -59,6 +59,7 @@
 #include "solar_os_inbox.h"
 #endif
 #include "solar_os_jobs.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
@@ -2430,6 +2431,8 @@ void app_main(void)
     ESP_LOGI(TAG, "boot milestone: app discovery ready (%u entries, %" PRIu32 " ms)",
              (unsigned)discovered_apps, millis_u32() - discovery_started_ms);
 #endif
+    /* Storage is mounted by now: bring back the font packs loaded last time. */
+    solar_os_font_pack_restore_selection();
     ESP_LOGI(TAG, "boot milestone: peripherals ready");
     const esp_err_t board_jobs_err = solar_os_board_boot_start_jobs(&os_ctx);
     if (board_jobs_err != ESP_OK) {

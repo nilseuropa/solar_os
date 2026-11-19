@@ -338,7 +338,7 @@ job for periodic polling.
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
-| `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
+| `setterm` | `setterm font [mono\|compact\|load <pack>\|unload <pack>]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size, and load or unload a font pack for characters the built-in faces lack. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
 | `setterm` | `setterm statusbar [show\|hide]` | Show or hide the graphical shell status bar. |
@@ -587,7 +587,7 @@ setterm
 setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
 setterm scale [1..4]
 setterm orientation [0|90|180|270]
-setterm font [mono|compact]
+setterm font [mono|compact|load <pack>|unload <pack>]
 setterm textsize [8|10|12|14|16|18|20]
 setterm cursor [block|underscore] [blink|steady]
 setterm palette [normal|inverted]
@@ -689,6 +689,11 @@ to flash when SD is unavailable. `flash` always selects internal flash, even
 when an SD card is mounted. `sd` always selects SD and is rejected on boards
 without SD support. Use `setterm startup` without a value to show the selected
 source and currently resolved path.
+
+`setterm font load <pack>` loads `fonts/<pack>.sfp` from the default volume
+and `unload` drops it. Text draws characters the built-in faces lack from a
+loaded pack, at every size. The set is saved and restored at boot. Without
+PSRAM only faces that fit in 24 KB load. `setterm font` lists the packs.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure

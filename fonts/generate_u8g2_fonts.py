@@ -14,7 +14,9 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import shutil
+import struct
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +28,10 @@ from PIL import Image, ImageDraw, ImageFont
 FONT_DIR = Path(__file__).resolve().parent
 DEFAULT_SIZES = [10, 12, 14, 16, 18, 20]
 DEFAULT_RANGES = [(0x20, 0x7E), (0xA0, 0xFF)]
+# Terminal text size 8 draws the U8g2 5x8 face, cut from the public-domain
+# misc-fixed 5x8 BDF. A pack takes that face's extra glyphs from the same BDF.
+FIXED_5X8_BDF = FONT_DIR / "misc-fixed" / "5x8.bdf"
+FIXED_5X8_SIZE = 8
 
 
 @dataclass(frozen=True)
@@ -362,8 +368,102 @@ def draw_preview(
     image.save(path)
 
 
+PACK_MAGIC = b"SFP1"
+PACK_NAME_MAX = 16
+
+
+def parse_u8g2_c_array(path: Path) -> bytes:
+    """Return the bytes of the U8g2 font array bdfconv wrote to a C file."""
+    text = path.read_text(encoding="utf-8")
+    declared = re.search(r"\[(\d+)\]", text)
+    body = text[text.index("=") + 1:]
+    data = bytearray()
+    escapes = {"n": 10, "t": 9, "r": 13, "a": 7, "b": 8, "f": 12, "v": 11,
+               "\\": 92, "\"": 34, "'": 39, "?": 63}
+    for literal in re.findall(r'"((?:[^"\\]|\\.)*)"', body):
+        i = 0
+        while i < len(literal):
+            ch = literal[i]
+            if ch != "\\":
+                data.append(ord(ch))
+                i += 1
+                continue
+            i += 1
+            esc = literal[i]
+            if esc in "01234567":
+                j = i
+                while j < len(literal) and j < i + 3 and literal[j] in "01234567":
+                    j += 1
+                data.append(int(literal[i:j], 8) & 0xFF)
+                i = j
+            elif esc == "x":
+                j = i + 1
+                while j < len(literal) and literal[j] in "0123456789abcdefABCDEF":
+                    j += 1
+                data.append(int(literal[i + 1:j], 16) & 0xFF)
+                i = j
+            else:
+                data.append(escapes[esc])
+                i += 1
+    data.append(0)  # the C string's own terminator is part of the array
+    if declared and int(declared.group(1)) != len(data):
+        raise SystemExit(f"{path}: declared {declared.group(1)} bytes, parsed {len(data)}")
+    return bytes(data)
+
+
+def fixed_5x8_face(bdfconv: str, u8g2_dir: Path, map_expr: str) -> GeneratedFont:
+    """The pack's regular face for terminal text size 8, from misc-fixed 5x8."""
+    symbol = "u8g2_font_solar_os_pack_r_8_tf"
+    c_path = u8g2_dir / f"{symbol}.c"
+    run_bdfconv(bdfconv, FIXED_5X8_BDF, c_path, symbol, map_expr)
+    return GeneratedFont(
+        style=STYLES[0],
+        size=FIXED_5X8_SIZE,
+        cell_width=5,
+        cell_height=8,
+        ascent=7,
+        descent=1,
+        bdf_path=FIXED_5X8_BDF,
+        c_path=c_path,
+        symbol=symbol,
+    )
+
+
+def write_pack(path: Path, name: str, ranges: list[tuple[int, int]], faces: list[GeneratedFont]) -> None:
+    """Write a font pack: the glyphs of `ranges` for every style and size.
+
+    Layout, little endian:
+      "SFP1", u16 range count, u16 face count, name[16],
+      ranges (u32 first, u32 last), faces (u8 style, u8 size, u16 0,
+      u32 offset, u32 length), then the U8g2 font data of each face.
+    """
+    if len(name) >= PACK_NAME_MAX:
+        raise SystemExit(f"pack name too long: {name}")
+    styles = [style.key for style in STYLES]
+    blobs = [parse_u8g2_c_array(item.c_path) for item in faces]
+    header_size = 4 + 2 + 2 + PACK_NAME_MAX + 8 * len(ranges) + 12 * len(faces)
+    out = bytearray(PACK_MAGIC)
+    out += struct.pack("<HH", len(ranges), len(faces))
+    out += name.encode("ascii").ljust(PACK_NAME_MAX, b"\0")
+    for first, last in ranges:
+        out += struct.pack("<II", first, last)
+    offset = header_size
+    for item, blob in zip(faces, blobs):
+        out += struct.pack("<BBHII", styles.index(item.style.key), item.size, 0, offset, len(blob))
+        offset += len(blob)
+    for blob in blobs:
+        out += blob
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(bytes(out))
+
+
 def generate(args: argparse.Namespace) -> list[GeneratedFont]:
     out_dir = Path(args.out).resolve()
+    if args.pack:
+        # A pack's intermediate files stay apart from the default fonts.
+        args.stem = "pack"
+        args.no_preview = True
+        out_dir = out_dir / f"pack-{args.pack}"
     bdf_dir = out_dir / "bdf"
     u8g2_dir = out_dir / "u8g2"
     bdf_dir.mkdir(parents=True, exist_ok=True)
@@ -391,7 +491,7 @@ def generate(args: argparse.Namespace) -> list[GeneratedFont]:
             font = fonts[style.key]
             ascent, descent = font.getmetrics()
             cell_height = ascent + descent
-            stem = f"default_{style.key}_{size}"
+            stem = f"{args.stem}_{style.key}_{size}"
             symbol = f"u8g2_font_solar_os_{stem}_tf"
             bdf_path = bdf_dir / f"{stem}.bdf"
             c_path = u8g2_dir / f"{symbol}.c"
@@ -465,6 +565,14 @@ def generate(args: argparse.Namespace) -> list[GeneratedFont]:
             args.preview_scale,
         )
 
+    if args.pack:
+        if args.no_u8g2 or any(item.c_path is None for item in generated):
+            raise SystemExit("--pack needs bdfconv: make -C fonts/tools/bdfconv")
+        generated.append(fixed_5x8_face(bdfconv, u8g2_dir, map_expr))
+        pack_path = Path(args.pack_dir).resolve() / f"{args.pack}.sfp"
+        write_pack(pack_path, args.pack, args.glyph_ranges, generated)
+        print(f"wrote {pack_path} ({pack_path.stat().st_size} bytes)")
+
     return generated
 
 
@@ -486,6 +594,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=parse_ranges,
         default=DEFAULT_RANGES,
         help="comma-separated codepoint ranges, default: 0x20-0x7e,0xa0-0xff",
+    )
+    parser.add_argument(
+        "--stem",
+        default="default",
+        help="font set name used in file and symbol names, default: default "
+        "(u8g2_font_solar_os_<stem>_<style>_<size>_tf); a fallback pack uses "
+        "its own name and only the glyph ranges the built-in fonts lack",
+    )
+    parser.add_argument(
+        "--pack",
+        metavar="NAME",
+        help="write a font pack NAME.sfp holding only --glyph-ranges for every "
+        "style and size, plus a regular 5x8 face from fonts/misc-fixed/5x8.bdf "
+        "(loaded on the device with `setterm font load NAME`)",
+    )
+    parser.add_argument(
+        "--pack-dir",
+        default=str(FONT_DIR / "packs"),
+        help="where --pack writes the pack file, default: fonts/packs",
     )
     parser.add_argument(
         "--threshold",
