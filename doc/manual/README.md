@@ -11,6 +11,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Shell and storage
 
+- [Native ELF modules](native-modules.md) — Load and manage native apps, jobs, drivers, and libraries
 - [Shell command reference](commands.md) — Complete syntax, behavior, and examples for built-in shell commands
 - [Storage and shell paths](storage.md) — Use SolarOS volumes, files, directories, and shell-style paths
 
@@ -88,7 +89,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [netscan command](commands.md) — Scan TCP ports on one host or a capped IPv4 range.
 - [network command](commands.md) — Open the two-tab network TUI. Status shows interfaces and routes; Settings changes persistent interface priority and client routing.
 - [nfc command](commands.md) — List registered NFC readers and their concrete drivers.
-- [ntp command](commands.md) — Sync the wall clock from NTP.
+- [ntp command](commands.md) — Sync the wall clock from NTP (default server pool.ntp.org). Waits up to 40 s, so lwIP can retry one lost packet, then prints ntp: sync timed out.
 - [nvs command](commands.md) — Show the default NVS partition size, entry usage, and namespace count.
 - [onewire command](commands.md) — Show every registered named 1-Wire bus, or one selected bus.
 - [osc command](commands.md) — Inspect named outbound OSC bindings and their live source, value, send, and error state.
@@ -115,7 +116,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [servo command](servo.md) — Show names, outputs, enabled state, and owners in a compact list.
 - [session command](commands.md) — List display sessions, port shells, and retained port-owned application sessions with their owner.
 - [sessions command](commands.md) — List display app sessions, display shell sessions, and port shell sessions.
-- [setterm command](commands.md) — Open the terminal settings TUI from the display shell.
+- [setterm command](commands.md) — Display-shell settings: arrows select, PgUp/PgDn page, Enter edits, Esc exits.
 - [sh command](commands.md) — Run a simple SolarOS shell script from storage.
 - [shutdown command](commands.md) — Stop apps and jobs, flush storage, and power down. Only the physical power/KEY button, RESET, or a power cycle starts a fresh boot.
 - [sleep command](commands.md) — Enter explicit light sleep.
@@ -275,7 +276,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Scripting APIs
 
-- [AOgmaNeo online learning](aogmaneo.md) — Sparse predictive hierarchies, actors and image encoding for C, Python and Lua
+- [AOgmaNeo online learning](aogmaneo.md) — Use sparse predictive hierarchies, actors and image encoders from C, Python and Lua
 - [C development](c.md) — Compile native C programs, build projects, and browse SDK headers
 - [Compatibility I/O modules](compatibility.io.md) — Use the legacy single-bus I2C, SPI, UART, and OneWire APIs
 - [Computer vision](vision.md) — Native QR decoding, statistics, segmentation, filtering, morphology, image difference, and blobs
