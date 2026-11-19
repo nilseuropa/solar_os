@@ -95,13 +95,16 @@ class LauncherTests(unittest.TestCase):
         command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3", Path("build/flash.bin"))
         self.assertEqual(command[command.index("-display") + 1], "none")
         self.assertEqual(command[command.index("-nic") + 1], "none")
-        self.assertIn("chardev=console,mode=readline", command)
+        if qemu.DEFAULT_UART0_MODE == "pty":
+            self.assertEqual(command[command.index("-monitor") + 1], "stdio")
+        else:
+            self.assertIn("chardev=console,mode=readline", command)
         self.assertIn("driver=ssi_psram,property=is_octal,value=true", command)
 
     def test_display_uses_only_the_console_uart_and_paths_are_single_arguments(self):
         binary = Path("tools with spaces/qemu")
         image = Path("build with spaces,and comma/flash.bin")
-        command = qemu.qemu_command(binary, "qemu_esp32s3_rgb", image)
+        command = qemu.qemu_command(binary, "qemu_esp32s3_rgb", image, uart0_mode="stdio")
         self.assertEqual(command[0], str(binary))
         self.assertIn("file=build with spaces,,and comma/flash.bin,if=mtd,format=raw", command)
         self.assertEqual(command.count("-serial"), 1)
@@ -109,6 +112,38 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("user,model=open_eth", command)
         self.assertEqual(command[command.index("-display") + 1], "sdl")
         self.assertIn("solar-os-input.absolute=on", command)
+
+    @unittest.skipIf(sys.platform == "win32", "QEMU PTYs require a POSIX host")
+    def test_virtual_uart_is_separate_from_the_qemu_monitor(self):
+        image = Path("build with spaces,and comma/flash.bin")
+        command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", image, uart0_mode="pty")
+        self.assertIn("pty,id=uart0,path=build with spaces,,and comma/uart0,logfile=build with spaces,,and comma/uart0.log", command)
+        self.assertEqual(command.count("-serial"), 1)
+        self.assertEqual(command[command.index("-serial") + 1], "chardev:uart0")
+        self.assertEqual(command[command.index("-monitor") + 1], "stdio")
+        self.assertFalse(any("mux=on" in arg for arg in command))
+
+    def test_invalid_uart_mode_is_rejected(self):
+        with self.assertRaises(ValueError):
+            qemu.qemu_command(Path("qemu"), "qemu_esp32s3", Path("flash.bin"), uart0_mode="unknown")
+
+    @unittest.skipIf(sys.platform == "win32", "symlink handling on POSIX hosts")
+    def test_uart_path_cleanup_preserves_existing_devices_and_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            port = build / "uart0"
+            port.symlink_to(build / "missing")
+            qemu.prepare_uart0(build, "pty")
+            self.assertFalse(port.is_symlink())
+            target = build / "existing"
+            target.write_text("keep")
+            port.symlink_to(target)
+            with self.assertRaises(RuntimeError): qemu.prepare_uart0(build, "pty")
+            self.assertTrue(port.is_symlink())
+            port.unlink()
+            port.write_text("keep")
+            with self.assertRaises(RuntimeError): qemu.prepare_uart0(build, "pty")
+            self.assertEqual(port.read_text(), "keep")
 
     def test_relative_mouse_mode(self):
         command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", Path("flash.bin"), "mouse")

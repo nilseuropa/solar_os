@@ -13,7 +13,7 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 
 | Target | PlatformIO env | What you get |
 | --- | --- | --- |
-| `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0 (your terminal). |
+| `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0, exposed as a host serial device. |
 | `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, native keyboard, touch or relative mouse input, networking, and a separate UART0 console. |
 
 ## Build and run
@@ -40,15 +40,54 @@ and macOS on x86-64 and ARM64, and Windows on x86-64. The native-input display
 target currently builds on Linux and macOS; use WSL on Windows, or configure
 a QEMU executable built with the SolarOS input extension.
 
-On the display target, the QEMU window shows the screen and the launching
-terminal carries the separate UART0 console. Type into the QEMU window to
-control the display shell. The headless target uses only the launching terminal.
+On Linux and macOS, UART0 is a host pseudo-terminal (PTY) on both targets.
+The launcher prints its stable path, `.pio/build/<env>/uart0`, which points
+to the allocated host device, such as `/dev/pts/7`. Open it in a serial terminal
+or another program that uses serial ports. The launching terminal controls
+QEMU's monitor independently of UART0. Type `quit` there to stop QEMU, or
+`system_reset` to reboot the guest. The device link is removed when QEMU exits.
 
-Press **Ctrl+A, then X** in the launching terminal to stop QEMU. **Ctrl+A, then C**
-switches between the UART0 console and QEMU's monitor. Closing the
-display window also stops QEMU. **Ctrl+Alt+G** releases the mouse from the window.
+On the display target, type into the QEMU window to control the display shell.
+Closing the display window also stops QEMU. **Ctrl+Alt+G** releases the mouse
+from the window.
 
-Console output is saved to `.pio/build/<env>/uart0.log`.
+While a serial client is connected, UART0 output is saved to
+`.pio/build/<env>/uart0.log`.
+
+### Connect to UART0
+
+From a separate terminal with VT100 support, use PlatformIO's raw monitor:
+
+```sh
+pio device monitor -p .pio/build/qemu_esp32s3_rgb/uart0 -b 115200 --raw --eol CR --exit-char 30 --menu-char 31
+```
+
+Ctrl+^ exits that monitor; Ctrl+_ opens its menu. Other control characters,
+including SolarOS's Ctrl+] app-exit key, reach the guest. Replace the environment
+name with `qemu_esp32s3` for the headless target. `picocom`, `screen`, PuTTY,
+and serial libraries can open the same device.
+
+SolarOS probes terminal capabilities during boot. If you connect after boot,
+type `system_reset` in the QEMU monitor while the serial terminal stays connected
+so the guest can detect it. UART traffic bypasses PlatformIO's build-output
+buffering; the terminal program handles rendering and keyboard input.
+
+To bridge the emulator to a physical serial adapter on Linux, for example:
+
+```sh
+socat .pio/build/qemu_esp32s3_rgb/uart0,rawer,echo=0 /dev/ttyUSB0,rawer,echo=0,b115200
+```
+
+Use one serial client or bridge at a time. UART0 carries SolarOS's shell and boot
+logs by default; configure the guest for the protocol you intend to use. The PTY
+transports bytes, not electrical signals, and its baud/modem-control settings
+are not propagated to a physical adapter. Set that adapter's speed in the bridge.
+
+Native Windows uses the launching terminal for UART0; QEMU does not create PTYs
+there. Use WSL for a virtual serial device. To select the original console mode
+on any host, add `custom_qemu_uart0 = stdio` to the environment. In that mode,
+Ctrl+A, then X exits QEMU, and Ctrl+A, then C switches to its monitor. These
+shortcuts apply in the host console, independently of the graphical window.
 
 ### Host dependencies
 
@@ -112,10 +151,9 @@ in `platformio.ini`:
 custom_qemu_pointer = mouse
 ```
 
-To switch modes while running, press Ctrl+A, then C in the UART0 terminal,
-use `info mice` to find the `SolarOS touch` and `SolarOS mouse` indices, and
-select one with `mouse_set INDEX`. Press Ctrl+A, then C again to return to
-the console. Ctrl+Alt+G releases a grabbed relative mouse.
+To switch modes while running, use `info mice` in the QEMU monitor to find the
+`SolarOS touch` and `SolarOS mouse` indices, and select one with `mouse_set INDEX`.
+Ctrl+Alt+G releases a grabbed relative mouse.
 
 `input status` and `input test qemu-keyboard`, `input test qemu-touch`, or
 `input test qemu-mouse` inspect the sources from the UART0 console.
@@ -177,4 +215,5 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 Run `pio run -e qemu_esp32s3_rgb -t qemu` for the display target, or
 `pio run -e qemu_esp32s3 -t qemu` for headless. PlatformIO builds the firmware,
 prepares the emulator and flash image, and starts the virtual board. Type
-directly into the QEMU window for display input; UART0 remains a separate console.
+directly into the QEMU window for display input; connect a serial terminal to
+`.pio/build/<env>/uart0` for UART0 on Linux and macOS.

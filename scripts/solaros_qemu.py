@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,7 @@ import sys
 
 FLASH_BYTES = 16 * 1024 * 1024
 QEMU_BOARDS = ("qemu_esp32s3", "qemu_esp32s3_rgb")
+DEFAULT_UART0_MODE = "stdio" if sys.platform == "win32" else "pty"
 
 
 def ensure_qemu(package: Path, framework: Path) -> Path:
@@ -65,13 +67,42 @@ def prepare_flash(build: Path, images: list[tuple[int, Path]]) -> Path:
     return image
 
 
+def prepare_uart0(build: Path, mode: str) -> None:
+    """Remove only a broken link left by an earlier emulator crash."""
+    if mode != "pty":
+        return
+    port = build / "uart0"
+    if port.is_symlink() and not port.exists():
+        port.unlink()
+    if port.exists() or port.is_symlink():
+        raise RuntimeError(f"UART0 path already exists: {port}; stop the other emulator first")
+
+
+def launch_qemu(command: list[str], build: Path) -> int:
+    # PlatformIO filters SCons output through line-buffered build pipes. QEMU's
+    # interactive monitor/stdio console must use the real terminal directly.
+    if not sys.stdin.isatty():
+        return subprocess.call(command, cwd=build)
+    with ExitStack() as stack:
+        if sys.platform == "win32":
+            incoming = stack.enter_context(open("CONIN$", "rb", buffering=0))
+            outgoing = stack.enter_context(open("CONOUT$", "wb", buffering=0))
+        else:
+            incoming = outgoing = stack.enter_context(open("/dev/tty", "r+b", buffering=0))
+        return subprocess.call(command, cwd=build, stdin=incoming, stdout=outgoing, stderr=outgoing)
+
+
 def qemu_command(executable: Path, board: str, image: Path,
-                 pointer_mode: str = "touch") -> list[str]:
+                 pointer_mode: str = "touch", uart0_mode: str = DEFAULT_UART0_MODE) -> list[str]:
     if board not in QEMU_BOARDS:
         raise ValueError(f"Not a QEMU board: {board}")
     graphical = board == "qemu_esp32s3_rgb"
     if pointer_mode not in ("touch", "mouse"):
         raise ValueError("QEMU pointer mode must be 'touch' or 'mouse'")
+    if uart0_mode not in ("pty", "stdio"):
+        raise ValueError("QEMU UART0 mode must be 'pty' or 'stdio'")
+    if uart0_mode == "pty" and sys.platform == "win32":
+        raise ValueError("QEMU virtual serial ports require Linux/macOS or WSL; use stdio on native Windows")
     # QEMU's option parser escapes literal commas by doubling them.
     flash = str(image).replace(",", ",,")
     log = str(image.parent / "uart0.log").replace(",", ",,")
@@ -80,10 +111,15 @@ def qemu_command(executable: Path, board: str, image: Path,
         "-global", "driver=ssi_psram,property=is_octal,value=true",
         "-drive", f"file={flash},if=mtd,format=raw",
         "-display", "sdl" if graphical else "none",
-        "-monitor", "none",
-        "-chardev", f"stdio,id=console,mux=on,signal=off,logfile={log}",
-        "-serial", "chardev:console", "-mon", "chardev=console,mode=readline",
     ]
+    if uart0_mode == "pty":
+        port = str(image.parent / "uart0").replace(",", ",,")
+        command += ["-chardev", f"pty,id=uart0,path={port},logfile={log}",
+                    "-serial", "chardev:uart0", "-monitor", "stdio"]
+    else:
+        command += ["-monitor", "none",
+                    "-chardev", f"stdio,id=console,mux=on,signal=off,logfile={log}",
+                    "-serial", "chardev:console", "-mon", "chardev=console,mode=readline"]
     if graphical:
         command += ["-global", "solar-os-input.absolute=" + ("on" if pointer_mode == "touch" else "off"),
                     "-nic", "user,model=open_eth"]
