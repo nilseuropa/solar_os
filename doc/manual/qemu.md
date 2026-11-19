@@ -16,71 +16,80 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 | `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0 (your terminal). |
 | `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, a keyboard over UART1, a network, and the UART0 shell next to the display shell. |
 
-## Tested versions
+## Build and run
+
+From the root of the SolarOS checkout, start the display target:
+
+```sh
+pio run -e qemu_esp32s3_rgb -t qemu
+```
+
+For the headless target:
+
+```sh
+pio run -e qemu_esp32s3 -t qemu
+```
+
+The `qemu` target builds the firmware, downloads the pinned Espressif Xtensa
+QEMU release for your host when needed, prepares a 16 MB virtual flash image,
+and launches the emulator. There is no separate QEMU installation or image
+merge command. PlatformIO caches the emulator in its `tool-solaros-qemu`
+package and reuses it on later runs. Prebuilt tools are available for Linux
+and macOS on x86-64 and ARM64, and Windows on x86-64.
+
+On the display target, the QEMU window shows the screen and the launching
+terminal carries the separate UART0 console. Connect the display keyboard as
+described below. The headless target uses only the launching terminal.
+
+Press **Ctrl+A, then X** in the launching terminal to stop QEMU. **Ctrl+A, then C**
+switches between the UART0 console and QEMU's monitor. Closing the
+display window also stops QEMU. **Ctrl+Alt+G** releases the mouse from the window.
+
+Console output is saved to `.pio/build/<env>/uart0.log`.
+
+### Host dependencies
+
+QEMU needs its host system libraries. On Ubuntu or Debian:
+
+```sh
+sudo apt-get install libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+```
+
+On macOS:
+
+```sh
+brew install libgcrypt glib pixman sdl2 libslirp
+```
+
+### Tool versions
 
 | Part | Version |
 | --- | --- |
 | QEMU | Espressif `esp-develop-9.2.2-20261109` |
 | ESP-IDF | 5.5.5 (PlatformIO `framework-espidf`) |
 | esptool | 5.4.0 |
-| Host | Windows 11 |
 
-Use QEMU 20261109 or newer.
+### Build without launching
 
-## Build the image
+Omit `-t qemu` to compile the firmware without starting the emulator:
 
-The build steps call `pio` and `esptool`. esptool comes with PlatformIO and is
-usually not on your PATH, so call it by its full path; in PowerShell:
-`& "$env:USERPROFILE\.platformio\penv\Scripts\esptool.exe"`.
-
-From the root of your SolarOS checkout, build the firmware. This takes a while:
-
-```
+```sh
 pio run -e qemu_esp32s3_rgb
 ```
 
-Once it finishes without errors, change into the build folder and pad the image
-to 16 MB, because QEMU loads it as the board's flash chip and needs the chip's
-full size:
+### Virtual flash
 
-```
-cd .pio/build/qemu_esp32s3_rgb
-esptool --chip esp32s3 merge-bin --pad-to-size 16MB -o flash_image.bin 0x0 firmware.factory.bin
-```
-
-For the headless board, write `qemu_esp32s3` in place of `qemu_esp32s3_rgb` in
-the `pio run` and `cd` lines.
-
-## Launch
-
-Start QEMU from the build folder above (`.pio/build/<env>`), where
-`flash_image.bin` lies. Both boards take these options:
-
-```
-qemu-system-xtensa -machine esp32s3 -m 8M -global driver=ssi_psram,property=is_octal,value=true -drive file=flash_image.bin,if=mtd,format=raw
-```
-
-Headless (`qemu_esp32s3`), with the shell in your terminal and a copy in `uart0.log`:
-
-```
-... -nographic -chardev stdio,id=con,logfile=uart0.log,signal=off -serial chardev:con
-```
-
-Display, keyboard, and network (`qemu_esp32s3_rgb`):
-
-```
-... -display sdl -chardev stdio,id=con,logfile=uart0.log,signal=off -serial chardev:con -serial tcp:127.0.0.1:5555,server=on,wait=off -nic user,model=open_eth
-```
-
-The QEMU window shows the display. The terminal you started QEMU from carries
-the UART0 shell. Ctrl+Alt+G releases the mouse from the QEMU window.
+Each environment keeps its flash image at `.pio/build/<env>/flash_image.bin`.
+Rerunning the same build preserves settings and files written by the guest.
+When any flash input changes, the launcher creates a fresh image. Cleaning
+the build directory also removes the virtual flash and its contents.
 
 ## Keyboard
 
 QEMU's ESP32-S3 machine has no emulated keyboard, USB host, or I2C, so keys
 typed into the QEMU window do not reach SolarOS. The `qemu_esp32s3_rgb` board
 reads a VT100 terminal on UART1 (`keyboard0`, driver `uart-keyboard`) instead,
-which the launch line above opens on TCP port 5555.
+which the launcher opens on TCP port 5555 on the local machine.
 
 On Windows, run in a second console window, from the root of your SolarOS
 checkout:
@@ -93,13 +102,14 @@ Keys typed in that window go to the display shell; the mouse wheel sends
 Page Up and Page Down, which scroll the shell. Ctrl+] is SolarOS's app-exit
 key; Ctrl+C ends the script.
 
-On Linux and macOS, `socat` can do the same (not run by the author):
+On Linux and macOS, use `socat` in a second terminal:
 
 ```
 socat -,rawer,escape=0x0f tcp:127.0.0.1:5555
 ```
 
-Ctrl+O ends `socat`. There is no mouse wheel this way.
+Ctrl+O ends `socat`. There is no mouse wheel this way. Use ASCII input for now:
+the UART keyboard currently interprets some UTF-8 bytes as special keys.
 
 ## Network
 
@@ -114,9 +124,8 @@ Run `ntp` once after boot to set the clock.
 
 ### Debugging the network
 
-Not needed for normal use. To record every packet between SolarOS and QEMU's
-network into `net.pcap`, start QEMU with these options in place of
-`-nic user,model=open_eth`:
+To record packets when launching QEMU manually, replace
+`-nic user,model=open_eth` with these options:
 
 ```
 -netdev user,id=n0 -net nic,model=open_eth,netdev=n0 -object filter-dump,id=f0,netdev=n0,file=net.pcap
@@ -148,15 +157,12 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 - `shutdown` on `qemu_esp32s3` prints its message but leaves the shell running.
   Likely cause, read from the code: shutdown waits for the BOOT key (GPIO0) to
   be released, and GPIO0 reads 0, the key's active level.
-- Files written to flash last only until the next image is built: `merge-bin`
-  writes a fresh flash image.
+- Changes to the firmware's flash inputs recreate the virtual flash image,
+  clearing guest files and settings.
 
 ## Quick reference
 
-Build `qemu_esp32s3_rgb` (or headless `qemu_esp32s3`) with PlatformIO, merge
-`firmware.factory.bin` into a 16 MB `flash_image.bin` with esptool, and start
-Espressif QEMU 20261109 or newer with `-machine esp32s3 -m 8M`, octal PSRAM, the
-image as `mtd` drive, `-display sdl`, UART1 on TCP port 5555, and
-`-nic user,model=open_eth`. Send keys with `scripts/qemu_uart_keys.py 5555`
-(Windows) or `socat`. Mono 800x600, no touch, audio, battery, Bluetooth, or SD;
-GPIO, I2C, SPI, PWM, and USB host are declared but have no device in QEMU.
+Run `pio run -e qemu_esp32s3_rgb -t qemu` for the display target, or
+`pio run -e qemu_esp32s3 -t qemu` for headless. PlatformIO builds the firmware,
+installs the emulator, and prepares the flash image. Send display keys with
+`scripts/qemu_uart_keys.py 5555` (Windows) or `socat` (Linux/macOS).

@@ -1,0 +1,59 @@
+{
+  "version": 3,
+  "tools": [
+    {
+      "description": "QEMU for Xtensa",
+      "export_paths": [
+        [
+          "qemu",
+          "bin"
+        ]
+      ],
+      "export_vars": {},
+      "info_url": "https://github.com/espressif/qemu",
+      "install": "on_request",
+      "license": "GPL-2.0-only",
+      "name": "qemu-xtensa",
+      "supported_targets": [
+        "esp32",
+        "esp32s3"
+      ],
+      "version_cmd": [
+        "qemu-system-xtensa",
+        "--version"
+      ],
+      "version_regex": "QEMU emulator version [0-9.]+ \\(([a-z0-9.-_]+)\\)",
+      "versions": [
+        {
+          "linux-amd64": {
+            "sha256": "fbc3bffa9fa71192847969a627a584aabe2e86d85bed4902a096ff06c2b8a815",
+            "size": 16006136,
+            "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20261109/qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-x86_64-linux-gnu.tar.xz"
+          },
+          "linux-arm64": {
+            "sha256": "dad4a8f44b5649b1f110963d479a77edb0ad2484cde79403e3a19c50efdd5281",
+            "size": 15487260,
+            "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20261109/qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-aarch64-linux-gnu.tar.xz"
+          },
+          "macos": {
+            "sha256": "f0d0e055fb4e190cc2c652f0591f74ea00e543acd7b88cde7e34d24f51f87d11",
+            "size": 4484836,
+            "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20261109/qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-x86_64-apple-darwin.tar.xz"
+          },
+          "macos-arm64": {
+            "sha256": "35d0b68908c90697f997543e0c604d4462b46abff7c4bcb07ba513dcc300c792",
+            "size": 4309512,
+            "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20261109/qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-aarch64-apple-darwin.tar.xz"
+          },
+          "name": "esp_develop_9.2.2_20261109",
+          "status": "recommended",
+          "win64": {
+            "sha256": "1ffa852b5f80ac6d51cdfac463658323c27a22b94c0d7e74b58065b00b2bf25f",
+            "size": 36362200,
+            "url": "https://github.com/espressif/qemu/releases/download/esp-develop-9.2.2-20261109/qemu-xtensa-softmmu-esp_develop_9.2.2_20261109-x86_64-w64-mingw32.tar.xz"
+          }
+        }
+      ]
+    }
+  ]
+}
