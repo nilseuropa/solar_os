@@ -38,6 +38,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 
 | Topic | Services |
 | --- | --- |
+| [AOgmaNeo online learning](aogmaneo.md) | `solaros.aogmaneo` predictive hierarchies, actors and image encoding |
 | [Storage and files](lua.storage.md) | `solaros.storage` |
 | [Time and scheduling](lua.time.md) | `solaros.time`, `solaros.rtc`, `solaros.schedule` |
 | [Networking](lua.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.sftpsync`, `solaros.ssh_keys` |

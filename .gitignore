@@ -27,6 +27,7 @@ modules/experimental/tinycc/differential/__pycache__/
 modules/espdl/__pycache__/
 modules/jet/__pycache__/
 modules/robot/__pycache__/
+modules/aogmaneo/__pycache__/
 tests/host/ble_nimble_test
 tests/host/gpio_matrix_test
 tests/host/ble_multi_peer_test
@@ -36,6 +37,8 @@ tests/host/rtc_pcf8563_test
 tests/host/nmea_test
 tests/host/nmea_gnss_test
 tests/host/shell_table_test
+tests/host/font_packs_test
+tests/host/keyboard_layout_switch_test
 tests/host/io_layout_test
 tests/host/io_layout_can_test
 tests/host/batmon_job_test

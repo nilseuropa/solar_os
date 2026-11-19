@@ -948,6 +948,7 @@ Defaults:
 | --- | --- |
 | Interval | `60` seconds |
 | Server | `pool.ntp.org` |
+| Wait per sync | `40` seconds, so lwIP can retry one lost packet |
 
 Examples:
 
@@ -1387,6 +1388,10 @@ Escape hides the keyboard. A downward swipe that starts inside its panel also
 hides it. Touch strokes reserved for activation or keyboard selection do not
 reach the application underneath; touches outside these regions remain normal
 application input.
+
+When multiple language layouts are configured, Ctrl+Space switches layouts.
+Use `job start screen-keyboard trigger=ctrl+alt+space` for a separate visibility
+toggle, or keep using the edge gesture and `screen-keyboard toggle` command.
 
 Full mode provides letters, numbers, one-shot Shift/Ctrl/Alt, Caps Lock, a
 symbol table, and a navigation page with Tab, Escape, arrows, Home/End,

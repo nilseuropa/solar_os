@@ -140,6 +140,25 @@ SOLAR_OS_SCRIPT_API_FUNCTION(jet, open, open);
 SOLAR_OS_SCRIPT_API_MODULE_END(jet);
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+SOLAR_OS_SCRIPT_API_MODULE_BEGIN(aogmaneo);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, INPUT, SOLAR_OS_AOGMANEO_INPUT);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, PREDICTION, SOLAR_OS_AOGMANEO_PREDICTION);
+SOLAR_OS_SCRIPT_API_INT(aogmaneo, ACTION, SOLAR_OS_AOGMANEO_ACTION);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, create, create);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, destroy, destroy);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, step, step);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, prediction, prediction);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, activations, activations);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, values, values);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, hidden, hidden);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, clear, clear);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_create, image_create);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_step, image_step);
+SOLAR_OS_SCRIPT_API_FUNCTION(aogmaneo, image_reconstruct, image_reconstruct);
+SOLAR_OS_SCRIPT_API_MODULE_END(aogmaneo);
+#endif
+
 SOLAR_OS_SCRIPT_API_MODULE_BEGIN(time);
 SOLAR_OS_SCRIPT_API_FUNCTION(time, uptime_ms, uptime_ms);
 SOLAR_OS_SCRIPT_API_FUNCTION(time, sleep_ms, sleep_ms);

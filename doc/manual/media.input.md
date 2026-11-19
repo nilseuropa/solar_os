@@ -143,6 +143,15 @@ Gesture events contain the recognized kind, direction, flags, optional value,
 and original sensor word and also follow local input focus.
 Applications without the matching flag do not receive those structured events.
 
+Typed text is a separate opt-in. With `SOLAR_OS_APP_FLAG_TEXT_EVENTS`, a
+printable character typed on a local keyboard arrives as `SOLAR_OS_EVENT_TEXT`,
+one NUL-terminated UTF-8 character in `event.data.text`, instead of
+`SOLAR_OS_EVENT_CHAR`. Controls, navigation keys, and keys typed with left Alt
+keep their key or character form. An application that also sets
+`SOLAR_OS_APP_FLAG_KEY_EVENTS` receives the key press or repeat first and then
+its text event, unless that key moved input focus. Input from displayd and port
+shells still arrives as characters.
+
 Gesture bindings observe the same events without taking them away from the
 foreground application. A binding can match one source or every source, one
 gesture kind, and optionally one direction. Commands run one at a time. The
@@ -266,7 +275,9 @@ axes mean; SolarOS does not turn them into arrows or other keys.
 The `screen-keyboard` background job provides a full virtual keyboard or a
 symbol palette above display applications. Start it with
 `job start screen-keyboard mode=full` or `mode=symbols`, then toggle it with
-Ctrl+Space or an upward swipe from the bottom edge. See
+Ctrl+Space or an upward swipe from the bottom edge. With multiple keyboard
+layouts, Ctrl+Space switches layouts; start the job with
+`trigger=ctrl+alt+space` to give it a separate toggle. See
 [screen-keyboard](jobs.reference.md#screen-keyboard) for controls and bindings.
 
 ## Audio

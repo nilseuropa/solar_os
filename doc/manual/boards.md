@@ -55,7 +55,7 @@ RLCD modules without register readback are identified through their reset/TE
 response on GPIO14; the SSD1685 software-reset BUSY pulse distinguishes e-paper.
 
 T-Deck Plus registers its factory L76K or MIA-M10Q receiver as `gnss0` through
-the `nmea` driver, listening at 9600 baud and trying 38400 if needed. Use
+the `nmea` driver, listening at 38400 baud and trying 9600 if needed. Use
 `gnss list` and `gnss fix gnss0` to inspect it. This NMEA path supplies position,
 UTC, and satellite information; position accuracy and PDOP are unavailable.
 The receiver has no independent power control. The standard T-Deck Plus has no

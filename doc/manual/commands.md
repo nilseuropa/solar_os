@@ -335,19 +335,19 @@ job for periodic polling.
 | `schedule` | `schedule remove <name>` | Remove an entry. |
 | `schedule` | `schedule run <name>` | Run an entry immediately. Only one scheduled shell script can run at a time. |
 | `schedule` | `schedule stop [name]` | Stop the active ringing alarm, optionally only when its name matches. |
-| `setterm` | `setterm` | Open the terminal settings TUI from the display shell. |
-| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Show or save the global local-terminal cursor style. Defaults to `block blink`. |
+| `setterm` | `setterm` | Display-shell settings: arrows select, PgUp/PgDn page, Enter edits, Esc exits. |
+| `setterm` | `setterm cursor [block\|underscore] [blink\|steady]` | Save the global cursor style. Default: `block steady` on e-paper, `block blink` otherwise. |
 | `setterm` | `setterm --display <target> [orientation\|scale\|font\|textsize\|palette\|statusbar] [value]` | Show or change a named display's profile; orientation and scale are persistent, other targeted settings are volatile. |
 | `setterm` | `setterm scale [1..4]` | Set and save scaling for the current display, or `display0` from a port shell. |
 | `setterm` | `setterm orientation [0\|90\|180\|270]` | Set and save orientation for the current display, or `display0` from a port shell. |
-| `setterm` | `setterm font [mono\|compact]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size. |
+| `setterm` | `setterm font [mono\|compact\|load <pack>\|unload <pack>]`; `setterm textsize [8\|10\|12\|14\|16\|18\|20]` | Show or set the terminal font and text size, and load or unload a font pack for characters the built-in faces lack. |
 | `setterm` | `setterm palette [normal\|inverted]` | Show or set the logical terminal and shared-graphics palette. |
 | `setterm` | `setterm foreground [#RRGGBB]`; `setterm background [#RRGGBB]` | Show or set the persistent RGB terminal theme colors. |
 | `setterm` | `setterm statusbar [show\|hide]` | Show or hide the graphical shell status bar. |
 | `setterm` | `setterm brightness [0..100]` | Show or set display brightness. |
 | `setterm` | `setterm backlight [0..100\|follow]` | Show or set auxiliary lighting, such as the keyboard backlight, independently or following display brightness. |
 | `setterm` | `setterm profile [vt100\|ansi\|dumb]`; `setterm charset [utf8\|ascii]` | Configure escape sequences and TUI glyph output for the current port shell. |
-| `setterm` | `setterm keyboard [us\|de]`; `setterm powerkey [short\|long] [action]` | Show or set the keyboard layout and dedicated KEY action. |
+| `setterm` | `setterm keyboard [<layout>[,<layout>...]]`; `setterm powerkey [short\|long] [action]` | Save keyboard layouts (`us`, `de`, `ua`, `fr`, `ro`) and the dedicated KEY action. Ctrl+Space cycles layouts. |
 | `setterm` | `setterm keyrate [off\|1..60 [delay-ms]]` | Show or set the shared keyboard and button repeat policy. |
 | `setterm` | `setterm ble [default\|on\|off]` | Show or set the BLE preference for the next boot. |
 | `setterm` | `setterm timezone [UTC\|UTC+/-offset\|Europe/Berlin\|POSIX-TZ]` | Show or set the timezone used for local time. |
@@ -577,7 +577,7 @@ setterm
 setterm --display <target> [orientation|scale|font|textsize|palette|statusbar] [value]
 setterm scale [1..4]
 setterm orientation [0|90|180|270]
-setterm font [mono|compact]
+setterm font [mono|compact|load <pack>|unload <pack>]
 setterm textsize [8|10|12|14|16|18|20]
 setterm cursor [block|underscore] [blink|steady]
 setterm palette [normal|inverted]
@@ -588,7 +588,7 @@ setterm brightness [0..100]
 setterm backlight [0..100|follow]
 setterm profile [vt100|ansi|dumb]
 setterm charset [utf8|ascii]
-setterm keyboard [us|de]
+setterm keyboard [<layout>[,<layout>...]]
 setterm powerkey [short|long] [default|off|enter|app-exit|sleep|suspend|deepsleep|shutdown|ble-pair]
 setterm keyrate [off|1..60 [delay-ms]]
 setterm ble [default|on|off]
@@ -597,8 +597,9 @@ setterm startup [auto|flash|sd]
 setterm otaurl [url]
 ```
 
-`setterm cursor` saves the global local CLI/TUI style across reboots. Default:
-`block blink`, 500 ms per phase. Omitting the mode preserves it. Typing or moving
+`setterm cursor` saves the global local CLI/TUI style across reboots, overriding
+each display's default: `block steady` on e-paper, `block blink` otherwise
+(500 ms per phase). Omitting the mode preserves it. Typing or moving
 makes the cursor visible. Blocks invert the cell to keep text readable. Apps can
 hide the cursor. Graphical apps and external terminal clients keep their own
 cursors.
@@ -678,6 +679,15 @@ to flash when SD is unavailable. `flash` always selects internal flash, even
 when an SD card is mounted. `sd` always selects SD and is rejected on boards
 without SD support. Use `setterm startup` without a value to show the selected
 source and currently resolved path.
+
+`setterm keyboard us,ua` saves a list and boots in `us`. Ctrl+Space cycles
+once per press without saving. The status bar shows `US`, `UA`, etc.
+A single layout disables switching.
+
+`setterm font load <pack>` loads `fonts/<pack>.sfp` from the default volume
+and `unload` drops it. Text draws characters the built-in faces lack from a
+loaded pack, at every size. The set is saved and restored at boot. Without
+PSRAM only faces that fit in 24 KB load. `setterm font` lists the packs.
 
 `setterm profile` and `setterm charset` are runtime-only and apply to the
 current port shell. From the display shell they print guidance to configure
@@ -1166,7 +1176,7 @@ xfer recv <port> <file> --zmodem [--append|--replace]
 | `mqtt` | `mqtt subscribe <topic> [qos]` | Subscribe and print received messages until app-exit or `q`. |
 | `ping` | `ping <host> [count]` | Send ICMP echo requests. Without count, ping runs until Esc, Ctrl+C, or app-exit. |
 | `netscan` | `netscan <host\|range> [ports]` | Scan TCP ports on one host or a capped IPv4 range. |
-| `ntp` | `ntp [server]` | Sync the wall clock from NTP. |
+| `ntp` | `ntp [server]` | Sync the wall clock from NTP (default server `pool.ntp.org`). Waits up to 40 s, so lwIP can retry one lost packet, then prints `ntp: sync timed out`. |
 
 Wi-Fi is enabled by default when no saved setting exists, including after `nvs
 clear`. `wifi on` and `wifi off` control the radio in the current boot. The

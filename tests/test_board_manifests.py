@@ -1056,10 +1056,10 @@ bindings = { gpio = 7 }
         buses = {bus["name"]: bus for bus in board["buses"]}
         self.assertNotIn("uart1", buses)
         self.assertEqual(buses["uart0"]["port"], "UART_NUM_1")
-        self.assertEqual(buses["uart0"]["baud_rate"], "9600")
+        self.assertEqual(buses["uart0"]["baud_rate"], "38400")
         gnss = next(device for device in board["devices"] if device["name"] == "gnss0")
         self.assertEqual(gnss["driver"], "nmea")
-        self.assertEqual(gnss["bindings"], {"uart": "uart0", "alt_baud": 38400})
+        self.assertEqual(gnss["bindings"], {"uart": "uart0", "alt_baud": 9600})
         self.assertTrue(gnss["detachable"])
         self.assertEqual({pin["connector"] for pin in board["connectors"]}, {"GROVE"})
         self.assertEqual(

@@ -21,7 +21,7 @@
  * and GGA unprompted. Output enable/disable uses detected UBX or CASIC
  * configuration support; ordinary fix reads do not configure the receiver.
  * Power-on detection listens at the UART's configured rate, then at
- * `alt_baud` when one is given: modules ship at 9600 or 115200.
+ * `alt_baud` when one is given: modules ship at several different rates.
  * A switched receiver's enable polarity is the board's to state with
  * `active`; guessing it could leave a receiver powered that reads as off.
  *
@@ -140,15 +140,8 @@ static void drain_rx(nmea_gnss_device_t *device)
     }
 }
 
-/* Waits for a sentence at the rate in use, then at the other of the
- * configured and alternate rates. Leaves the working rate applied, or the
- * configured rate when neither is heard. */
-static esp_err_t await_or_resume_output(nmea_gnss_device_t *device, uint32_t timeout_ms)
+static esp_err_t resume_output(nmea_gnss_device_t *device, uint32_t timeout_ms)
 {
-    esp_err_t ret = await_sentence(device, timeout_ms);
-    if (ret != ESP_ERR_TIMEOUT) {
-        return ret;
-    }
     /* Output muting can survive an ESP32 reset or driver detach. The binary
      * control channel stays enabled so attachment can restore NMEA without
      * resetting baud, message rates, navigation settings, or saved memory. */
@@ -156,41 +149,50 @@ static esp_err_t await_or_resume_output(nmea_gnss_device_t *device, uint32_t tim
     solar_os_gnss_output_t output;
     if (solar_os_gnss_output_probe(&io, device->current_baud, &output) == ESP_OK &&
         !output.enabled && solar_os_gnss_output_set(&io, &output, true) == ESP_OK) {
-        ret = await_sentence(device, timeout_ms);
+        return await_sentence(device, timeout_ms);
     }
-    return ret;
+    return ESP_ERR_TIMEOUT;
 }
 
+/* Listen at both rates before trying binary output recovery. A streaming
+ * receiver at the other rate needs no control probes at the wrong rate.
+ * Leave the working rate applied, or restore the configured rate on failure. */
 static esp_err_t detect_stream(nmea_gnss_device_t *device, uint32_t timeout_ms)
 {
-    esp_err_t ret = await_or_resume_output(device, timeout_ms);
-    if (ret == ESP_OK || device->alternate_baud == 0U ||
-        device->alternate_baud == device->configured_baud) {
-        return ret;
+    const uint32_t rates[] = {
+        device->current_baud,
+        device->current_baud == device->configured_baud
+            ? device->alternate_baud : device->configured_baud,
+    };
+    const unsigned rate_count = device->alternate_baud != 0U &&
+        device->alternate_baud != device->configured_baud ? 2U : 1U;
+    esp_err_t ret = ESP_ERR_TIMEOUT;
+    for (unsigned recovery = 0; recovery < 2U; recovery++) {
+        for (unsigned i = 0; i < rate_count; i++) {
+            if (device->current_baud != rates[i]) {
+                ret = solar_os_bus_uart_set_baud_rate(device->uart_bus, rates[i], device->name);
+                if (ret != ESP_OK) goto restore;
+                device->current_baud = rates[i];
+            }
+            ret = recovery ? resume_output(device, timeout_ms) : await_sentence(device, timeout_ms);
+            if (ret == ESP_OK) {
+                if (device->current_baud != device->configured_baud) {
+                    ESP_LOGI(TAG, "%s streams at %lu baud", device->name,
+                             (unsigned long)device->current_baud);
+                }
+                return ESP_OK;
+            }
+            if (ret != ESP_ERR_TIMEOUT) goto restore;
+        }
     }
-    const uint32_t other_baud = device->current_baud == device->configured_baud
-        ? device->alternate_baud
-        : device->configured_baud;
-    ESP_RETURN_ON_ERROR(solar_os_bus_uart_set_baud_rate(device->uart_bus,
-                                                        other_baud,
-                                                        device->name),
-                        TAG,
-                        "alternate baud switch failed");
-    device->current_baud = other_baud;
-    if (await_or_resume_output(device, timeout_ms) == ESP_OK) {
-        ESP_LOGW(TAG,
-                 "%s streams at %lu baud",
-                 device->name,
-                 (unsigned long)other_baud);
-        return ESP_OK;
-    }
+restore:
     if (device->current_baud != device->configured_baud &&
         solar_os_bus_uart_set_baud_rate(device->uart_bus,
                                         device->configured_baud,
                                         device->name) == ESP_OK) {
         device->current_baud = device->configured_baud;
     }
-    return ESP_ERR_TIMEOUT;
+    return ret;
 }
 
 static void reader_main(void *arg)

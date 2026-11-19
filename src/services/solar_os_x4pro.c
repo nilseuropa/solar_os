@@ -226,6 +226,7 @@ esp_err_t solar_os_x4pro_attach(const char *name,
     strlcpy(d->name, name, sizeof(d->name));
     d->display.ops = &ops;
     d->display.driver = d;
+    d->display.epaper = true;
     const gpio_config_t latch = {.pin_bit_mask = 1ULL << pins[4], .mode = GPIO_MODE_OUTPUT};
     d->latch_pin = pins[4];
     (void)gpio_hold_dis(pins[4]);

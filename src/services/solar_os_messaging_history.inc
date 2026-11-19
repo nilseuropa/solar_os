@@ -146,7 +146,10 @@ static int messaging_history_read_locked(FILE *file, size_t index,
     if (index > (size_t)LONG_MAX / MESSAGING_HISTORY_RECORD_BYTES) return -1;
     memset(messaging.history_scratch, 0, 2 * sizeof(*messaging.history_scratch));
     messaging_unlock();
-    if (fseek(file, (long)(index * MESSAGING_HISTORY_RECORD_BYTES), SEEK_SET)) { messaging_lock(); return -1; }
+    /* Rebuild scans adjacent records. Seeking to the current position can
+     * discard stdio read-ahead and repeat FAT cluster traversal on SD. */
+    const long offset = (long)(index * MESSAGING_HISTORY_RECORD_BYTES);
+    if (ftell(file) != offset && fseek(file, offset, SEEK_SET)) { messaging_lock(); return -1; }
     size_t bytes = fread(messaging.history_scratch, 1, MESSAGING_HISTORY_RECORD_BYTES, file);
     bool failed = ferror(file) || bytes < sizeof(*messaging.history_scratch);
     if (index % 64U == 0) vTaskDelay(1);

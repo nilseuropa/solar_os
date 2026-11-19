@@ -1,4 +1,5 @@
 #include "solar_os_buttons.h"
+#include "drivers/solar_os_gpio_isr.h"
 
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -233,7 +234,7 @@ esp_err_t solar_os_buttons_init(void)
         if (!button_defs[i].track_motion) {
             continue;
         }
-        edge_err = gpio_install_isr_service(0);
+        edge_err = solar_os_gpio_isr_service_ensure();
         if (edge_err != ESP_OK && edge_err != ESP_ERR_INVALID_STATE) {
             break;
         }

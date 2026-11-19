@@ -315,6 +315,23 @@ if(NOT SOLAR_OS_KEYMAP_GENERATE_RESULT EQUAL 0)
     message(FATAL_ERROR "SolarOS keymap generation failed")
 endif()
 include("${SOLAR_OS_GENERATED_DIR}/solar_os_keymap_inputs.cmake")
+
+# Language layouts (keymaps/layouts/*.json, generated from xkeyboard-config).
+set(SOLAR_OS_KEYBOARD_LAYOUT_COMPILER "${SOLAR_OS_PROJECT_DIR}/scripts/compile_keyboard_layouts.py")
+file(GLOB SOLAR_OS_KEYBOARD_LAYOUT_FILES "${SOLAR_OS_PROJECT_DIR}/keymaps/layouts/*.json")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${SOLAR_OS_KEYBOARD_LAYOUT_COMPILER}"
+    "${SOLAR_OS_PROJECT_DIR}/scripts/generate_keyboard_layouts.py"
+    ${SOLAR_OS_KEYBOARD_LAYOUT_FILES}
+)
+execute_process(
+    COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_KEYBOARD_LAYOUT_COMPILER}"
+        "--output" "${SOLAR_OS_GENERATED_DIR}/solar_os_keyboard_layouts_generated.h"
+    RESULT_VARIABLE SOLAR_OS_KEYBOARD_LAYOUT_RESULT
+)
+if(NOT SOLAR_OS_KEYBOARD_LAYOUT_RESULT EQUAL 0)
+    message(FATAL_ERROR "SolarOS keyboard layout generation failed")
+endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SOLAR_OS_KEYMAP_INPUTS})
 foreach(SOLAR_OS_KEYMAP_PACKAGE IN LISTS SOLAR_OS_KEYMAP_REQUIRED_PACKAGES)
     if(NOT SOLAR_OS_PACKAGE_${SOLAR_OS_KEYMAP_PACKAGE})

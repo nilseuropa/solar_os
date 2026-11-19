@@ -2,6 +2,18 @@
 
 ## 4.x
 
+- **4.18.1** — 2026-11-19 — Added Ukrainian, French and Romanian keyboard
+  layouts, dead-key composition, and Ctrl+Space switching between saved layouts,
+  with the active layout shown in the status bar. Improved UTF-8 text input and
+  rendering in Writer and the display shell. Added loadable Cyrillic and
+  extended Latin font packs for characters missing from the built-in fonts.
+  E-paper cursors now default to a steady block; fixed paging in terminal
+  settings. Added the optional AOgmaNeo online learning library for ESP32-S3
+  boards with executable PSRAM, with C, Python and Lua APIs for sequence
+  prediction, reinforcement learning, and image encoding and reconstruction.
+  Improved T-Deck Plus startup, documentation catalog loading, and message
+  history restoration speed. Fixed numbered list rendering and preservation in
+  Writer and Reader, and improved NTP synchronization when packets are lost.
 - **4.18.0** — 2026-11-17 — Added on-device C compilation for ESP32-S3
   boards with PSRAM, including multi-file projects, installed library headers,
   SDK browsing and header export. The compiler is included in the full flavor

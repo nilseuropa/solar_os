@@ -545,6 +545,16 @@ static int display_find_slot_by_u8g2_locked(const u8g2_t *u8g2)
     return -1;
 }
 
+bool solar_os_display_is_epaper(const u8g2_t *u8g2)
+{
+    portENTER_CRITICAL(&display_targets_lock);
+    const int index = u8g2 != NULL ? display_find_slot_by_u8g2_locked(u8g2) :
+        display_find_slot_locked(SOLAR_OS_DISPLAY_PRIMARY_TARGET);
+    const bool epaper = index >= 0 && display_targets[index].target.epaper;
+    portEXIT_CRITICAL(&display_targets_lock);
+    return epaper;
+}
+
 static int display_find_slot_by_buffer_locked(const uint8_t *buffer)
 {
     if (buffer == NULL) {
@@ -664,6 +674,7 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
     target.height = solar_os_board_display_height(display);
     target.round = display->round;
     target.ready = solar_os_board_display_ready(display);
+    target.epaper = display->epaper;
     target.brightness_supported = solar_os_board_display_brightness_supported(display);
     target.surface_formats = solar_os_board_display_surface_formats(display);
     target.frame_formats = solar_os_board_display_frame_formats(display);

@@ -34,6 +34,9 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+#include "solar_os_aogmaneo.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_EMOTION
 #include "solar_os_emotion.h"
 #endif
@@ -359,6 +362,9 @@ typedef enum {
 
 typedef struct {
     python_app_state_t app;
+#if SOLAR_OS_PACKAGE_SERVICE_AOGMANEO
+    solar_os_aogmaneo_context_t aogmaneo;
+#endif
     solar_os_shell_io_t fallback_io;
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     solar_os_midi_subscription_t midi_subscription;
@@ -5969,7 +5975,7 @@ static mp_obj_t solaros_ble_layout(size_t n_args, const mp_obj_t *args)
 
     solar_os_ble_keyboard_layout_t layout;
     if (!solar_os_ble_keyboard_parse_layout(mp_obj_str_get_str(args[0]), &layout)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected us or de"));
+        mp_raise_ValueError(MP_ERROR_TEXT("expected us, de, ua, fr or ro"));
     }
     python_check_esp(solar_os_ble_keyboard_set_layout(layout));
     return mp_const_none;
@@ -8470,6 +8476,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_text_obj, 3, 3, solaros_gfx_text
 #include "solar_os_python_dlp.inc"
 #include "solar_os_python_emotion.inc"
 #include "solar_os_python_jet.inc"
+#include "solar_os_python_aogmaneo.inc"
 
 static void python_module_store(mp_obj_t module, const char *name, mp_obj_t value)
 {
@@ -8815,6 +8822,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
     python_dlp_destroy();
     python_emotion_destroy();
     python_jet_destroy();
+    python_aogmaneo_cleanup();
     python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
     python_http_stream_destroy();
@@ -9040,6 +9048,7 @@ static void python_task(void *arg)
         python_dlp_destroy();
         python_emotion_destroy();
         python_jet_destroy();
+        python_aogmaneo_cleanup();
         python_robot_destroy();
 #if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT
         python_http_stream_destroy();
@@ -9508,7 +9517,7 @@ static void python_stop(solar_os_context_t *ctx)
              * worker. Never delete that owner task mid-call.
              * Interpreter cancellation remains active while we wait. */
             while ((__atomic_load_n(&python_media_session, __ATOMIC_ACQUIRE) != NULL ||
-                    python_inference_active() || python_imlib_active() || python_emotion_active() || python_jet_active()) &&
+                    python_inference_active() || python_imlib_active() || python_emotion_active() || python_jet_active() || python_aogmaneo_active()) &&
                    !python_task_stopped(NULL)) {
                 (void)solar_os_script_wait_for_stop(python_task_stopped, NULL,
                     PYTHON_STOP_WAIT_MS, 20U);
@@ -9555,6 +9564,7 @@ static void python_stop(solar_os_context_t *ctx)
     }
     python_emotion_destroy();
     python_jet_destroy();
+    python_aogmaneo_cleanup();
     python_robot_destroy();
     python_gfx_release_target();
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH

@@ -1,0 +1,21 @@
+schema_version = 2
+type = "library"
+id = "aogmaneo"
+name = "AOgmaNeo"
+version = "1.0.0"
+description = "Online sparse predictive hierarchies, actors and image encoding."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "aogmaneo.library.elf"
+required_services = [
+    { name = "memory", abi = 1, minimum_struct_size = 48 },
+    { name = "thread", abi = 1, minimum_struct_size = 64 },
+    { name = "time", abi = 1, minimum_struct_size = 16 },
+    { name = "libc", abi = 1, minimum_struct_size = 52 },
+]
+
+[sdk.headers]
+"solar_os_aogmaneo_abi.h" = "solar_os_aogmaneo_abi.h"

@@ -200,9 +200,8 @@ static void setterm_tui_current_value(setterm_tui_item_t item, char *buffer, siz
         break;
     }
     case SETTERM_TUI_KEYBOARD:
-        strlcpy(buffer,
-                solar_os_input_keyboard_layout_name(solar_os_input_keyboard_layout()),
-                buffer_len);
+        if (solar_os_input_keyboard_layout_list(buffer, buffer_len) != ESP_OK)
+            strlcpy(buffer, "unavailable", buffer_len);
         break;
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE:
@@ -339,7 +338,7 @@ static void setterm_tui_render(void)
     if (rows > 1) {
         solar_os_tui_draw_footer(&setterm_tui.tui,
                                  setterm_tui.status,
-                                 "arrows select/change  enter edit  esc exits");
+                                 "arrows/PgUp/PgDn select  enter edit  esc exits");
     }
 
     if (setterm_tui.editing && value_width > 0 && visible_items > 0) {
@@ -396,12 +395,12 @@ static bool setterm_tui_cycle_selected(int direction)
     static const char * const statusbar_values[] = {"show", "hide"};
     static const char * const brightness_values[] = {"0", "25", "50", "75", "100"};
     static const char * const backlight_values[] = {"0", "25", "50", "75", "100", "follow"};
+    static const char * const keyboard_values[] = {"us", "de", "ua", "fr", "ro", "us,ua"};
     static const char * const powerkey_values[] = {
         "default", "off", "enter", "app-exit", "sleep", "suspend", "deepsleep", "shutdown", "ble-pair",
     };
     static const char * const startup_values[] = {"auto", "flash", "sd"};
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-    static const char * const keyboard_values[] = {"us", "de"};
     static const char * const ble_values[] = {"default", "on", "off"};
 #endif
 
@@ -440,11 +439,11 @@ static bool setterm_tui_cycle_selected(int direction)
         return setterm_tui_cycle_value(backlight_values,
                                        sizeof(backlight_values) / sizeof(backlight_values[0]),
                                        direction);
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_KEYBOARD:
         return setterm_tui_cycle_value(keyboard_values,
                                        sizeof(keyboard_values) / sizeof(keyboard_values[0]),
                                        direction);
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE:
         return setterm_tui_cycle_value(ble_values,
                                        sizeof(ble_values) / sizeof(ble_values[0]),
@@ -613,9 +612,7 @@ static bool setterm_tui_apply_selected(void)
             solar_os_backlight_set_brightness((uint8_t)percent) == ESP_OK;
     }
     case SETTERM_TUI_KEYBOARD: {
-        solar_os_input_keyboard_layout_t layout;
-        return solar_os_input_parse_keyboard_layout(setterm_tui.edit_text, &layout) &&
-            solar_os_input_set_keyboard_layout(layout) == ESP_OK;
+        return solar_os_input_set_keyboard_layout_list(setterm_tui.edit_text) == ESP_OK;
     }
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     case SETTERM_TUI_BLE: {
@@ -789,19 +786,22 @@ static bool setterm_tui_event(solar_os_context_t *ctx, const solar_os_event_t *e
 
     switch (key) {
     case SOLAR_OS_KEY_UP:
-        if (setterm_tui.selected > 0) {
-            setterm_tui.selected--;
-            setterm_tui_set_status("");
-            setterm_tui_render();
-        }
-        break;
     case SOLAR_OS_KEY_DOWN:
-        if (setterm_tui.selected + 1 < SETTERM_TUI_ITEM_COUNT) {
-            setterm_tui.selected++;
+    case SOLAR_OS_KEY_PAGE_UP:
+    case SOLAR_OS_KEY_PAGE_DOWN: {
+        solar_os_tui_viewport_t viewport = {
+            .cursor = setterm_tui.selected,
+            .top = setterm_tui.first_visible,
+        };
+        const size_t visible_items = solar_os_tui_screen_content_rows(&setterm_tui.tui, 1U, 1U);
+        if (solar_os_tui_viewport_key(&viewport, key, SETTERM_TUI_ITEM_COUNT, visible_items, false)) {
+            setterm_tui.selected = viewport.cursor;
+            setterm_tui.first_visible = viewport.top;
             setterm_tui_set_status("");
             setterm_tui_render();
         }
         break;
+    }
     case '\r':
     case '\n':
         setterm_tui_begin_edit();

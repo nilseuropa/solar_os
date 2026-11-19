@@ -1,3 +1,4 @@
+#include "drivers/solar_os_gpio_isr.h"
 #include <inttypes.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -62,6 +63,7 @@
 #include "solar_os_inbox.h"
 #endif
 #include "solar_os_jobs.h"
+#include "solar_os_font_packs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_port_shell.h"
@@ -216,6 +218,20 @@ static u8g2_t *display_u8g2;
 static solar_os_gfx_t gfx;
 static EXT_RAM_BSS_ATTR solar_os_context_t os_ctx;
 static bool alt_prefix_pending;
+/* Dead key typed into the current input focus, waiting for its character. */
+static solar_os_input_compose_t text_compose;
+typedef struct {
+    const solar_os_app_t *app;
+    uint8_t session_id;
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+} text_compose_focus_t;
+static text_compose_focus_t text_compose_focus;
+
+/* A pending dead key belongs to the focus it was typed in. */
+static void clear_text_compose(void)
+{
+    text_compose = (solar_os_input_compose_t){0};
+}
 static uint32_t session_overlay_until_ms;
 static char session_overlay_title[SESSION_OVERLAY_TITLE_MAX];
 static u8g2_t *session_overlay_u8g2;
@@ -1539,7 +1555,7 @@ static void key_button_init(void)
     key_ignore_until_released = key_button_is_pressed();
 
 #ifndef SOLAR_OS_BOARD_KEY_GPIO_LINE
-    esp_err_t err = gpio_install_isr_service(0);
+    esp_err_t err = solar_os_gpio_isr_service_ensure();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         SOLAR_OS_LOGW(TAG, "KEY interrupt service unavailable: %s", esp_err_to_name(err));
         return;
@@ -1692,6 +1708,7 @@ static void dispatch_input_chars(const char *chars, size_t count)
             alt_prefix_pending = false;
             if (ch == '\t') {
                 (void)solar_os_sessions_cycle_input_focus();
+                clear_text_compose();
                 process_app_requests();
                 continue;
             }
@@ -1723,14 +1740,83 @@ static void dispatch_key_to_input_focus(const solar_os_input_key_event_t *key)
     process_app_requests();
 }
 
-static void dispatch_input_key(const solar_os_input_key_event_t *event)
+static bool input_focus_accepts_text_events(void)
 {
-    if (event == NULL) {
+    const solar_os_app_t *input_app = solar_os_sessions_input_app();
+    return input_app != NULL &&
+        (input_app->flags & SOLAR_OS_APP_FLAG_TEXT_EVENTS) != 0;
+}
+
+static void dispatch_codepoint_to_input_focus(uint16_t codepoint)
+{
+    solar_os_event_t event = {
+        .type = SOLAR_OS_EVENT_TEXT,
+    };
+    if (codepoint < 0x80U) {
+        event.data.text[0] = (char)codepoint;
+    } else if (codepoint < 0x800U) {
+        event.data.text[0] = (char)(0xc0U | (codepoint >> 6));
+        event.data.text[1] = (char)(0x80U | (codepoint & 0x3fU));
+    } else {
+        event.data.text[0] = (char)(0xe0U | (codepoint >> 12));
+        event.data.text[1] = (char)(0x80U | ((codepoint >> 6) & 0x3fU));
+        event.data.text[2] = (char)(0x80U | (codepoint & 0x3fU));
+    }
+    (void)solar_os_sessions_dispatch_input_event(&event);
+}
+
+static bool dispatch_layout_text_to_input_focus(solar_os_input_text_t text)
+{
+    if (alt_prefix_pending || !input_focus_accepts_text_events() ||
+        (text.codepoint < 0x20U && text.dead == 0U) ||
+        (text.codepoint >= 0xd800U && text.codepoint <= 0xdfffU)) {
+        return false;
+    }
+    /* Another app, display or session drops a pending dead key; so do the
+     * focus shortcuts in dispatch_input_key(), which can return to the same one. */
+    text_compose_focus_t focus = {.app = solar_os_sessions_input_app()};
+    if (solar_os_sessions_input_focus(focus.target, sizeof(focus.target))) {
+        (void)solar_os_sessions_active_for_display(focus.target, &focus.session_id);
+    }
+    if (focus.app != text_compose_focus.app ||
+        focus.session_id != text_compose_focus.session_id ||
+        strcmp(focus.target, text_compose_focus.target) != 0) {
+        clear_text_compose();
+        text_compose_focus = focus;
+    }
+    uint16_t typed[2];
+    const size_t count = solar_os_input_compose_feed(&text_compose, text, typed);
+    for (size_t i = 0; i < count; i++) {
+        dispatch_codepoint_to_input_focus(typed[i]);
+    }
+    process_app_requests();
+    return true;
+}
+
+static bool dispatch_text_to_input_focus(uint8_t ch)
+{
+    return dispatch_layout_text_to_input_focus(solar_os_input_key_text(ch));
+}
+
+static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
+{
+    if (raw_event == NULL) {
         return;
     }
+    /* Consumers get the byte key; layout text that it cannot carry (Cyrillic,
+     * dead keys) is kept for text events. */
+    solar_os_input_key_event_t resolved = *raw_event;
+    const solar_os_input_text_t layout_text = solar_os_input_resolve_layout_key(&resolved);
+    const bool layout_key = raw_event->key == SOLAR_OS_KEY_LAYOUT_TEXT ||
+        raw_event->key == SOLAR_OS_KEY_LAYOUT_TEXT_CAPS;
+    const solar_os_input_key_event_t *event = &resolved;
 
     maybe_exit_suspend_for_input();
     solar_os_power_note_activity(millis_u32());
+    if (event->layout_switch) {
+        if (event->action == SOLAR_OS_INPUT_KEY_PRESS) clear_text_compose();
+        return;
+    }
     if (solar_os_input_capture_key_event(event)) {
         return;
     }
@@ -1813,6 +1899,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
                 changed = solar_os_sessions_cycle_display_focus_up();
             }
             if (changed) {
+                clear_text_compose();
                 session_switch_nav_held |= navigation_bit;
                 solar_os_sessions_show_input_focus_overlay();
                 process_app_requests();
@@ -1832,15 +1919,26 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
             } else {
                 (void)solar_os_sessions_cycle_input_focus_previous();
             }
+            clear_text_compose();
             process_app_requests();
         }
         return;
     }
-    if (event->action == SOLAR_OS_INPUT_KEY_RELEASE || event->key == 0) {
+    if (event->action == SOLAR_OS_INPUT_KEY_RELEASE ||
+        (event->key == 0 &&
+         !(layout_key && (layout_text.codepoint != 0U || layout_text.dead != 0U)))) {
         if (input_focus_accepts_key_events()) {
             dispatch_key_to_input_focus(event);
         }
         return;
+    }
+    if (layout_text.dead != 0U && event->action == SOLAR_OS_INPUT_KEY_REPEAT &&
+        input_focus_accepts_text_events()) {
+        return;
+    }
+    if (layout_text.codepoint == 0U && layout_text.dead == 0U) {
+        /* Enter, Backspace, navigation and other keys end a pending dead key. */
+        clear_text_compose();
     }
 
     const char ch = (char)event->key;
@@ -1864,12 +1962,21 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         session_switch_alt_held = true;
         session_switch_nav_held |= navigation_bit;
         (void)solar_os_sessions_cycle_input_focus();
+        clear_text_compose();
         process_app_requests();
         return;
     }
 
     if (input_focus_accepts_key_events()) {
+        const solar_os_app_t *input_app = solar_os_sessions_input_app();
         dispatch_key_to_input_focus(event);
+        if ((event->modifiers & SOLAR_OS_INPUT_MOD_LEFT_ALT) == 0 &&
+            solar_os_sessions_input_app() == input_app) {
+            (void)dispatch_layout_text_to_input_focus(
+                layout_key ? layout_text :
+                solar_os_input_key_text(
+                    solar_os_input_translate_char_key(event->key, event->modifiers)));
+        }
         return;
     }
 
@@ -1883,7 +1990,15 @@ static void dispatch_input_key(const solar_os_input_key_event_t *event)
         dispatch_input_chars(&prefix, 1);
     }
     const char text_key = (char)solar_os_input_translate_char_key(event->key, event->modifiers);
-    dispatch_input_chars(&text_key, 1);
+    if (layout_key ? dispatch_layout_text_to_input_focus(layout_text) :
+        dispatch_text_to_input_focus((uint8_t)text_key)) {
+        return;
+    }
+    /* A layout key whose text no byte carries has nothing to send (Ctrl+@ is a
+     * real NUL, so only layout keys are skipped). */
+    if (!layout_key || text_key != 0) {
+        dispatch_input_chars(&text_key, 1);
+    }
 }
 
 static uint16_t input_display_orientation(const char *target)
@@ -2148,13 +2263,19 @@ static void update_status(void)
     }
 
     const uint32_t now_ms = millis_u32();
+    static solar_os_input_keyboard_layout_t last_layout;
+    const solar_os_input_keyboard_layout_t layout = solar_os_input_keyboard_layout();
     if (last_status_update_ms != 0 &&
-        (now_ms - last_status_update_ms) < STATUS_UPDATE_INTERVAL_MS) {
+        (now_ms - last_status_update_ms) < STATUS_UPDATE_INTERVAL_MS && layout == last_layout) {
         return;
     }
     last_status_update_ms = now_ms;
+    last_layout = layout;
 
     solar_os_status_bar_t status = {0};
+    const char *layout_name = solar_os_input_keyboard_layout_name(layout);
+    status.keyboard_layout[0] = (char)(layout_name[0] - 'a' + 'A');
+    status.keyboard_layout[1] = (char)(layout_name[1] - 'a' + 'A');
 
 #if SOLAR_OS_PACKAGE_SERVICE_INBOX
     solar_os_inbox_status_t inbox;
@@ -2472,6 +2593,8 @@ void app_main(void)
     ESP_LOGI(TAG, "boot milestone: app discovery ready (%u entries, %" PRIu32 " ms)",
              (unsigned)discovered_apps, millis_u32() - discovery_started_ms);
 #endif
+    /* Storage is mounted by now: bring back the font packs loaded last time. */
+    solar_os_font_pack_restore_selection();
     ESP_LOGI(TAG, "boot milestone: peripherals ready");
     const esp_err_t board_jobs_err = solar_os_board_boot_start_jobs(&os_ctx);
     if (board_jobs_err != ESP_OK) {

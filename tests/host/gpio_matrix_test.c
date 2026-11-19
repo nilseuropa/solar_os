@@ -72,6 +72,13 @@ esp_err_t solar_os_input_write_key(solar_os_input_source_t source, uint16_t phys
 }
 esp_err_t solar_os_input_write_char(solar_os_input_source_t source, char key)
 { assert(alive[source]); (void)key; return ESP_OK; }
+esp_err_t solar_os_input_write_key_tap(solar_os_input_source_t source, uint16_t physical,
+    uint16_t usage, uint8_t key, uint8_t mods)
+{
+    esp_err_t err = solar_os_input_write_key(source, physical, usage, key, mods, SOLAR_OS_INPUT_KEY_PRESS);
+    return err != ESP_OK ? err :
+        solar_os_input_write_key(source, physical, usage, key, 0, SOLAR_OS_INPUT_KEY_RELEASE);
+}
 esp_err_t solar_os_storage_read_file(const char *path, void *data, size_t len, size_t *read_len)
 {
     (void)path; assert(file_content != NULL); *read_len = strlen(file_content);

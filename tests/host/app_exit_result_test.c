@@ -37,6 +37,12 @@ void solar_os_terminal_put_char(solar_os_terminal_t *terminal, char ch)
     (void)ch;
 }
 
+void solar_os_terminal_put_utf8_byte(solar_os_terminal_t *terminal, uint8_t byte)
+{
+    (void)terminal;
+    (void)byte;
+}
+
 void solar_os_terminal_clear(solar_os_terminal_t *terminal)
 {
     (void)terminal;

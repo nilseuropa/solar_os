@@ -555,7 +555,7 @@ members = ["app_invaders"]
 [groups.python]
 label = "Python"
 category = "Scripting"
-members = ["app_python", "service_emotion", "service_jet", "service_robot"]
+members = ["app_python", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
 
 [groups.cc]
 label = "Built-in C compiler"
@@ -565,7 +565,7 @@ members = ["app_cc"]
 [groups.lua]
 label = "Lua"
 category = "Scripting"
-members = ["app_lua", "service_emotion", "service_jet", "service_robot"]
+members = ["app_lua", "service_emotion", "service_jet", "service_robot", "service_aogmaneo"]
 
 [groups.playground]
 label = "Playground package manager"
@@ -1010,6 +1010,7 @@ sources = [
   "solar_os_scheduler.c",
   "solar_os_task.c",
   "drivers/flash_storage.c",
+  "drivers/solar_os_gpio_isr.c",
   "apps/solar_os_app_file_types.c",
   "apps/solar_os_app_registry.c",
   "jobs/solar_os_job_registry.c",
@@ -1026,6 +1027,8 @@ sources = [
   "services/solar_os_display_layout.c",
   "services/solar_os_display_layout_core.c",
   "services/solar_os_frame_presenter.c",
+  "services/solar_os_font_packs.c",
+  "services/solar_os_fonts.c",
   "services/solar_os_gfx.c",
   "services/solar_os_gfx_icons.c",
   "services/solar_os_identity.c",
@@ -1266,6 +1269,13 @@ label = "service.emotion"
 depends = ["service_native_modules"]
 sources = ["services/solar_os_emotion.c"]
 requires = ["esp_timer"]
+targets = ["esp32s3"]
+capabilities = ["psram"]
+
+[packages.service_aogmaneo]
+label = "service.aogmaneo"
+depends = ["service_native_modules"]
+sources = ["services/solar_os_aogmaneo.c"]
 targets = ["esp32s3"]
 capabilities = ["psram"]
 

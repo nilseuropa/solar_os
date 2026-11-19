@@ -236,7 +236,9 @@ esp_err_t solar_os_input_keymap_process(solar_os_input_keymap_handle_t handle,
             uint8_t tap = t.tap_key != 0U ? t.tap_key : solar_os_input_translate_hid_usage(
                 t.tap_usage, t.modifiers, p->data->state.caps_lock);
             tap = solar_os_input_composition_apply(tap);
-            if (tap != 0U) err = solar_os_input_write_char(p->info.source, tap);
+            /* Keep layout metadata without advertising a held physical key. */
+            if (tap != 0U) err = solar_os_input_write_key_tap(p->info.source,
+                SOLAR_OS_INPUT_PHYSICAL_NONE, t.tap_usage, tap, t.modifiers);
         }
         if (published != NULL) *published = err == ESP_OK;
     }

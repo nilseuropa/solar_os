@@ -1,4 +1,5 @@
 #include "solar_os_rotary_encoder.h"
+#include "drivers/solar_os_gpio_isr.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -313,7 +314,7 @@ esp_err_t solar_os_rotary_encoder_attach(const char *name,
     }
     /* Keep this service cache-dependent: its handler only snapshots GPIO and
      * queues an edge, and does not need scarce IRAM residency. */
-    err = gpio_install_isr_service(0);
+    err = solar_os_gpio_isr_service_ensure();
     if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
         clear_device(&rotary);
         return err;

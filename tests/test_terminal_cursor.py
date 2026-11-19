@@ -49,8 +49,9 @@ class TerminalCursorTest(unittest.TestCase):
         for name in ("terminal_preferences_test", "terminal_preferences_sticky_test"):
             binary = str(ROOT / "tests/host" / name)
             subprocess.run([binary], check=True)
-            for value in (0, 1, 2, 3, 99):
-                subprocess.run([binary, str(value)], check=True)
+            for value in (0, 1, 2, 3, 4, 5, 99, "missing", "unavailable"):
+                for display in ("lcd", "epaper"):
+                    subprocess.run([binary, str(value), display], check=True)
 
 
 if __name__ == "__main__":

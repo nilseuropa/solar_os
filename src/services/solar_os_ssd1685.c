@@ -290,6 +290,7 @@ static esp_err_t register_auxiliary(solar_os_ssd1685_device_t *device)
     target.width = u8g2_GetDisplayWidth(device->display.u8g2);
     target.height = u8g2_GetDisplayHeight(device->display.u8g2);
     target.ready = true;
+    target.epaper = true;
     target.u8g2 = device->display.u8g2;
     target.controller_context = &device->driver;
     target.controller_mode = target_controller_mode;
@@ -360,6 +361,7 @@ static esp_err_t attach_locked(const char *name,
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT,
         .preferred_stream_fps = 10U,
         .ready = true,
+        .epaper = true,
     };
     ret = device->primary ?
         solar_os_board_display_register_primary(&device->display) :

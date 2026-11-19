@@ -275,6 +275,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 ## Scripting APIs
 
+- [AOgmaNeo online learning](aogmaneo.md) — Sparse predictive hierarchies, actors and image encoding for C, Python and Lua
 - [C development](c.md) — Compile native C programs, build projects, and browse SDK headers
 - [Compatibility I/O modules](compatibility.io.md) — Use the legacy single-bus I2C, SPI, UART, and OneWire APIs
 - [Computer vision](vision.md) — Native QR decoding, statistics, segmentation, filtering, morphology, image difference, and blobs
