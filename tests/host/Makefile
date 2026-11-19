@@ -111,6 +111,7 @@ can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/servic
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test keyboard_layout_test
 TARGETS += input_keymap_layout_test
+TARGETS += qemu_input_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1680_test ssd1680_expansion_test
 TARGETS += gc9a01_expansion_test
@@ -1035,6 +1036,11 @@ input_keymap_service_test: input_keymap_service_test.c $(wildcard $(ROOT)/src/se
 		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
 		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
+qemu_input_test: qemu_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_qemu_input_codec.c $(ROOT)/src/services/solar_os_qemu_input_codec.h $(ROOT)/include/solar_os_qemu_input_protocol.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services \
+		qemu_input_test.c $(ROOT)/src/services/solar_os_qemu_input_codec.c \
+		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
+
 input_keymap_layout_test: input_keymap_layout_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) input_keymap_layout_test.c \
@@ -1569,6 +1575,7 @@ test: $(TARGETS)
 	./matrix_keyboard_test
 	./input_keymap_service_test
 	./input_keymap_layout_test
+	./qemu_input_test
 	./cl32_keyboard_test
 	./battery_service_test
 	./batmon_job_test

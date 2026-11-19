@@ -21,20 +21,6 @@ hint = "0x5f"
 required = true
 allowed = [0x5f]
 
-[drivers.uart-keyboard]
-keyboard = true
-summary = "Terminal keyboard on a UART"
-package = "expansion_uart_keyboard"
-targets = ["esp32", "esp32s3"]
-capabilities = ["expansion_uart"]
-default_name = "keyboard0"
-
-[[drivers.uart-keyboard.bindings]]
-key = "uart"
-kind = "uart_port"
-hint = "bus"
-required = true
-
 [drivers.inputronic-keyboard]
 keyboard = true
 summary = "Soldered Inputronic 8x10 keyboard"
@@ -2395,6 +2381,14 @@ package = "driver_network_qemu_eth"
 targets = ["esp32s3"]
 capabilities = ["wifi"]
 default_name = "eth0"
+
+[drivers.qemu-input]
+keyboard = true
+summary = "QEMU virtual keyboard, touch, and mouse"
+package = "driver_input_qemu"
+targets = ["esp32s3"]
+capabilities = ["display", "gfx"]
+default_name = "input0"
 
 [drivers.vga32]
 summary = "VGA RGB222 output"

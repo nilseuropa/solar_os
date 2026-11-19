@@ -2,7 +2,7 @@
 id = "qemu"
 title = "Running SolarOS in QEMU"
 section = "build"
-summary = "Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with display, keyboard, and network"
+summary = "Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with a display, native input, and networking"
 aliases = ["emulator", "qemu_esp32s3"]
 keywords = "qemu emulator virtual esp32s3 qemu_esp32s3 qemu_esp32s3_rgb open_eth esp_rgb sdl uart keyboard development testing"
 packages_any = []
@@ -14,7 +14,7 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 | Target | PlatformIO env | What you get |
 | --- | --- | --- |
 | `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0 (your terminal). |
-| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, a keyboard over UART1, a network, and the UART0 shell next to the display shell. |
+| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, native keyboard, touch or relative mouse input, networking, and a separate UART0 console. |
 
 ## Build and run
 
@@ -32,14 +32,17 @@ pio run -e qemu_esp32s3 -t qemu
 
 The `qemu` target builds the firmware, downloads the pinned Espressif Xtensa
 QEMU release for your host when needed, prepares a 16 MB virtual flash image,
-and launches the emulator. There is no separate QEMU installation or image
-merge command. PlatformIO caches the emulator in its `tool-solaros-qemu`
+and launches the emulator. The display target builds a cached QEMU extension
+for native input from pinned source. The headless target uses the prebuilt
+Espressif tool. There is no separate image merge command. PlatformIO caches the emulator in its `tool-solaros-qemu`
 package and reuses it on later runs. Prebuilt tools are available for Linux
-and macOS on x86-64 and ARM64, and Windows on x86-64.
+and macOS on x86-64 and ARM64, and Windows on x86-64. The native-input display
+target currently builds on Linux and macOS; use WSL on Windows, or configure
+a QEMU executable built with the SolarOS input extension.
 
 On the display target, the QEMU window shows the screen and the launching
-terminal carries the separate UART0 console. Connect the display keyboard as
-described below. The headless target uses only the launching terminal.
+terminal carries the separate UART0 console. Type into the QEMU window to
+control the display shell. The headless target uses only the launching terminal.
 
 Press **Ctrl+A, then X** in the launching terminal to stop QEMU. **Ctrl+A, then C**
 switches between the UART0 console and QEMU's monitor. Closing the
@@ -49,16 +52,17 @@ Console output is saved to `.pio/build/<env>/uart0.log`.
 
 ### Host dependencies
 
-QEMU needs its host system libraries. On Ubuntu or Debian:
+The display target also needs a C compiler, Git, pkg-config, and development
+libraries to build its emulator extension once. On Ubuntu or Debian:
 
 ```sh
-sudo apt-get install libgcrypt20 libglib2.0-0 libpixman-1-0 libsdl2-2.0-0 libslirp0
+sudo apt-get install build-essential git python3-venv pkg-config libglib2.0-dev libpixman-1-dev libsdl2-dev libslirp-dev libgcrypt20-dev
 ```
 
 On macOS:
 
 ```sh
-brew install libgcrypt glib pixman sdl2 libslirp
+brew install pkg-config libgcrypt glib pixman sdl2 libslirp
 ```
 
 ### Tool versions
@@ -84,32 +88,41 @@ Rerunning the same build preserves settings and files written by the guest.
 When any flash input changes, the launcher creates a fresh image. Cleaning
 the build directory also removes the virtual flash and its contents.
 
-## Keyboard
+## Native input
 
-QEMU's ESP32-S3 machine has no emulated keyboard, USB host, or I2C, so keys
-typed into the QEMU window do not reach SolarOS. The `qemu_esp32s3_rgb` board
-reads a VT100 terminal on UART1 (`keyboard0`, driver `uart-keyboard`) instead,
-which the launcher opens on TCP port 5555 on the local machine.
+The display target attaches the `qemu-input` device as `input0`. QEMU window
+input reaches SolarOS through a memory-mapped event queue, independently of
+all UART peripherals. The input service exposes three sources:
 
-On Windows, run in a second console window, from the root of your SolarOS
-checkout:
+- `qemu-keyboard`: physical USB HID usages, modifiers, and key press/release.
+  SolarOS applies its keyboard layout and repeat settings.
+- `qemu-touch`: absolute, single-contact touch with display coordinates.
+- `qemu-mouse`: relative movement, buttons, and wheel events.
 
+Mouse-wheel ticks are Z-axis deltas on the active pointer source, which
+advertises scroll capability. They are not translated into keyboard keys.
+Losing window focus releases held keys and buttons. Queue overflow also
+resets input state so a dropped release cannot leave a key or button held.
+
+The default pointer mode is touch: click or drag in the window to touch the
+virtual display. For a relative mouse, add this to `[env:qemu_esp32s3_rgb]`
+in `platformio.ini`:
+
+```ini
+custom_qemu_pointer = mouse
 ```
-python scripts/qemu_uart_keys.py 5555
-```
 
-Keys typed in that window go to the display shell; the mouse wheel sends
-Page Up and Page Down, which scroll the shell. Ctrl+] is SolarOS's app-exit
-key; Ctrl+C ends the script.
+To switch modes while running, press Ctrl+A, then C in the UART0 terminal,
+use `info mice` to find the `SolarOS touch` and `SolarOS mouse` indices, and
+select one with `mouse_set INDEX`. Press Ctrl+A, then C again to return to
+the console. Ctrl+Alt+G releases a grabbed relative mouse.
 
-On Linux and macOS, use `socat` in a second terminal:
+`input status` and `input test qemu-keyboard`, `input test qemu-touch`, or
+`input test qemu-mouse` inspect the sources from the UART0 console.
 
-```
-socat -,rawer,escape=0x0f tcp:127.0.0.1:5555
-```
-
-Ctrl+O ends `socat`. There is no mouse wheel this way. Use ASCII input for now:
-the UART keyboard currently interprets some UTF-8 bytes as special keys.
+For an externally built emulator, set `custom_qemu_executable = /path/to/qemu-system-xtensa`
+in the target environment. It must include `tools/qemu-xtensa/solar-input.patch`
+and the accompanying device source and shared protocol header.
 
 ## Network
 
@@ -140,7 +153,7 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 
 ## Limitations
 
-- No touch, mouse, or pointer input.
+- Touch input is single-contact; multi-touch is not emulated.
 - No audio, battery, Bluetooth, or SD card.
 - The board declares the DevKitC-1 capabilities `gpio`, `i2c`, `spi`, `pwm`,
   `usb_host`, `key`, and their `expansion_*` forms, so the same services build
@@ -150,7 +163,6 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
   [QEMU feature table](https://github.com/espressif/esp-toolchain-docs/blob/main/qemu/README.md)
   and `hw/xtensa/esp32s3.c` in the QEMU release above.
 - Mono display only, 800x600 at most (the largest panel QEMU's `esp_rgb` model takes).
-- Keys only through UART1, as above.
 - Wi-Fi commands (`wifi scan`, `wifi connect`) have no radio to work with; the
   network comes only from `eth0`.
 - No network on `qemu_esp32s3` (headless): it has no `eth0` device.
@@ -164,5 +176,5 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 
 Run `pio run -e qemu_esp32s3_rgb -t qemu` for the display target, or
 `pio run -e qemu_esp32s3 -t qemu` for headless. PlatformIO builds the firmware,
-installs the emulator, and prepares the flash image. Send display keys with
-`scripts/qemu_uart_keys.py 5555` (Windows) or `socat` (Linux/macOS).
+prepares the emulator and flash image, and starts the virtual board. Type
+directly into the QEMU window for display input; UART0 remains a separate console.

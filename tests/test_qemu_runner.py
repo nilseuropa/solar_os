@@ -98,15 +98,23 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("chardev=console,mode=readline", command)
         self.assertIn("driver=ssi_psram,property=is_octal,value=true", command)
 
-    def test_display_keyboard_is_loopback_only_and_paths_are_single_arguments(self):
+    def test_display_uses_only_the_console_uart_and_paths_are_single_arguments(self):
         binary = Path("tools with spaces/qemu")
         image = Path("build with spaces,and comma/flash.bin")
         command = qemu.qemu_command(binary, "qemu_esp32s3_rgb", image)
         self.assertEqual(command[0], str(binary))
         self.assertIn("file=build with spaces,,and comma/flash.bin,if=mtd,format=raw", command)
-        self.assertIn("tcp:127.0.0.1:5555,server=on,wait=off", command)
+        self.assertEqual(command.count("-serial"), 1)
+        self.assertEqual(command[command.index("-serial") + 1], "chardev:console")
         self.assertIn("user,model=open_eth", command)
         self.assertEqual(command[command.index("-display") + 1], "sdl")
+        self.assertIn("solar-os-input.absolute=on", command)
+
+    def test_relative_mouse_mode(self):
+        command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", Path("flash.bin"), "mouse")
+        self.assertIn("solar-os-input.absolute=off", command)
+        with self.assertRaises(ValueError):
+            qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", Path("flash.bin"), "invalid")
 
     def test_physical_boards_are_rejected(self):
         with self.assertRaises(ValueError):

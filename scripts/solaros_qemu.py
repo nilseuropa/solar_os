@@ -65,10 +65,13 @@ def prepare_flash(build: Path, images: list[tuple[int, Path]]) -> Path:
     return image
 
 
-def qemu_command(executable: Path, board: str, image: Path) -> list[str]:
+def qemu_command(executable: Path, board: str, image: Path,
+                 pointer_mode: str = "touch") -> list[str]:
     if board not in QEMU_BOARDS:
         raise ValueError(f"Not a QEMU board: {board}")
     graphical = board == "qemu_esp32s3_rgb"
+    if pointer_mode not in ("touch", "mouse"):
+        raise ValueError("QEMU pointer mode must be 'touch' or 'mouse'")
     # QEMU's option parser escapes literal commas by doubling them.
     flash = str(image).replace(",", ",,")
     log = str(image.parent / "uart0.log").replace(",", ",,")
@@ -82,7 +85,7 @@ def qemu_command(executable: Path, board: str, image: Path) -> list[str]:
         "-serial", "chardev:console", "-mon", "chardev=console,mode=readline",
     ]
     if graphical:
-        command += ["-serial", "tcp:127.0.0.1:5555,server=on,wait=off",
+        command += ["-global", "solar-os-input.absolute=" + ("on" if pointer_mode == "touch" else "off"),
                     "-nic", "user,model=open_eth"]
     else:
         command += ["-nic", "none"]

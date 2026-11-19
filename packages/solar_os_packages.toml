@@ -642,11 +642,6 @@ label = "CardKB keyboard"
 category = "Expansion hardware"
 members = ["expansion_cardkb"]
 
-[groups.uart_keyboard]
-label = "UART terminal keyboard"
-category = "Expansion hardware"
-members = ["expansion_uart_keyboard"]
-
 [groups.inputronic_keyboard]
 label = "Soldered Inputronic keyboard"
 category = "Expansion hardware"
@@ -911,6 +906,11 @@ members = ["driver_display_qemu_rgb"]
 label = "QEMU virtual Ethernet"
 category = "Expansion hardware"
 members = ["driver_network_qemu_eth"]
+
+[groups.qemu_input]
+label = "QEMU virtual input"
+category = "Expansion hardware"
+members = ["driver_input_qemu"]
 
 [groups.ft6336]
 label = "FT6336 touch controller"
@@ -2186,16 +2186,6 @@ sources = [
 requires = ["esp_driver_i2c"]
 capabilities = ["expansion_i2c"]
 
-[packages.expansion_uart_keyboard]
-label = "expansion.uart-keyboard"
-expansion_drivers = ["solar_os_uart_keyboard_expansion_driver"]
-depends = ["service_expansion", "service_uart"]
-sources = [
-  "services/solar_os_uart_keyboard.c",
-  "services/solar_os_uart_keyboard_driver.c",
-]
-capabilities = ["expansion_uart"]
-
 [packages.expansion_inputronic_keyboard]
 label = "expansion.inputronic-keyboard"
 targets = ["esp32", "esp32s3"]
@@ -3000,6 +2990,18 @@ sources = [
 ]
 requires = ["esp_eth", "esp_event", "esp_netif"]
 capabilities = ["wifi"]
+
+[packages.driver_input_qemu]
+label = "driver.input-qemu"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_input_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "services/solar_os_qemu_input.c",
+  "services/solar_os_qemu_input_codec.c",
+  "services/solar_os_qemu_input_driver.c",
+]
+capabilities = ["display", "gfx"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

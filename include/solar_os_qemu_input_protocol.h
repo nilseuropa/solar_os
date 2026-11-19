@@ -1,0 +1,24 @@
+#pragma once
+
+/* Little-endian, 32-bit MMIO registers shared by the virtual device and guest. */
+#define SOLAR_OS_QEMU_INPUT_BASE 0x600ff000U
+#define SOLAR_OS_QEMU_INPUT_MAGIC 0x534f494eU
+#define SOLAR_OS_QEMU_INPUT_VERSION 1U
+#define SOLAR_OS_QEMU_INPUT_REG_MAGIC 0x00U
+#define SOLAR_OS_QEMU_INPUT_REG_VERSION 0x04U
+#define SOLAR_OS_QEMU_INPUT_REG_COUNT 0x08U
+#define SOLAR_OS_QEMU_INPUT_REG_DROPPED 0x0cU
+#define SOLAR_OS_QEMU_INPUT_REG_TYPE 0x10U
+#define SOLAR_OS_QEMU_INPUT_REG_A 0x14U
+#define SOLAR_OS_QEMU_INPUT_REG_B 0x18U
+#define SOLAR_OS_QEMU_INPUT_REG_C 0x1cU
+#define SOLAR_OS_QEMU_INPUT_REG_D 0x20U
+#define SOLAR_OS_QEMU_INPUT_REG_POP 0x24U
+#define SOLAR_OS_QEMU_INPUT_REG_RESET 0x28U
+#define SOLAR_OS_QEMU_INPUT_REG_GENERATION 0x2cU
+
+#define SOLAR_OS_QEMU_INPUT_KEY 1U       /* usage, modifiers, down, reserved */
+#define SOLAR_OS_QEMU_INPUT_TOUCH 2U     /* x, y (0..32767), buttons, wheel */
+#define SOLAR_OS_QEMU_INPUT_MOUSE 3U     /* dx, dy (signed), buttons, wheel */
+#define SOLAR_OS_QEMU_INPUT_RELEASE_ALL 4U
+#define SOLAR_OS_QEMU_INPUT_AXIS_MAX 32767U
