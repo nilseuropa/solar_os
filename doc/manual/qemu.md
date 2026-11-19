@@ -2,9 +2,9 @@
 id = "qemu"
 title = "Running SolarOS in QEMU"
 section = "build"
-summary = "Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with a display, native input, and networking"
+summary = "Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with native input, host storage, audio output, and networking"
 aliases = ["emulator", "qemu_esp32s3"]
-keywords = "qemu emulator virtual esp32s3 qemu_esp32s3 qemu_esp32s3_rgb open_eth esp_rgb sdl uart keyboard development testing"
+keywords = "qemu emulator virtual esp32s3 qemu_esp32s3 qemu_esp32s3_rgb open_eth esp_rgb sdl uart keyboard audio playback host storage development testing"
 packages_any = []
 +++
 # Running SolarOS in QEMU
@@ -13,8 +13,8 @@ Two board targets run SolarOS in Espressif's QEMU, without hardware:
 
 | Target | PlatformIO env | What you get |
 | --- | --- | --- |
-| `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0, exposed as a host serial device. |
-| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, native keyboard, touch or relative mouse input, networking, and a separate UART0 console. |
+| `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0, exposed as a host serial device, host storage, and audio output. |
+| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, native keyboard, touch or relative mouse input, host storage, audio output, networking, and a separate UART0 console. |
 
 ## Build and run
 
@@ -31,10 +31,10 @@ pio run -e qemu_esp32s3 -t qemu
 ```
 
 The `qemu` target builds the firmware, prepares a 16 MB virtual flash image,
-and launches the emulator. Native input and host-directory storage use a cached
+and launches the emulator. Native input, host-directory storage, and audio use a cached
 QEMU extension built from pinned Espressif source on Linux and macOS.
 PlatformIO keeps the emulator in its `tool-solaros-qemu` package and reuses it
-on later runs. A headless target with host storage disabled can use the prebuilt
+on later runs. A headless target with host storage and audio disabled can use the prebuilt
 Espressif tool instead. Prebuilt tools are available for Linux and macOS on
 x86-64 and ARM64, and Windows on x86-64. Use WSL on Windows for the extended
 emulator, or configure an executable built with the SolarOS extensions.
@@ -126,9 +126,41 @@ it by default; use WSL or a supplied extended emulator for host storage.
 refuses open files, directories, and disk images using the share. Host directories
 are not block devices and cannot be formatted with `disk format`.
 
-### Host dependencies
+## Audio output
 
-Targets using native input or host storage need a C compiler, Git, pkg-config,
+On Linux and macOS, both targets play audio through the host's default output
+using SDL. SolarOS registers `audio0` with the playback stream `audio0.playback`.
+The existing audio player, tones, and Python/Lua audio APIs use it automatically.
+For example, in the SolarOS shell:
+
+```text
+audio devices
+audio level 40
+audio tone 440 500
+aplay /host/song.wav
+```
+
+The device accepts 48 kHz, 16-bit PCM, with one or two channels. Mono samples
+play on both speakers; the audio player converts supported source rates to the
+device's native rate. Global volume and `audio mute` control playback. There is
+no microphone or audio capture device.
+
+Set `custom_qemu_audio` in the target's `platformio.ini` environment to choose
+the host backend:
+
+| Value | Behavior |
+| --- | --- |
+| `sdl` | Play through the host output; default on Linux and macOS. |
+| `wav:qemu-output.wav` | Save playback to a host WAV file instead of playing it. Relative paths start at the checkout root. Quit QEMU to finalize the file. Each launch replaces it. |
+| `none` | Keep the virtual audio device available and consume playback silently. |
+| `off` | Disable the audio device; default on native Windows. |
+
+WSL or a supplied emulator with the SolarOS extensions is required for audio
+on Windows. The SDL backend follows the host's SDL audio configuration.
+
+## Host dependencies
+
+Targets using native input, host storage, or audio need a C compiler, Git, pkg-config,
 and development libraries to build their emulator extension once. On Ubuntu or Debian:
 
 ```sh
@@ -229,7 +261,7 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 ## Limitations
 
 - Touch input is single-contact; multi-touch is not emulated.
-- No audio, battery, Bluetooth, or SD card.
+- Audio output only; no microphone, battery, Bluetooth, or SD card.
 - The board declares the DevKitC-1 capabilities `gpio`, `i2c`, `spi`, `pwm`,
   `usb_host`, `key`, and their `expansion_*` forms, so the same services build
   and boot as on hardware. QEMU's ESP32-S3 machine has no device behind them:

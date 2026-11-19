@@ -1,4 +1,4 @@
-"""Build the pinned QEMU extensions for native input and host storage."""
+"""Build the pinned QEMU extensions for native input, host storage, and audio."""
 
 from __future__ import annotations
 
@@ -55,7 +55,8 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
     if commit != QEMU_COMMIT:
         raise RuntimeError(f"Unexpected QEMU source revision: {commit}")
     # Only these managed source files are reset before reapplying the overlay.
-    patched = ["hw/input/meson.build", "hw/misc/meson.build", "hw/xtensa/esp32s3.c", "include/ui/input.h",
+    patched = ["audio/audio.c", "audio/audio.h", "hw/audio/meson.build",
+               "hw/input/meson.build", "hw/misc/meson.build", "hw/xtensa/esp32s3.c", "include/ui/input.h",
                "ui/input.c", "ui/sdl2.c"]
     subprocess.run(["git", "restore", "--source=" + QEMU_COMMIT, "--", *patched], cwd=source, check=True)
     subprocess.run(["git", "apply", str(overlay / "solar-input.patch")], cwd=source, check=True)
@@ -67,12 +68,13 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
         shutil.copyfile(protocol, source / "include" / protocol.name)
     shutil.copyfile(overlay / "xtensa-softmmu.mak", source / "configs/devices/xtensa-softmmu/default.mak")
     build.mkdir(parents=True, exist_ok=True)
-    print("Building Espressif QEMU with SolarOS input and host storage (cached after the first build)", flush=True)
+    print("Building Espressif QEMU with SolarOS input, storage, and audio (cached after the first build)", flush=True)
     subprocess.run([
         str(source / "configure"), "--target-list=xtensa-softmmu", "--without-default-features",
         "--enable-tcg", "--enable-sdl", "--enable-pixman", "--enable-slirp", "--enable-gcrypt",
+        "--audio-drv-list=sdl",
         "--disable-docs", "--disable-werror", "--disable-debug-info", "--disable-tools",
-        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-os2",
+        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-os3",
         "--prefix=" + str(installed), "--ninja=" + str(ninja),
     ], cwd=build, env=environment, check=True)
     subprocess.run([str(ninja), "-j", str(min(os.cpu_count() or 2, 8)), "install"],

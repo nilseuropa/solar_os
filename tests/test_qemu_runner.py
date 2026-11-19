@@ -91,6 +91,22 @@ class InstallerTests(unittest.TestCase):
 
 
 class LauncherTests(unittest.TestCase):
+    def test_audio_backends_are_explicit_output_devices(self):
+        with tempfile.TemporaryDirectory() as directory:
+            project = Path(directory)
+            for backend in ("sdl", "none"):
+                self.assertEqual(qemu.prepare_audio_backend(project, backend), backend)
+                command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3", project / "flash.bin", audio=backend)
+                self.assertIn("solar-os-audio.audiodev=solaros-audio", command)
+                self.assertTrue(command[command.index("-audiodev") + 1].startswith(backend + ","))
+            capture = qemu.prepare_audio_backend(project, "wav:captures/with,comma.wav")
+            self.assertEqual(capture, "wav:" + str(project / "captures/with,comma.wav"))
+            command = qemu.qemu_command(Path("qemu"), "qemu_esp32s3", project / "flash.bin", audio=capture)
+            self.assertIn("path=" + str(project / "captures/with,,comma.wav"), command[command.index("-audiodev") + 1])
+            self.assertNotIn("-audiodev", qemu.qemu_command(Path("qemu"), "qemu_esp32s3", project / "flash.bin", audio="off"))
+            for invalid in ("", "wav:", "unknown"):
+                with self.assertRaises(ValueError): qemu.prepare_audio_backend(project, invalid)
+
     def test_host_storage_is_live_directory_outside_the_build_tree(self):
         with tempfile.TemporaryDirectory() as directory:
             project = Path(directory)

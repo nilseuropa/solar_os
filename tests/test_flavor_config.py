@@ -36,7 +36,7 @@ class Window:
 
 class FlavorConfigTest(unittest.TestCase):
     def test_qemu_packages_are_unavailable_on_physical_boards(self):
-        packages = {"driver_storage_qemu_host", "driver_display_qemu_rgb", "driver_network_qemu_eth", "driver_input_qemu"}
+        packages = {"driver_audio_qemu", "driver_storage_qemu_host", "driver_display_qemu_rgb", "driver_network_qemu_eth", "driver_input_qemu"}
         for board in flavor_config.load_board_contexts():
             model = flavor_config.SelectionModel(self.catalog, target=board.target,
                 capabilities=board.capabilities, board_required=board.required_packages)

@@ -1,7 +1,7 @@
 # SolarOS QEMU tools
 
-Targets with native input or host storage build this pinned Espressif revision.
-Headless targets with host storage disabled use the binary in `tools.json`:
+Targets with native input, host storage, or audio build this pinned Espressif revision.
+Headless targets with host storage and audio disabled use the binary in `tools.json`:
 
 ```text
 7411393a2f61e6f0b05af00276d30780769e0839
@@ -37,6 +37,16 @@ metadata and seek offsets use explicitly encoded little-endian 64-bit values.
 Host descriptors are private to the device and closed on reset. Each path is
 resolved relative to the root descriptor without following symlinks. The guest
 registers an ESP-IDF VFS at `/host` and includes it in the storage mount registry.
+The `solar-os-audio` device at `0x600fa000` exposes 48 kHz stereo S16LE playback
+through QEMU's audio API. A 4096-frame FIFO and 1024-frame staging area provide
+bounded writes with backpressure. STOP drains the FIFO, mixer, and host transfer
+buffer before making the stream available again; RESET aborts playback. The
+guest registers an exclusive stream and an output/volume device with the audio
+service. The launcher selects SDL, WAV capture, silent output, or disables audio.
+No capture endpoint is registered. The shared ABI defines frame counts and
+little-endian stereo samples. A small `AUD_is_empty_out` query also includes
+QEMU's pending host transfer buffer so closing a stream preserves its tail.
+
 The `qemu` board capability excludes all these packages from physical targets.
 
 Run the firmware codec tests with:
@@ -50,12 +60,13 @@ Run the emulator device tests against a built extension with:
 
 ```sh
 SOLAR_OS_QEMU_INPUT_TEST_BINARY=/path/to/qemu-system-xtensa \
-  python3 -m pytest -q tests/test_qemu_input_device.py tests/test_qemu_hostfs.py tests/test_qemu_serial.py
+  python3 -m pytest -q tests/test_qemu_input_device.py tests/test_qemu_hostfs.py tests/test_qemu_serial.py tests/test_qemu_audio.py
 ```
 
 These use QMP input injection and the qtest MMIO interface to test the real
 device, including modifiers, touch, relative movement, focus reset, overflow,
-and consistency of a latched record across a reset. They need no firmware or
+consistency of a latched record across a reset, and captured PCM including volume,
+mute, queue backpressure, and stream tails. They need no firmware or
 graphical desktop. Source builds require the host dependencies listed in
 `doc/manual/qemu.md`; on Windows use WSL or supply a built extension through
 `custom_qemu_executable`.

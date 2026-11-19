@@ -65,7 +65,7 @@ class BoardManifestTest(unittest.TestCase):
         validate_board(board, self.drivers)
         self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DEFAULT_PORT_SHELL"], '"uart0"')
         self.assertEqual(board["runtime"]["uart_ports"], ["UART_NUM_1", "UART_NUM_2"])
-        self.assertEqual({d["driver"] for d in board["devices"]}, {"qemu-rgb", "qemu-eth", "qemu-input"})
+        self.assertEqual({d["driver"] for d in board["devices"]}, {"qemu-rgb", "qemu-eth", "qemu-input", "qemu-audio"})
         self.assertEqual([b["name"] for b in board["buses"] if b["protocol"] == "uart"], ["uart0"])
         self.assertIn("driver_input_qemu", required_packages(board, self.drivers))
         for pin in board["pins"]:

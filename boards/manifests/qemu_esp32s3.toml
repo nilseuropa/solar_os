@@ -20,9 +20,10 @@ drivers = [
   "spi_esp_idf",
   "gpio_esp_idf",
   "pwm_esp_idf",
+  "audio_expansion",
 ]
 capabilities = [
-  "qemu",
+  "qemu", "audio",
   "psram", "simd", "gfx", "usb_host", "uart", "i2c", "spi", "wifi",
   "key", "gpio", "pwm", "expansion_gpio", "expansion_i2c",
   "expansion_spi", "expansion_uart", "expansion_pwm",
@@ -30,6 +31,11 @@ capabilities = [
 ]
 required_packages = ["driver_storage_qemu_host"]
 psram_bytes = 8388608
+
+[[devices]]
+driver = "qemu-audio"
+name = "audio0"
+bindings = {}
 
 [defines]
 SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"

@@ -25,6 +25,17 @@ def prepare_host_storage(project: Path, configured: str) -> Path | None:
     return directory.resolve()
 
 
+def prepare_audio_backend(project: Path, configured: str) -> str:
+    if configured in ("sdl", "none", "off"):
+        return configured
+    if configured.startswith("wav:") and configured[4:]:
+        path = Path(configured[4:]).expanduser()
+        if not path.is_absolute(): path = project / path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return "wav:" + str(path.resolve())
+    raise ValueError("QEMU audio must be 'sdl', 'none', 'off', or 'wav:/path/to/output.wav'")
+
+
 def ensure_qemu(package: Path, framework: Path) -> Path:
     manifest = package / "tools.json"
     tool = json.loads(manifest.read_text())["tools"][0]
@@ -103,7 +114,7 @@ def launch_qemu(command: list[str], build: Path) -> int:
 
 def qemu_command(executable: Path, board: str, image: Path,
                  pointer_mode: str = "touch", uart0_mode: str = DEFAULT_UART0_MODE,
-                 storage: Path | None = None) -> list[str]:
+                 storage: Path | None = None, audio: str = "off") -> list[str]:
     if board not in QEMU_BOARDS:
         raise ValueError(f"Not a QEMU board: {board}")
     graphical = board == "qemu_esp32s3_rgb"
@@ -137,4 +148,14 @@ def qemu_command(executable: Path, board: str, image: Path,
         command += ["-nic", "none"]
     if storage is not None:
         command += ["-global", "solar-os-hostfs.root=" + str(storage).replace(",", ",,")]
+    if audio != "off":
+        if audio in ("sdl", "none"):
+            backend = audio
+        elif audio.startswith("wav:") and audio[4:]:
+            backend = "wav"
+        else:
+            raise ValueError("QEMU audio must be 'sdl', 'none', 'off', or 'wav:/path/to/output.wav'")
+        options = f"{backend},id=solaros-audio,out.frequency=48000,out.channels=2,out.format=s16"
+        if backend == "wav": options += ",path=" + audio[4:].replace(",", ",,")
+        command += ["-audiodev", options, "-global", "solar-os-audio.audiodev=solaros-audio"]
     return command

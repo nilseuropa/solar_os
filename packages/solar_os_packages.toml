@@ -917,6 +917,11 @@ label = "QEMU host directory"
 category = "Expansion hardware"
 members = ["driver_storage_qemu_host"]
 
+[groups.qemu_audio]
+label = "QEMU audio output"
+category = "Expansion hardware"
+members = ["driver_audio_qemu"]
+
 [groups.ft6336]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
@@ -3013,6 +3018,14 @@ label = "driver.storage-qemu-host"
 targets = ["esp32s3"]
 sources = ["services/solar_os_qemu_hostfs.c"]
 requires = ["vfs"]
+capabilities = ["qemu"]
+
+[packages.driver_audio_qemu]
+label = "driver.audio-qemu"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_audio_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = ["services/solar_os_qemu_audio.c"]
 capabilities = ["qemu"]
 
 [packages.driver_ft6336]
