@@ -937,12 +937,12 @@ Rows and columns are zero-based in mapping files. The physical event ID is
 The controller's matrix geometry is selected at attachment; mapping files
 cannot change it.
 
-The input service manages each source's mapping, modifier state, symbol layer,
-and tap/hold selector. `input keymap` lists mapping support; `input keymap
-keyboard1 show` inspects the active map. See [source keymaps](input.keymap.md)
-for physical-key selectors, compatible matrix selectors, JSON fields, and
-Python/Lua capability queries. The existing row/column mapping files remain
-valid for these three profiles.
+The input service manages each source's mapping, modifier state, symbol and
+fn layers, and tap/hold selectors. `input keymap` lists mapping support;
+`input keymap keyboard1 show` inspects the active map. See
+[source keymaps](input.keymap.md) for physical-key selectors, compatible
+matrix selectors, JSON fields, and Python/Lua capability queries. The existing
+row/column mapping files remain valid for these three profiles.
 
 The Pager's built-in profile uses Space as a tap/hold symbol selector and its
 Caps-labelled key as a momentary Shift modifier. Unlabelled cells produce no
@@ -951,6 +951,13 @@ scripts that previously selected `tca8418` for the Pager should use this name
 to retain its wiring, symbol layer, and backlight binding. The generic
 `tca8418` name now selects the reference map. Custom flavors can select the
 `lilygo_pager_keyboard` hardware group for the Pager profile.
+
+An opt-in navigation override is provided at
+`keymaps/overrides/lilygo-pager-custom.json`. It moves the symbol selector to
+the yellow key and adds a Space-held fn layer with HJKL arrows, Home/End, Tab,
+Left Alt, parentheses, pipe, Delete, and Escape. Load it at runtime with
+`input keymap SOURCE load <path>` or select it as a compiled custom default;
+it does not alter the standard profile used by other firmware builds.
 
 ### Soldered Inputronic KEYBOARD
 

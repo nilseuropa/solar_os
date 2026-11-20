@@ -15,7 +15,7 @@ void solar_os_inputronic_keyboard_map(solar_os_matrix_keyboard_map_t *map)
 {
     solar_os_matrix_keyboard_init_map(map, SOLAR_OS_INPUTRONIC_KEYMAP_ROWS,
                                     SOLAR_OS_INPUTRONIC_KEYMAP_COLS);
-    for (unsigned layer = 0; layer < 2U; layer++)
+    for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++)
         memcpy(map->keys[layer], solar_os_inputronic_default_keys[layer],
                sizeof(solar_os_inputronic_default_keys[layer]));
 }

@@ -3,13 +3,17 @@
 #include "solar_os_input.h"
 
 #define SOLAR_OS_INPUT_KEYMAP_KEY_MAX 256U
+#define SOLAR_OS_INPUT_KEYMAP_LAYER_MAX 3U
 #define SOLAR_OS_INPUT_KEYMAP_RAW 1U
 #define SOLAR_OS_INPUT_KEYMAP_LAYER_TAP 2U
 #define SOLAR_OS_INPUT_KEYMAP_ALT_BLOCK 4U
 
+/* layer is the target of a LAYER_TAP selector: 0 is the historical alias for
+ * layer 1, 1 selects symbols, 2 selects the function layer. It is zero on
+ * ordinary entries. */
 typedef struct {
     uint16_t usage;
-    uint8_t key, shifted_key, flags;
+    uint8_t key, shifted_key, flags, layer;
 } solar_os_input_keymap_key_t;
 
 /* Slots are bounded storage indices, independent of physical key IDs.
@@ -17,7 +21,7 @@ typedef struct {
 typedef struct {
     uint16_t slot_count;
     uint16_t physical[SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U];
-    solar_os_input_keymap_key_t keys[2][SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U];
+    solar_os_input_keymap_key_t keys[SOLAR_OS_INPUT_KEYMAP_LAYER_MAX][SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U];
     uint16_t first, stride;
     uint8_t rows, cols;
 } solar_os_input_keymap_t;
@@ -26,7 +30,7 @@ typedef struct {
     bool held[SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U];
     solar_os_input_keymap_key_t pressed_keys[SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U];
     bool caps_lock, layer_used;
-    uint8_t modifiers;
+    uint8_t modifiers, active_layer;
     uint16_t layer_key;
 } solar_os_input_keymap_state_t;
 

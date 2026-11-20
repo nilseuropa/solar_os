@@ -739,20 +739,24 @@ static void input_keymap(solar_os_context_t *ctx, solar_os_shell_io_t *io,
             solar_os_shell_io_table_printf(io, "%s: physical keys, modifiers, layers, tap-hold", argv[2]);
             if (map->rows != 0U) solar_os_shell_io_table_printf(io, "; rows=%u cols=%u stride=%u",
                 map->rows, map->cols, map->stride);
-            solar_os_shell_io_table_writeln(io, "\nROW COL    ID LAYER USAGE KEY SHIFT FLAGS");
-            for (unsigned layer = 0; layer < 2U; layer++)
+            static const char *const layer_names[SOLAR_OS_INPUT_KEYMAP_LAYER_MAX] = {
+                "base", "symbols", "fn",
+            };
+            solar_os_shell_io_table_writeln(io, "\nROW COL    ID LAYER    USAGE KEY SHIFT FLAGS TARGET");
+            for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++)
                 for (unsigned slot = 1; slot <= map->slot_count; slot++) {
                     const unsigned physical = map->physical[slot];
                     if (physical == 0U) continue;
                     const solar_os_input_keymap_key_t key = map->keys[layer][slot];
-                    if (layer == 1U && key.usage == 0U && key.key == 0U &&
+                    if (layer != 0U && key.usage == 0U && key.key == 0U &&
                         key.shifted_key == 0U && key.flags == 0U) continue;
                     if (map->rows != 0U)
                         solar_os_shell_io_table_printf(io, "%3u %3u ",
                             (physical - map->first) / map->stride, (physical - map->first) % map->stride);
                     else solar_os_shell_io_table_printf(io, "  -   - ");
-                    solar_os_shell_io_table_printf(io, "%5u %5u 0x%02x %3u %5u %5u\n",
-                        physical, layer, key.usage, key.key, key.shifted_key, key.flags);
+                    solar_os_shell_io_table_printf(io, "%5u %-8s 0x%02x %3u %5u %5u %5u\n",
+                        physical, layer_names[layer], key.usage, key.key, key.shifted_key,
+                        key.flags, key.layer);
                 }
         }
         free(map);
