@@ -28,6 +28,7 @@ The current tree includes these board targets:
 | `elecrow_crowpanel_esp32_s3_4_2_epaper` | `elecrow_crowpanel_esp32_s3_4_2_epaper` | Elecrow CrowPanel ESP32-S3 4.2-inch E-paper | ESP32-S3-WROOM-1-N8R8 target with a 400x300 SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `elecrow_crowpanel_esp32_s3_5_79_epaper` | `elecrow_crowpanel_esp32_s3_5_79_epaper` | [Elecrow CrowPanel ESP32-S3 5.79-inch E-paper](https://www.elecrow.com/wiki/CrowPanel_ESP32_E-paper_5.79-inch_HMI_Display.html) | ESP32-S3-WROOM-1-N8R8 target with a 792x272 dual-SSD1683 e-paper display, microSD over SDSPI, CH340C/UART console, rotary/menu/exit controls, status LED, Wi-Fi, BLE, and expansion I2C/SPI/UART/1-Wire/GPIO/ADC/PWM. |
 | `waveshare_esp32_s3_epaper_3_97` | `waveshare_esp32_s3_epaper_3_97` | [Waveshare ESP32-S3-ePaper-3.97](https://docs.waveshare.com/ESP32-S3-ePaper-3.97) | ESP32-S3-WROOM-1-N16R8 target with an SSD1677 e-paper display that defaults to 800x480 landscape, AXP2101 battery/charger monitoring, QMI8658 six-axis IMU, four-bit SDMMC, native USB CDC, UART, PCF85063 RTC, SHTC3 temperature/humidity sensor, ES8311 speaker/microphone audio, rotary navigation, Wi-Fi, BLE, and expansion I2C/UART. |
+| `seeed_reterminal_e1001` | `seeed_reterminal_e1001` | [Seeed Studio reTerminal E1001](https://wiki.seeedstudio.com/getting_started_with_reterminal_e1001/) | ESP32-S3R8, 32 MB flash, 8 MB PSRAM, 800x480 UC8179/GDEY075T7 monochrome e-paper, SHT40, PCF8563, SY6974B charger and battery ADC, PDM microphone, PWM buzzer, shared-SPI microSD, buttons, and UART console over the USB bridge. |
 | `seeed_reterminal_e1003` | `seeed_reterminal_e1003` | [Seeed Studio reTerminal E1003](https://wiki.seeedstudio.com/getting_started_with_reterminal_e1003/) | ESP32-S3R8, 32 MB flash, 8 MB PSRAM, 1872x1404 IT8951/ED103TC2 e-paper with 16 gray levels, GT911 touch, SHT40, PCF8563, SY6974B charger and battery ADC, PDM microphone, PWM buzzer, shared-SPI microSD, buttons, and UART console over the USB bridge. |
 | `seeed_reterminal_sticky` | `seeed_reterminal_sticky` | [Seeed Studio reTerminal Sticky](https://www.seeedstudio.com/reTerminal-Sticky-p-6861.html) | ESP32-S3R8 target with 32 MB flash, 8 MB PSRAM, 3.97-inch 800x480 monochrome e-paper with SSD1677/SSD2677 startup detection, GT911 capacitive touch, three physical buttons (AI/Power: sleep/wake on tap, shutdown on hold; Up: arrow on tap, BLE pairing on hold; Down: arrow on tap), Wi-Fi, and BLE. Console is UART0 (CH343). |
 | `m5stack_papermono` | `m5stack_papermono` | [M5Stack Paper Mono](https://docs.m5stack.com/en/core/PaperMono) | ESP32-S3R8 target with 16 MB flash, 8 MB OPI PSRAM, a 3.97-inch 480x800 SSD1677 e-paper panel and FT6336G touch, M5PM1 power management (VBAT, shutdown, frontlight PWM), M5IOE1 GPIO expander for panel/radio/storage rails, an SX1262 LoRa stamp, an I2C ST25R3916 NFC-A reader, RX8130CE RTC, BMI270 IMU, IP2315 USB charger behind a gated I2C switch, four-bit SDMMC, a PWM buzzer, a PDM microphone, two front buttons (A: Enter on tap, BLE pairing on hold, wake from sleep; B: Escape on tap, clean shutdown on long press), native USB CDC/host switching, Wi-Fi, and BLE. NFC power starts disabled and is enabled with `nfc power on`. The IP2315 charger is only addressable when its I2C gate is opened; if the charger entered LED mode after a USB plug-in, charge status stays undetermined until VIN is removed. |
@@ -1401,6 +1402,44 @@ Build the target with:
 pio run -e waveshare_esp32_s3_epaper_3_97
 ```
 
+
+## Seeed Studio reTerminal E1001
+
+The `seeed_reterminal_e1001` target uses an ESP32-S3R8, 32 MB flash, 8 MB
+PSRAM, and the 7.5-inch GDEY075T7 monochrome panel with a UC8179 controller.
+Its native geometry is 800x480; the default display scale is 2. The display
+shell starts at boot. The USB-C connector exposes UART0 on GPIO43/44 through a
+CH340 UART bridge; start a USB serial shell when needed with
+`session create shell uart0`. Native USB CDC is disabled because GPIO19/20
+carry the onboard I2C bus.
+
+| Peripheral | Connections |
+| --- | --- |
+| Display and SD SPI | SCLK 7, MISO 8, MOSI 9; display CS 10, SD CS 14 |
+| UC8179 controls | DC 11, reset 12, busy 13; no panel power enable |
+| I2C | `i2c0`: SDA 19, SCL 20; SHT40 `0x44`, PCF8563 `0x51` |
+| Charger I2C | `i2c1`: SDA 39, SCL 40; SY6974B `0x6b` |
+| Battery | ADC GPIO1, divider 2:1, measurement enable 21; capacity 2000 mAh |
+| MicroSD | Power enable 16, card detect 15; shared SPI with the display |
+| Microphone | PDM clock 42, data 41, power enable 38 |
+| Buzzer and LED | PWM buzzer 45; active-low green LED 6 |
+| Buttons | GPIO3 confirm/wake; GPIO4 up, hold for BLE pairing; GPIO5 down, hold for two seconds to send Escape |
+| J2 | 3.3 V, ground, GPIO46, GPIO2/ADC, TX1 17, RX1 18, SCL20, SDA19 |
+
+GPIO2, GPIO17, GPIO18 and GPIO46 are free GPIO/PWM slots; GPIO2 is also an ADC
+slot. The I2C pins on J2 remain owned by `i2c0`.
+The `io` Layout view shows all eight J2 positions in pin order, including 3V3 and GND.
+
+The display uses the panel's OTP waveforms. A full refresh uses the fast
+waveform; `refresh=auto` uses partial refreshes with a periodic full cleanup,
+as on other UC8179 panels.
+
+The `charger0` provider configures a 1000 mA input limit, 4100 mV input voltage
+threshold, 480 mA charge current, and 4208 mV charge voltage.
+
+Build with `pio run -e seeed_reterminal_e1001`. Its `full` flavor uses the
+32 MB partition layout. The SD card must be FAT32; cards of 32 GB and larger
+usually ship as exFAT and need reformatting.
 
 ## Seeed Studio reTerminal E1003
 

@@ -44,6 +44,7 @@ class DisplayProfilesTest(unittest.TestCase):
             ("ssd1685", {"panel": 1, "rotation": 3}, (384, 168)),
             ("ssd1677", {"rotation": 3}, (480, 800)),
             ("uc8179", {"panel": 1, "rotation": 1}, (480, 800)),
+            ("uc8179", {"panel": 2}, (800, 480)),
             ("uc8279", {"panel": 2}, (800, 480)),
             ("gc9a01", {}, (240, 240)),
             ("gc9a01", {"rotation": 1}, (240, 240)),

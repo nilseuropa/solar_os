@@ -98,6 +98,17 @@ sensors = "PCF8563 RTC; SHT40 temperature/humidity sensor."
 expansion = "J2: 3.3 V, GND, GPIO47, GPIO6/ADC, SCL20, and SDA19. GPIO6/47 support GPIO and PWM; onboard I2C remains shared."
 notes = "Native USB CDC and host mode are unavailable because GPIO19/20 carry onboard I2C. Format the internal storage volume after first installation if it contains no readable FAT filesystem."
 
+[devices.seeed_reterminal_e1001]
+display = "7.5-inch 800×480 UC8179/GDEY075T7 monochrome e-paper; display scale 2 (400×240 logical canvas)."
+keyboard = "Confirm/up/down buttons; hold UP for BLE pairing or DOWN for Escape; no touch or built-in keyboard."
+sound = "PWM buzzer output and PDM microphone capture."
+storage = "microSD over SPI shared with the display; internal FAT storage on 32 MB flash."
+connectivity = "Wi-Fi, BLE, and USB-to-UART console; start the console with session create shell uart0."
+power = "SY6974B charger monitoring and control; calibrated battery voltage with percentage estimated from voltage; confirm-button sleep/wake."
+sensors = "PCF8563 RTC; SHT40 temperature/humidity sensor."
+expansion = "J2: 3.3 V, GND, GPIO46, GPIO2/ADC, TX1 17, RX1 18, SCL20, and SDA19. GPIO2/17/18/46 support GPIO and PWM; onboard I2C remains shared."
+notes = "Native USB CDC and host mode are unavailable because GPIO19/20 carry onboard I2C. Format the internal storage volume after first installation if it contains no readable FAT filesystem."
+
 [devices.m5stack_papermono]
 display = "3.97-inch 480×800 SSD1677 monochrome e-paper with M5PM1 frontlight PWM."
 keyboard = "FT6336 capacitive touch and two front buttons; no built-in keyboard."
