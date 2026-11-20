@@ -1,0 +1,36 @@
+schema = 1
+extends = "qemu_esp32s3"
+
+[board]
+id = "qemu_esp32s3_rgb"
+name = "QEMU ESP32-S3 with virtual display"
+vendor = "Espressif"
+module = "QEMU esp32s3 machine"
+
+[build]
+# QEMU's virtual RGB panel, shown in the QEMU window (-display sdl).
+drivers = ["display_qemu_rgb"]
+capabilities = ["display"]
+
+[defines]
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600"
+# UART0 provides console access alongside the virtual display.
+SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
+
+[[devices]]
+driver = "qemu-rgb"
+name = "display0"
+bindings = {}
+
+[[devices]]
+driver = "qemu-input"
+name = "input0"
+bindings = {}
+
+# QEMU's virtual Ethernet card (-nic user,model=open_eth); reports as Wi-Fi.
+[[devices]]
+driver = "qemu-eth"
+name = "eth0"
+bindings = {}

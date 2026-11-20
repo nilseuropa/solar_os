@@ -268,8 +268,13 @@ static int solua_camera_status(lua_State *L)
     solua_set_str(L, -1, "owner", status.owner);
     solua_set_str(L, -1, "driver", status.driver);
     solua_set_str(L, -1, "sensor", status.sensor.name);
-    solua_set_str(L, -1, "size", solar_os_camera_frame_size_name(status.config.frame_size));
+    char size[16];
+    snprintf(size, sizeof(size), "%ux%u", (unsigned)status.config.width, (unsigned)status.config.height);
+    solua_set_str(L, -1, "size", size);
+    solua_set_int(L, -1, "width", status.config.width);
+    solua_set_int(L, -1, "height", status.config.height);
     solua_set_int(L, -1, "jpeg_quality", status.config.jpeg_quality);
+    solua_set_bool(L, -1, "jpeg_quality_fixed", status.sensor.jpeg_quality_fixed);
     solua_set_int(L, -1, "capture_count", status.capture_count);
     solua_set_int(L, -1, "frame_buffer_count", status.sensor.frame_buffer_count);
     solua_set_str(L, -1, "orientation", solar_os_camera_orientation_name(status.orientation));
@@ -279,14 +284,15 @@ static int solua_camera_status(lua_State *L)
 
 static uint32_t solua_camera_snapshot_handle(lua_State *L, int start)
 {
-    const char *size = luaL_optstring(L, start, "qvga");
-    bool vga = !strcmp(size, "vga");
-    if (!vga && strcmp(size, "qvga")) luaL_error(L, "expected qvga or vga");
-    uint32_t quality = lua_isnoneornil(L, start + 1) ? 12 : solua_media_uint(L, start + 1, 63);
+    solar_os_camera_config_t config = solar_os_camera_default_config();
+    if (!lua_isnoneornil(L, start) &&
+        !solar_os_camera_parse_resolution(luaL_checkstring(L, start), &config.width, &config.height))
+        luaL_error(L, "expected WIDTHxHEIGHT, qvga, or vga");
+    uint32_t quality = lua_isnoneornil(L, start + 1) ? config.jpeg_quality : solua_media_uint(L, start + 1, 63);
     const char *source = luaL_optstring(L, start + 2, "camera0");
     uint32_t frame;
     (void)solua_check_esp(L, solar_os_script_media_snapshot(solua_media_get(L), source,
-        vga ? 640 : 320, vga ? 480 : 240, quality, &frame));
+        config.width, config.height, quality, &frame));
     return frame;
 }
 

@@ -1,4 +1,5 @@
 #include "solar_os_native_media.h"
+#include "solar_os_native_data.h"
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_config.h"
@@ -49,7 +50,8 @@ static const solar_os_native_memory_api_v1_t memory_api = {
 };
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE || SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA || \
-    SOLAR_OS_PACKAGE_SERVICE_VISION || SOLAR_OS_PACKAGE_SERVICE_IMLIB || SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+    SOLAR_OS_PACKAGE_SERVICE_VISION || SOLAR_OS_PACKAGE_SERVICE_IMLIB || SOLAR_OS_PACKAGE_SERVICE_INFERENCE || \
+    SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
 static int native_result(esp_err_t error)
 {
     switch (error) {
@@ -64,6 +66,85 @@ static int native_result(esp_err_t error)
     default: return SOLAR_OS_NATIVE_ERROR_FAILED;
     }
 }
+#endif
+
+#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
+#include "solar_os_camera.h"
+#include "solar_os_sscma.h"
+#include "himax_hx6538.h"
+static int native_sscma_open(const char *source, const char *owner, uint32_t *out)
+{
+    if (!out || !source) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    solar_os_camera_owner_t token = {0};
+    esp_err_t error = solar_os_camera_acquire(owner, &token);
+    if (!error) {
+        const solar_os_sscma_exchange_t probe = {.source = source};
+        error = solar_os_camera_control(&token, SOLAR_OS_NATIVE_SSCMA_SERVICE, &probe);
+        if (error) (void)solar_os_camera_release_owner(&token);
+        else *out = token.generation;
+    }
+    return native_result(error);
+}
+static int native_sscma_start(uint32_t generation)
+{
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_camera_config_t config = solar_os_camera_default_config();
+    return native_result(solar_os_camera_start(&token, &config));
+}
+static int native_sscma_exchange(uint32_t generation, const char *source,
+    const char *command, const char *name, bool event, uint32_t timeout,
+    solar_os_native_cancel_fn cancel, void *user, char **reply)
+{
+    if (!reply || !command) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *reply = NULL;
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_sscma_exchange_t request = {.source = source, .command = command,
+        .response_name = name, .event = event, .timeout_ms = timeout, .cancel = cancel,
+        .user = user, .reply = reply};
+    return native_result(solar_os_camera_control(&token, SOLAR_OS_NATIVE_SSCMA_SERVICE, &request));
+}
+static int native_sscma_image(char *reply, size_t capacity, const uint8_t **jpeg,
+    size_t *length, uint16_t *width, uint16_t *height)
+{ return native_result(solar_os_himax_decode_image(reply, capacity, jpeg, length, width, height)); }
+static int native_sscma_close(uint32_t generation)
+{
+    solar_os_camera_owner_t token = {generation};
+    esp_err_t error = solar_os_camera_stop(&token);
+    /* A disconnected chip cannot acknowledge stop. Invalidate its local
+     * buffers/cache so the next owner performs full initialization, rather
+     * than retaining the camera and module forever waiting for transport. */
+    if (error) error = solar_os_camera_invalidate(&token);
+    if (!error) error = solar_os_camera_release_owner(&token);
+    return native_result(error);
+}
+static int native_sscma_spi(uint32_t generation, const void *tx, void *rx, size_t length)
+{
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_sscma_spi_t request = {.tx = tx, .rx = rx, .length = length};
+    return native_result(solar_os_camera_control(&token, SOLAR_OS_SSCMA_SPI_PROTOCOL, &request));
+}
+static int native_sscma_send(uint32_t generation, const char *source, const char *command)
+{
+    if (!source || !command || !*command) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const solar_os_camera_owner_t token = {generation};
+    const solar_os_sscma_exchange_t request = {.source = source, .command = command};
+    return native_result(solar_os_camera_control(&token, SOLAR_OS_NATIVE_SSCMA_SERVICE, &request));
+}
+static int native_sscma_reset(uint32_t generation)
+{
+    const solar_os_camera_owner_t token = {generation};
+    esp_err_t error = solar_os_camera_invalidate(&token);
+    const solar_os_sscma_spi_t request = {.reset = true};
+    if (!error) error = solar_os_camera_control(&token, SOLAR_OS_SSCMA_SPI_PROTOCOL, &request);
+    return native_result(error);
+}
+static const solar_os_native_sscma_api_v1_t sscma_api = {
+    .abi_version = SOLAR_OS_NATIVE_SSCMA_ABI, .struct_size = sizeof(sscma_api),
+    .open = native_sscma_open, .start = native_sscma_start, .exchange = native_sscma_exchange,
+    .image = native_sscma_image, .close = native_sscma_close,
+    .spi = native_sscma_spi, .send = native_sscma_send, .reset = native_sscma_reset,
+};
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
@@ -283,9 +364,16 @@ static const solar_os_native_tensor_image_api_v1_t tensor_image_api = {
 const void *solar_os_native_media_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
     if (!name) return NULL;
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+    const void *data = solar_os_native_data_get_service(name, abi, minimum);
+    if (data) return data;
+#endif
 #define OFFER(table, service, version) \
     if (!strcmp(name, service) && abi == version && minimum <= sizeof(table)) return &table
     OFFER(memory_api, SOLAR_OS_NATIVE_MEMORY_SERVICE, SOLAR_OS_NATIVE_MEMORY_ABI);
+#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
+    OFFER(sscma_api, SOLAR_OS_NATIVE_SSCMA_SERVICE, SOLAR_OS_NATIVE_SSCMA_ABI);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
     OFFER(image_api, SOLAR_OS_NATIVE_IMAGE_SERVICE, SOLAR_OS_NATIVE_IMAGE_ABI);
 #endif

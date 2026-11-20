@@ -45,6 +45,7 @@ int main(void)
     run(L,"f:close(); f=emotion.open('oled0',false,nil,0)");
     assert(state.emotions[0]->palette[0]==0 && state.emotions[0]->palette[3]==0xf800);
     run(L,"f:close()");
+    run(L,"f=emotion.open('oled0',false,nil,nil,20,true,true); assert(f:status().width==160 and f:status().height==80); f:close()");
     run(L,
         "assert(not pcall(emotion.open)); "
         "assert(not pcall(emotion.open, 'missing')); "

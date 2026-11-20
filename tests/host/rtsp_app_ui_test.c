@@ -25,7 +25,7 @@ typedef void *SemaphoreHandle_t;
 #define SOLAR_OS_LOGI(...) ((void)0)
 #include "rtsp_app_test_state.h"
 
-struct solar_os_gfx { int width, height; };
+struct solar_os_gfx { int width, height; solar_os_display_rect_t panel; };
 struct solar_os_rtsp_client { solar_os_rtsp_client_status_t status; };
 static struct solar_os_rtsp_client client;
 static unsigned cancellations, deletions, destructions, freed, buttons, scopes, frames;
@@ -54,6 +54,10 @@ void solar_os_context_finish(solar_os_context_t *ctx, int code, const char *mess
 { (void)ctx; (void)code; (void)message; finishes++; }
 size_t solar_os_gfx_width(const solar_os_gfx_t *gfx) { return gfx->width; }
 size_t solar_os_gfx_height(const solar_os_gfx_t *gfx) { return gfx->height; }
+solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx)
+{ return (solar_os_display_rect_t){0,0,gfx->width,gfx->height}; }
+solar_os_display_rect_t solar_os_gfx_panel_bounds(const solar_os_gfx_t *gfx)
+{ return gfx->panel.width ? gfx->panel : solar_os_gfx_canvas_bounds(gfx); }
 solar_os_display_format_t solar_os_gfx_format(const solar_os_gfx_t *gfx)
 { (void)gfx; return SOLAR_OS_DISPLAY_FORMAT_MONO1; }
 bool solar_os_gfx_supports_frame_format(const solar_os_gfx_t *gfx, solar_os_display_format_t format)
@@ -62,20 +66,24 @@ void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color) { (
 void solar_os_gfx_set_font(solar_os_gfx_t *gfx, solar_os_gfx_font_t font) { (void)gfx; (void)font; }
 size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx, const char *text) { (void)gfx; return strlen(text) * 7; }
 void solar_os_gfx_text(solar_os_gfx_t *gfx, int x, int baseline, const char *text)
-{ (void)text; assert(x >= 0 && x < gfx->width && baseline >= 0 && baseline < gfx->height); }
+{ (void)text; solar_os_display_rect_t b=solar_os_gfx_panel_bounds(gfx);
+  assert(x>=b.x && x<b.x+b.width && baseline>=b.y && baseline<b.y+b.height); }
 void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color) { (void)gfx; (void)color; }
 void solar_os_gfx_line(solar_os_gfx_t *gfx, int x, int y, int x1, int y1)
 { assert(x >= 0 && x1 < gfx->width && y >= 0 && y1 < gfx->height); }
 void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
-{ assert(x >= 0 && y >= 0 && width > 0 && height > 0 && x + width <= gfx->width && y + height <= gfx->height); }
+{ solar_os_display_rect_t b=solar_os_gfx_panel_bounds(gfx);
+  assert(x>=b.x && y>=b.y && width>0 && height>0 && x+width<=b.x+b.width && y+height<=b.y+b.height); }
 void solar_os_gfx_fill_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
 { solar_os_gfx_rect(gfx, x, y, width, height); }
 void solar_os_gfx_present(solar_os_gfx_t *gfx) { (void)gfx; }
 esp_err_t solar_os_gfx_blit_raster(solar_os_gfx_t *gfx, const solar_os_gfx_raster_t *raster,
     int x, int y, int width, int height, const solar_os_gfx_clip_t *clip)
 { (void)raster; (void)clip; solar_os_gfx_rect(gfx, x, y, width, height); return ESP_OK; }
-esp_err_t solar_os_gfx_present_frame(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame)
-{ frames++; solar_os_gfx_rect(gfx, frame->x, frame->y, frame->width, frame->height); return ESP_OK; }
+static int frame_x, frame_y, frame_width, frame_height;
+esp_err_t solar_os_gfx_present_frame_at(solar_os_gfx_t *gfx, const solar_os_display_raster_t *frame, int x, int y)
+{ frames++; frame_x=x; frame_y=y; frame_width=frame->width; frame_height=frame->height;
+  solar_os_gfx_rect(gfx, x, y, frame->width, frame->height); return ESP_OK; }
 void solar_os_audio_get_status(solar_os_audio_status_t *status) { status->volume = 50; }
 esp_err_t solar_os_audio_set_volume(uint8_t volume) { (void)volume; assert(!"player must not change global volume"); return ESP_FAIL; }
 void solar_os_media_transport_button_draw(solar_os_gfx_t *gfx, int x, int y, int width,
@@ -213,6 +221,27 @@ static void layout_test(int w, int h)
     render(&ctx, true); assert(frames == 2 && buttons == 0);
     solar_os_memory_free(rtsp.pixels); rtsp.pixels = NULL;
     assert(!finishes);
+}
+
+static void circular_fullscreen_test(void)
+{
+    solar_os_gfx_t gfx={.width=291,.height=291,.panel={-60,-60,412,412}};
+    solar_os_context_t ctx={.gfx=&gfx};
+    solar_os_event_t key={.type=SOLAR_OS_EVENT_CHAR,.data.ch='f'};
+    reset(); output_dimensions(&gfx);
+    assert(rtsp.output_width==291 && rtsp.output_height==175);
+    assert(event(&ctx,&key) && rtsp.output_width==412 && rtsp.output_height==412);
+    render(&ctx,true);
+    assert(scope_x==-60 && scope_y==-60 && scope_width==412 && scope_height==412);
+    client.status.video=true; rtsp.direct_rgb565=true;
+    rtsp.image_width=rtsp.image_height=4; rtsp.pixels=malloc(32);
+    render(&ctx,true);
+    assert(frame_x==-60 && frame_y==-60 && frame_width==412 && frame_height==412);
+    key.data.ch='d'; assert(event(&ctx,&key));
+    assert(rtsp.output_width==412 && rtsp.output_height==396 && !rtsp.pixels);
+    key.data.ch='d'; assert(event(&ctx,&key));
+    key.data.ch='f'; assert(event(&ctx,&key));
+    assert(!rtsp.fullscreen && rtsp.output_width==291 && rtsp.output_height==175);
 }
 
 static void transport_test(void)
@@ -382,6 +411,7 @@ int main(void)
     layout_test(480, 320);
     layout_test(400, 300);
     layout_test(320, 240);
+    circular_fullscreen_test();
     transport_test();
     reconnect_test();
     playlist_and_pause_test();

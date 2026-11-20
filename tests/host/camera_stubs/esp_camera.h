@@ -5,15 +5,17 @@
 #include <sys/time.h>
 #include "esp_err.h"
 
-typedef enum { FRAMESIZE_QVGA, FRAMESIZE_VGA } framesize_t;
+typedef enum { FRAMESIZE_QVGA, FRAMESIZE_320X320, FRAMESIZE_VGA, FRAMESIZE_INVALID } framesize_t;
+typedef struct { uint16_t width, height; } resolution_info_t;
+extern const resolution_info_t resolution[];
 enum { PIXFORMAT_JPEG, CAMERA_FB_IN_PSRAM, CAMERA_GRAB_WHEN_EMPTY, CAMERA_GRAB_LATEST };
 #define CAMERA_MODEL_MAX 2
 #define OV5640_PID 0x5640
-typedef struct { int pid; const char *name; } camera_sensor_info_t;
+typedef struct { int pid; const char *name; framesize_t max_size; } camera_sensor_info_t;
 extern const camera_sensor_info_t camera_sensor[CAMERA_MODEL_MAX];
 typedef struct sensor_s {
     struct { uint16_t PID; } id;
-    struct { int hmirror, vflip; } status;
+    struct { int hmirror, vflip; framesize_t framesize; } status;
     int (*set_hmirror)(struct sensor_s *, int);
     int (*set_vflip)(struct sensor_s *, int);
 } sensor_t;

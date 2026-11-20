@@ -35,6 +35,17 @@ class Window:
 
 
 class FlavorConfigTest(unittest.TestCase):
+    def test_qemu_packages_are_unavailable_on_physical_boards(self):
+        packages = {"driver_audio_qemu", "driver_storage_qemu_host", "driver_display_qemu_rgb", "driver_network_qemu_eth", "driver_input_qemu"}
+        for board in flavor_config.load_board_contexts():
+            model = flavor_config.SelectionModel(self.catalog, target=board.target,
+                capabilities=board.capabilities, board_required=board.required_packages)
+            preview = model.preview_enable(packages)
+            if board.board_id.startswith("qemu_"):
+                self.assertIn("driver_storage_qemu_host", preview, board.board_id)
+            else:
+                self.assertFalse(packages & preview, board.board_id)
+
     @classmethod
     def setUpClass(cls):
         cls.catalog = generate_flavor_config.load_catalog(

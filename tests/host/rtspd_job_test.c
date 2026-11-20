@@ -184,8 +184,7 @@ esp_err_t solar_os_stream_open_ex(const char *id, const char *owner,
         esp_err_t error = solar_os_camera_acquire(owner, &token);
         if (error != ESP_OK) return error;
         const solar_os_camera_config_t config = {
-            .frame_size = options->requested_video.width == 640 ?
-                SOLAR_OS_CAMERA_FRAME_SIZE_VGA : SOLAR_OS_CAMERA_FRAME_SIZE_QVGA,
+            .width = options->requested_video.width, .height = options->requested_video.height,
             .jpeg_quality = options->requested_video.jpeg_quality,
         };
         assert(solar_os_camera_start(&token, &config) == ESP_OK);
@@ -316,7 +315,10 @@ static void options_test(void)
     assert(!options.video && !strcmp(options.audio, "mic0"));
     char *both[] = {"video=camera", "audio=mic0", "size=vga", "fps=0"};
     assert(solar_os_rtspd_parse_options(4, both, &options));
-    assert(options.fps == 0 && options.camera.frame_size == SOLAR_OS_CAMERA_FRAME_SIZE_VGA);
+    assert(options.fps == 0 && options.camera.width == 640 && options.camera.height == 480);
+    char *square[] = {"video=camera0", "size=416x416"};
+    assert(solar_os_rtspd_parse_options(2, square, &options));
+    assert(options.camera.width == 416 && options.camera.height == 416);
     assert(!strcmp(options.video_source, "camera0"));
     char *explicit_video[] = {"video=mycam"};
     assert(solar_os_rtspd_parse_options(1, explicit_video, &options));

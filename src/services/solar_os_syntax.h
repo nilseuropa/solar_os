@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -7,6 +8,7 @@ typedef enum {
     SOLAR_OS_SYNTAX_NONE,
     SOLAR_OS_SYNTAX_PYTHON,
     SOLAR_OS_SYNTAX_LUA,
+    SOLAR_OS_SYNTAX_C,
 } solar_os_syntax_language_t;
 
 typedef enum {
@@ -23,11 +25,19 @@ typedef enum {
     SOLAR_OS_SYNTAX_MODE_PY_TRIPLE_DOUBLE,
     SOLAR_OS_SYNTAX_MODE_LUA_LONG_STRING,
     SOLAR_OS_SYNTAX_MODE_LUA_LONG_COMMENT,
+    SOLAR_OS_SYNTAX_MODE_C_COMMENT,
+    SOLAR_OS_SYNTAX_MODE_C_LINE_COMMENT,
+    SOLAR_OS_SYNTAX_MODE_C_STRING,
+    SOLAR_OS_SYNTAX_MODE_C_CHARACTER,
 } solar_os_syntax_mode_t;
 
 typedef struct {
     solar_os_syntax_mode_t mode;
     uint8_t lua_long_equals;
+    bool c_escaped;
+    bool c_continued;
+    bool c_directive;
+    bool c_include;
 } solar_os_syntax_state_t;
 
 solar_os_syntax_language_t solar_os_syntax_language_for_path(const char *path);

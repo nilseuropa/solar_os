@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://solar-os.eu/schemas/solaros-himax-model-bundle.schema.json",
+  "title": "SolarOS Himax camera model bundle, version two",
+  "type": "object", "additionalProperties": false,
+  "required": ["schema", "id", "version", "runtime", "model", "inputs", "outputs", "result", "assets", "license"],
+  "properties": {
+    "schema": {"const": 2},
+    "id": {"$ref": "#/$defs/identity"},
+    "version": {"$ref": "#/$defs/identity"},
+    "runtime": {
+      "type": "object", "additionalProperties": false,
+      "required": ["backend", "version", "target", "provider"],
+      "properties": {
+        "backend": {"const": "himax"}, "version": {"const": "sscma-v0"}, "target": {"const": "hx6538"},
+        "provider": {
+          "type": "object", "additionalProperties": false, "required": ["id", "abi", "capabilities"],
+          "properties": {
+            "id": {"const": "processor-himax"}, "abi": {"const": 1},
+            "capabilities": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true,
+              "items": {"enum": ["capture", "model-select", "model-upload"]}}
+          }
+        },
+        "firmware": {
+          "type": "object", "additionalProperties": false, "minProperties": 1,
+          "properties": {"minimum": {"$ref": "#/$defs/firmware"}, "maximum": {"$ref": "#/$defs/firmware"}}
+        }
+      }
+    },
+    "model": {
+      "type": "object", "additionalProperties": false, "required": ["file", "sha256", "format"],
+      "properties": {"file": {"$ref": "#/$defs/file"}, "sha256": {"$ref": "#/$defs/hash"}, "format": {"const": "tflite-vela"}}
+    },
+    "inputs": {
+      "type": "object", "additionalProperties": false, "required": ["camera"],
+      "properties": {"camera": {
+        "type": "object", "additionalProperties": false, "required": ["adapter", "width", "height", "color"],
+        "properties": {
+          "adapter": {"type": "object", "additionalProperties": false, "required": ["type"], "properties": {"type": {"const": "camera"}}},
+          "width": {"type": "integer", "minimum": 1, "maximum": 4096},
+          "height": {"type": "integer", "minimum": 1, "maximum": 4096}, "color": {"const": "RGB"}
+        }
+      }}
+    },
+    "outputs": {
+      "type": "object", "minProperties": 1, "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "boxes": {"$ref": "#/$defs/boxes"}, "classes": {"$ref": "#/$defs/classes"}, "points": {"$ref": "#/$defs/points"}
+      }
+    },
+    "result": {
+      "type": "object", "additionalProperties": false, "required": ["type", "options"],
+      "properties": {
+        "type": {"enum": ["sscma-detection", "sscma-classification", "sscma-points"]},
+        "options": {
+          "type": "object", "additionalProperties": false, "required": ["labels", "class_count"],
+          "properties": {"labels": {"$ref": "#/$defs/file"}, "class_count": {"type": "integer", "minimum": 1, "maximum": 1024}}
+        }
+      }
+    },
+    "assets": {"type": "object", "maxProperties": 32, "propertyNames": {"$ref": "#/$defs/file"}, "additionalProperties": {"$ref": "#/$defs/hash"}},
+    "license": {
+      "type": "object", "additionalProperties": false, "required": ["id", "file"],
+      "properties": {"id": {"type": "string", "minLength": 1, "maxLength": 63}, "file": {"$ref": "#/$defs/file"}}
+    }
+  },
+  "$defs": {
+    "identity": {"type": "string", "maxLength": 100, "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"},
+    "file": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*//)[^\\\\:\\u0000-\\u001f]+(?<!/)$"},
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "firmware": {"type": "string", "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}$"},
+    "boxes": {"type": "object", "additionalProperties": false, "required": ["format"], "properties": {"format": {"const": "sscma-boxes"}}},
+    "classes": {"type": "object", "additionalProperties": false, "required": ["format"], "properties": {"format": {"const": "sscma-classes"}}},
+    "points": {"type": "object", "additionalProperties": false, "required": ["format"], "properties": {"format": {"const": "sscma-points"}}}
+  }
+}

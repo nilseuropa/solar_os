@@ -19,6 +19,7 @@ The current tree includes these board targets:
 
 | Target | PlatformIO env | Hardware | Highlights |
 | --- | --- | --- | --- |
+| `seeed_sensecap_watcher` | `seeed_sensecap_watcher` | [Seeed Studio SenseCAP Watcher](https://wiki.seeedstudio.com/watcher_hardware_overview/) | 412x412 SPD2010 QSPI display and touch, Himax HX6538 JPEG camera sampling, ES8311/ES7243E audio, microSD, battery ADC, PCF8563 RTC, wheel with push switch, one RGB LED, Wi-Fi, BLE keyboard input, and an optional USB-to-UART console. J2 exposes GPIO19/20 and shared I2C; Grove carries the same I2C bus. See [Watcher](watcher.md). |
 | `solar_term` | `solar_term` | [SolarTerm](https://github.com/nilseuropa/solar_term), built from the Waveshare ESP32-S3-RLCD-4.2 | Primary ST7305 reflective display target with SDMMC, CDC, UART, RTC, SHTC3, battery ADC, ES8311/ES7210 audio, expansion I2C/SPI/UART/GPIO/ADC/PWM, and runtime-routable SPI3 on GPIO1/GPIO2/GPIO3/GPIO17. SolarOS refers to this hardware configuration as SolarTerm. |
 | `solar_writer` | `solar_writer` | SolarWriter, built from the Elecrow CrowPanel 5.79-inch | 792x272 dual-SSD1683 display, ICS-43432 microphone, shared PCM5102A line output and MAX98357A speaker output, DAC/amp power enabled by default on GPIO21, MAX17048G fuel gauge, DS3231MZ RTC, microSD, and CH340/UART console. GPIO18/19/20/38 belong to the I/O board's USB host wiring. |
 | `freenove_esp32_s3_display_4_0` | `freenove_esp32_s3_display_4_0` | Freenove ESP32-S3 Display 4.0-inch (FNK0104S) | Integrated 480x320 ST7796 display, FT6336 capacitive pointer, ES8311 speaker and microphone, four-bit SDMMC, battery ADC, one WS2812B RGB LED, native USB CDC/host switching, and UART/I2C/GPIO expansion connectors. |
@@ -36,6 +37,8 @@ The current tree includes these board targets:
 | `freenove_esp32_wrover_v3` | `freenove_esp32_wrover_v3` | Freenove ESP32-WROVER v3.0 (FNK0060) | Classic ESP32 target with 8 MB PSRAM, CH340/UART console, one-bit SDMMC, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, and a 384x288 monochrome PAL composite display on GPIO25. |
 | `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, a default-attached PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
+| `qemu_esp32s3` | `qemu_esp32s3` | QEMU ESP32-S3 (DevKitC-1-N16R8 layout) | Headless ESP32-S3 target for Espressif's QEMU `esp32s3` machine: the DevKitC-1-N16R8 layout with the shell and console on UART0, since QEMU's USB Serial/JTAG is a stub. No display, Wi-Fi or BLE hardware in the emulator. Build and launch: [Running SolarOS in QEMU](qemu.md). |
+| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | QEMU ESP32-S3 with virtual display | `qemu_esp32s3` plus QEMU's virtual RGB panel as an 800x600 monochrome `display0`, shown in the QEMU window with `-display sdl`. The UART0 shell stays next to the display shell; `session create <app> display0` starts apps on the window. Native window input comes from `qemu-input` as `input0`, with HID keyboard events, absolute touch, and relative mouse support. With `-nic user,model=open_eth`, `qemu-eth` as `eth0` gives network access through the PC and reports as Wi-Fi. Without a QEMU display backend the first frame never completes. Build and launch: [Running SolarOS in QEMU](qemu.md). |
 | `goouuu_esp32_s3cam` | `goouuu_esp32_s3cam` | GOOUUU ESP32-S3CAM | Headless ESP32-S3 camera target with 16 MB flash, 8 MB PSRAM, native USB CDC, CH340/UART console, one-bit SDMMC, an onboard WS2812, Wi-Fi, BLE, and fixed DVP/SCCB camera wiring. Its required `driver.camera-esp32` package exposes OV2640/OV5640 detection and bounded QVGA/VGA JPEG capture through `service.camera`; `cam-webd` adds a single-client MJPEG stream and JPEG snapshots with optional authentication over the shared HTTP server. |
 | `esp32_devkitc_v4_wrover` | `esp32_devkitc_v4_wrover` | Espressif ESP32-DevKitC V4 with ESP32-WROVER-E | Headless classic ESP32 target with PSRAM, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S, graphics through attachable display targets, and no built-in peripherals. |
 | `devkitc1_epaper_workbench` | `esp32_s3_devkitc1_n16r8` with `SOLAR_OS_BOARD=devkitc1_epaper_workbench` | ESP32-S3 DevKitC-1 E-paper Workbench | Manifest-generated development target with fixed CardKB, 400x300 SSD1683 display, and SDSPI storage attachments. |
@@ -54,7 +57,7 @@ RLCD modules without register readback are identified through their reset/TE
 response on GPIO14; the SSD1685 software-reset BUSY pulse distinguishes e-paper.
 
 T-Deck Plus registers its factory L76K or MIA-M10Q receiver as `gnss0` through
-the `nmea` driver, listening at 9600 baud and trying 38400 if needed. Use
+the `nmea` driver, listening at 38400 baud and trying 9600 if needed. Use
 `gnss list` and `gnss fix gnss0` to inspect it. This NMEA path supplies position,
 UTC, and satellite information; position accuracy and PDOP are unavailable.
 The receiver has no independent power control. The standard T-Deck Plus has no
@@ -375,6 +378,7 @@ The current capability flags are:
 | `POINTER` | Board-integrated absolute or relative pointing input. Events carry a source, pointer ID, display target, coordinates, deltas, buttons, and press/move/release action. |
 | `STREAMING_DISPLAY` | The board's primary display has a bounded-cadence raster-frame presenter suitable for animation or games. This is separate from ordinary terminal and GUI drawing. |
 | `CAMERA` | A board-integrated camera interface and fixed pin contract are present. This hardware fact does not by itself imply that a camera driver or capture service is included. |
+| `QEMU` | An emulated board. Virtual input, display, network, and host-directory packages are restricted to these targets. |
 | `TEMPERATURE` | Temperature sensor service. |
 | `HUMIDITY` | Humidity sensor service. |
 

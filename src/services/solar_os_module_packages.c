@@ -37,7 +37,7 @@
 #endif
 
 #define MODULE_CATALOG_MAX_BYTES (32U * 1024U)
-#define MODULE_CATALOG_SCHEMA_VERSION 2U
+#define MODULE_CATALOG_SCHEMA_VERSION 3U
 #define MODULE_SIGNATURE_MAX_BYTES 512U
 #define MODULE_HTTP_TIMEOUT_MS 15000U
 #define MODULE_HTTP_DEADLINE_MS 60000U
@@ -258,8 +258,11 @@ static bool module_capability_available(const char *required)
     return false;
 }
 
+#include "solar_os_module_requirements.inc"
+
 static esp_err_t module_parse_package(const solar_os_json_value_t *value,
                                       const char *release_url,
+                                      uint32_t schema,
                                       solar_os_module_package_t *package)
 {
     if (!solar_os_json_is_object(value) || package == NULL) {
@@ -412,6 +415,9 @@ static esp_err_t module_parse_package(const solar_os_json_value_t *value,
         }
     }
 
+    err = module_parse_requirements(value, schema, package);
+    if (err != ESP_OK) return err;
+
     char installed_path[SOLAR_OS_STORAGE_PATH_MAX];
     bool installed = false;
     if (solar_os_module_package_path(package->type,
@@ -466,7 +472,7 @@ static esp_err_t module_parse_catalog(const uint8_t *body,
                                             &catalog->native_abi);
     }
     if (err != ESP_OK || strcmp(schema, "solaros.module_catalog") != 0 ||
-        schema_version != MODULE_CATALOG_SCHEMA_VERSION ||
+        (schema_version != 2U && schema_version != MODULE_CATALOG_SCHEMA_VERSION) ||
         strcmp(project, "SolarOS") != 0 ||
         catalog->host_version[0] == '\0' || catalog->source_commit[0] == '\0' ||
         catalog->target[0] == '\0' ||
@@ -486,6 +492,7 @@ static esp_err_t module_parse_catalog(const uint8_t *body,
     for (size_t i = 0U; i < count; i++) {
         err = module_parse_package(solar_os_json_array_get(modules, i),
                                    release_url,
+                                   schema_version,
                                    &catalog->packages[i]);
         if (err != ESP_OK) {
             solar_os_json_free(document);
@@ -501,7 +508,7 @@ static esp_err_t module_parse_catalog(const uint8_t *body,
     }
     catalog->count = count;
     solar_os_json_free(document);
-    return ESP_OK;
+    return module_catalog_requirements(catalog);
 }
 
 static esp_err_t module_catalog_decode(const void *body, size_t body_len,
@@ -857,48 +864,14 @@ static esp_err_t module_validate_download(const char *path,
     return err;
 }
 
-esp_err_t solar_os_module_package_install(const char *id,
+static esp_err_t module_install_one(const solar_os_module_package_t *package,
                                           const solar_os_module_install_options_t *options,
                                           solar_os_module_install_result_t *result,
                                           char *detail,
                                           size_t detail_len)
 {
-    if (detail != NULL && detail_len > 0U) {
-        detail[0] = '\0';
-    }
-    if (result != NULL) {
-        memset(result, 0, sizeof(*result));
-    }
-    if (!module_name_valid(id)) {
-        module_set_detail(detail, detail_len, "invalid module name");
-        return ESP_ERR_INVALID_ARG;
-    }
-    if (atomic_exchange(&module_operation_running, true)) {
-        module_set_detail(detail, detail_len, "another module operation is running");
-        return ESP_ERR_INVALID_STATE;
-    }
+    const char *id = package->id;
     esp_err_t err = ESP_OK;
-    solar_os_module_catalog_t *catalog = NULL;
-    err = module_catalog_fetch(&catalog,
-                               options != NULL ? options->should_cancel : NULL,
-                               options != NULL ? options->user : NULL,
-                               detail,
-                               detail_len);
-    if (err != ESP_OK) {
-        goto done;
-    }
-    const solar_os_module_package_t *package = NULL;
-    for (size_t i = 0U; i < catalog->count; i++) {
-        if (strcmp(catalog->packages[i].id, id) == 0) {
-            package = &catalog->packages[i];
-            break;
-        }
-    }
-    if (package == NULL) {
-        module_set_detail(detail, detail_len, "module is not present in the catalog");
-        err = ESP_ERR_NOT_FOUND;
-        goto done;
-    }
     if (!package->compatible) {
         module_set_detail(detail, detail_len, package->incompatibility);
         err = ESP_ERR_NOT_SUPPORTED;
@@ -1057,6 +1030,96 @@ esp_err_t solar_os_module_package_install(const char *id,
         result->bytes = package->artifact_size;
     }
 
+done:
+    return err;
+}
+
+/* A dependency is reusable only when its bytes match the signed catalog.
+ * This also detects a manually replaced library or an older installed version. */
+static bool module_installed_matches(const solar_os_module_package_t *package,
+                                     const solar_os_module_install_options_t *options)
+{
+    char path[SOLAR_OS_STORAGE_PATH_MAX];
+    if (solar_os_module_package_path(package->type, package->id, path, sizeof(path)) != ESP_OK) return false;
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    uint8_t *buffer = solar_os_memory_alloc(4096, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "modules.hash");
+    solar_os_crypto_sha256_t sha;
+    solar_os_crypto_sha256_init(&sha);
+    esp_err_t err = buffer ? solar_os_crypto_sha256_start(&sha) : ESP_ERR_NO_MEM;
+    size_t total = 0;
+    while (err == ESP_OK) {
+        if (module_download_cancelled((void *)options)) { err = ESP_ERR_TIMEOUT; break; }
+        size_t bytes = fread(buffer, 1, 4096, file);
+        if (!bytes) { if (ferror(file)) err = ESP_FAIL; break; }
+        total += bytes;
+        if (total > package->artifact_size) { err = ESP_ERR_INVALID_SIZE; break; }
+        err = solar_os_crypto_sha256_update(&sha, buffer, bytes);
+    }
+    uint8_t digest[SOLAR_OS_CRYPTO_SHA256_LEN];
+    if (err == ESP_OK) err = solar_os_crypto_sha256_finish(&sha, digest);
+    solar_os_crypto_sha256_free(&sha);
+    solar_os_memory_free(buffer);
+    fclose(file);
+    return err == ESP_OK && total == package->artifact_size &&
+        solar_os_crypto_sha256_matches_hex(digest, package->artifact_sha256);
+}
+
+esp_err_t solar_os_module_package_install(const char *id,
+                                          const solar_os_module_install_options_t *options,
+                                          solar_os_module_install_result_t *result,
+                                          char *detail, size_t detail_len)
+{
+    if (detail && detail_len) detail[0] = '\0';
+    if (result) memset(result, 0, sizeof(*result));
+    if (!module_name_valid(id)) {
+        module_set_detail(detail, detail_len, "invalid module name");
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (atomic_exchange(&module_operation_running, true)) {
+        module_set_detail(detail, detail_len, "another module operation is running");
+        return ESP_ERR_INVALID_STATE;
+    }
+    solar_os_module_catalog_t *catalog = NULL;
+    esp_err_t err = module_catalog_fetch(&catalog,
+        options ? options->should_cancel : NULL, options ? options->user : NULL, detail, detail_len);
+    if (err != ESP_OK) goto done;
+    int root = module_catalog_index(catalog, id);
+    if (root < 0) {
+        err = ESP_ERR_NOT_FOUND;
+        module_set_detail(detail, detail_len, "module is not present in the catalog");
+        goto done;
+    }
+    uint8_t state[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX] = {0};
+    uint8_t order[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    bool reuse[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX] = {0};
+    size_t count = 0;
+    err = module_plan_visit(catalog, root, state, order, &count);
+    if (err != ESP_OK) goto done;
+    /* Check every capability and active module before replacing any file. */
+    for (size_t i = 0; i < count; ++i) {
+        const solar_os_module_package_t *package = &catalog->packages[order[i]];
+        if (!package->compatible) {
+            module_set_detail(detail, detail_len, package->incompatibility);
+            err = ESP_ERR_NOT_SUPPORTED;
+            goto done;
+        }
+        reuse[i] = order[i] != root && module_installed_matches(package, options);
+        if (!reuse[i] && (package->type == SOLAR_OS_MODULE_TYPE_APP ?
+            solar_os_native_foreground_active(package->id) :
+            solar_os_native_module_active(package->type, package->id))) {
+            module_set_detail(detail, detail_len, "close or unload active modules before replacing them");
+            err = ESP_ERR_INVALID_STATE;
+            goto done;
+        }
+    }
+    for (size_t i = 0; i < count; ++i) {
+        if (module_download_cancelled((void *)options)) { err = ESP_ERR_TIMEOUT; break; }
+        if (reuse[i]) continue;
+        err = module_install_one(&catalog->packages[order[i]], options,
+                                 order[i] == root ? result : NULL, detail, detail_len);
+        if (err != ESP_OK) break;
+    }
 done:
     solar_os_module_catalog_free(catalog);
     atomic_store(&module_operation_running, false);

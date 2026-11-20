@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_script_runner.h"
+#include "solar_os_media_sample.h"
 
 #define SOLAR_OS_AGENT_ENDPOINT_MAX 256
 #define SOLAR_OS_AGENT_MODEL_MAX 96
@@ -20,6 +21,9 @@
 #define SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS 16U
 #define SOLAR_OS_AGENT_MAX_TOOLS_MIN 1U
 #define SOLAR_OS_AGENT_MAX_TOOLS_MAX 32U
+#define SOLAR_OS_AGENT_IMAGES_MAX 2U
+#define SOLAR_OS_AGENT_IMAGE_BYTES_MAX (512U * 1024U)
+#define SOLAR_OS_AGENT_AUDIO_BYTES_MAX (1024U * 1024U)
 
 typedef enum {
     SOLAR_OS_AGENT_TOOL_POLICY_OFF = 0,
@@ -56,6 +60,7 @@ typedef struct {
 
 typedef esp_err_t (*solar_os_agent_event_fn)(const solar_os_agent_event_t *event,
                                              void *user_data);
+typedef bool (*solar_os_agent_cancel_fn)(void *user_data);
 
 typedef esp_err_t (*solar_os_agent_tool_confirmation_fn)(
     const char *tool_name,
@@ -77,6 +82,12 @@ typedef esp_err_t (*solar_os_agent_script_run_fn)(
 
 typedef struct {
     const char *prompt;
+    /* Borrowed immutable encoded samples, valid until run returns. Total image
+     * bytes are bounded independently of text. No decoding or transcoding. */
+    solar_os_media_sample_t *const *images;
+    size_t image_count;
+    /* Optional borrowed encoded WAV/MP3 sample; held until run returns. */
+    solar_os_media_sample_t *audio;
     /* SolarOS-local durable conversation ID, not a provider response ID. */
     const char *conversation_id;
     /* Shell directory used to resolve relative storage-tool paths. */
@@ -84,6 +95,8 @@ typedef struct {
     char *next_conversation_id;
     size_t next_conversation_id_len;
     solar_os_agent_event_fn event_handler;
+    /* Polled synchronously during provider I/O; must not call an interpreter. */
+    solar_os_agent_cancel_fn should_cancel;
     solar_os_agent_tool_confirmation_fn confirm_tool;
     solar_os_agent_script_run_fn run_script;
     uint32_t script_languages;

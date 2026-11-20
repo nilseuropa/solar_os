@@ -8,6 +8,14 @@
     "vendor": "src/vendor and modules/*/main/vendor retain upstream contracts; linked SDK adapters or guest port shims handle their allocations."
   },
   "exceptions": {
+    "modules/experimental/tinycc/native-qemu/main/main.c": {
+      "calls": {
+        "heap_caps_aligned_alloc": 1,
+        "heap_caps_calloc": 1,
+        "xTaskCreateStaticPinnedToCore": 1
+      },
+      "reason": "Standalone ESP-IDF emulator harness implements the SolarOS memory/thread host tables under test. PSRAM ELF buffers and internal worker stacks stay pinned; joins delete worker tasks before freeing their stacks. This harness is not linked into SolarOS firmware."
+    },
     "src/apps/solar_os_writer_buffer.c": {
       "calls": {
         "malloc": 1

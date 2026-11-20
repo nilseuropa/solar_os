@@ -186,8 +186,8 @@ esp_err_t gpio_config(const gpio_config_t *config)
 }
 
 int gpio_get_level(gpio_num_t pin) { return trackball_levels[pin]; }
-esp_err_t gpio_install_isr_service(int flags)
-{ assert(flags == 0); return ESP_ERR_INVALID_STATE; /* Already shared with BOOT. */ }
+esp_err_t solar_os_gpio_isr_service_ensure(void)
+{ return ESP_OK; /* Already shared with BOOT. */ }
 esp_err_t gpio_isr_handler_add(gpio_num_t pin, void (*handler)(void *), void *arg)
 {
     if (pin == fail_trackball_pin) return ESP_FAIL;

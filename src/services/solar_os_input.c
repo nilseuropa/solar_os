@@ -1415,13 +1415,18 @@ void solar_os_input_source_release_all(solar_os_input_source_t source)
         const solar_os_input_key_event_t release = input_release_event(&input_pressed[i].event, 0);
         if (input_queue_push_locked(&release)) {
             input_record_key_locked(&release);
+            memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
+        } else {
+            /* Retain the neutral transition until a consumer can drain it. */
+            input_pressed[i].event = release;
+            input_wake_generation++;
         }
-        memset(&input_pressed[i], 0, sizeof(input_pressed[i]));
     }
     if (input_repeat.active && input_repeat.source == source) {
         memset(&input_repeat, 0, sizeof(input_repeat));
     }
     portEXIT_CRITICAL(&input_lock);
+    input_notify_wake();
 }
 
 void solar_os_input_source_close(solar_os_input_source_t source)

@@ -363,9 +363,11 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(headless["app_zoo"])
         self.assertTrue(headless["service_zoo"])
         self.assertTrue(headless["service_inference"])
+        self.assertTrue(headless["job_model_upload"])
         classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
         self.assertFalse(classic["app_zoo"])
         self.assertFalse(classic["service_zoo"])
+        self.assertFalse(classic["job_model_upload"])
         for caps in ({"wifi"}, {"psram"}, set()):
             _, pruned = generate_flavor_config.apply_board_capability_pruning(self.catalog, groups, packages, caps)
             self.assertFalse(pruned["app_zoo"])

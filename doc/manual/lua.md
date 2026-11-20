@@ -38,6 +38,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 
 | Topic | Services |
 | --- | --- |
+| [AOgmaNeo online learning](aogmaneo.md) | `solaros.aogmaneo` predictive hierarchies, actors and image encoding |
 | [Storage and files](lua.storage.md) | `solaros.storage` |
 | [Time and scheduling](lua.time.md) | `solaros.time`, `solaros.rtc`, `solaros.schedule` |
 | [Networking](lua.network.md) | `solaros.wifi`, `solaros.mqtt`, `solaros.http`, `solaros.net`, `solaros.ftp`, `solaros.sftpsync`, `solaros.ssh_keys` |
@@ -56,6 +57,7 @@ Open a topic below, or use its ID with `man` on the device, for example
 | [Camera, streams, and RTSP](lua.media.md) | `solaros.streams`, `solaros.camera`, `solaros.rtsp` |
 | [Computer vision](vision.md) | `solaros.vision` |
 | [Model inference](inference.md) | `solaros.inference` |
+| [Agent text, image, and audio questions](lua.agent.md) | `solaros.agent` |
 | [Native image pipelines](pipelines.md) | `solaros.pipeline` |
 
 ## Top-Level Helpers

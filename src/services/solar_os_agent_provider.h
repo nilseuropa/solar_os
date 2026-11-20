@@ -41,6 +41,9 @@ typedef struct {
 
 typedef struct {
     const char *prompt;
+    solar_os_media_sample_t *const *images;
+    size_t image_count;
+    solar_os_media_sample_t *audio;
     const solar_os_agent_history_message_t *history;
     size_t history_count;
     const solar_os_agent_tool_descriptor_t *tools;
@@ -80,6 +83,8 @@ typedef struct {
 #define SOLAR_OS_AGENT_PROVIDER_CAP_STREAMING (1U << 0)
 #define SOLAR_OS_AGENT_PROVIDER_CAP_TOOLS (1U << 1)
 #define SOLAR_OS_AGENT_PROVIDER_CAP_USAGE (1U << 2)
+#define SOLAR_OS_AGENT_PROVIDER_CAP_IMAGES (1U << 3)
+#define SOLAR_OS_AGENT_PROVIDER_CAP_AUDIO (1U << 4)
 
 void solar_os_agent_provider_bind_request(solar_os_http_request_t *request);
 void solar_os_agent_provider_unbind_request(solar_os_http_request_t *request);

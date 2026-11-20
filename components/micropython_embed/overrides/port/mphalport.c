@@ -27,6 +27,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdatomic.h>
 
 #include "esp_log.h"
 #include "esp_random.h"
@@ -37,8 +38,49 @@
 
 #define SOLAR_OS_MICROPYTHON_HOOK_BRANCH_MASK 0x03ffU
 #define SOLAR_OS_MICROPYTHON_YIELD_MS 5U
+#define SOLAR_OS_MICROPYTHON_CLEANUP_MS 1000U
 
 static const char *TAG = "mp_vm";
+bool solar_os_micropython_stop_requested(void);
+static atomic_bool interrupt_scheduled;
+static bool interrupt_delivered;
+static TickType_t interrupt_delivery_tick;
+
+void solar_os_micropython_interrupt_reset(void) {
+    atomic_store(&interrupt_scheduled, false);
+    interrupt_delivered = false;
+}
+
+/* The UI may request cancellation while a native call is still running.
+ * Queue one exception; synchronous cancellation checks consume that same
+ * exception instead of raising another one during finally unwinding. */
+void solar_os_micropython_request_interrupt(void) {
+    if (!atomic_exchange(&interrupt_scheduled, true)) {
+        ESP_LOGI(TAG, "script cancellation requested");
+        mp_sched_keyboard_interrupt();
+    }
+}
+
+static void solar_os_micropython_poll_interrupt(void) {
+    if (!solar_os_micropython_stop_requested()) return;
+    solar_os_micropython_request_interrupt();
+    if (MP_STATE_THREAD(mp_pending_exception) != MP_OBJ_NULL) return;
+    const TickType_t now = xTaskGetTickCount();
+    if (!interrupt_delivered) {
+        interrupt_delivered = true;
+        interrupt_delivery_tick = now;
+    } else if ((TickType_t)(now - interrupt_delivery_tick) >=
+               pdMS_TO_TICKS(SOLAR_OS_MICROPYTHON_CLEANUP_MS)) {
+        /* Cancellation stays sticky after a bounded cleanup interval, also
+         * for in-task runners without a separate task to force-stop. */
+        mp_sched_keyboard_interrupt();
+    }
+}
+
+void solar_os_micropython_check_interrupt(void) {
+    solar_os_micropython_poll_interrupt();
+    mp_handle_pending(true);
+}
 
 uint32_t solar_os_micropython_random_seed(void) {
     return esp_random();
@@ -55,17 +97,7 @@ __attribute__((weak)) void solar_os_micropython_stdout(const char *str, size_t l
 void solar_os_micropython_vm_hook(void) {
     static uint32_t branch_count;
     static TickType_t last_yield_tick;
-    static bool stop_logged;
-
-    if (solar_os_micropython_stop_requested()) {
-        if (!stop_logged) {
-            ESP_LOGI(TAG, "stop requested visible in VM hook");
-            stop_logged = true;
-        }
-        mp_sched_keyboard_interrupt();
-    } else {
-        stop_logged = false;
-    }
+    solar_os_micropython_poll_interrupt();
 
     branch_count++;
     if ((branch_count & SOLAR_OS_MICROPYTHON_HOOK_BRANCH_MASK) == 0) {

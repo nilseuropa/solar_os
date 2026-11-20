@@ -8,6 +8,7 @@ typedef struct {
 } board_capability_name_t;
 
 static const board_capability_name_t capability_names[] = {
+    {SOLAR_OS_BOARD_CAP_QEMU, "qemu"},
     {SOLAR_OS_BOARD_CAP_PSRAM, "psram"},
     {SOLAR_OS_BOARD_CAP_DISPLAY, "display"},
     {SOLAR_OS_BOARD_CAP_GFX, "gfx"},
@@ -51,6 +52,7 @@ static const board_capability_name_t capability_names[] = {
 solar_os_board_capabilities_t solar_os_board_capabilities(void)
 {
     return
+        (SOLAR_OS_BOARD_HAS_QEMU ? SOLAR_OS_BOARD_CAP_QEMU : 0U) |
         (SOLAR_OS_BOARD_HAS_DISPLAY ? SOLAR_OS_BOARD_CAP_DISPLAY : 0U) |
         (SOLAR_OS_BOARD_HAS_GFX ? SOLAR_OS_BOARD_CAP_GFX : 0U) |
         (SOLAR_OS_BOARD_HAS_CDC ? SOLAR_OS_BOARD_CAP_CDC : 0U) |

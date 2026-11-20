@@ -1,0 +1,5 @@
+cmake_minimum_required(VERSION 3.16)
+get_filename_component(SOLAR_ROOT "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
+list(APPEND EXTRA_COMPONENT_DIRS "${SOLAR_ROOT}/managed_components/espressif__elf_loader")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(solar_tcc_probe)

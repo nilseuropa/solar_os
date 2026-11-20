@@ -1684,9 +1684,10 @@ esp_err_t solar_os_audio_register_streams(void)
                                SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN;
         strlcpy(device.capture_stream, capture_id,
                 sizeof(device.capture_stream));
-        device.input_gain_min_db = 0.0f;
-        device.input_gain_max_db = 37.5f;
-        device.input_gain_step_db = 3.0f;
+        device.input_gain_min_db = backend_info.input_gain_min_db;
+        device.input_gain_max_db = backend_info.input_gain_max_db > backend_info.input_gain_min_db ?
+            backend_info.input_gain_max_db : 37.5f;
+        device.input_gain_step_db = backend_info.input_gain_step_db > 0 ? backend_info.input_gain_step_db : 3.0f;
     }
     const solar_os_audio_device_ops_t device_ops = {
         .set_volume = audio_board_device_set_volume,

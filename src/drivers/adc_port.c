@@ -171,19 +171,18 @@ esp_err_t adc_port_configure_pin(gpio_num_t pin, adc_atten_t atten, adc_bitwidth
     esp_err_t ret = adc_port_ensure_unit_locked(unit);
     if (ret == ESP_OK) {
         adc_port_channel_state_t *state = &adc_channels[unit_index][channel];
-        if (state->configured &&
-            state->atten == atten &&
-            state->bitwidth == bitwidth) {
-            xSemaphoreGive(adc_mutex);
-            return ESP_OK;
-        }
-
         adc_oneshot_chan_cfg_t channel_config = {
             .atten = atten,
             .bitwidth = bitwidth,
         };
         ret = adc_oneshot_config_channel(adc_units[unit_index], channel, &channel_config);
         if (ret == ESP_OK) {
+            /* Another owner (USB, GPIO, or a bus) may have changed the pin mux
+             * since the previous sample. Reapply I/O, but retain calibration. */
+            if (state->configured && state->atten == atten && state->bitwidth == bitwidth) {
+                xSemaphoreGive(adc_mutex);
+                return ESP_OK;
+            }
             state->configured = true;
             state->atten = atten;
             state->bitwidth = bitwidth;

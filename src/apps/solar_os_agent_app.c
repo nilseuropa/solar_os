@@ -13,6 +13,8 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "solar_os_agent.h"
+#include "solar_os_agent_images.h"
+#include "solar_os_media_sample_source.h"
 #include "solar_os_config.h"
 #include "solar_os_identity.h"
 #include "solar_os_keys.h"
@@ -67,6 +69,8 @@ typedef struct {
     TaskHandle_t task;
     solar_os_context_t *ctx;
     char *prompt;
+    char image_sources[SOLAR_OS_AGENT_IMAGES_MAX][SOLAR_OS_MEDIA_SAMPLE_SOURCE_MAX];
+    size_t image_count;
     char *script_output;
     agent_app_mode_t mode;
     solar_os_script_input_t script_input;
@@ -701,7 +705,33 @@ static void agent_app_task(void *arg)
                 0U,
             .user_data = &agent_app,
         };
-        (void)solar_os_agent_run(&request);
+        solar_os_media_sample_t *images[SOLAR_OS_AGENT_IMAGES_MAX] = {0};
+        solar_os_agent_request_t image_request = request;
+        image_request.images = images;
+        image_request.image_count = agent_app.image_count;
+        esp_err_t image_error = ESP_OK;
+        size_t remaining = SOLAR_OS_AGENT_IMAGE_BYTES_MAX;
+        for (size_t i = 0; i < agent_app.image_count && !image_error; i++) {
+            const char *source = agent_app.image_sources[i];
+            char path[SOLAR_OS_STORAGE_PATH_MAX];
+            if (strncmp(source,"stream:",7) && strncmp(source,"rtsp://",7) && strncmp(source,"pipeline:",9)) {
+                image_error = solar_os_shell_resolve_path(agent_app.ctx,source,path,sizeof(path));
+                source = path;
+            }
+            const solar_os_media_sample_source_options_t options = {.owner="app:agent",
+                .max_bytes=remaining,.timeout_ms=5000,.cancel=agent_app_script_cancel_requested,.user=&agent_app};
+            if (!image_error) image_error = remaining ?
+                solar_os_media_sample_source_read(source,&options,&images[i]) : ESP_ERR_INVALID_SIZE;
+            if (!image_error) image_error = solar_os_agent_images_validate(images,i+1);
+            if (!image_error) remaining -= solar_os_media_sample_image(images[i])->length;
+        }
+        if (!image_error && !agent_app.stopping) (void)solar_os_agent_run(&image_request);
+        else if (!agent_app.stopping) {
+            solar_os_agent_event_t failed = {.type=SOLAR_OS_AGENT_EVENT_DONE};
+            snprintf(failed.text,sizeof(failed.text),"image attachment: %s",esp_err_to_name(image_error));
+            (void)agent_app_send_event(&failed);
+        }
+        for (size_t i = 0; i < SOLAR_OS_AGENT_IMAGES_MAX; i++) solar_os_media_sample_release(images[i]);
     } else {
         const char *argv[SOLAR_OS_APP_ARG_MAX] = {
             agent_app.script_input == SOLAR_OS_SCRIPT_INPUT_SOURCE
@@ -747,6 +777,8 @@ static void agent_app_task(void *arg)
 
 static void agent_app_cleanup_turn(void)
 {
+    agent_app.image_count = 0;
+    memset(agent_app.image_sources,0,sizeof(agent_app.image_sources));
     if (agent_app.prompt != NULL) {
         solar_os_memory_free(agent_app.prompt);
         agent_app.prompt = NULL;
@@ -1065,6 +1097,12 @@ static esp_err_t agent_app_submit_chat(solar_os_context_t *ctx)
         return ESP_ERR_NO_MEM;
     }
     memcpy(agent_app.prompt, agent_app.input, size);
+    esp_err_t image_error = solar_os_agent_image_options(agent_app.prompt,
+        agent_app.image_sources,&agent_app.image_count);
+    if (image_error) {
+        solar_os_memory_free(agent_app.prompt); agent_app.prompt = NULL;
+        return image_error;
+    }
     memset(agent_app.input, 0, sizeof(agent_app.input));
     agent_app.input_len = 0;
     solar_os_shell_io_newline(agent_app_io(ctx));
@@ -1152,7 +1190,7 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
     }
 
     solar_os_agent_status_t status = {0};
-    esp_err_t err;
+    esp_err_t err = ESP_OK;
     if (chat_mode || ask_mode || raw_ask_mode) {
         agent_app.mode =
             chat_mode ? AGENT_APP_MODE_CHAT : AGENT_APP_MODE_ASK;
@@ -1195,10 +1233,22 @@ static esp_err_t agent_app_start(solar_os_context_t *ctx)
                     info.id,
                     sizeof(agent_app.conversation_id));
         }
-        err = chat_mode ? ESP_OK :
-            (raw_ask_mode ?
-                agent_app_build_raw_prompt(ctx, command_index + 1) :
-                agent_app_build_prompt(ctx, command_index + 1));
+        int prompt_index = command_index + 1;
+        if (ask_mode) {
+            while (prompt_index < argc && !strcmp(solar_os_context_argv(ctx,prompt_index),"--image")) {
+                if (agent_app.image_count == SOLAR_OS_AGENT_IMAGES_MAX || ++prompt_index >= argc ||
+                    strlen(solar_os_context_argv(ctx,prompt_index)) >= SOLAR_OS_MEDIA_SAMPLE_SOURCE_MAX) {
+                    err = ESP_ERR_INVALID_ARG; break;
+                }
+                strlcpy(agent_app.image_sources[agent_app.image_count++],solar_os_context_argv(ctx,prompt_index++),
+                    SOLAR_OS_MEDIA_SAMPLE_SOURCE_MAX);
+            }
+            if (prompt_index < argc && !strcmp(solar_os_context_argv(ctx,prompt_index),"--")) prompt_index++;
+        }
+        if (!err) err = chat_mode ? ESP_OK :
+            (raw_ask_mode ? agent_app_build_raw_prompt(ctx, command_index + 1) : agent_app_build_prompt(ctx,prompt_index));
+        if (!err && raw_ask_mode) err = solar_os_agent_image_options(agent_app.prompt,
+            agent_app.image_sources,&agent_app.image_count);
     } else {
         err = agent_app_build_script(ctx);
     }

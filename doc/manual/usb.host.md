@@ -2,9 +2,9 @@
 id = "usb.host"
 title = "USB host"
 section = "hardware"
-summary = "Use USB input, serial adapters, and one FAT storage drive through the ESP32-S3 internal PHY"
+summary = "Select USB off/device/host mode and use input, serial adapters, or FAT storage"
 aliases = ["usb-host"]
-keywords = "usb host hub hid keyboard mouse joystick gamepad controller hat axis buttons cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
+keywords = "usb off device host gpio pins release hub hid keyboard mouse joystick gamepad controller cdc otg phy power storage msc flash drive floppy ufi cbi fat usb0"
 packages_any = ["service_usb_host", "service_usb_storage", "service_usb_serial"]
 +++
 # USB host
@@ -14,10 +14,65 @@ runtime USB mode switching when `service.usb-host` is compiled. Access may be
 through a native USB connector, expansion header, or breakout pads; a
 USB–UART connector alone does not provide native USB data access.
 
-Every boot starts in device mode. Boards with native CDC expose their
-CDC/Serial-JTAG port in this mode; boards with only a UART console leave the
-native USB host idle. The selected mode is volatile and is not saved across
-a restart. Native CDC support is not required for hosting.
+Boards with native CDC normally boot in device mode. Watcher explicitly boots
+with USB off; boards without native CDC also boot off. Mode selection is
+volatile: restarting restores the board's boot policy. Native CDC support is
+not required for hosting. Off-at-boot takes effect during SolarOS startup and
+does not change the chip's ROM boot behavior.
+
+## Release the USB pins
+
+`usb mode off` stops USB, disables its data pads and pull resistors, and
+releases GPIO19/20. Both pins return to a disabled, high-impedance GPIO state.
+Use them through the ordinary GPIO, ADC, PWM, and runtime bus APIs where the
+board exposes them as free or releasable expansion pins. Pins declared fixed
+for board wiring remain unavailable to general GPIO even with USB off.
+
+`usb mode device` enables the compiled native CDC/Serial-JTAG device;
+`usb mode host` enables peripherals. Either active mode claims the data pair
+and the internal PHY. An existing GPIO or peripheral owner prevents USB from
+starting; release that owner first. Active USB likewise prevents another
+service from taking the pins. Switching off never stops another pin owner or
+changes its configuration. On profiles without native CDC, the older
+`usb mode device` command remains an alias for off.
+
+Close USB files and release `cdc0` or USB serial owners before switching off.
+Run mode changes from the display, UART, or a network shell when the USB
+connection itself will disappear. Stopping a logging job alone does not
+disable CDC; use `usb mode off` to release the USB pins.
+
+Software pin ownership cannot disconnect board wiring or an attached USB
+cable. Isolate the native USB data pair from active USB hardware before using
+it for unrelated GPIO signals.
+
+## Connect to a computer
+
+On boards with native CDC, select device mode to expose the USB Serial/JTAG
+port to a computer. This also works after using GPIO19/20 for GPIO or ADC:
+
+```text
+usb mode device
+usb status
+```
+
+The port enumerates even without a shell attached to `cdc0`. On Linux it
+normally appears as `/dev/ttyACM*`; the number can change after reconnection.
+For an interactive USB shell, run `session create shell cdc0` from another
+shell after releasing any existing `cdc0` owner.
+
+Off and host modes remove the native USB device from the computer. Select
+device mode from the display, UART, or a network shell to reconnect it.
+USB-to-UART bridge connectors use separate hardware and remain available
+across native USB mode changes. Watcher's bottom programming connector is
+such a bridge; its optional native USB data pair is on J2.
+
+If running firmware leaves no native USB port available for flashing, enter
+ROM download mode with the board's BOOT/RESET controls: hold BOOT, press and
+release RESET, then release BOOT. Wait for the computer's port to appear and
+select its current name before flashing. On T-Deck Plus, BOOT is the
+trackball's centre push button. See the
+[Espressif USB recovery guide](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s3/api-guides/usb-serial-jtag-console.html#usb-pin-reconfiguration)
+and [LilyGO download instructions](https://github.com/Xinyuan-LilyGO/T-Deck/blob/master/firmware/README.MD).
 
 ## USB hubs
 
@@ -108,6 +163,7 @@ ground to a suitable USB host connector. The following target profiles enable
 | Target | Native USB data access |
 | --- | --- |
 | `solar_term` | Native USB connector and GPIO expansion header |
+| `seeed_sensecap_watcher` | J2 GPIO19/20; native USB defaults off, console on the display |
 | `esp32_s3_devkitc1_n16r8`, `devkitc1_epaper_workbench` | Native USB connector and GPIO19/20 headers |
 | `cl_32` | Native USB connector and EX1 D−/D+ pins |
 | `goouuu_esp32_s3cam` | Native USB connector and J2 GPIO19/20 pins |
@@ -129,7 +185,7 @@ onboard hub, modem, and PC before connecting a peripheral directly. USB host
 mode supports the HID and storage devices described here; it does not provide
 USB modem support.
 
-On CrowPanel, GPIO19/20 remain general expansion pins outside host mode.
+On CrowPanel, GPIO19/20 remain general expansion pins while USB is off.
 Release any GPIO, ADC, PWM, or bus owner before enabling hosting. The host
 service claims both pins and the USB PHY until hosting stops, including
 while suspended for explicit sleep.
@@ -177,11 +233,13 @@ signals are accessible and available for USB use.
 
 ```text
 usb status
+usb mode off
 usb mode host
 usb devices
 input sources
 input test usb-kbd0
 usb mode device
+usb mode off
 ```
 
 `usb mode host` enables hosting and confirms the selected mode. Enumeration
@@ -278,13 +336,12 @@ images backed by USB files first: open files prevent mode changes and explicit
 sleep. USB is not an explicit-sleep wake source.
 The external peripheral supply remains under hardware control.
 
-Switching to device mode disables the USB root port, drains HID disconnects,
-and uninstalls the host stack before restoring CDC on boards that provide it.
-On UART-only boards, device mode leaves the native USB host idle.
-A failed host startup
-attempts to restore device mode. A failed cleanup retains USB ownership and
-reports `fault`; retry `usb mode device`. Restarting also returns to device
-mode.
+Switching out of host mode disables the USB root port, drains HID disconnects,
+and uninstalls the host stack. Device mode then restores CDC; off releases the
+pins. A failed host startup attempts to restore the preceding off or device
+mode. Failed cleanup retains USB ownership and reports `fault`; retry
+`usb mode off` before enabling USB again. During explicit sleep, host mode
+retains its pin claims until wake or a failed resume has safely stopped USB.
 
 ## Quick reference
 
@@ -295,5 +352,10 @@ lists supported input interfaces and, with `service.usb-storage`, one connected
 FAT USB flash or UFI/CBI floppy drive. Input sources appear as `usb-kbdN`,
 `usb-mouseN`, and `usb-joyN`; storage mounts at `/usb0` and appears in
 `disk lsblk`. Close USB files and run `disk umount usb0` before unplugging.
-Use `usb mode device` to stop hosting and restore native CDC/JTAG where
-available, or retry recovery. Every reboot starts in device mode.
+Use `usb mode off` to stop USB and release GPIO19/20, or `usb mode device`
+to restore compiled native CDC/JTAG. Release conflicting owners first.
+Watcher boots with USB off and its GPIO19/20 free; other CDC profiles normally
+boot in device mode. Every restart restores the board policy.
+Device mode exposes the computer's USB serial port independently of a `cdc0`
+shell. If flashing needs recovery, hold BOOT while resetting to enter ROM
+download mode; on T-Deck Plus, BOOT is the trackball's centre push button.

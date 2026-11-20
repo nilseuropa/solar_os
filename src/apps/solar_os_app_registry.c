@@ -156,6 +156,9 @@
 #if SOLAR_OS_PACKAGE_APP_VIEW
 #include "solar_os_view.h"
 #endif
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+#include "solar_os_photo.h"
+#endif
 #if SOLAR_OS_PACKAGE_APP_VPLAY
 #include "solar_os_vplay.h"
 #endif
@@ -192,7 +195,7 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
     APP_ENTRY("contacts", "provider-neutral address book", &solar_os_contacts_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "contacts", 1, 1),
 #endif
 #if SOLAR_OS_PACKAGE_APP_AGENT
-    APP_ENTRY("agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "agent [--tts] [new|resume <id>|ask <prompt...>] | agent script <file> [args...]", 1, 0),
+    APP_ENTRY("agent", "native LLM agent", &solar_os_agent_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "agent [--tts] [new|resume <id>|ask [--image SOURCE] <prompt...>] | agent script <file> [args...]", 1, 0),
 #endif
 #if SOLAR_OS_PACKAGE_APP_CURL
     APP_ENTRY("curl", "HTTP client", &solar_os_curl_app, SOLAR_OS_APP_CAP_TEXT | SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_PORT, "curl [-L] [-o file] <URL>", 2, 0),
@@ -311,6 +314,9 @@ static const solar_os_app_registry_entry_t registered_apps[] = {
 #endif
 #if SOLAR_OS_PACKAGE_APP_VIEW
     APP_FILE_ENTRY("view", "image viewer", &solar_os_view_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "view [-fit|-actual] <image>", 2, 3, ".png .jpg .jpeg .gif .webp .bmp .pnm .pbm .pgm .ppm"),
+#endif
+#if SOLAR_OS_PACKAGE_APP_PHOTO
+    APP_ENTRY("photo", "live viewfinder and JPEG capture", &solar_os_photo_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "photo [stream|rtsp://URL] [--dir DIR] [--key KEY] [--size WIDTHxHEIGHT] [--fullscreen]", 1, 8),
 #endif
 #if SOLAR_OS_PACKAGE_APP_VPLAY
     APP_FILE_ENTRY("vplay", "MPEG-1 media player", &solar_os_vplay_app, SOLAR_OS_APP_CAP_GRAPHICS | SOLAR_OS_APP_CAP_DISPLAY, "vplay [-fit|-actual] [file.mpg|playlist.m3u]", 1, 3, ".mpg .mpeg"),

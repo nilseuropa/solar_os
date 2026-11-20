@@ -39,7 +39,7 @@ extern bool solar_os_micropython_stop_requested(void);
 
 static void solar_os_file_check_cancel(void) {
     if (solar_os_micropython_stop_requested()) {
-        mp_raise_type(&mp_type_KeyboardInterrupt);
+        solar_os_micropython_check_interrupt();
     }
 }
 

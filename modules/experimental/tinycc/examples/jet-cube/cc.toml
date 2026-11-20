@@ -1,0 +1,3 @@
+sources = ["main.c"]
+output = "/modules/apps/jet-cube.elf"
+dependencies = [{ id = "jet", version = "1.12.0" }]

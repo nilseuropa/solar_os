@@ -200,7 +200,7 @@ class RtspAppTest(unittest.TestCase):
         self.assertIn("status.video && !direct", APP)
         self.assertIn("if (!direct || rtsp.layout_dirty) solar_os_gfx_clear", APP)
         self.assertIn("if (chrome) solar_os_gfx_present", APP)
-        self.assertIn("solar_os_gfx_present_frame(gfx, &frame)", APP)
+        self.assertIn("solar_os_gfx_present_frame_at(gfx, &frame", APP)
         tft = (ROOT / "src/drivers/tft_ili9341.c").read_text()
         self.assertIn("solar_os_rgb565_rotate", tft)
         self.assertIn("solar_os_rgb565_scale_row", tft)

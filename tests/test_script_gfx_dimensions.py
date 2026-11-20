@@ -18,17 +18,14 @@ class ScriptGfxDimensionsTest(unittest.TestCase):
 typedef struct {unsigned width,height;} u8g2_t;
 typedef struct {u8g2_t *u8g2;} solar_os_gfx_t;
 typedef struct {uint16_t width,height;} solar_os_display_target_t;
+typedef struct {int x,y,width,height;} solar_os_display_rect_t;
 static bool registered=true;
 static solar_os_display_target_t target={400,240};
 static bool gfx_ready(const solar_os_gfx_t *g) {return g && g->u8g2;}
-static bool solar_os_gfx_display_target_name(const solar_os_gfx_t *g,char *out,size_t n) {
-    (void)g;(void)out;(void)n;return registered;
+static solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *g) {
+    return (solar_os_display_rect_t){0,0,registered?target.width:g->u8g2->width,
+        registered?target.height:g->u8g2->height};
 }
-static bool solar_os_display_find_target(const char *n,solar_os_display_target_t *out) {
-    (void)n;*out=target;return true;
-}
-static unsigned u8g2_GetDisplayWidth(u8g2_t *u) {return u->width;}
-static unsigned u8g2_GetDisplayHeight(u8g2_t *u) {return u->height;}
 '''
         source += production_functions((ROOT / 'src/services/solar_os_gfx.c').read_text(),
                                        ('solar_os_gfx_dimensions',))

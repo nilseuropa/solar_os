@@ -67,6 +67,7 @@ typedef struct {
     bool palette_inverted;
     solar_os_terminal_profile_t terminal_profile;
     solar_os_display_scale_t scale;
+    solar_os_display_geometry_t geometry;
     solar_os_display_layer_t *layer;
     uint8_t *layer_original_logical;
     bool layer_color;
@@ -638,6 +639,8 @@ static bool display_snapshot_slot(size_t slot_index, solar_os_display_target_t *
             slot->scale.physical_info->pixel_width) / slot->scale.factor;
         target->height = (rotated ? slot->scale.physical_info->pixel_width :
             slot->scale.physical_info->pixel_height) / slot->scale.factor;
+        target->panel = slot->geometry.panel;
+        target->canvas = slot->geometry.canvas;
         valid = true;
     }
     if (slot->generation == generation && slot->refs > 0) {
@@ -669,6 +672,7 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
     strlcpy(target.role, DISPLAY_BOARD_ROLE, sizeof(target.role));
     target.width = solar_os_board_display_width(display);
     target.height = solar_os_board_display_height(display);
+    target.round = display->round;
     target.ready = solar_os_board_display_ready(display);
     target.epaper = display->epaper;
     target.brightness_supported = solar_os_board_display_brightness_supported(display);
@@ -813,6 +817,10 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.base_rotation = target->u8g2->cb;
     slot->terminal_profile = terminal_profile;
     solar_os_display_scale_init(&slot->scale, target->u8g2);
+    solar_os_display_geometry_init(&slot->geometry, slot->scale.physical_info->pixel_width,
+        slot->scale.physical_info->pixel_height, target->round);
+    u8g2_SetUserPtr(target->u8g2, &slot->geometry);
+    solar_os_display_geometry_sync_rotation(target->u8g2);
     slot->terminal_profile.scale = 1;
     slot->palette_inverted = terminal_profile.palette_inverted;
     display_init_slot_gfx(slot);
@@ -881,6 +889,7 @@ esp_err_t solar_os_display_unregister_targets(const char *const *names,
     for (size_t i = 0U; i < count; i++) {
         display_target_slot_t *slot = &display_targets[slot_indices[i]];
         solar_os_display_scale_destroy(&slot->scale);
+        u8g2_SetUserPtr(slot->target.u8g2, NULL);
         portENTER_CRITICAL(&display_targets_lock);
         const uint32_t generation = slot->generation;
         memset(slot, 0, sizeof(*slot));
@@ -1041,6 +1050,7 @@ esp_err_t solar_os_display_set_terminal_profile(
         }
     }
     if (err == ESP_OK) {
+        solar_os_display_geometry_update(&slot->geometry, slot->geometry.rotation, factor);
         portENTER_CRITICAL(&display_targets_lock);
         slot->terminal_profile = *profile;
         slot->terminal_profile.scale = factor;
@@ -1051,6 +1061,30 @@ esp_err_t solar_os_display_set_terminal_profile(
     }
     xSemaphoreGive(mutex);
     display_release_slot_ref(slot_index, generation);
+    return err;
+}
+
+esp_err_t solar_os_display_set_canvas(const char *name, const solar_os_display_rect_t *canvas)
+{
+    if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX)) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&display_targets_lock);
+    const int index = display_find_slot_locked(name);
+    if (index < 0) { portEXIT_CRITICAL(&display_targets_lock); return ESP_ERR_NOT_FOUND; }
+    display_target_slot_t *slot = &display_targets[index];
+    slot->refs++;
+    const uint32_t generation = slot->generation;
+    portEXIT_CRITICAL(&display_targets_lock);
+    xSemaphoreTake(slot->present_mutex, portMAX_DELAY);
+    portENTER_CRITICAL(&display_targets_lock);
+    const bool busy = slot->terminal_blocked || slot->overlay_active || slot->relax_active ||
+        slot->power_state_active || slot->layer || strncmp(slot->target.owner, "display-layout:", 15U) == 0;
+    esp_err_t err = busy ? ESP_ERR_INVALID_STATE : ESP_OK;
+    if (err == ESP_OK && !solar_os_display_geometry_set_canvas(&slot->geometry, canvas))
+        err = ESP_ERR_INVALID_ARG;
+    if (err == ESP_OK) slot->terminal_epoch++;
+    portEXIT_CRITICAL(&display_targets_lock);
+    xSemaphoreGive(slot->present_mutex);
+    display_release_slot_ref(index, generation);
     return err;
 }
 

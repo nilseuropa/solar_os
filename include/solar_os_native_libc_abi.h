@@ -19,4 +19,7 @@ typedef struct {
     float (*log_float)(float value);
     float (*pow_float)(float value, float exponent);
     float (*sqrt_float)(float value);
+    /* Optional appended methods. Check struct_size through each field before use. */
+    double (*parse_double)(const char *text, char **end);
+    double (*scale_double)(double value, int exponent);
 } solar_os_native_libc_api_v1_t;

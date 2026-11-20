@@ -9,7 +9,7 @@ agent_reference_sections = true
 +++
 # Native media and inference
 
-[Native ELF modules](commands.md#native-elf-modules) · [Computer vision](vision.md) · [Model inference](inference.md)
+[Native ELF modules](native-modules.md) · [Computer vision](vision.md) · [Model inference](inference.md)
 
 Native ELF applications and resident job modules discover host-owned services
 through a versioned function table. They compile against public headers in

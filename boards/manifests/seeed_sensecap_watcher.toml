@@ -1,0 +1,507 @@
+schema = 1
+
+[board]
+id = "seeed_sensecap_watcher"
+name = "Seeed Studio SenseCAP Watcher"
+vendor = "Seeed Studio"
+module = "ESP32-S3R8 (32 MB QSPI flash / 8 MB octal PSRAM)"
+
+[target]
+mcu = "esp32s3"
+platformio_board = "seeed_sensecap_watcher"
+
+[build]
+drivers = [
+  "cdc_usb_serial_jtag", "uart_esp_idf", "display_spd2010", "pointer_spd2010", "storage_expansion",
+  "audio_es8311_es7243", "battery_adc", "rtc_pcf8563",
+  "i2c_esp_idf", "spi_esp_idf", "gpio_esp_idf", "adc_esp_idf", "pwm_esp_idf",
+]
+capabilities = [
+  "psram", "simd", "display", "gfx", "streaming_display", "display_brightness",
+  "pointer", "cdc", "usb_host", "uart", "sd", "i2c", "spi", "rtc", "battery", "audio", "audio_input",
+  "wifi", "ble", "gpio", "adc", "pwm", "key", "camera", "expansion_gpio", "expansion_i2c",
+  "expansion_spi", "expansion_uart", "expansion_adc", "expansion_pwm", "expansion_i2s",
+]
+required_packages = ["backend_processor_himax"]
+psram_bytes = 8388608
+
+[defines]
+# USB is available on demand; leave J2 GPIO19/20 free after boot.
+SOLAR_OS_BOARD_USB_DEFAULT_OFF = "1"
+# Keep both SPI2 slaves deselected before their shared bus starts.
+SOLAR_OS_BOARD_BOOT_OUTPUTS = '{{.pin = GPIO_NUM_21, .level = 1}, {.pin = GPIO_NUM_46, .level = 1}, {.pin = GPIO_NUM_8, .level = 0}}'
+SOLAR_OS_BOARD_PIN_KEY = "GPIO_NUM_NC"
+SOLAR_OS_BOARD_PIN_KEY_WAKE = "GPIO_NUM_2"
+SOLAR_OS_BOARD_KEY_WAKE_ACTIVE_LEVEL = "0"
+SOLAR_OS_BOARD_KEY_WAKE_PULL_UP = "1"
+SOLAR_OS_BOARD_KEY_WAKE_EXT0 = "1"
+SOLAR_OS_BOARD_SLEEP_SUSPEND_DISPLAY = "1"
+SOLAR_OS_BOARD_KEY_GPIO_LINE = '"gpiox0:3"'
+SOLAR_OS_BOARD_KEY_SHORT_ACTION = "SOLAR_OS_POWER_KEY_ACTION_ENTER"
+SOLAR_OS_BOARD_KEY_LONG_ACTION = "SOLAR_OS_POWER_KEY_ACTION_BLE_PAIR"
+SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SPD2010"'
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "412"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "412"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_WIDTH = "412"
+SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "412"
+SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
+SOLAR_OS_BOARD_TERMINAL_DEFAULT_TEXT_SIZE = "SOLAR_OS_TERMINAL_TEXT_SIZE_16"
+SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE = "1"
+SOLAR_OS_BOARD_I2C_PORT = "I2C_NUM_0"
+SOLAR_OS_BOARD_PIN_I2C_SDA = "GPIO_NUM_47"
+SOLAR_OS_BOARD_PIN_I2C_SCL = "GPIO_NUM_48"
+SOLAR_OS_BOARD_SPI_HOST = "SPI2_HOST"
+SOLAR_OS_BOARD_SPI_NAME = '"SD-HIMAX"'
+SOLAR_OS_BOARD_PIN_SPI_SCLK = "GPIO_NUM_4"
+SOLAR_OS_BOARD_PIN_SPI_MOSI = "GPIO_NUM_5"
+SOLAR_OS_BOARD_PIN_SPI_MISO = "GPIO_NUM_6"
+SOLAR_OS_BOARD_SPI_MAX_TRANSFER_SZ = "4096"
+SOLAR_OS_BOARD_PIN_SD_CARD_CS = "GPIO_NUM_46"
+SOLAR_OS_BOARD_UART_PORT = "UART_NUM_0"
+SOLAR_OS_BOARD_PIN_UART_TX = "GPIO_NUM_43"
+SOLAR_OS_BOARD_PIN_UART_RX = "GPIO_NUM_44"
+SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH = "400U"
+SOLAR_OS_BOARD_AUDIO_CODEC_OUT = '"ES8311"'
+SOLAR_OS_BOARD_AUDIO_CODEC_IN = '"ES7243E"'
+
+[runtime]
+spi_hosts = []
+uart_ports = ["UART_NUM_2"]
+i2s_ports = ["I2S_NUM_1"]
+
+[[buses]]
+name = "i2c0"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_0"
+sda = 47
+scl = 48
+speed_hz = "400000"
+
+[[buses]]
+name = "touch-i2c"
+protocol = "i2c"
+sharing = "shared"
+port = "I2C_NUM_1"
+sda = 39
+scl = 38
+speed_hz = "400000"
+
+[[buses]]
+name = "spi0"
+protocol = "spi"
+sharing = "shared"
+host = "SPI2_HOST"
+sclk = 4
+mosi = 5
+miso = 6
+cs = [46, 21]
+max_transfer_size = 4096
+
+[[buses]]
+name = "uart0"
+protocol = "uart"
+sharing = "exclusive"
+port = "UART_NUM_0"
+tx = 43
+rx = 44
+baud_rate = "115200"
+
+# The early expander attachment precedes every consumer of its power/IRQ lines.
+# Inputs: 0..7 and 13. Keep the system latch, SD, LCD, AI, Grove and battery
+# divider enabled; the speaker amplifier starts disabled.
+[[devices]]
+driver = "pca9535"
+name = "gpiox0"
+bindings = { i2c = "i2c0", addr = 0x21, direction = 0x20FF, output = 0xCF00 }
+
+[[devices]]
+driver = "himax-hx6538"
+name = "camera0"
+bindings = { spi = "spi0", cs = 21, ready = "gpiox0:6", reset = "gpiox0:7", power = "gpiox0:11", clock = 12000 }
+
+[[devices]]
+driver = "sdspi"
+name = "storage0"
+bindings = { spi = "spi0", cs = 46, power = "gpiox0:8" }
+
+[[devices]]
+driver = "spd2010"
+name = "display0"
+# Preserve the touch supply so its shared wake IRQ stays stable at shutdown.
+bindings = { host = 2, sclk = 7, d0 = 9, d1 = 1, d2 = 14, d3 = 13, cs = 45, bl = 8, pwm = 1, clock = 40000, power = "gpiox0:9", keep_power = 1 }
+
+[[devices]]
+driver = "spd2010-touch"
+name = "touch0"
+bindings = { i2c = "touch-i2c", addr = 0x53, irq = "gpiox0:5" }
+
+# Boards fitted with ES7243 use es8311-es7243 and addr=0x13 instead.
+[[devices]]
+driver = "es8311-es7243e"
+name = "audio0"
+bindings = { i2c = "i2c0", addr = 0x14, dac_addr = 0x18, i2s = 0, mclk = 10, bck = 11, ws = 12, din = 15, dout = 16, pa = "gpiox0:12" }
+
+[[devices]]
+driver = "battery-adc"
+name = "battery0"
+bindings = { adc = 3, divider = 4100 }
+
+[[devices]]
+driver = "pcf8563"
+name = "rtc0"
+bindings = { i2c = "i2c0", addr = 0x51 }
+
+[[devices]]
+driver = "rotary-encoder"
+name = "wheel0"
+# Reverse the logical phase order to match the mounted wheel's Up/Down motion.
+bindings = { a = 42, b = 41 }
+
+[[devices]]
+driver = "neopixel"
+name = "pixels0"
+bindings = { data = 40, count = 1 }
+
+[connector]
+title = "J2 expansion header and J5 Grove I2C"
+view = "Schematic pin numbers; J2 pins 1..4 opposite 8..5; J5 pins 1..4"
+rows = 3
+columns = 4
+
+[[connectors]]
+connector = "J2"
+position = 1
+row = 0
+column = 0
+kind = "ground"
+label = "GND"
+
+[[connectors]]
+connector = "J2"
+position = 2
+row = 0
+column = 1
+kind = "power"
+label = "3V3 OUT"
+
+[[connectors]]
+connector = "J2"
+position = 3
+row = 0
+column = 2
+kind = "gpio"
+label = "SDA"
+gpio = 47
+
+[[connectors]]
+connector = "J2"
+position = 4
+row = 0
+column = 3
+kind = "gpio"
+label = "GPIO19 / USB D-"
+gpio = 19
+
+[[connectors]]
+connector = "J2"
+position = 8
+row = 1
+column = 0
+kind = "ground"
+label = "GND"
+
+[[connectors]]
+connector = "J2"
+position = 7
+row = 1
+column = 1
+kind = "power"
+label = "5V IN"
+
+[[connectors]]
+connector = "J2"
+position = 6
+row = 1
+column = 2
+kind = "gpio"
+label = "SCL"
+gpio = 48
+
+[[connectors]]
+connector = "J2"
+position = 5
+row = 1
+column = 3
+kind = "gpio"
+label = "GPIO20 / USB D+"
+gpio = 20
+
+[[connectors]]
+connector = "J5"
+position = 1
+row = 2
+column = 0
+kind = "gpio"
+label = "SCL"
+gpio = 48
+
+[[connectors]]
+connector = "J5"
+position = 2
+row = 2
+column = 1
+kind = "gpio"
+label = "SDA"
+gpio = 47
+
+[[connectors]]
+connector = "J5"
+position = 3
+row = 2
+column = 2
+kind = "power"
+label = "3V3 OUT (switched)"
+
+[[connectors]]
+connector = "J5"
+position = 4
+row = 2
+column = 3
+kind = "ground"
+label = "GND"
+
+[[pins]]
+gpio = 0
+policy = "fixed"
+role = "BOOT/download"
+
+[[pins]]
+gpio = 1
+policy = "fixed"
+role = "LCD QSPI D1"
+
+[[pins]]
+gpio = 2
+policy = "fixed"
+role = "GPIO expander interrupt"
+
+[[pins]]
+gpio = 3
+policy = "fixed"
+role = "battery ADC"
+
+[[pins]]
+gpio = 4
+policy = "fixed"
+role = "SD / Himax SPI clock"
+
+[[pins]]
+gpio = 5
+policy = "fixed"
+role = "SD / Himax SPI MOSI"
+
+[[pins]]
+gpio = 6
+policy = "fixed"
+role = "SD / Himax SPI MISO"
+
+[[pins]]
+gpio = 7
+policy = "fixed"
+role = "LCD QSPI clock"
+
+[[pins]]
+gpio = 8
+policy = "fixed"
+role = "LCD backlight"
+
+[[pins]]
+gpio = 9
+policy = "fixed"
+role = "LCD QSPI D0"
+
+[[pins]]
+gpio = 10
+policy = "fixed"
+role = "audio I2S MCLK"
+
+[[pins]]
+gpio = 11
+policy = "fixed"
+role = "audio I2S BCLK"
+
+[[pins]]
+gpio = 12
+policy = "fixed"
+role = "audio I2S word select"
+
+[[pins]]
+gpio = 13
+policy = "fixed"
+role = "LCD QSPI D3"
+
+[[pins]]
+gpio = 14
+policy = "fixed"
+role = "LCD QSPI D2"
+
+[[pins]]
+gpio = 15
+policy = "fixed"
+role = "audio ADC data"
+
+[[pins]]
+gpio = 16
+policy = "fixed"
+role = "audio DAC data"
+
+[[pins]]
+gpio = 17
+policy = "fixed"
+role = "Himax programming UART TX (reserved)"
+
+[[pins]]
+gpio = 18
+policy = "fixed"
+role = "Himax programming UART RX (reserved)"
+
+[[pins]]
+gpio = 19
+policy = "free"
+role = "expansion / native USB D-"
+expansion = true
+user = true
+adc = true
+pwm = true
+
+[[pins]]
+gpio = 20
+policy = "free"
+role = "expansion / native USB D+"
+expansion = true
+user = true
+adc = true
+pwm = true
+
+[[pins]]
+gpio = 21
+policy = "fixed"
+role = "Himax SPI CS"
+
+[[pins]]
+gpio = 26
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 27
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 28
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 29
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 30
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 31
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 32
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 33
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 34
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 35
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 36
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 37
+policy = "fixed"
+role = "flash / octal PSRAM"
+
+[[pins]]
+gpio = 38
+policy = "fixed"
+role = "touch I2C SCL"
+
+[[pins]]
+gpio = 39
+policy = "fixed"
+role = "touch I2C SDA"
+
+[[pins]]
+gpio = 40
+policy = "fixed"
+role = "WS2812 RGB LED"
+
+[[pins]]
+gpio = 41
+policy = "fixed"
+role = "wheel phase B (logical)"
+
+[[pins]]
+gpio = 42
+policy = "fixed"
+role = "wheel phase A (logical)"
+
+[[pins]]
+gpio = 43
+policy = "fixed"
+role = "USB bridge / UART0 TX"
+
+[[pins]]
+gpio = 44
+policy = "fixed"
+role = "USB bridge / UART0 RX"
+
+[[pins]]
+gpio = 45
+policy = "fixed"
+role = "LCD QSPI CS"
+
+[[pins]]
+gpio = 46
+policy = "fixed"
+role = "SD SPI CS"
+
+[[pins]]
+gpio = 47
+policy = "fixed"
+role = "I2C0 SDA (J2 / Grove)"
+expansion = true
+
+[[pins]]
+gpio = 48
+policy = "fixed"
+role = "I2C0 SCL (J2 / Grove)"
+expansion = true

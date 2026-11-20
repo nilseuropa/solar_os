@@ -63,6 +63,8 @@ typedef struct {
 typedef struct {
     solar_os_doc_block_type_t type;
     uint8_t level;
+    char list_delimiter; /* '.' or ')' for numbered lists; zero for bullets. */
+    uint32_t list_number;
     size_t raw_source_start;
     size_t raw_source_end;
     size_t source_start;

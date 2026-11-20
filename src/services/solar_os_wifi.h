@@ -125,5 +125,10 @@ esp_err_t solar_os_wifi_connectionless_release(const char *owner);
 esp_err_t solar_os_wifi_latency_acquire(const char *owner);
 esp_err_t solar_os_wifi_latency_release(const char *owner);
 void solar_os_wifi_get_status(solar_os_wifi_status_t *status);
+/* A link that stands in for the station (QEMU Ethernet): when `fill` returns
+ * true, solar_os_wifi_get_status reports it as a connected station. NULL
+ * removes it. */
+typedef bool (*solar_os_wifi_status_override_t)(solar_os_wifi_status_t *status);
+void solar_os_wifi_set_status_override(solar_os_wifi_status_override_t fill);
 void solar_os_wifi_get_status_text(char *buffer, size_t len);
 const char *solar_os_wifi_state_name(solar_os_wifi_state_t state);

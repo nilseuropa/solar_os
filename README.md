@@ -55,6 +55,15 @@ fetch and push use the device's SSH key. Git is included in the full flavor on
 boards with Wi-Fi and PSRAM. See [Git version control](doc/manual/git.md) for
 setup and workflows.
 
+## C development on the device
+
+The `full` flavor includes the `cc` command and TinyCC compiler on ESP32-S3
+boards with PSRAM. Compile a source file with `cc hello.c -o hello.elf`, then
+run it with `load hello.elf`. Other builds can enable the `cc` firmware group
+or install it with `pkg install cc`. See
+[C development](doc/manual/c.md)
+for a complete example, project builds, and SDK browsing.
+
 ## Scripted vision and model inference
 
 Python and Lua scripts can use native image processing, and

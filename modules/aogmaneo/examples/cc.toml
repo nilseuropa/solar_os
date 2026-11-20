@@ -1,0 +1,3 @@
+sources = ["predict.c"]
+output = "predict.elf"
+dependencies = [{ id = "aogmaneo", version = "1.0.0" }]

@@ -24,8 +24,8 @@ bool solar_os_rtspd_parse_options(int argc, char **argv,
     *options = (solar_os_rtspd_options_t) {
         .video = true,
         .video_source = "camera0",
-        .camera = {.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_QVGA,
-                   .jpeg_quality = 12U},
+        /* Zero dimensions select the source's advertised default. */
+        .camera = {0},
         .fps = 5U,
         .port = 554U,
     };
@@ -56,11 +56,8 @@ bool solar_os_rtspd_parse_options(int argc, char **argv,
             if (strcmp(id, "none")) strcpy(options->audio, id);
         } else if (!strncmp(arg, "size=", 5)) {
             bit = 4U;
-            if (!strcmp(arg + 5, "qvga"))
-                options->camera.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_QVGA;
-            else if (!strcmp(arg + 5, "vga"))
-                options->camera.frame_size = SOLAR_OS_CAMERA_FRAME_SIZE_VGA;
-            else return false;
+            if (!solar_os_camera_parse_resolution(arg + 5, &options->camera.width,
+                                                   &options->camera.height)) return false;
         } else if (!strncmp(arg, "fps=", 4)) {
             bit = 8U;
             if (!number(arg + 4, 30U, &value)) return false;

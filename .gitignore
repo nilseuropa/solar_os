@@ -23,9 +23,11 @@ scripts/__pycache__/
 tests/__pycache__/
 tests/hil/__pycache__/
 modules/experimental/*/__pycache__/
+modules/experimental/tinycc/differential/__pycache__/
 modules/espdl/__pycache__/
 modules/jet/__pycache__/
 modules/robot/__pycache__/
+modules/aogmaneo/__pycache__/
 tests/host/ble_nimble_test
 tests/host/gpio_matrix_test
 tests/host/ble_multi_peer_test
@@ -88,8 +90,10 @@ tests/host/tensor_image_test
 tests/host/tensor_image_lua_test
 tests/host/model_bundle_test
 tests/host/zoo_test
+tests/host/himax_model_test
 examples/python/__pycache__/
 /tests/host/inference_lua_json_test
+/tests/host/qemu_input_test
 /tests/host/pipeline_test
 /tests/host/pipeline_lua_test
 /tests/host/jobs_admission_test
@@ -124,3 +128,4 @@ tests/host/sticky_display_test
 /protocol/sc2/build/
 
 /tests/host/stream_test
+/qemu-storage/

@@ -49,6 +49,11 @@ typedef uint64_t solar_os_board_capability_t;
 #define SOLAR_OS_BOARD_CAP_STREAMING_DISPLAY (1ULL << 35)
 #define SOLAR_OS_BOARD_CAP_CAMERA (1ULL << 36)
 #define SOLAR_OS_BOARD_CAP_USB_HOST (1ULL << 37)
+#define SOLAR_OS_BOARD_CAP_QEMU (1ULL << 38)
+
+#ifndef SOLAR_OS_BOARD_HAS_QEMU
+#define SOLAR_OS_BOARD_HAS_QEMU 0
+#endif
 
 #ifndef SOLAR_OS_BOARD_HAS_PSRAM
 #define SOLAR_OS_BOARD_HAS_PSRAM 0
@@ -67,6 +72,9 @@ typedef uint64_t solar_os_board_capability_t;
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_USB_HOST
 #define SOLAR_OS_BOARD_HAS_USB_HOST 0
+#endif
+#ifndef SOLAR_OS_BOARD_USB_DEFAULT_OFF
+#define SOLAR_OS_BOARD_USB_DEFAULT_OFF 0
 #endif
 #ifndef SOLAR_OS_BOARD_HAS_UART
 #define SOLAR_OS_BOARD_HAS_UART 0

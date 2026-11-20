@@ -17,6 +17,7 @@ typedef struct solar_os_board_display {
     const char *controller;
     uint16_t width;
     uint16_t height;
+    bool round;
     uint32_t surface_formats;
     uint32_t frame_formats;
     uint16_t preferred_stream_fps;

@@ -21,8 +21,10 @@ TARGETS += usb_hid_input_test usb_hid_keyboard_report_test usb_hid_mouse_report_
 TARGETS += usb_service_serial_test
 TARGETS += usb_service_storage_test
 TARGETS += usb_service_vbus_test
+TARGETS += usb_service_boot_off_test
 TARGETS += storage_usb_mounts_test
 TARGETS += ps2_keyboard_job_test
+TARGETS += syntax_test
 
 USB_HID_CODEC_SOURCES := $(ROOT)/src/drivers/usb_hid_report.c $(ROOT)/src/drivers/usb_hid_keyboard_report.c $(ROOT)/src/drivers/usb_hid_mouse_report.c $(ROOT)/src/drivers/usb_hid_joystick_report.c
 USB_HID_CODEC_HEADERS := $(wildcard $(ROOT)/src/drivers/usb_hid*report.h)
@@ -36,8 +38,8 @@ usb_hid_mouse_report_test: usb_hid_mouse_report_test.c $(USB_HID_CODEC_SOURCES) 
 usb_hid_joystick_report_test: usb_hid_joystick_report_test.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_joystick_fixture.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers $(filter %.c,$^) -o $@
 
-cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(wildcard usb_stubs/freertos/*.h)
-	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
+cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(ROOT)/src/services/solar_os_resources.c $(wildcard usb_stubs/freertos/*.h)
+	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_BOARD_HAS_USB_HOST=1 -DSOLAR_OS_PACKAGE_SERVICE_RESOURCES=1 -include compat.h -Iusb_stubs -I. \
 		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 usb_hid_input_test: usb_hid_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h usb_leonardo_fixture.h
@@ -47,7 +49,12 @@ usb_hid_input_test: usb_hid_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER)
 		$(ROOT)/src/services/solar_os_keys.c -o $@
 
 USB_SERVICE_BOARD_SOURCES := $(ROOT)/src/board/solar_os_board_usb.c
-USB_SERVICE_BOARD_HEADERS := $(ROOT)/src/board/solar_os_board_usb.h
+USB_SERVICE_BOARD_HEADERS := $(ROOT)/src/board/solar_os_board_usb.h $(ROOT)/src/drivers/usb_phy_port.h
+
+usb_service_boot_off_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS) $(wildcard usb_stubs/driver/*.h)
+	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_BOARD_USB_DEFAULT_OFF=1 \
+		-include compat.h -Iusb_stubs -I. -I$(ROOT)/src/drivers -I$(ROOT)/src/services \
+		-I$(ROOT)/src/board $(filter %.c,$^) -o $@
 
 usb_service_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/drivers/usb_host_port.h $(USB_HID_CODEC_HEADERS) $(wildcard usb_stubs/*.h usb_stubs/freertos/*.h) $(USB_SERVICE_BOARD_SOURCES) $(USB_SERVICE_BOARD_HEADERS)
 	$(CC) $(CFLAGS) -DCONFIG_PM_ENABLE=1 -DSOLAR_OS_BOARD_HAS_CDC=1 -include compat.h -Iusb_stubs -I. \
@@ -72,7 +79,7 @@ usb_service_vbus_test: usb_service_test.c $(ROOT)/src/services/solar_os_usb.c $(
 		-I$(ROOT)/src/board $(filter %.c,$^) -o $@
 
 TARGETS += can_twai_test
-TARGETS += doc_memory_test
+TARGETS += doc_memory_test doc_list_test
 TARGETS += paged_array_test
 
 paged_array_test: paged_array_test.c doc_test_support.c $(ROOT)/src/services/solar_os_paged_array.c
@@ -104,6 +111,7 @@ can_twai_test: can_twai_test.c $(ROOT)/src/drivers/can_twai.c $(ROOT)/src/servic
 TARGETS += ble_service_test ble_multi_peer_test ble_nimble_test ble_hid_test ble_lua_bindings_test ble_server_test ble_coc_test
 TARGETS += input_action_match_test gesture_completion_test touch_gesture_test keyboard_layout_test
 TARGETS += input_keymap_layout_test
+TARGETS += qemu_input_test
 TARGETS += epd_ssd1685_test ssd1685_expansion_test
 TARGETS += epd_ssd1680_test ssd1680_expansion_test
 TARGETS += gc9a01_expansion_test
@@ -359,12 +367,12 @@ LUA_TEST_SOURCES := $(filter-out $(LUA_DIR)/lua.c $(LUA_DIR)/luac.c \
 	$(LUA_DIR)/linit.c $(LUA_DIR)/liolib.c $(LUA_DIR)/loadlib.c $(LUA_DIR)/loslib.c, \
 	$(wildcard $(LUA_DIR)/*.c))
 
-pipeline_test: pipeline_test.c $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c
+pipeline_test: pipeline_test.c $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(ROOT)/src/services/solar_os_media_sample.c
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) $^ $(CJSON_DIR)/cJSON.c -lm -o $@
 
 pipeline_lua_test: pipeline_lua_test.c pipeline_test.c $(ROOT)/src/apps/solar_os_lua_pipeline.inc \
-        $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(LUA_TEST_SOURCES)
+        $(ROOT)/src/services/solar_os_pipeline.c $(ROOT)/src/services/solar_os_processor.c $(ROOT)/src/services/solar_os_media_sample.c $(LUA_TEST_SOURCES)
 	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -Ipipeline_stubs -Irtsp_stubs \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(LUA_DIR) -I$(CJSON_DIR) \
 		$(filter-out pipeline_test.c %.inc,$^) $(CJSON_DIR)/cJSON.c -lm -o $@
@@ -604,8 +612,14 @@ tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_imag
 # Override CJSON_DIR when the SDK is installed elsewhere.
 CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
 IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
+himax_model_test: himax_model_test.c zoo_test.c $(ROOT)/modules/himax/manager.c $(ROOT)/src/services/solar_os_native_data.c $(ROOT)/src/services/solar_os_json_scan.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -fsanitize=address,undefined -no-pie \
+		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/include -I$(CJSON_DIR) \
+		-isystem $(IDF_HOST_DIR)/components/esp_rom/include -isystem $(IDF_HOST_DIR)/components/esp_rom/esp32s3 \
+		$(filter-out zoo_test.c,$^) $(CJSON_DIR)/cJSON.c -Wl,--gc-sections,--wrap=rename,--wrap=fwrite -lcrypto -lz -lm -o $@
 zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_PACKAGE_SERVICE_INFERENCE=1 -DSOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538=1 -DSOLAR_OS_PACKAGE_SERVICE_PIPELINE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
 		-isystem $(IDF_HOST_DIR)/components/esp_rom/include -isystem $(IDF_HOST_DIR)/components/esp_rom/esp32s3 \
@@ -806,7 +820,7 @@ writer_buffer_test: writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c 
 	$(CC) $(CFLAGS) -DSOLAR_OS_WRITER_HOST_TEST -I. -I$(WRITER_DIR) \
 		writer_buffer_test.c $(WRITER_DIR)/solar_os_writer_buffer.c -o $@
 
-doc_layout_test doc_memory_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
+doc_layout_test doc_memory_test doc_list_test: %: %.c doc_test_support.c doc_test_support.h $(ROOT)/src/services/solar_os_doc.c $(ROOT)/src/services/solar_os_doc.h $(ROOT)/src/services/solar_os_paged_array.c
 	$(CC) $(CFLAGS) -Wno-unused-function -Wno-unused-variable \
 		-D_GNU_SOURCE -ffunction-sections -fdata-sections -include compat.h \
 		-I. -I$(ROOT)/src -I$(ROOT)/src/services \
@@ -843,6 +857,10 @@ gfx_icons_test: gfx_icons_test.c $(ROOT)/src/services/solar_os_gfx_icons.c \
 text_search_test: text_search_test.c $(ROOT)/src/services/solar_os_text_search.c $(ROOT)/src/services/solar_os_text_search.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
 		text_search_test.c $(ROOT)/src/services/solar_os_text_search.c -o $@
+
+syntax_test: syntax_test.c $(ROOT)/src/services/solar_os_syntax.c $(ROOT)/src/services/solar_os_syntax.h
+	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
+		syntax_test.c $(ROOT)/src/services/solar_os_syntax.c -o $@
 
 shell_parse_test: shell_parse_test.c $(ROOT)/src/shell/solar_os_shell_parse.c $(ROOT)/src/shell/solar_os_shell_parse.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/shell \
@@ -1017,6 +1035,11 @@ input_keymap_service_test: input_keymap_service_test.c $(wildcard $(ROOT)/src/se
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) input_keymap_service_test.c \
 		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
 		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
+
+qemu_input_test: qemu_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_qemu_input_codec.c $(ROOT)/src/services/solar_os_qemu_input_codec.h $(ROOT)/include/solar_os_qemu_input_protocol.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c
+	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services \
+		qemu_input_test.c $(ROOT)/src/services/solar_os_qemu_input_codec.c \
+		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
 input_keymap_layout_test: input_keymap_layout_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) \
@@ -1508,8 +1531,10 @@ test: $(TARGETS)
 	./display_layout_test
 	./gfx_icons_test
 	./text_search_test
+	./syntax_test
 	./doc_layout_test
 	./doc_memory_test
+	./doc_list_test
 	./gesture_command_test
 	./shell_parse_test
 	./shell_launch_test
@@ -1529,6 +1554,7 @@ test: $(TARGETS)
 	./usb_hid_input_test
 	./usb_hid_keyboard_report_test
 	./usb_service_test
+	./usb_service_boot_off_test
 	./usb_service_no_cdc_test
 	./usb_service_storage_test
 	./usb_service_vbus_test
@@ -1549,6 +1575,7 @@ test: $(TARGETS)
 	./matrix_keyboard_test
 	./input_keymap_service_test
 	./input_keymap_layout_test
+	./qemu_input_test
 	./cl32_keyboard_test
 	./battery_service_test
 	./batmon_job_test
@@ -1684,7 +1711,7 @@ test: $(TARGETS)
 	./lr11xx_service_test
 
 clean:
-	$(RM) $(TARGETS) model_bundle_test inference_lua_json_test zoo_test
+	$(RM) $(TARGETS) model_bundle_test inference_lua_json_test zoo_test himax_model_test
 	$(RM) -r generated
 
 # ---------------------------------------------------------------------------

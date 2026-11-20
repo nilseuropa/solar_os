@@ -1216,16 +1216,21 @@ static void port_shell_reserved_worker(void *arg)
         port_shell_state_t *state = port_shell_reserved_state;
         portEXIT_CRITICAL(&port_shells_lock);
 
-        if (state != NULL) {
-            port_shell_run(state);
+        if (state == NULL) {
+            continue;
         }
+        port_shell_run(state);
 
+        /* Reserve the first boot shell, then release its stack on close.
+         * Retire both references together so a new shell cannot reuse a task
+         * that is about to delete itself. Later shells allocate on demand. */
         portENTER_CRITICAL(&port_shells_lock);
-        if (port_shell_reserved_state == state) {
-            port_shell_reserved_state = NULL;
-        }
+        port_shell_reserved_state = NULL;
+        port_shell_reserved_task = NULL;
         portEXIT_CRITICAL(&port_shells_lock);
+        break;
     }
+    solar_os_task_delete_internal(NULL);
 }
 
 esp_err_t solar_os_port_shell_init(bool reserve_worker)

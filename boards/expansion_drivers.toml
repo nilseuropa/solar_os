@@ -454,6 +454,41 @@ hint = "0..65535"
 min = 0
 max = 65535
 
+[drivers.pca9535]
+summary = "PCA9535 16-line I2C GPIO controller"
+package = "pca9535"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c"]
+early = true
+default_name = "gpiox0"
+
+[[drivers.pca9535.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.pca9535.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x20..0x27"
+required = true
+allowed = [0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27]
+
+[[drivers.pca9535.bindings]]
+key = "output"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
+[[drivers.pca9535.bindings]]
+key = "direction"
+kind = "parameter"
+hint = "0..65535"
+min = 0
+max = 65535
+
 [drivers.m5ioe1]
 summary = "M5IOE1 14-line I2C GPIO controller"
 package = "m5ioe1"
@@ -2329,6 +2364,41 @@ hint = "gpio25"
 required = true
 allowed = [25]
 
+[drivers.qemu-rgb]
+summary = "QEMU virtual RGB panel"
+package = "driver_display_qemu_rgb"
+targets = ["esp32s3"]
+capabilities = ["qemu", "gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_qemu_rgb"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600" }
+early = true
+default_name = "display0"
+
+[drivers.qemu-eth]
+summary = "QEMU virtual Ethernet (open_eth)"
+package = "driver_network_qemu_eth"
+targets = ["esp32s3"]
+capabilities = ["qemu", "wifi"]
+default_name = "eth0"
+
+[drivers.qemu-audio]
+summary = "QEMU host audio output"
+package = "driver_audio_qemu"
+targets = ["esp32s3"]
+capabilities = ["qemu"]
+board_capabilities = ["audio"]
+board_driver = "audio_expansion"
+default_name = "audio0"
+
+[drivers.qemu-input]
+keyboard = true
+summary = "QEMU virtual keyboard, touch, and mouse"
+package = "driver_input_qemu"
+targets = ["esp32s3"]
+capabilities = ["qemu", "display", "gfx"]
+default_name = "input0"
+
 [drivers.vga32]
 summary = "VGA RGB222 output"
 package = "driver_display_vga32"
@@ -2379,6 +2449,190 @@ key = "vsync"
 kind = "gpio"
 hint = "gpio"
 required = true
+
+[drivers.spd2010]
+summary = "SPD2010 412x412 QSPI color display"
+package = "driver_display_spd2010"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_gpio", "psram"]
+early = true
+default_name = "display0"
+board_driver = "display_spd2010"
+board_capabilities = ["display", "gfx", "display_brightness", "streaming_display"]
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"SPD2010"', SOLAR_OS_BOARD_DISPLAY_CONTROLLER_SPD2010 = "1", SOLAR_OS_BOARD_DISPLAY_DRIVER_NAME = '"spd2010"' }
+
+[[drivers.spd2010.display_profiles]]
+name = "412x412"
+label = "412x412 RGB565"
+width = 412
+height = 412
+default = true
+
+[[drivers.spd2010.bindings]]
+key = "host"
+kind = "parameter"
+hint = "1=SPI2|2=SPI3"
+required = true
+min = 1
+max = 2
+
+[[drivers.spd2010.bindings]]
+key = "sclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d0"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d1"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d2"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "d3"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "cs"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.spd2010.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+
+[[drivers.spd2010.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..40000 kHz"
+min = 100
+max = 40000
+
+[[drivers.spd2010.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[[drivers.spd2010.bindings]]
+key = "bgr"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "invert"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "power_active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
+
+[[drivers.spd2010.bindings]]
+key = "keep_power"
+kind = "parameter"
+hint = "keep supply enabled at shutdown: 0|1"
+min = 0
+max = 1
+
+[drivers.spd2010-touch]
+summary = "SPD2010 capacitive touch over I2C"
+package = "driver_spd2010_touch"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_i2c", "gfx"]
+board_capabilities = ["pointer"]
+board_driver = "pointer_spd2010"
+default_name = "touch0"
+
+[[drivers.spd2010-touch.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.spd2010-touch.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "0x53"
+required = true
+allowed = [0x53]
+
+[[drivers.spd2010-touch.bindings]]
+key = "irq"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.spd2010-touch.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0..3"
+min = 0
+max = 3
+
+[[drivers.spd2010-touch.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+min = 0
+max = 1
 
 [drivers.ft6336]
 summary = "capacitive touch"
@@ -2866,6 +3120,254 @@ key = "power"
 kind = "gpio"
 hint = "gpio"
 
+[drivers.es7243]
+summary = "ES7243 I2S microphone ADC"
+package = "expansion_es7243"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c", "expansion_i2s"]
+default_name = "mic0"
+
+[[drivers.es7243.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.es7243.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "ADC 7-bit address"
+required = true
+min = 8
+max = 119
+
+[[drivers.es7243.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+
+[[drivers.es7243.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[drivers.es7243e]
+summary = "ES7243E I2S microphone ADC"
+package = "expansion_es7243"
+targets = ["esp32", "esp32s3"]
+capabilities = ["i2c", "expansion_i2s"]
+default_name = "mic0"
+
+[[drivers.es7243e.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.es7243e.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "ADC 7-bit address"
+required = true
+min = 8
+max = 119
+
+[[drivers.es7243e.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+
+[[drivers.es7243e.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243e.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243e.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es7243e.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[drivers.es8311-es7243]
+summary = "ES8311 output and ES7243 I2S microphone ADC"
+package = "driver_audio_es8311_codecs"
+targets = ["esp32s3"]
+capabilities = ["i2c", "expansion_i2s"]
+default_name = "audio0"
+board_driver = "audio_es8311_es7243"
+board_capabilities = ["audio", "audio_input"]
+
+[[drivers.es8311-es7243.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "ADC 7-bit address"
+required = true
+min = 8
+max = 119
+
+[[drivers.es8311-es7243.bindings]]
+key = "dac_addr"
+kind = "i2c_address"
+hint = "ES8311 7-bit address"
+role = "dac_addr"
+required = true
+min = 8
+max = 119
+
+[[drivers.es8311-es7243.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "dout"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243.bindings]]
+key = "pa"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[drivers.es8311-es7243e]
+summary = "ES8311 output and ES7243E I2S microphone ADC"
+package = "driver_audio_es8311_codecs"
+targets = ["esp32s3"]
+capabilities = ["i2c", "expansion_i2s"]
+default_name = "audio0"
+board_driver = "audio_es8311_es7243"
+board_capabilities = ["audio", "audio_input"]
+
+[[drivers.es8311-es7243e.bindings]]
+key = "i2c"
+kind = "i2c_bus"
+hint = "bus"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "addr"
+kind = "i2c_address"
+hint = "ADC 7-bit address"
+required = true
+min = 8
+max = 119
+
+[[drivers.es8311-es7243e.bindings]]
+key = "dac_addr"
+kind = "i2c_address"
+hint = "ES8311 7-bit address"
+role = "dac_addr"
+required = true
+min = 8
+max = 119
+
+[[drivers.es8311-es7243e.bindings]]
+key = "i2s"
+kind = "i2s_port"
+hint = "i2s0|i2s1"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "mclk"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "bck"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "ws"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "din"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "dout"
+kind = "gpio"
+hint = "gpio"
+required = true
+
+[[drivers.es8311-es7243e.bindings]]
+key = "pa"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
 [drivers.es7210]
 summary = "ES7210 I2S microphone array"
 package = "expansion_es7210"
@@ -3002,6 +3504,49 @@ key = "pa"
 kind = "gpio"
 hint = "gpio"
 required = false
+
+[drivers.himax-hx6538]
+summary = "Himax HX6538 SSCMA JPEG camera"
+package = "driver_himax_hx6538"
+targets = ["esp32s3"]
+capabilities = ["psram", "expansion_spi"]
+board_capabilities = ["camera"]
+default_name = "camera0"
+early = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "cs"
+required = true
+
+[[drivers.himax-hx6538.bindings]]
+key = "ready"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "reset"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "power"
+kind = "gpio_line"
+hint = "gpio|controller:line"
+
+[[drivers.himax-hx6538.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..12000 kHz"
+min = 100
+max = 12000
 
 [drivers.esp32-camera]
 summary = "DVP JPEG camera"
@@ -3423,6 +3968,11 @@ key = "b"
 kind = "gpio"
 hint = "gpio"
 required = true
+
+[[drivers.rotary-encoder.bindings]]
+key = "button"
+kind = "gpio_line"
+hint = "gpio|controller:line"
 
 [drivers.bq27220]
 summary = "BQ27220 fuel gauge"

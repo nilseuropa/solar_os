@@ -60,6 +60,17 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn('.role = "debounce-ms", .value = 15', header)
         self.assertIn("expansion_gpio_matrix", required_packages(board, self.drivers))
 
+    def test_qemu_native_input_keeps_the_uarts_for_console_use(self):
+        board = load_board_manifest(self.manifest_dir / "qemu_esp32s3_rgb.toml", self.manifest_dir)
+        validate_board(board, self.drivers)
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DEFAULT_PORT_SHELL"], '"uart0"')
+        self.assertEqual(board["runtime"]["uart_ports"], ["UART_NUM_1", "UART_NUM_2"])
+        self.assertEqual({d["driver"] for d in board["devices"]}, {"qemu-rgb", "qemu-eth", "qemu-input", "qemu-audio"})
+        self.assertEqual([b["name"] for b in board["buses"] if b["protocol"] == "uart"], ["uart0"])
+        self.assertIn("driver_input_qemu", required_packages(board, self.drivers))
+        for pin in board["pins"]:
+            if pin["gpio"] in (17, 18): self.assertEqual(pin["policy"], "free")
+
     def test_gc9a01_round_panel_as_primary_display(self) -> None:
         driver = self.drivers["gc9a01"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))
@@ -1056,10 +1067,10 @@ bindings = { gpio = 7 }
         buses = {bus["name"]: bus for bus in board["buses"]}
         self.assertNotIn("uart1", buses)
         self.assertEqual(buses["uart0"]["port"], "UART_NUM_1")
-        self.assertEqual(buses["uart0"]["baud_rate"], "9600")
+        self.assertEqual(buses["uart0"]["baud_rate"], "38400")
         gnss = next(device for device in board["devices"] if device["name"] == "gnss0")
         self.assertEqual(gnss["driver"], "nmea")
-        self.assertEqual(gnss["bindings"], {"uart": "uart0", "alt_baud": 38400})
+        self.assertEqual(gnss["bindings"], {"uart": "uart0", "alt_baud": 9600})
         self.assertTrue(gnss["detachable"])
         self.assertEqual({pin["connector"] for pin in board["connectors"]}, {"GROVE"})
         self.assertEqual(
@@ -1222,8 +1233,10 @@ bindings = { gpio = 7 }
             {gpio for gpio, pin in pins.items() if pin["policy"] == "free"},
             {4, 8, 15, 16, 17, 18, 21, 38, 39, 40, 41, 42, 47, 48},
         )
-        for gpio in (1, 2, 3, 19, 20, 35, 36, 37, 46):
+        for gpio in (1, 2, 3, 35, 36, 37, 46):
             self.assertEqual(pins[gpio]["policy"], "fixed")
+        for gpio in (19, 20):
+            self.assertEqual(pins[gpio]["policy"], "releasable")
 
         buses = {bus["name"]: bus for bus in board["buses"]}
         self.assertEqual(

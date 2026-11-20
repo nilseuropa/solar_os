@@ -80,5 +80,8 @@ int solar_os_micropython_resolve_path(const char *input,
                                       size_t output_len);
 
 void solar_os_micropython_vm_hook(void);
+void solar_os_micropython_interrupt_reset(void);
+void solar_os_micropython_request_interrupt(void);
+void solar_os_micropython_check_interrupt(void);
 
 #define MICROPY_VM_HOOK_LOOP                    solar_os_micropython_vm_hook();

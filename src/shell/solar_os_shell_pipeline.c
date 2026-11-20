@@ -3,6 +3,7 @@
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_pipeline.h"
+#include "solar_os_processor.h"
 #include "solar_os_memory.h"
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,13 @@ void solar_os_shell_cmd_pipeline(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
     esp_err_t error = ESP_ERR_INVALID_ARG;
     uint32_t id = 0;
-    if (argc == 2 && !strcmp(argv[1], "list")) {
+    if (argc >= 3 && argc <= 5 && !strcmp(argv[1], "info")) {
+        char *json = NULL;
+        error = solar_os_processor_query(argv[2], argc > 3 ? argv[3] : "camera0",
+            argc > 4 ? argv[4] : "info", &json);
+        if (!error) solar_os_shell_io_writeln(io, json);
+        solar_os_memory_free(json);
+    } else if (argc == 2 && !strcmp(argv[1], "list")) {
         uint32_t ids[SOLAR_OS_PIPELINES_MAX]; size_t count = 0;
         error = solar_os_pipeline_list(ids, SOLAR_OS_PIPELINES_MAX, &count);
         for (size_t i = 0; !error && i < count; ++i) {

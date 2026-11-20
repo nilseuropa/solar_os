@@ -2411,6 +2411,7 @@ static void session_apply_display_orientation(const char *name, uint16_t degrees
     for (unsigned i = 1; i < 4; i++)
         if (target.base_rotation == rotations[i]) base = i;
     u8g2_SetDisplayRotation(target.u8g2, rotations[(base + degrees / 90U) % 4U]);
+    solar_os_display_geometry_sync_rotation(target.u8g2);
 }
 
 static esp_err_t session_set_display_terminal_profile_internal(
@@ -2446,12 +2447,16 @@ static esp_err_t session_set_display_terminal_profile_internal(
         }
         solar_os_terminal_profile_t previous_profile;
         solar_os_terminal_get_profile(session->terminal, &previous_profile);
+        const size_t previous_rows = solar_os_terminal_rows(session->terminal);
+        const size_t previous_cols = solar_os_terminal_cols(session->terminal);
         const esp_err_t apply_err = solar_os_terminal_apply_profile_transient(
             session->terminal, profile);
         if (err == ESP_OK && apply_err != ESP_OK) {
             err = apply_err;
         }
-        if (apply_err == ESP_OK && session_terminal_layout_changed(&previous_profile, profile)) {
+        if (apply_err == ESP_OK && (session_terminal_layout_changed(&previous_profile, profile) ||
+            previous_rows != solar_os_terminal_rows(session->terminal) ||
+            previous_cols != solar_os_terminal_cols(session->terminal))) {
             session_discard_graphics_snapshot(session);
             if (session->started && !session->suspended)
                 session->terminal_redraw_requested = true;

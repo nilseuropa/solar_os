@@ -95,6 +95,9 @@ uint8_t u8x8_d_null_cb(u8x8_t *u8x8, uint8_t msg, U8X8_UNUSED uint8_t arg_int, U
 void u8x8_SetupDefaults(u8x8_t *u8x8)
 {
     u8x8->display_info = NULL;
+#ifdef U8X8_WITH_USER_PTR
+    u8x8->user_ptr = NULL;
+#endif
     u8x8->display_cb = u8x8_dummy_cb;
     u8x8->cad_cb = u8x8_dummy_cb;
     u8x8->byte_cb = u8x8_dummy_cb;

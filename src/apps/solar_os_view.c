@@ -55,6 +55,11 @@ typedef struct {
     view_mode_t mode;
     bool loaded;
     bool suspended;
+    bool fullscreen;
+    uint8_t *rgb565;
+    size_t rgb565_capacity;
+    solar_os_display_rect_t presented_rect;
+    bool direct_presented;
     int pan_x;
     int pan_y;
     char path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -878,8 +883,9 @@ static void view_reset_pan(solar_os_gfx_t *gfx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     const int image_width = (int)view_state.image.width;
     const int image_height = (int)view_state.image.height;
     view_state.pan_x = image_width > screen_width ? (screen_width - image_width) / 2 : 0;
@@ -892,8 +898,9 @@ static void view_clamp_pan(solar_os_gfx_t *gfx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     const int image_width = (int)view_state.image.width;
     const int image_height = (int)view_state.image.height;
 
@@ -980,6 +987,58 @@ static void view_draw_scaled(solar_os_gfx_t *gfx,
                                    NULL);
 }
 
+static bool view_present_color(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    const view_image_t *image = &view_state.image;
+    if (image->channels != 3U ||
+        !solar_os_gfx_supports_frame_format(gfx, SOLAR_OS_DISPLAY_FORMAT_RGB565))
+        return false;
+
+    /* Clip in canvas coordinates before submitting an unsigned panel raster.
+     * Actual-size images can extend past any edge, including in fullscreen. */
+    const solar_os_display_rect_t panel = solar_os_gfx_panel_bounds(gfx);
+    const int left = x > panel.x ? x : panel.x;
+    const int top = y > panel.y ? y : panel.y;
+    const int right = x + width < panel.x + panel.width ? x + width : panel.x + panel.width;
+    const int bottom = y + height < panel.y + panel.height ? y + height : panel.y + panel.height;
+    const int w = right - left, h = bottom - top;
+    if (w <= 0 || h <= 0 || w > UINT16_MAX / 2 || h > UINT16_MAX) return false;
+    const size_t bytes = (size_t)w * h * 2U;
+    if (bytes > view_state.rgb565_capacity) {
+        uint8_t *pixels = solar_os_memory_realloc(view_state.rgb565, bytes,
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "view.rgb565");
+        if (!pixels) return false;
+        view_state.rgb565 = pixels;
+        view_state.rgb565_capacity = bytes;
+    }
+    const uint8_t *pixels = view_current_frame_pixels(&view_state.image);
+    for (int row = 0; row < h; row++) {
+        const size_t sy = (uint64_t)(top + row - y) * image->height / height;
+        uint8_t *out = view_state.rgb565 + (size_t)row * w * 2U;
+        for (int col = 0; col < w; col++) {
+            const size_t sx = (uint64_t)(left + col - x) * image->width / width;
+            const uint8_t *rgb = pixels + (sy * image->width + sx) * 3U;
+            const uint16_t color = ((uint16_t)(rgb[0] & 0xf8U) << 8U) |
+                ((uint16_t)(rgb[1] & 0xfcU) << 3U) | (rgb[2] >> 3U);
+            out[col * 2U] = color >> 8U;
+            out[col * 2U + 1U] = color;
+        }
+    }
+    const solar_os_display_rect_t rect = {left, top, w, h};
+    if (!view_state.direct_presented ||
+        memcmp(&rect, &view_state.presented_rect, sizeof(rect)) != 0)
+        solar_os_gfx_present(gfx); /* Publish the cleared background first. */
+    const solar_os_display_raster_t raster = {
+        .data = view_state.rgb565, .data_size = bytes,
+        .source_width = w, .source_height = h, .source_stride = w * 2U,
+        .width = w, .height = h, .format = SOLAR_OS_DISPLAY_FORMAT_RGB565,
+    };
+    view_state.direct_presented =
+        solar_os_gfx_present_frame_at(gfx, &raster, left, top) == ESP_OK;
+    view_state.presented_rect = rect;
+    return view_state.direct_presented;
+}
+
 static void view_render(solar_os_context_t *ctx)
 {
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -987,8 +1046,9 @@ static void view_render(solar_os_context_t *ctx)
         return;
     }
 
-    const int screen_width = (int)solar_os_gfx_width(gfx);
-    const int screen_height = (int)solar_os_gfx_height(gfx);
+    const solar_os_display_rect_t bounds = view_state.fullscreen ?
+        solar_os_gfx_panel_bounds(gfx) : solar_os_gfx_canvas_bounds(gfx);
+    const int screen_width = bounds.width, screen_height = bounds.height;
     int draw_width = (int)view_state.image.width;
     int draw_height = (int)view_state.image.height;
     int origin_x = 0;
@@ -1013,7 +1073,10 @@ static void view_render(solar_os_context_t *ctx)
     }
 
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    view_draw_scaled(gfx, origin_x, origin_y, draw_width, draw_height);
+    if (view_present_color(gfx, bounds.x + origin_x, bounds.y + origin_y, draw_width, draw_height))
+        return;
+    view_state.direct_presented = false;
+    view_draw_scaled(gfx, bounds.x + origin_x, bounds.y + origin_y, draw_width, draw_height);
     solar_os_gfx_present(gfx);
 }
 
@@ -1125,6 +1188,7 @@ static esp_err_t view_start(solar_os_context_t *ctx)
 static void view_stop(solar_os_context_t *ctx)
 {
     view_free_image(&view_state.image);
+    solar_os_memory_free(view_state.rgb565);
     memset(&view_state, 0, sizeof(view_state));
     solar_os_context_set_graphics_active(ctx, false);
 }
@@ -1138,6 +1202,7 @@ static void view_suspend(solar_os_context_t *ctx)
 static void view_resume(solar_os_context_t *ctx)
 {
     view_state.suspended = false;
+    view_state.direct_presented = false;
     if (view_state.loaded) {
         solar_os_context_set_graphics_active(ctx, true);
         view_state.image.next_frame_ms = 0;
@@ -1206,7 +1271,7 @@ static bool view_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         break;
     case 'f':
     case 'F':
-        view_state.mode = view_state.mode == VIEW_MODE_FIT ? VIEW_MODE_ACTUAL : VIEW_MODE_FIT;
+        view_state.fullscreen = !view_state.fullscreen;
         view_reset_pan(solar_os_context_gfx(ctx));
         redraw = true;
         break;

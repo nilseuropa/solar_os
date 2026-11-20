@@ -17,7 +17,7 @@
 #define SOLAR_OS_SHELL_TCP_STREAM_WORD
 #endif
 SOLAR_OS_SHELL_WORDS(display,
-    "list", "layouts", "test", "mode", "orientation", "scale", "relax",
+    "list", "layouts", "test", "mode", "orientation", "scale", "canvas", "relax",
     "join", "unjoin", "split", "unsplit")
 SOLAR_OS_SHELL_WORDS(job, "status", "start", "stop")
 SOLAR_OS_SHELL_WORDS(setterm,
