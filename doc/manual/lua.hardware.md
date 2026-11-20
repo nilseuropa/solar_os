@@ -13,8 +13,10 @@ agent_reference_sections = true
 
 ## `solaros.battery`
 
-- `solaros.battery`: `status` with voltage, percentage, external-power,
-  `charging`, and `charging_known` fields when battery support is compiled
+- `solaros.battery`: `status` with voltage, percentage, `external_power`,
+  `external_power_known`, `charging`, and `charging_known` fields when battery support is compiled
+  in. `external_power_known` is true for hardware power status and false for
+  a trend estimate.
 
 ## `solaros.sensors`
 
