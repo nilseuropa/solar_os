@@ -93,6 +93,7 @@ tests/host/zoo_test
 tests/host/himax_model_test
 examples/python/__pycache__/
 /tests/host/inference_lua_json_test
+/tests/host/qemu_input_test
 /tests/host/pipeline_test
 /tests/host/pipeline_lua_test
 /tests/host/jobs_admission_test
@@ -127,3 +128,4 @@ tests/host/sticky_display_test
 /protocol/sc2/build/
 
 /tests/host/stream_test
+/qemu-storage/

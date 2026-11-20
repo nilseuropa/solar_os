@@ -75,6 +75,7 @@ typedef enum {
     SOLAR_OS_STORAGE_MOUNT_RAMFS,
     SOLAR_OS_STORAGE_MOUNT_IMAGE,
     SOLAR_OS_STORAGE_MOUNT_USB,
+    SOLAR_OS_STORAGE_MOUNT_HOST,
 } solar_os_storage_mount_type_t;
 
 typedef struct {

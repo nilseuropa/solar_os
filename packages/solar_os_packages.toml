@@ -897,6 +897,31 @@ label = "SPD2010 capacitive touch"
 category = "Expansion hardware"
 members = ["driver_spd2010_touch"]
 
+[groups.qemu_rgb]
+label = "QEMU virtual RGB display"
+category = "Expansion hardware"
+members = ["driver_display_qemu_rgb"]
+
+[groups.qemu_eth]
+label = "QEMU virtual Ethernet"
+category = "Expansion hardware"
+members = ["driver_network_qemu_eth"]
+
+[groups.qemu_input]
+label = "QEMU virtual input"
+category = "Expansion hardware"
+members = ["driver_input_qemu"]
+
+[groups.qemu_storage]
+label = "QEMU host directory"
+category = "Expansion hardware"
+members = ["driver_storage_qemu_host"]
+
+[groups.qemu_audio]
+label = "QEMU audio output"
+category = "Expansion hardware"
+members = ["driver_audio_qemu"]
+
 [groups.ft6336]
 label = "FT6336 touch controller"
 category = "Expansion hardware"
@@ -2951,6 +2976,57 @@ depends = ["service_expansion", "service_i2c"]
 sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
 requires = ["esp_driver_gpio", "esp_rom"]
 capabilities = ["gfx", "i2c"]
+
+[packages.driver_display_qemu_rgb]
+label = "driver.display-qemu-rgb"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_rgb_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "services/solar_os_qemu_rgb_display.c",
+]
+requires = ["esp_lcd", "espressif__esp_lcd_qemu_rgb", "u8g2"]
+capabilities = ["qemu", "gfx"]
+
+[packages.driver_network_qemu_eth]
+label = "driver.network-qemu-eth"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_eth_expansion_driver"]
+depends = ["service_expansion", "service_wifi"]
+sources = [
+  "services/solar_os_qemu_eth.c",
+  "services/solar_os_qemu_eth_driver.c",
+]
+requires = ["esp_eth", "esp_event", "esp_netif"]
+capabilities = ["qemu", "wifi"]
+
+[packages.driver_input_qemu]
+label = "driver.input-qemu"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_input_expansion_driver"]
+depends = ["service_expansion"]
+sources = [
+  "services/solar_os_qemu_input.c",
+  "services/solar_os_qemu_input_codec.c",
+  "services/solar_os_qemu_input_driver.c",
+]
+capabilities = ["qemu", "display", "gfx"]
+
+[packages.driver_storage_qemu_host]
+label = "driver.storage-qemu-host"
+targets = ["esp32s3"]
+sources = ["services/solar_os_qemu_hostfs.c"]
+requires = ["vfs"]
+capabilities = ["qemu"]
+
+[packages.driver_audio_qemu]
+label = "driver.audio-qemu"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_audio_expansion_driver"]
+depends = ["service_audio", "service_expansion"]
+sources = ["services/solar_os_qemu_audio.c"]
+capabilities = ["qemu"]
 
 [packages.driver_ft6336]
 label = "driver.ft6336"

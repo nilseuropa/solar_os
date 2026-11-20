@@ -15,6 +15,9 @@
 #include "flash_storage.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+#include "solar_os_qemu_hostfs.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
 #include "solar_os_usb_storage.h"
 #endif
@@ -135,6 +138,11 @@ static esp_err_t storage_flash_get_usage(solar_os_storage_usage_t *usage)
 
 esp_err_t solar_os_storage_init(void)
 {
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    const esp_err_t host_err = solar_os_qemu_hostfs_mount();
+    if (host_err != ESP_OK && host_err != ESP_ERR_NOT_SUPPORTED)
+        ESP_LOGW(TAG, "host storage unavailable: %s", esp_err_to_name(host_err));
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     const esp_err_t usb_err = solar_os_usb_storage_init();
     if (usb_err != ESP_OK) return usb_err;
@@ -200,6 +208,13 @@ esp_err_t solar_os_storage_mount(void)
 
 static esp_err_t storage_mount_volume_locked(const char *name, const char *mount_point)
 {
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (name && (!strcmp(name, "host") || !strcmp(name, SOLAR_OS_QEMU_HOSTFS_MOUNT))) {
+        if (mount_point && mount_point[0] && strcmp(mount_point, SOLAR_OS_QEMU_HOSTFS_MOUNT))
+            return ESP_ERR_INVALID_ARG;
+        return solar_os_qemu_hostfs_mount();
+    }
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     if (name && !strcmp(name, "usb0")) {
         if (mount_point && mount_point[0] && strcmp(mount_point, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
@@ -280,6 +295,10 @@ static esp_err_t storage_unmount_volume_locked(const char *target)
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     if (!strcmp(target, "usb0") || !strcmp(target, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
         return solar_os_usb_storage_unmount();
+#endif
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (!strcmp(target, "host") || !strcmp(target, SOLAR_OS_QEMU_HOSTFS_MOUNT))
+        return solar_os_qemu_hostfs_unmount();
 #endif
     if (target != NULL &&
         (strcmp(target, "flash") == 0 ||
@@ -483,6 +502,10 @@ esp_err_t solar_os_storage_get_usage_for_path(const char *path, solar_os_storage
     if (path_is_on_mount(path, SOLAR_OS_USB_STORAGE_MOUNT_POINT))
         return solar_os_usb_storage_get_usage(usage);
 #endif
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (path_is_on_mount(path, SOLAR_OS_QEMU_HOSTFS_MOUNT))
+        return solar_os_qemu_hostfs_get_usage(usage);
+#endif
     if (storage_flash_path_matches(path)) {
         return flash_storage_is_mounted() ? storage_flash_get_usage(usage) : ESP_ERR_INVALID_STATE;
     }
@@ -681,6 +704,9 @@ static bool storage_block_mount_point_seen(const char *mount_point)
 size_t solar_os_storage_mount_count(void)
 {
     size_t count = 0;
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (solar_os_qemu_hostfs_is_mounted()) count++;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     solar_os_storage_block_t usb;
     if (solar_os_usb_storage_get_block(&usb) && usb.mounted) count++;
@@ -753,6 +779,18 @@ bool solar_os_storage_get_mount(size_t index, solar_os_storage_mount_info_t *mou
         index--;
     }
 
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (solar_os_qemu_hostfs_is_mounted()) {
+        if (!index) {
+            memset(mount, 0, sizeof(*mount));
+            mount->type = SOLAR_OS_STORAGE_MOUNT_HOST;
+            strlcpy(mount->name, "host", sizeof(mount->name));
+            strlcpy(mount->mount_point, SOLAR_OS_QEMU_HOSTFS_MOUNT, sizeof(mount->mount_point));
+            return true;
+        }
+        index--;
+    }
+#endif
     solar_os_ramfs_info_t ramfs;
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
     solar_os_storage_block_t usb;
@@ -810,12 +848,20 @@ esp_err_t solar_os_storage_path_mount_point(const char *path,
 #endif
     char best_mount[SOLAR_OS_STORAGE_MOUNT_POINT_MAX] = {0};
     size_t best_len = 0;
+#if SOLAR_OS_PACKAGE_DRIVER_STORAGE_QEMU_HOST
+    if (path_is_on_mount(path, SOLAR_OS_QEMU_HOSTFS_MOUNT)) {
+        if (!solar_os_qemu_hostfs_is_mounted()) return ESP_ERR_NOT_FOUND;
+        strlcpy(best_mount, SOLAR_OS_QEMU_HOSTFS_MOUNT, sizeof(best_mount));
+        best_len = strlen(best_mount);
+    }
+#endif
     char ramfs_mount[SOLAR_OS_RAMFS_MOUNT_POINT_MAX];
     if (solar_os_ramfs_path_mount_point(path, ramfs_mount, sizeof(ramfs_mount)) == ESP_OK) {
-        best_len = strlen(ramfs_mount);
-        if (strlcpy(best_mount, ramfs_mount, sizeof(best_mount)) >= sizeof(best_mount)) {
+        if (strlen(ramfs_mount) > best_len &&
+            strlcpy(best_mount, ramfs_mount, sizeof(best_mount)) >= sizeof(best_mount)) {
             return ESP_ERR_INVALID_SIZE;
         }
+        best_len = strlen(best_mount);
     }
 
     const char *default_mount = solar_os_storage_sd_mount_point();

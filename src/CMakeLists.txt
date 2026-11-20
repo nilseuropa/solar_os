@@ -78,6 +78,7 @@ endif()
 message(STATUS "SolarOS board: ${SOLAR_OS_BOARD_NAME} (${SOLAR_OS_BOARD_ID})")
 
 set(SOLAR_OS_BOARD_CAPABILITY_NAMES
+    QEMU
     PSRAM
     DISPLAY
     GFX

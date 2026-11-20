@@ -107,6 +107,7 @@ static uint8_t wifi_resume_reconnect_attempts;
 static char wifi_connectionless_owner[SOLAR_OS_WIFI_CONNECTIONLESS_OWNER_MAX];
 static char wifi_latency_owners[SOLAR_OS_WIFI_LATENCY_OWNERS_MAX][SOLAR_OS_WIFI_LATENCY_OWNER_MAX];
 static size_t wifi_latency_count;
+static solar_os_wifi_status_override_t wifi_status_override;
 
 static void wifi_set_started_state(bool started);
 static esp_err_t wifi_update_ap_dns_from_path(
@@ -2847,6 +2848,25 @@ void solar_os_wifi_get_status(solar_os_wifi_status_t *status)
     strlcpy(status->connectionless_owner,
             wifi_connectionless_owner,
             sizeof(status->connectionless_owner));
+    const solar_os_wifi_status_override_t override = wifi_status_override;
+    wifi_unlock();
+
+    /* shortcut: apps gate network use on Wi-Fi status, so QEMU's Ethernet
+     * reports as the station; a real Ethernet board would want apps to ask
+     * the network paths instead. */
+    if (override != NULL && override(status)) {
+        status->initialized = true;
+        status->started = true;
+        status->connected = true;
+        status->has_ip = true;
+        status->state = SOLAR_OS_WIFI_STATE_CONNECTED;
+    }
+}
+
+void solar_os_wifi_set_status_override(solar_os_wifi_status_override_t fill)
+{
+    wifi_lock();
+    wifi_status_override = fill;
     wifi_unlock();
 }
 

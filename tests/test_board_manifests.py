@@ -60,6 +60,17 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn('.role = "debounce-ms", .value = 15', header)
         self.assertIn("expansion_gpio_matrix", required_packages(board, self.drivers))
 
+    def test_qemu_native_input_keeps_the_uarts_for_console_use(self):
+        board = load_board_manifest(self.manifest_dir / "qemu_esp32s3_rgb.toml", self.manifest_dir)
+        validate_board(board, self.drivers)
+        self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DEFAULT_PORT_SHELL"], '"uart0"')
+        self.assertEqual(board["runtime"]["uart_ports"], ["UART_NUM_1", "UART_NUM_2"])
+        self.assertEqual({d["driver"] for d in board["devices"]}, {"qemu-rgb", "qemu-eth", "qemu-input", "qemu-audio"})
+        self.assertEqual([b["name"] for b in board["buses"] if b["protocol"] == "uart"], ["uart0"])
+        self.assertIn("driver_input_qemu", required_packages(board, self.drivers))
+        for pin in board["pins"]:
+            if pin["gpio"] in (17, 18): self.assertEqual(pin["policy"], "free")
+
     def test_gc9a01_round_panel_as_primary_display(self) -> None:
         driver = self.drivers["gc9a01"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))

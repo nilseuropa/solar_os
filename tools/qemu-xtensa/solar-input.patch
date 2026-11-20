@@ -1,0 +1,160 @@
+diff --git a/audio/audio.c b/audio/audio.c
+--- a/audio/audio.c
++++ b/audio/audio.c
+@@ -906,6 +906,12 @@
+ int AUD_get_buffer_size_out(SWVoiceOut *sw)
+ {
+     return sw->hw->samples * sw->hw->info.bytes_per_frame;
+ }
+ 
++bool AUD_is_empty_out(SWVoiceOut *sw)
++{
++    return !sw || (sw->empty && sw->resample_buf.pos == 0 &&
++                   audio_pcm_hw_get_free(sw->hw) >= sw->hw->samples);
++}
++
+ void AUD_set_active_out (SWVoiceOut *sw, int on)
+diff --git a/audio/audio.h b/audio/audio.h
+--- a/audio/audio.h
++++ b/audio/audio.h
+@@ -128,3 +128,4 @@
+ void AUD_set_active_out (SWVoiceOut *sw, int on);
+ int  AUD_is_active_out (SWVoiceOut *sw);
++bool AUD_is_empty_out(SWVoiceOut *sw);
+ 
+diff --git a/hw/audio/meson.build b/hw/audio/meson.build
+--- a/hw/audio/meson.build
++++ b/hw/audio/meson.build
+@@ -1,3 +1,4 @@
+ system_ss.add(files('soundhw.c'))
++system_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files('solar_os_audio.c'))
+ system_ss.add(when: 'CONFIG_AC97', if_true: files('ac97.c'))
+ system_ss.add(when: 'CONFIG_ADLIB', if_true: files('fmopl.c', 'adlib.c'))
+diff --git a/hw/input/meson.build b/hw/input/meson.build
+index 90a2149..cab08fd 100644
+--- a/hw/input/meson.build
++++ b/hw/input/meson.build
+@@ -1,4 +1,5 @@
+ system_ss.add(files('hid.c'))
++system_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files('solar_os_input.c'))
+ system_ss.add(when: 'CONFIG_ADB', if_true: files('adb.c', 'adb-mouse.c', 'adb-kbd.c'))
+ system_ss.add(when: 'CONFIG_PCKBD', if_true: files('pckbd.c'))
+ system_ss.add(when: 'CONFIG_PL050', if_true: files('pl050.c'))
+diff --git a/hw/misc/meson.build b/hw/misc/meson.build
+--- a/hw/misc/meson.build
++++ b/hw/misc/meson.build
+@@ -1,3 +1,4 @@
++system_ss.add(when: 'CONFIG_XTENSA_ESP32S3', if_true: files('solar_os_hostfs.c'))
+ system_ss.add(when: 'CONFIG_APPLESMC', if_true: files('applesmc.c'))
+ system_ss.add(when: 'CONFIG_EDU', if_true: files('edu.c'))
+ system_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))
+diff --git a/hw/xtensa/esp32s3.c b/hw/xtensa/esp32s3.c
+index 5a60acf..0a3fa58 100644
+--- a/hw/xtensa/esp32s3.c
++++ b/hw/xtensa/esp32s3.c
+@@ -69,6 +69,9 @@
+ 
+ #include "hw/misc/esp32c3_jtag.h"
+ #include "hw/display/esp_rgb.h"
++#include "solar_os_qemu_input_protocol.h"
++#include "solar_os_qemu_hostfs_protocol.h"
++#include "solar_os_qemu_audio_protocol.h"
+ 
+ #define TYPE_ESP32S3_SOC "xtensa.esp32s3"
+ #define ESP32S3_SOC(obj) OBJECT_CHECK(Esp32s3SocState, (obj), TYPE_ESP32S3_SOC)
+@@ -999,6 +1002,31 @@ static void esp32s3_machine_init(MachineState *machine)
+         memory_region_add_subregion_overlap(sys_mem, esp32s3_memmap[ESP32S3_MEMREGION_FRAMEBUF].base, &ss->rgb.vram, 0);
+     }
+ 
++    /* Native QEMU window input, independent of all UART peripherals. */
++    {
++        DeviceState *input = qdev_new("solar-os-input");
++        object_property_add_child(OBJECT(ss), "solar-input", OBJECT(input));
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(input), &error_fatal);
++        memory_region_add_subregion_overlap(sys_mem, SOLAR_OS_QEMU_INPUT_BASE,
++            sysbus_mmio_get_region(SYS_BUS_DEVICE(input), 0), 0);
++    }
++
++    {
++        DeviceState *hostfs = qdev_new("solar-os-hostfs");
++        object_property_add_child(OBJECT(ss), "solar-hostfs", OBJECT(hostfs));
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(hostfs), &error_fatal);
++        memory_region_add_subregion_overlap(sys_mem, SOLAR_OS_QEMU_HOSTFS_BASE,
++            sysbus_mmio_get_region(SYS_BUS_DEVICE(hostfs), 0), 0);
++    }
++
++    {
++        DeviceState *audio = qdev_new("solar-os-audio");
++        object_property_add_child(OBJECT(ss), "solar-audio", OBJECT(audio));
++        sysbus_realize_and_unref(SYS_BUS_DEVICE(audio), &error_fatal);
++        memory_region_add_subregion_overlap(sys_mem, SOLAR_OS_QEMU_AUDIO_BASE,
++            sysbus_mmio_get_region(SYS_BUS_DEVICE(audio), 0), 0);
++    }
++
+     esp32s3_soc_add_unimp_device(sys_mem, "esp32s3.rmt", DR_REG_RMT_BASE, 0x1000);
+     esp32s3_soc_add_unimp_device(sys_mem, "esp32s3.iomux", DR_REG_IO_MUX_BASE, 0x2000);
+ 
+diff --git a/include/ui/input.h b/include/ui/input.h
+index 8f9aac5..2422031 100644
+--- a/include/ui/input.h
++++ b/include/ui/input.h
+@@ -27,6 +27,7 @@ struct QemuInputHandler {
+     uint32_t               mask;
+     QemuInputHandlerEvent  event;
+     QemuInputHandlerSync   sync;
++    void (*focus)(DeviceState *dev, bool focused);
+ };
+ 
+ QemuInputHandlerState *qemu_input_handler_register(DeviceState *dev,
+@@ -40,6 +41,7 @@ void qemu_input_handler_bind(QemuInputHandlerState *s,
+ void qemu_input_event_send(QemuConsole *src, InputEvent *evt);
+ void qemu_input_event_send_impl(QemuConsole *src, InputEvent *evt);
+ void qemu_input_event_sync(void);
++void qemu_input_event_focus(QemuConsole *con, bool focused);
+ void qemu_input_event_sync_impl(void);
+ 
+ void qemu_input_event_send_key(QemuConsole *src, KeyValue *key, bool down);
+diff --git a/ui/input.c b/ui/input.c
+index 7ddefeb..36998ba 100644
+--- a/ui/input.c
++++ b/ui/input.c
+@@ -122,6 +122,16 @@ qemu_input_find_handler(uint32_t mask, QemuConsole *con)
+     return NULL;
+ }
+ 
++void qemu_input_event_focus(QemuConsole *con, bool focused)
++{
++    QemuInputHandlerState *s;
++    QTAILQ_FOREACH(s, &handlers, node) {
++        if ((!s->con || s->con == con) && s->handler->focus) {
++            s->handler->focus(s->dev, focused);
++        }
++    }
++}
++
+ void qmp_input_send_event(const char *device,
+                           bool has_head, int64_t head,
+                           InputEventList *events, Error **errp)
+diff --git a/ui/sdl2.c b/ui/sdl2.c
+index 3d70eae..4e1d9f0 100644
+--- a/ui/sdl2.c
++++ b/ui/sdl2.c
+@@ -594,6 +594,9 @@ static void handle_windowevent(SDL_Event *ev)
+     case SDL_WINDOWEVENT_FOCUS_GAINED:
+         /* fall through */
+     case SDL_WINDOWEVENT_ENTER:
++        if (ev->window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
++            qemu_input_event_focus(scon->dcl.con, true);
++        }
+         if (!gui_grab && (qemu_input_is_absolute(scon->dcl.con) || absolute_enabled)) {
+             absolute_mouse_grab(scon);
+         }
+@@ -607,6 +610,8 @@ static void handle_windowevent(SDL_Event *ev)
+         scon->ignore_hotkeys = get_mod_state();
+         break;
+     case SDL_WINDOWEVENT_FOCUS_LOST:
++        qkbd_state_lift_all_keys(scon->kbd);
++        qemu_input_event_focus(scon->dcl.con, false);
+         if (gui_grab && !gui_fullscreen) {
+             sdl_grab_end(scon);
+         }
