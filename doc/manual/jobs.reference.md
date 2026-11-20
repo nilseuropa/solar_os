@@ -151,10 +151,15 @@ battery max_voltage <volts>
 
 Notes:
 
-- Discharging trend means battery power.
-- Charging trend means external power.
+- Power uses the battery provider's hardware status when available, including
+  before the voltage trend is ready. External power does not imply charging;
+  use `charger status` to inspect the charger state and faults.
+- Trend describes voltage movement. Without hardware power status, a falling
+  trend estimates battery power and a rising trend estimates external power.
+- Time left is estimated only with a falling voltage trend and no external
+  power; it remains unknown while external power is present.
 - Three consecutive samples at or below `min_voltage`, with an established
-  discharging trend and no inferred external power, request the selected action.
+  discharging trend and no external power, request the selected action.
 - The voltage trend needs at least five minutes of history. This check runs
   only while `batmon` is running.
 - Set `min_voltage` above the board's minimum operating voltage, with margin

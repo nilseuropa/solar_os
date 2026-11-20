@@ -18,9 +18,9 @@ before registering. Ordinary module pointers remain fixed. See
 
 Native foreground apps are trusted ESP32-S3 modules. They use the same sessions,
 display ownership, keyboard shortcuts and cold-state lifecycle as built-in apps.
-Emulators such as [Apple II Plus](app.apple2.md), [Game Boy](app.gameboy.md)
-and [amiga](app.amiga.md)
-are foreground apps. Their CPU cores and guest state belong to their modules.
+Emulators such as [Apple II Plus](app.apple2.md), [Commodore 64](app.c64.md),
+[Game Boy](app.gameboy.md) and [amiga](app.amiga.md) are foreground apps.
+Their CPU cores and guest state belong to their modules.
 
 ## Quick reference
 

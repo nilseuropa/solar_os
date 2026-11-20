@@ -238,7 +238,6 @@ On `qemu_esp32s3_rgb` the `qemu-eth` driver (`eth0`) brings it up with DHCP from
 QEMU's user network (`-nic user,model=open_eth`, no setup on the host). While it
 has an address, SolarOS reports it as a connected Wi-Fi station with the SSID
 `qemu-eth`, so `curl`, `ntp`, web, SSH, and Python networking work unchanged.
-Tested: DHCP, DNS, HTTP, NTP, and ICMP ping to internet hosts on a Windows host.
 
 Run `ntp` once after boot to set the clock.
 
@@ -273,9 +272,8 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 - Wi-Fi commands (`wifi scan`, `wifi connect`) have no radio to work with; the
   network comes only from `eth0`.
 - No network on `qemu_esp32s3` (headless): it has no `eth0` device.
-- `shutdown` on `qemu_esp32s3` prints its message but leaves the shell running.
-  Likely cause, read from the code: shutdown waits for the BOOT key (GPIO0) to
-  be released, and GPIO0 reads 0, the key's active level.
+- To stop the virtual board, use `quit` in the QEMU monitor. The headless
+  target's guest `shutdown` command leaves the emulator running.
 - Changes to the firmware's flash inputs recreate the virtual flash image,
   clearing files and settings stored in that image. Host-directory files persist.
 

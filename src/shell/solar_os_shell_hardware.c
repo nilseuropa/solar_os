@@ -633,7 +633,8 @@ static void battery_print_monitor_status(solar_os_shell_io_t *term)
                              solar_os_battery_trend_name(monitor.trend),
                              monitor.external_power ?
                                 "external" :
-                                (monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING ?
+                                (monitor.external_power_known ||
+                                 monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING ?
                                     "battery" : "unknown"),
                              monitor.slope_mvh);
     if (monitor.time_left_valid) {
@@ -667,9 +668,9 @@ static void battery_print_status(solar_os_shell_io_t *term)
                              status.percent_estimated ? " estimated" : "",
                              status.adc_calibrated ? "" : " (uncalibrated ADC)");
     const char *power = status.external_power ? "external" : "unknown";
-    if (!status.external_power && status.charging_known && !status.charging) {
+    if (!status.external_power && status.external_power_known) {
         power = "battery";
-    } else if (!status.external_power && !status.charging_known) {
+    } else if (!status.external_power && !status.external_power_known) {
         solar_os_battery_monitor_status_t monitor;
         solar_os_battery_monitor_get_status(&monitor);
         if (monitor.running && monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING) {

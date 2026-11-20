@@ -21,6 +21,7 @@ typedef struct {
     bool external_power;
     bool charging;
     bool charging_known;
+    bool external_power_known;
 } solar_os_battery_status_t;
 
 typedef struct {
@@ -43,6 +44,7 @@ typedef struct {
     uint32_t time_left_min;
     bool time_left_valid;
     esp_err_t last_error;
+    bool external_power_known;
 } solar_os_battery_monitor_status_t;
 
 typedef struct {
