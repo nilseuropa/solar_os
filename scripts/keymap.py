@@ -33,6 +33,11 @@ def action(text: str) -> dict:
         return {"raw": True}
     if text.casefold() == "none":
         return {}
+    if text.casefold().startswith("tap2:"):
+        result = action(text[5:])
+        result["layer_tap"] = True
+        result["layer"] = 2
+        return output(result)
     if text.casefold().startswith("tap:"):
         result = action(text[4:])
         result["layer_tap"] = True
@@ -50,7 +55,8 @@ def action(text: str) -> dict:
                 raise KeymapError(f"invalid {prefix} value: {text}") from exc
     usage = USAGE_NAMES.get(text.casefold())
     if usage is None:
-        raise KeymapError(f"unknown action {text!r}; use an HID name, char:X, tap:Space, raw or none")
+        raise KeymapError(f"unknown action {text!r}; use an HID name, char:X, tap:Space, "
+                          "tap2:Space, raw or none")
     return {"usage": usage}
 
 
@@ -69,7 +75,7 @@ def describe(entry: dict) -> str:
     if entry.get("shift_key"):
         parts.append(f"shift_key:{entry['shift_key']}")
     if entry.get("layer_tap"):
-        parts.append("layer_tap")
+        parts.append("layer_tap2" if entry.get("layer") == 2 else "layer_tap")
     if entry.get("alt_block"):
         parts.append("alt_block")
     return " + ".join(parts)
@@ -77,10 +83,11 @@ def describe(entry: dict) -> str:
 
 def preview(profile, layers) -> None:
     print(f"{profile.label} ({profile.id}), {profile.rows}x{profile.cols}")
-    print(f"{'PHYSICAL':>8} {'KEY':<16} {'BASE':<35} SYMBOL")
+    print(f"{'PHYSICAL':>8} {'KEY':<16} {'BASE':<30} {'SYMBOL':<30} FN")
     for physical, name in sorted(profile.names.items()):
-        print(f"{physical:8} {name:<16} {describe(layers[0].get(physical, {})):<35} "
-              f"{describe(layers[1].get(physical, {}))}")
+        print(f"{physical:8} {name:<16} {describe(layers[0].get(physical, {})):<30} "
+              f"{describe(layers[1].get(physical, {})):<30} "
+              f"{describe(layers[2].get(physical, {}))}")
 
 
 def assign(profile, layers, assignments, layer=0) -> set[int]:
@@ -98,7 +105,7 @@ def assign(profile, layers, assignments, layer=0) -> set[int]:
 
 
 def interactive(profile, layers) -> set[int]:
-    print("Actions: F1, Escape, Ctrl, char:!, tap:Space, raw, none.")
+    print("Actions: F1, Escape, Ctrl, char:!, tap:Space, tap2:Space, raw, none.")
     print("Press Enter to keep the current assignment.")
     selected = set()
     fn_keys = sorted(((physical, name) for physical, name in profile.names.items()
@@ -168,6 +175,7 @@ def main(argv=None) -> int:
             sub.add_argument("--output", type=Path, required=command == "create")
             sub.add_argument("--set", action="append", default=[], metavar="KEY=ACTION")
             sub.add_argument("--symbol", action="append", default=[], metavar="KEY=ACTION")
+            sub.add_argument("--fn", action="append", default=[], metavar="KEY=ACTION")
             sub.add_argument("--interactive", action="store_true")
             sub.add_argument("--force", action="store_true", help="allow replacing an output file")
     args = parser.parse_args(argv)
@@ -188,10 +196,11 @@ def main(argv=None) -> int:
             # Keep explicit assignments, even if they match the standard profile.
             # Such entries can override a different default baked into firmware.
             include = [{profile.physical(entry) for entry in original.get(name, [])}
-                       for name in ("keys", "symbols")]
+                       for name in ("keys", "symbols", "fn")]
             include[0].update(assign(profile, layers, args.set))
             include[1].update(assign(profile, layers, args.symbol, 1))
-            if args.interactive or (not args.set and not args.symbol and sys.stdin.isatty()):
+            include[2].update(assign(profile, layers, args.fn, 2))
+            if args.interactive or (not args.set and not args.symbol and not args.fn and sys.stdin.isatty()):
                 include[0].update(interactive(profile, layers))
             document = sparse(profile, layers, include=include)
             merge(profile, document)  # Validate the combined map, including layer selectors.

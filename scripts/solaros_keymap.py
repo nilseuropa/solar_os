@@ -10,7 +10,7 @@ from pathlib import Path
 PROFILE_DIR = Path(__file__).resolve().parents[1] / "keymaps" / "profiles"
 PROFILE_IDS = ("tca8418", "inputronic-keyboard", "lilygo-pager-keyboard")
 FILE_MAX = 16384
-OUTPUT_FIELDS = {"usage", "key", "shift_key", "raw", "layer_tap", "alt_block"}
+OUTPUT_FIELDS = {"usage", "key", "shift_key", "raw", "layer_tap", "alt_block", "layer"}
 ENTRY_FIELDS = OUTPUT_FIELDS | {"physical", "row", "col"}
 
 
@@ -74,7 +74,7 @@ def read_json(path: Path, *, mapping: bool = True):
 
 def output(entry: dict) -> dict:
     result = {}
-    for name, maximum in (("usage", 0xe7), ("key", 255), ("shift_key", 255)):
+    for name, maximum in (("usage", 0xe7), ("key", 255), ("shift_key", 255), ("layer", 2)):
         value = integer(entry.get(name, 0), maximum, name)
         if value:
             result[name] = value
@@ -92,6 +92,8 @@ def output(entry: dict) -> dict:
         raise KeymapError("raw entries cannot specify logical output")
     if result.get("layer_tap") and (usage >= 0xe0 or usage == 0x39):
         raise KeymapError("layer_tap cannot use a modifier or Caps Lock usage")
+    if result.get("layer") and not result.get("layer_tap"):
+        raise KeymapError("layer requires layer_tap")
     return result
 
 
@@ -132,26 +134,29 @@ class Profile:
 
 
 def validate_layers(layers: list[dict[int, dict]]) -> None:
-    selectors = 0
+    selectors = [0, 0]
     for layer, entries in enumerate(layers):
         for entry in entries.values():
             output(entry)
             if entry.get("layer_tap"):
                 if layer:
                     raise KeymapError("layer_tap is only allowed in the base layer")
-                selectors += 1
-    if selectors > 1:
-        raise KeymapError("only one base-layer selector is allowed")
+                target = (entry.get("layer", 1) or 1) - 1
+                if target not in (0, 1):
+                    raise KeymapError("layer_tap target must be 1 (symbols) or 2 (fn)")
+                selectors[target] += 1
+                if selectors[target] > 1:
+                    raise KeymapError("only one selector is allowed per layer")
 
 
 def merge(profile: Profile, document: dict, *, base=None) -> list[dict[int, dict]]:
-    fields(document, {"schema", "keys", "symbols"}, "mapping")
+    fields(document, {"schema", "keys", "symbols", "fn"}, "mapping")
     if integer(document.get("schema"), 1, "schema") != 1:
         raise KeymapError("schema must be 1")
-    if "keys" not in document and "symbols" not in document:
-        raise KeymapError("mapping requires keys or symbols")
+    if "keys" not in document and "symbols" not in document and "fn" not in document:
+        raise KeymapError("mapping requires keys, symbols or fn")
     layers = deepcopy(profile.layers if base is None else base)
-    for layer, name in enumerate(("keys", "symbols")):
+    for layer, name in enumerate(("keys", "symbols", "fn")):
         if name not in document:
             continue
         entries = document[name]
@@ -174,7 +179,7 @@ def load_profile(name: str, directory: Path = PROFILE_DIR, *, rows=None, cols=No
     if name not in PROFILE_IDS:
         raise KeymapError(f"unknown keyboard profile: {name}")
     document = read_json(directory / f"{name}.json", mapping=False)
-    fields(document, {"schema", "profile", "label", "matrix", "keys", "symbols"}, "profile")
+    fields(document, {"schema", "profile", "label", "matrix", "keys", "symbols", "fn"}, "profile")
     if integer(document.get("schema"), 1, "schema") != 1 or document.get("profile") != name:
         raise KeymapError("profile identity/schema mismatch")
     matrix = document.get("matrix")
@@ -189,7 +194,7 @@ def load_profile(name: str, directory: Path = PROFILE_DIR, *, rows=None, cols=No
         raise KeymapError("profile requires a nonempty label")
     if not isinstance(document.get("keys"), list) or len(document["keys"]) > 256:
         raise KeymapError("profile keys must be an array of at most 256 entries")
-    profile = Profile(name, document["label"], rows, cols, first, stride, {}, [{}, {}])
+    profile = Profile(name, document["label"], rows, cols, first, stride, {}, [{}, {}, {}])
     entries = []
     legends = set()
     for entry in document["keys"]:
@@ -207,7 +212,8 @@ def load_profile(name: str, directory: Path = PROFILE_DIR, *, rows=None, cols=No
     if profile.names.keys() != expected:
         raise KeymapError("profile must describe every matrix position")
     profile.layers = merge(profile, {"schema": 1, "keys": entries,
-                                    "symbols": document.get("symbols", [])})
+                                    "symbols": document.get("symbols", []),
+                                     "fn": document.get("fn", [])})
     if requested_rows is not None or requested_cols is not None:
         if name != "tca8418":
             raise KeymapError("custom geometry is only supported by the generic tca8418 profile")
@@ -224,7 +230,7 @@ def load_profile(name: str, directory: Path = PROFILE_DIR, *, rows=None, cols=No
 
 def sparse(profile: Profile, layers, *, include=None) -> dict:
     result = {"schema": 1, "keys": []}
-    for layer, name in enumerate(("keys", "symbols")):
+    for layer, name in enumerate(("keys", "symbols", "fn")):
         entries = [{"physical": physical, **layers[layer].get(physical, {})}
                    for physical in sorted(profile.names)
                    if (layers[layer].get(physical, {}) != profile.layers[layer].get(physical, {}) or

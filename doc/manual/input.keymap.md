@@ -40,9 +40,10 @@ input keymap keyboard0 reset
 ```
 
 The first command lists registered input sources and their mapping support.
-`show` reports physical IDs, optional matrix coordinates, and both mapping
-layers. Omitting `show` also displays the map. `load` validates a file before
-applying it; `reset` restores the source's built-in profile.
+`show` reports physical IDs, optional matrix coordinates, and all three mapping
+layers (base, symbols, and fn). Omitting `show` also displays the map. `load`
+validates a file before applying it; `reset` restores the source's built-in
+profile.
 
 `gpio-matrix`, `tca8418`, `inputronic-keyboard`, and `lilygo-pager-keyboard` register physical
 mapping profiles with modifier, layer, and tap/hold support. Other drivers
@@ -52,8 +53,8 @@ tap alone does not identify a physical key or provide a real held state.
 ## Mapping files
 
 Files are JSON objects of at most 16 KiB, with `"schema": 1` and a `keys`
-array, a `symbols` array, or both. Each load begins with the built-in map and
-replaces the listed entries. Sources can register up to 256 physical IDs.
+array, a `symbols` array, an `fn` array, or any combination. Each load begins
+with the built-in map and replaces the listed entries. Sources can register up to 256 physical IDs.
 The IDs are source-local integers from 1 through 65535; they need not be
 consecutive or match HID usages. Use the IDs reported by `show`.
 
@@ -90,23 +91,42 @@ symbol selector when held; Space+A emits an exclamation mark:
 }
 ```
 
-`keys` defines base entries; `symbols` defines overrides while the layer
-selector is held. Unlisted entries retain their built-in mappings. Positions
-without a symbol mapping use the base layer. Optional output fields are:
+A second selector can target the fn layer with `"layer": 2`; its mappings go
+in the `fn` array. For example, holding Ctrl (row 3, column 4) could select a
+layer where A emits an at sign:
+
+```json
+{
+  "schema": 1,
+  "keys": [{"row": 3, "col": 4, "layer_tap": true, "layer": 2}],
+  "fn": [{"row": 0, "col": 0, "key": 64}]
+}
+```
+
+`keys` defines base entries; `symbols` defines overrides while the symbol
+selector is held; `fn` defines overrides while the function-layer selector is
+held. Unlisted entries retain their built-in mappings. Positions without a
+mapping in the active layer use the base layer. Optional output fields are:
 
 - `usage`: canonical USB HID keyboard usage, expressed as a decimal integer.
 - `key` and `shift_key`: SolarOS logical key bytes, 0 through 255. Nonzero
   values override character translation; Control/Alt chords use the HID usage.
 - `raw: true`: publish physical press/release events without a logical key.
-- `layer_tap: true`: hold to select symbols; an unused tap emits the specified
-  `usage` or `key` on release. Only one base-layer selector is allowed.
-- `alt_block: true`: suppress logical output when pressed with Alt. The
-  Pager profile uses this for its Alt+B reservation.
+- `layer_tap: true`: hold to select a layer; an unused tap emits the specified
+  `usage` or `key` on release. Selectors are valid only in the base layer, with
+  at most one per layer.
+- `layer`: target of a `layer_tap` selector: `1` for symbols (the default when
+  omitted) or `2` for fn. It is invalid on an ordinary entry.
+- `alt_block: true`: suppress logical output when pressed with Alt. Custom
+  profiles that retain an Alt modifier can use this for reserved chords.
 
 An entry with only a selector clears that entry in the selected layer. An
-empty symbol entry falls back to the base layer. Raw entries cannot specify
+empty layer entry falls back to the base layer. Raw entries cannot specify
 logical output. Duplicate keys, unknown fields, invalid usages, and unknown
 physical IDs are rejected without changing the active map.
+
+If both selectors are held, the first one pressed wins. The second selector is
+ignored until it is released; its release emits no tap.
 
 A successful apply releases held keys, clears queued controller events, and
 resets modifier, Caps, and layer state. Release and press any still-held keys
@@ -134,7 +154,7 @@ python3 scripts/keymap.py edit --profile inputronic-keyboard \
 `create --interactive` prompts for the six Inputronic FN keys. On the other
 profiles it accepts named assignments until an empty line finishes. An
 interactive terminal also enters this mode when no assignments are supplied.
-`show` lists the profile's key names, physical IDs, and both layers; add
+`show` lists the profile's key names, physical IDs, and all three layers; add
 `--input PATH` to preview a mapping. Editing retains existing assignments.
 Creation requires `--force` to replace an existing output file. Editing updates
 its input file unless a separate `--output PATH` is supplied.
@@ -144,7 +164,7 @@ Assignment names are case-insensitive. Use a key name from `show` or
 such as `F1`, `Escape`, `Ctrl`, `Shift`, and `Space`; `char:!` for a logical
 byte; `usage:0x3a` or `key:27` for numeric output; `raw` for physical events;
 and `none` to clear an entry. `tap:Space` selects the symbol layer when held
-and emits Space on an unused tap.
+and emits Space on an unused tap; `tap2:Space` does the same for the fn layer.
 
 For a generic TCA8418 with a smaller matrix, add `--rows N --cols N` to
 match its configured geometry. Physical IDs retain the controller's
@@ -158,12 +178,31 @@ python3 scripts/keymap.py create --profile inputronic-keyboard \
   --set FN3=tap:Space --symbol A=char:! --output symbols.json
 ```
 
-Only one layer selector is permitted. The Pager already uses Space as its
-selector; replace that assignment before choosing a different selector.
+Use `--fn KEY=ACTION` to change an fn entry, for example
+`--fn A=char:@`. At most one selector per layer is permitted. The standard
+Pager profile uses Space as its symbol selector; the bundled override moves
+symbols to the yellow key and assigns Space to fn. Replace an assignment to
+move either one.
 The tool writes ordinary schema-1 JSON containing only selected overrides.
 Explicit assignments are retained even when they match the standard profile.
 Profiles describe the standard mappings, so previews do not automatically
 include custom defaults compiled into a particular firmware image.
+
+A ready-made example is
+`keymaps/overrides/lilygo-pager-custom.json`. It leaves the standard Pager
+profile unchanged and reassigns the yellow key to symbols, Space to the fn
+layer, H/J/K/L to arrows, Q/E to Home/End, A to Tab, Z to Left Alt, I/O/P to
+`(`, `)` and `|`, Backspace to Delete, and Enter to Escape. Copy it to the
+device and load it with:
+
+```text
+input keymap keyboard0 load /sd/lilygo-pager-custom.json
+```
+
+Use the source name reported by `input keymap`. Runtime loads last until
+detach or reboot; see below to compile the same file into a custom default.
+`input keymap SOURCE reset` always returns to the standard Pager profile in an
+unmodified build.
 
 ## Compile custom defaults
 
@@ -233,9 +272,9 @@ in Python and no values in Lua; failures raise an exception or error.
 
 - `input keymap` lists source mapping support.
 - `input keymap SOURCE [show|load PATH|reset]` controls a registered profile.
-- Files require `"schema":1` and `keys` or `symbols`; each entry selects
-  `physical` or both `row` and `col`, with optional `usage`, `key`,
-  `shift_key`, `raw`, `layer_tap`, or `alt_block` output fields.
+- Files require `"schema":1` and one or more of `keys`, `symbols`, or `fn`;
+  each entry selects `physical` or both `row` and `col`, with optional `usage`,
+  `key`, `shift_key`, `raw`, `layer_tap`, `layer`, or `alt_block` fields.
 - `solaros.input.keymap_info(name)` reports supported features.
 - `solaros.input.load_keymap(name,path)` and `reset_keymap(name)` apply changes.
 - Mappings last until detach or reboot. Release and press held keys again
