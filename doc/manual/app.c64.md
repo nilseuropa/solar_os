@@ -16,8 +16,10 @@ with graphics, PSRAM and native-module support.
 
 ## Quick reference
 
-Copy `solaros_native_c64.app.elf` to `modules/apps/c64.elf` on the preferred
-storage volume. Launch requires at least 2 MiB free PSRAM after ELF loading.
+Check `pkg available` for a compatible package, then use `pkg install c64`.
+For manual installation, copy `solaros_native_c64.app.elf` to
+`modules/apps/c64.elf` on the preferred storage volume. Launch requires at
+least 2 MiB free PSRAM after ELF loading.
 
 The module includes BASIC V2 (`901226-01`), KERNAL revision 3 (`901227-03`)
 and the standard character ROM (`901225-01`). No separate ROM files are

@@ -338,6 +338,6 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 
 - [Boards and hardware targets](boards.md) — Supported boards, capabilities, porting structure, and validation
 - [Firmware packages and flavors](packages.md) — Choose firmware features and create custom builds
-- [Running SolarOS in QEMU](qemu.md) — Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with display, keyboard, and network
+- [Running SolarOS in QEMU](qemu.md) — Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with native input, host storage, audio output, and networking
 
 The TOML frontmatter on each topic controls package availability, search metadata, and placement in the documentation tree. Edit the topic itself; do not maintain a separate device or website copy.

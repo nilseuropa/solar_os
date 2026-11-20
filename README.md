@@ -101,8 +101,14 @@ its firmware ROMs: `apple2` starts BASIC and `apple2 file.nib` boots a disk.
 Supply disk images and Game Boy cartridges separately. Files opens `.nib`
 images with Apple II Plus and `.gb` ROMs with Game Boy.
 
-See [Native foreground apps](doc/manual/native-app.md) for installation,
-resource declarations, and the suspend/resume contract.
+The [Commodore 64](doc/manual/app.c64.md) app includes BASIC, KERNAL and
+character ROMs, loads user-supplied `.prg` programs, and supports joystick
+controls and SID audio. Check `pkg available` for a compatible catalog package,
+or copy its built ELF to `modules/apps/c64.elf`.
+
+See [Native ELF modules](doc/manual/native-modules.md) for package management,
+and [Native foreground apps](doc/manual/native-app.md) for resource declarations
+and the suspend/resume contract.
 
 ## Build
 
@@ -142,6 +148,17 @@ pio run -e goouuu_esp32_s3cam
 pio run -t upload
 pio device monitor -b 115200
 ```
+
+To run SolarOS on a computer without an ESP32 board:
+
+```sh
+pio run -e qemu_esp32s3 -t qemu
+pio run -e qemu_esp32s3_rgb -t qemu
+```
+
+These commands build the firmware and launch the selected virtual board. See
+[Running SolarOS in QEMU](doc/manual/qemu.md) for host dependencies, serial
+access, shared storage, audio, display input, and networking.
 
 An upload writes the firmware but leaves the internal storage partition as it
 was. On a board that shipped with other firmware, erase the whole flash before

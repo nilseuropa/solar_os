@@ -2,6 +2,15 @@
 
 ## 4.x
 
+- **4.18.2** — 2026-11-20 — Added headless and display QEMU targets for
+  running SolarOS on a computer, with a serial console, shared host-directory
+  storage, and audio playback. The display target adds keyboard, touch and
+  mouse input, and networking. Added a Commodore 64 native app for ESP32-S3
+  boards with graphics and PSRAM, including built-in BASIC ROMs, PRG loading,
+  joystick controls, and SID audio. Fixed the default ST7789 display size to
+  320x240. Battery monitoring now uses hardware power-source status when
+  available and avoids low-voltage sleep or shutdown while external power is
+  present.
 - **4.18.1** — 2026-11-19 — Added Ukrainian, French and Romanian keyboard
   layouts, dead-key composition, and Ctrl+Space switching between saved layouts,
   with the active layout shown in the status bar. Improved UTF-8 text input and
