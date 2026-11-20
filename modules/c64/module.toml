@@ -1,0 +1,12 @@
+schema_version = 2
+type = "app"
+id = "c64"
+name = "Commodore 64"
+version = "0.1.0"
+description = "PAL Commodore 64 with built-in BASIC/KERNAL/character ROMs, keyboard, joystick, SID audio and PRG loading."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 2
+minimum_host_api_size = 24
+required_capabilities = ["psram", "gfx"]
+artifact = "solaros_native_c64.app.elf"
