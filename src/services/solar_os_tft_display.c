@@ -320,7 +320,7 @@ static esp_err_t attach_tft(const char *name,
         .height = SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT,
 #else
         .width = (st7796 || st7789) ? 320 : 240,
-        .height = (st7796 || st7789) ? 480 : 320,
+        .height = st7796 ? 480 : (st7789 ? 240 : 320),
 #endif
 #ifdef SOLAR_OS_BOARD_DISPLAY_MADCTL
         .madctl = SOLAR_OS_BOARD_DISPLAY_MADCTL,

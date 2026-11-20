@@ -32,7 +32,7 @@ cc --help
 ```
 
 Bare `cc` also displays help. See [firmware packages and flavors](packages.md)
-for build options, and [native modules](native-app.md) for package requirements.
+for build options, and [Native ELF modules](native-modules.md) for package requirements.
 
 ## Compile your first program
 

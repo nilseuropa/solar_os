@@ -112,10 +112,10 @@ static void batmon_log_status(void)
     }
 
     const char *power = "unknown";
-    if (status.trend == SOLAR_OS_BATTERY_TREND_CHARGING &&
-        status.external_power) {
+    if (status.external_power) {
         power = "external";
-    } else if (status.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING) {
+    } else if (status.external_power_known ||
+               status.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING) {
         power = "battery";
     }
 

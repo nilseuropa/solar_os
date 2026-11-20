@@ -16,9 +16,11 @@ agent_reference_sections = true
 Available when the firmware includes the battery service.
 
 - `status()`: return battery status with `voltage_mv`, `percent`,
-  `percent_estimated`, `adc_calibrated`, `external_power`, `charging`, and
-  `charging_known`. When `charging_known` is false, `charging` is only a trend
-  estimate.
+  `percent_estimated`, `adc_calibrated`, `external_power`,
+  `external_power_known`, `charging`, and `charging_known`.
+  When `charging_known` is false, `charging` is only a trend
+  estimate. `external_power_known` is true when the provider reports power
+  status directly; otherwise `external_power` is a trend estimate.
 
 Example:
 

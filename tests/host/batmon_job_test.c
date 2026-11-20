@@ -13,6 +13,7 @@ static esp_err_t start_error, sample_error;
 static unsigned starts, samples, stops, sleep_requests, deep_requests;
 static uint32_t interval;
 static char resource_detail[SOLAR_OS_JOB_RESOURCE_DETAIL_MAX];
+static char last_log[256];
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -29,10 +30,9 @@ esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag, const 
 {
     (void)level;
     (void)tag;
-    char text[256];
     va_list args;
     va_start(args, fmt);
-    vsnprintf(text, sizeof(text), fmt, args);
+    vsnprintf(last_log, sizeof(last_log), fmt, args);
     va_end(args);
     return ESP_OK;
 }
@@ -190,11 +190,32 @@ static void test_consecutive_samples(void)
     assert(tick(now) && solar_os_shutdown_requested());
 }
 
+static void test_power_logging(void)
+{
+    reset();
+    monitor.trend = SOLAR_OS_BATTERY_TREND_UNKNOWN;
+    monitor.external_power_known = true;
+    monitor.external_power = true;
+    batmon_log_status();
+    assert(strstr(last_log, "power=external ") != NULL);
+    monitor.external_power = false;
+    batmon_log_status();
+    assert(strstr(last_log, "power=battery ") != NULL);
+    monitor.external_power_known = false;
+    batmon_log_status();
+    assert(strstr(last_log, "power=unknown ") != NULL);
+    monitor.trend = SOLAR_OS_BATTERY_TREND_DISCHARGING;
+    monitor.external_power = true;
+    batmon_log_status();
+    assert(strstr(last_log, "power=external ") != NULL);
+}
+
 int main(void)
 {
     test_arguments();
     test_actions();
     test_consecutive_samples();
+    test_power_logging();
     puts("batmon: argument compatibility, power actions, timing and consecutive samples: ok");
     return 0;
 }

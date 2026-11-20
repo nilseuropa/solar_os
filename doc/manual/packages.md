@@ -52,7 +52,7 @@ state is placed in PSRAM when external BSS is enabled. The compiler heap and
 joined worker stack are allocated on demand. The built-in provider takes
 precedence over an installed `tinycc` library; leases protect it until clients
 finish, and unloading releases its runtime snapshot without removing firmware
-code. See [C development](native-library.md).
+code. See [C development](c.md).
 
 Python and Lua are also compiled into the firmware when their `python` and
 `lua` groups are selected. The `full` flavor enables both on boards with PSRAM;
@@ -72,7 +72,7 @@ where the board supports them:
 
 | Group | Use | Guide |
 | --- | --- | --- |
-| `cc` | Compile native C applications with the built-in command and TinyCC provider on ESP32-S3 boards with PSRAM. | [C development](native-library.md) |
+| `cc` | Compile native C applications with the built-in command and TinyCC provider on ESP32-S3 boards with PSRAM. | [C development](c.md) |
 | `vision` | Decode QR codes and process images. | [Computer vision](vision.md) |
 | `inference` | Run resident models on ESP32-S3 with PSRAM. | [Model inference](inference.md) |
 | `inference_backend` | Include the ESP-DL engine in firmware; otherwise install the `espdl` library. | [Model inference](inference.md) |
@@ -108,8 +108,17 @@ Dependencies and board requirements are resolved automatically:
   their dependants are removed for the selected board and MCU.
 - `bootstrap` supplies the minimum runtime and shell and cannot be disabled.
 - Categories organize the builder; select individual groups within them.
-- Game Boy and Apple II are installed through `pkg` as native modules rather
-  than selected as firmware groups. See [Native apps](native-app.md).
+- Emulators such as Game Boy, Apple II and Commodore 64 are installed as native
+  modules rather than selected as firmware groups. Check `pkg available` for
+  compatible packages. See [Native ELF modules](native-modules.md) and
+  [Native foreground apps](native-app.md).
+
+The `qemu_rgb`, `qemu_eth`, `qemu_input`, `qemu_storage` and `qemu_audio` groups
+provide virtual display, network, input, host-directory storage and playback
+devices. They are restricted to QEMU targets; the board profiles select their
+required devices automatically. Host-side options in `platformio.ini` control
+the shared directory, audio backend and pointer mode. See
+[Running SolarOS in QEMU](qemu.md).
 
 Package source ownership and service internals are documented in the
 [maintainer package reference](https://github.com/nilseuropa/solar_os/blob/main/doc/package-architecture.md).

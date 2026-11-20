@@ -1,0 +1,23 @@
+[
+  {
+    "source": "https://www.zimmers.net/anonftp/pub/cbm/firmware/computers/c64/basic.901226-01.bin",
+    "file": "basic.rom",
+    "size": 8192,
+    "sha256": "89878cea0a268734696de11c4bae593eaaa506465d2029d619c0e0cbccdfa62d",
+    "md5": "57af4ae21d4b705c2991d98ed5c1f7b8"
+  },
+  {
+    "source": "https://www.zimmers.net/anonftp/pub/cbm/firmware/computers/c64/kernal.901227-03.bin",
+    "file": "kernal.rom",
+    "size": 8192,
+    "sha256": "83c60d47047d7beab8e5b7bf6f67f80daa088b7a6a27de0d7e016f6484042721",
+    "md5": "39065497630802346bce17963f13c092"
+  },
+  {
+    "source": "https://www.zimmers.net/anonftp/pub/cbm/firmware/computers/c64/characters.901225-01.bin",
+    "file": "chargen.rom",
+    "size": 4096,
+    "sha256": "fd0d53b8480e86163ac98998976c72cc58d5dd8eb824ed7b829774e74213b420",
+    "md5": "12a4202f5331d45af846af6c58fba946"
+  }
+]

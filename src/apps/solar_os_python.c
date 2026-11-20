@@ -1304,12 +1304,13 @@ static mp_obj_t solaros_battery(void)
         return mp_const_none;
     }
 
-    mp_obj_t dict = mp_obj_new_dict(7);
+    mp_obj_t dict = mp_obj_new_dict(8);
     python_dict_store_int(dict, "voltage_mv", status.voltage_mv);
     python_dict_store_int(dict, "percent", status.percent);
     python_dict_store_bool(dict, "percent_estimated", status.percent_estimated);
     python_dict_store_bool(dict, "adc_calibrated", status.adc_calibrated);
     python_dict_store_bool(dict, "external_power", status.external_power);
+    python_dict_store_bool(dict, "external_power_known", status.external_power_known);
     python_dict_store_bool(dict, "charging", status.charging);
     python_dict_store_bool(dict, "charging_known", status.charging_known);
     return dict;
