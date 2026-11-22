@@ -1480,6 +1480,11 @@ reports the last refresh time, upload/preparation time, waveform wait, rectangle
 and transfer bit depth, plus upload bytes, chunks and regions. These timings
 cover the driver refresh, after rendering. Bulk uploads use interrupt-driven
 DMA in chunks of up to 4 KiB and release the shared SD bus between chunks.
+Compact full-width images can transfer directly from PSRAM; `dma-direct`
+reports how many bytes of the last upload used that path. Other regions and
+unaligned ends use the bounded DMA staging buffer. Monochrome text preserves
+changed regions through scaling and conversion; compatible presenters combine
+both steps while keeping the native canvas available for overlays and exports.
 Mode status also reports the controller firmware (`fw`) and waveform identity (`lut-id`).
 Monochrome and raster graphics presentations use the shared e-paper worker:
 input processing continues during panel uploads and waveform waits, and newer

@@ -2,6 +2,7 @@
 
 #include "esp_err.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_display_mono_canvas.h"
 #include "u8g2.h"
 
 #define SOLAR_OS_DISPLAY_SCALE_MAX 4U
@@ -23,6 +24,8 @@ typedef struct {
     size_t surface_capacity;
     uint8_t *raster_buffer;
     size_t raster_capacity;
+    solar_os_display_mono_canvas_presenter_t present_canvas;
+    void *canvas_context;
 } solar_os_display_scale_t;
 
 void solar_os_display_scale_init(solar_os_display_scale_t *state, u8g2_t *canvas);
@@ -32,6 +35,10 @@ void solar_os_display_scale_apply(solar_os_display_scale_t *state, uint8_t facto
 void solar_os_display_scale_sync_native(solar_os_display_scale_t *state);
 void solar_os_display_scale_begin_native(solar_os_display_scale_t *state);
 void solar_os_display_scale_end_native(solar_os_display_scale_t *state);
+/* Areas use oriented logical pixels, like U8g2 drawing. One refresh follows
+ * all tile updates. Page-buffer canvases retain their full-buffer fallback. */
+void solar_os_display_send_regions(u8g2_t *canvas,
+    const solar_os_display_rect_t *areas, size_t count);
 esp_err_t solar_os_display_scale_raster(solar_os_display_scale_t *state,
     const solar_os_display_raster_t *source, solar_os_display_raster_t *output);
 esp_err_t solar_os_display_scale_bitmap(solar_os_display_scale_t *state,

@@ -5,10 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 #include "esp_err.h"
+#include "../../src/services/solar_os_display_surface.h"
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
 #define SOLAR_OS_DISPLAY_TARGET_MAX 2
 #define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
 #define SOLAR_OS_DISPLAY_PRESENT_TEXT 0
+#define TERM_STATUS_BAR_HEIGHT 16
 #define portENTER_CRITICAL(lock) ((void)(lock))
 #define portEXIT_CRITICAL(lock) ((void)(lock))
 typedef struct { int id; } u8g2_t;
@@ -41,7 +43,7 @@ typedef struct {
     uint32_t rendered_display_epoch,rendered_profile_hash,rendered_status_hash,rendered_footer_hash;
     uint32_t rendered_font_pack_generation;
     uint32_t rendered_row_hash[1],inverse[1][1];
-    unsigned baseline_offset,line_height,char_width,cursor_row,cursor_col;
+    unsigned baseline_offset,line_height,char_width,cursor_row,cursor_col,status_bar_height;
 } solar_os_terminal_t;
 static unsigned clears,status_paints,presents,fake_status_hash=1;
 static void ignore(const void *first,...) {(void)first;}
@@ -52,6 +54,8 @@ static void ignore(const void *first,...) {(void)first;}
 #define terminal_set_draw_color ignore
 #define u8g2_DrawBox ignore
 #define u8g2_DrawHLine ignore
+#define solar_os_canvas_box ignore
+#define solar_os_canvas_hline ignore
 #define terminal_clear_text_row ignore
 #define terminal_draw_line ignore
 #define terminal_draw_vrules ignore
@@ -75,6 +79,11 @@ static void ignore(const void *first,...) {(void)first;}
 static void u8g2_ClearBuffer(u8g2_t *u) {(void)u;++clears;}
 static void terminal_draw_status_bar(solar_os_terminal_t *t,u8g2_t *u) {(void)t;(void)u;++status_paints;}
 static void solar_os_display_present(u8g2_t *u,int mode) {(void)u;(void)mode;++presents;}
+static solar_os_display_rect_t solar_os_display_canvas_rect(u8g2_t *u)
+{ (void)u;return (solar_os_display_rect_t){0,0,400,300}; }
+static void solar_os_display_present_regions(u8g2_t *u,int mode,
+    const solar_os_display_rect_t *areas,size_t count)
+{ assert(areas && count==3);solar_os_display_present(u,mode); }
 static int solar_os_display_request_present_mode(u8g2_t *u,int mode) {(void)u;(void)mode;return 0;}
 static void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
     solar_os_terminal_cursor_shape_t *shape,bool *blink)

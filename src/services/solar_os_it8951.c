@@ -72,6 +72,10 @@ static esp_err_t target_surface(void *driver, const solar_os_display_surface_t *
 { return solar_os_it8951_present_surface(driver, s); }
 static esp_err_t surface(solar_os_board_display_t *d, const solar_os_display_surface_t *s)
 { return target_surface(d->driver, s); }
+static esp_err_t target_canvas(void *driver, const solar_os_display_mono_canvas_t *canvas)
+{ return solar_os_it8951_present_canvas(driver,canvas); }
+static esp_err_t canvas(solar_os_board_display_t *d, const solar_os_display_mono_canvas_t *source)
+{ return target_canvas(d->driver,source); }
 static esp_err_t mono(solar_os_board_display_t *d, const uint8_t *bitmap, size_t size,
     uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t stride, bool inverted)
 {
@@ -89,6 +93,7 @@ static const solar_os_board_display_ops_t ops = {
     .present_power_state = power_state, .present_mono_xbm = mono,
     .present_frame = frame, .present_surface = surface,
     .prefers_mono = prefers_mono,
+    .present_canvas = canvas,
 };
 
 #define FRAME_FORMATS (SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT | SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | \
@@ -174,6 +179,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         target.present_surface = target_surface; target.surface_context = &device->driver;
         target.surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT;
         target.preferred_stream_fps = 1;
+        target.present_canvas = target_canvas; target.canvas_context = &device->driver;
         err = solar_os_display_register_target(&target);
     }
     if (err != ESP_OK) { solar_os_it8951_deinit(&device->driver); solar_os_memory_free(device); }

@@ -47,6 +47,13 @@ static size_t allocation_bytes(const void *pointer)
 }
 
 static int64_t now;
+static bool external_dma;
+static unsigned direct_calls;
+static unsigned delay_calls;
+static int64_t busy_until;
+bool esp_ptr_external_ram(const void *pointer) { return pointer && external_dma; }
+bool esp_ptr_dma_ext_capable(const void *pointer) { return pointer && external_dma; }
+void esp_rom_delay_us(uint32_t us) { now += us; }
 static bool held, selected, stuck_ready, stuck_lut, wrong_panel;
 static unsigned phase, preamble, current_command, arg_count, last_reg;
 static unsigned updates, last_waveform, rows, removed;
@@ -138,6 +145,7 @@ int64_t esp_timer_get_time(void) { return now; }
 void vTaskDelay(TickType_t ticks)
 {
     assert(ticks);
+    delay_calls++;
     /* Automatic sleep isolates unretained GPIOs while the worker yields.
      * Losing either supply or the deasserted reset interrupts the controller. */
     if (levels[11] && levels[21] &&
@@ -156,6 +164,7 @@ int gpio_get_level(gpio_num_t pin)
 {
     assert(pin == 13);
     if (stuck_ready) return 0;
+    if (now < busy_until) return 0;
     if (info_word_pending) { info_word_pending = false; return 0; }
     return 1;
 }
@@ -322,6 +331,11 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
 esp_err_t spi_device_transmit(spi_device_handle_t spi, spi_transaction_t *t)
 {
     assert(current_command == 0x0021 && arg_count == 5 && t->length >= 64U*8U);
+    if (t->flags & SPI_TRANS_DMA_USE_PSRAM) {
+        assert(external_dma && !(((uintptr_t)t->tx_buffer | (t->length/8U)) & 63U));
+        assert(t->flags & SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL);
+        direct_calls++;
+    }
     const esp_err_t err = spi_device_polling_transmit(spi,t);
     ++interrupt_calls;
     return err;
@@ -952,7 +966,8 @@ static void test_compact_conversion(void)
                 uint8_t value=0;
                 for (unsigned bit=0; bit<8; bit++)
                     if (source[(size_t)(y/8U)*WIDTH+x+bit] & (1U << (y & 7U))) value|=0x80U >> bit;
-                const size_t offset=(size_t)y*(WIDTH/8U)+x/8U;
+                const unsigned byte=x/8U;
+                const size_t offset=(size_t)y*(WIDTH/8U)+WIDTH/8U-2U-(byte & ~1U)+(byte & 1U);
                 if (expected[offset]!=value) expected_rows[y]|=UINT64_C(1) << ((WIDTH-1U-x)/32U);
                 expected[offset]=value;
             }
@@ -960,6 +975,69 @@ static void test_compact_conversion(void)
         assert(!memcmp(image,expected,BINARY_BYTES) && !memcmp(rows,expected_rows,sizeof(rows)));
     }
     free(source);free(image);free(expected);
+}
+
+static void test_fused_canvas(void)
+{
+    solar_os_it8951_t d;
+    solar_os_it8951_config_t cfg=config();
+    assert(solar_os_it8951_init(&d,&cfg)==ESP_OK);
+    assert(solar_os_it8951_set_mode(&d,"grayscale=2")==ESP_OK);
+    uint32_t random=0x4218951;
+    for (unsigned factor=2; factor<=4; factor++) {
+        const unsigned w=WIDTH/factor,h=HEIGHT/factor,stride=(w+7U)&~7U;
+        const size_t bytes=(size_t)stride*((h+7U)/8U);
+        uint8_t *source=malloc(bytes);assert(source);
+        for (size_t i=0; i<bytes; i++) source[i]=(uint8_t)test_random(&random);
+        solar_os_display_mono_canvas_t canvas={.data=source,.data_size=bytes,
+            .width=w,.height=h,.stride=stride,.scale=factor,.native_buffer=d.mono,
+            .native_width=WIDTH,.native_height=HEIGHT,.native_stride=WIDTH,.area={0,0,WIDTH,HEIGHT}};
+        external_dma=true;
+        const unsigned before=direct_calls;
+        d.full_refresh=true;
+        assert(solar_os_it8951_present_canvas(&d,&canvas)==ESP_OK);
+        pump(&d.scan_worker);
+        assert(direct_calls>before && d.last_direct_bytes>BINARY_BYTES-256U);
+        d.full_refresh=false;
+        check_binary_panel(&d);
+        for (unsigned y=0; y<HEIGHT; y++) for (unsigned x=0; x<WIDTH; x++) {
+            const unsigned sx=x/factor,sy=y/factor;
+            const bool expected=sx<w && sy<h &&
+                (source[(size_t)(sy/8U)*stride+sx] & (1U<<(sy&7U)));
+            assert((image_gray_at(&d,d.gray,x,y)!=0)==expected);
+            assert(!!(d.mono[(size_t)(y/8U)*WIDTH+x] & (1U<<(y&7U)))==expected);
+        }
+        const uint8_t far=image_gray_at(&d,d.gray,(w-1U)*factor,(h-1U)*factor);
+        source[2]^=1U<<5;
+        source[(size_t)((h-1U)/8U)*stride+w-1U]^=1U<<((h-1U)&7U);
+        canvas.area=(solar_os_display_rect_t){2U*factor,5U*factor,factor,factor};
+        assert(solar_os_it8951_present_canvas(&d,&canvas)==ESP_OK);
+        pump(&d.scan_worker);
+        assert(d.last_width<=64 && d.last_height<=16);
+        assert(image_gray_at(&d,d.gray,(w-1U)*factor,(h-1U)*factor)==far);
+        canvas.data_size=0;
+        assert(solar_os_it8951_present_canvas(&d,&canvas)==ESP_ERR_INVALID_ARG);
+        external_dma=false;free(source);
+    }
+    const unsigned px=40,py=64;
+    d.mono[(size_t)(py/8U)*WIDTH+px]^=1U<<(py&7U);
+    const bool expected=d.mono[(size_t)(py/8U)*WIDTH+px] & (1U<<(py&7U));
+    u8g2_UpdateDisplayArea(&d.u8g2,px/8U,py/8U,1,1);
+    u8x8_RefreshDisplay(&d.u8g2.u8x8);pump(&d.scan_worker);
+    assert((image_gray_at(&d,d.gray,px,py)!=0)==expected);
+    assert(d.last_width<=32 && d.last_height<=8);
+    solar_os_it8951_deinit(&d);
+}
+
+static void test_ready_waits(void)
+{
+    solar_os_it8951_t d={.config={.busy=13}};
+    const unsigned before=delay_calls;
+    busy_until=now+5;
+    assert(wait_ready(&d)==ESP_OK && now==busy_until && delay_calls==before);
+    busy_until=now+100;
+    assert(wait_ready(&d)==ESP_OK && delay_calls==before+1U);
+    busy_until=0;
 }
 
 static void test_queued_block_runs(void)
@@ -993,7 +1071,7 @@ static void test_queued_block_runs(void)
                     if (!(d.pending_rows[y] & (UINT64_C(1)<<column))) continue;
                     const unsigned right=(column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
                     const unsigned x=WIDTH-right,width=right-column*32U;
-                    const size_t offset=(size_t)y*(WIDTH/ppb)+x/ppb;
+                    const size_t offset=(size_t)y*(WIDTH/ppb)+(levels==2 ? column*4U : x/ppb);
                     if (!memcmp(expected+offset,d.gray_pending+offset,width/ppb)) continue;
                     expected_rows[y]|=UINT64_C(1)<<column;
                     memcpy(expected+offset,d.gray_pending+offset,width/ppb);
@@ -1267,6 +1345,8 @@ int main(void)
     spi_transfer_limit=4096;
     test_default_spi_clocks();
     test_binary_storage();
+    test_fused_canvas();
+    test_ready_waits();
     assert(allocated_bytes == 0);
     assert(!sleep_power_losses);
     puts("IT8951 protocol, framebuffer, grayscale, rotation, sleep retention and recovery tests passed");

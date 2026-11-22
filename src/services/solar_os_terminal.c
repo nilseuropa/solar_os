@@ -3046,6 +3046,12 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     const bool full = !terminal->render_valid ||
         terminal->rendered_profile_hash != profile_hash;
     bool changed = full;
+    const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(u8g2);
+    solar_os_display_rect_t damage[3] = {
+        {canvas.x,canvas.y,canvas.width,0},
+        {canvas.x,canvas.y+canvas.height,canvas.width,0},
+        {canvas.x,canvas.y+canvas.height-terminal->line_height,canvas.width,0},
+    };
 
     if (full) {
         u8g2_ClearBuffer(u8g2);
@@ -3056,6 +3062,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     if (terminal->status_bar_visible &&
         (full || terminal->rendered_status_hash != status_hash)) {
         terminal_draw_status_bar(terminal, u8g2);
+        damage[0].height = terminal->status_bar_height > 0 ? terminal->status_bar_height : TERM_STATUS_BAR_HEIGHT;
         changed = true;
     }
     terminal_set_draw_color(terminal, u8g2, 0);
@@ -3067,6 +3074,16 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
         }
         if (!full) {
             terminal_clear_text_row(terminal, u8g2, row);
+            int top = terminal_cell_top_y(terminal,row);
+            int bottom = top+terminal->line_height;
+            if (top < 0) top = 0;
+            if (bottom > canvas.height) bottom = canvas.height;
+            if (bottom > top) {
+                const int previous_bottom = damage[1].height ? damage[1].y+damage[1].height : canvas.y+bottom;
+                if (canvas.y+top < damage[1].y) damage[1].y = canvas.y+top;
+                const int end = canvas.y+bottom > previous_bottom ? canvas.y+bottom : previous_bottom;
+                damage[1].height = end-damage[1].y;
+            }
         }
         const int y = terminal->baseline_offset + (int)(row * terminal->line_height);
         const uint32_t *bold = NULL;
@@ -3093,6 +3110,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     if (terminal->footer_enabled &&
         (full || terminal->rendered_footer_hash != footer_hash)) {
         terminal_draw_footer(terminal, u8g2, text_scale);
+        damage[2].height = terminal->line_height;
         changed = true;
     }
 
@@ -3120,7 +3138,8 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
 
     if (changed) {
-        solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+        if (full) solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+        else solar_os_display_present_regions(u8g2,SOLAR_OS_DISPLAY_PRESENT_TEXT,damage,3);
     }
     terminal->rendered_profile_hash = profile_hash;
     terminal->rendered_display_epoch = epoch;

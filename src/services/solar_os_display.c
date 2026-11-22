@@ -676,6 +676,13 @@ static void display_init_slot_gfx(display_target_slot_t *slot)
 }
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
+static esp_err_t display_board_present_canvas(void *context,
+    const solar_os_display_mono_canvas_t *canvas)
+{
+    solar_os_board_display_t *display = context;
+    return display->ops->present_canvas(display,canvas);
+}
+
 static esp_err_t display_register_board_target(solar_os_board_display_t *display)
 {
     solar_os_display_target_t target = {0};
@@ -697,6 +704,10 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
     target.max_stream_pixels_per_second =
         solar_os_board_display_max_stream_pixels_per_second(display);
     target.u8g2 = solar_os_board_display_u8g2(display);
+    if (display->ops->present_canvas) {
+        target.present_canvas = display_board_present_canvas;
+        target.canvas_context = display;
+    }
     if (display->ops->relax != NULL) {
         target.relax = display_board_relax;
         target.relax_context = display;
@@ -831,6 +842,8 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     slot->target.base_rotation = target->u8g2->cb;
     slot->terminal_profile = terminal_profile;
     solar_os_display_scale_init(&slot->scale, target->u8g2);
+    slot->scale.present_canvas = target->present_canvas;
+    slot->scale.canvas_context = target->canvas_context;
     solar_os_display_geometry_init(&slot->geometry, slot->scale.physical_info->pixel_width,
         slot->scale.physical_info->pixel_height, target->round);
     u8g2_SetUserPtr(target->u8g2, &slot->geometry);
@@ -2544,7 +2557,8 @@ static void display_publish_rgb_frame(u8g2_t *u8g2,
     display_publish_surface(u8g2, &surface);
 }
 
-void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode)
+void solar_os_display_present_regions(u8g2_t *u8g2, solar_os_display_present_mode_t mode,
+    const solar_os_display_rect_t *areas, size_t count)
 {
     if (u8g2 == NULL) {
         return;
@@ -2597,7 +2611,10 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
         u8g2->tile_buf_ptr = solar_os_display_layer_canvas(layer_slot->layer, true);
         if (layer_slot->scale.factor > 1U) layer_slot->scale.logical_buffer = u8g2->tile_buf_ptr;
     }
-    u8g2_SendBuffer(u8g2);
+    /* Layers can change pixels outside the caller's damage. Their composition
+     * retains the full presentation path until layer damage is available. */
+    if (layer_slot && layer_slot->layer) u8g2_SendBuffer(u8g2);
+    else solar_os_display_send_regions(u8g2,areas,count);
     if (present_mutex != NULL) solar_os_display_scale_begin_native(&layer_slot->scale);
     display_publish_frame(u8g2);
     if (present_mutex != NULL) solar_os_display_scale_end_native(&layer_slot->scale);
@@ -2610,6 +2627,11 @@ void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode
         xSemaphoreGive(present_mutex);
         display_release_slot_ref(slot_index, generation);
     }
+}
+
+void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode)
+{
+    solar_os_display_present_regions(u8g2,mode,NULL,0);
 }
 
 void solar_os_display_present_overlay(u8g2_t *u8g2,
