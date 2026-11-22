@@ -322,23 +322,43 @@ static void dirty_include(dirty_area_t *area,unsigned x,unsigned y,unsigned widt
     }
 }
 
+/* Transpose eight vertical U8g2 bytes into eight MSB-left row bytes. Each
+ * source byte is read once for a complete 8x8 tile. Low result byte is row 0. */
+static uint64_t mono_tile_rows(const uint8_t *source)
+{
+    uint64_t pixels, swap;
+    memcpy(&pixels,source,sizeof(pixels));
+#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+    pixels = __builtin_bswap64(pixels);
+#endif
+    swap = (pixels ^ (pixels >> 7)) & UINT64_C(0x00aa00aa00aa00aa);
+    pixels ^= swap ^ (swap << 7);
+    swap = (pixels ^ (pixels >> 14)) & UINT64_C(0x0000cccc0000cccc);
+    pixels ^= swap ^ (swap << 14);
+    swap = (pixels ^ (pixels >> 28)) & UINT64_C(0x00000000f0f0f0f0);
+    return pixels ^ swap ^ (swap << 28);
+}
+
 static dirty_area_t mono_to_gray_area(solar_os_it8951_t *d, const uint8_t *source,
     const dirty_area_t *area, uint8_t *image, uint64_t *rows)
 {
     dirty_area_t changed = {WIDTH,0,HEIGHT,0,rows};
     if (d->gray_levels == 2) {
         const unsigned x0 = area->x0 & ~7U, x1 = (area->x1+7U) & ~7U;
-        for (unsigned y = area->y0; y < area->y1; y++) {
-            const uint8_t *row = source+(size_t)(y/8U)*WIDTH;
-            const uint8_t mask = (uint8_t)(1U << (y & 7U));
+        for (unsigned tile_y = area->y0 & ~7U; tile_y < area->y1; tile_y += 8U) {
+            const uint8_t *tile = source+(size_t)(tile_y/8U)*WIDTH;
+            const unsigned first_row = area->y0 > tile_y ? area->y0-tile_y : 0;
+            const unsigned last_row = area->y1-tile_y < 8U ? area->y1-tile_y : 8U;
             for (unsigned x = x0; x < x1; x += 8U) {
-                uint8_t packed = 0;
-                for (unsigned bit = 0; bit < 8; bit++)
-                    if (row[x+bit] & mask) packed |= 0x80U >> bit;
-                uint8_t *out = &image[(size_t)y*(WIDTH/8U)+x/8U];
-                if (*out != packed) {
-                    *out = packed;
-                    dirty_include(&changed,x,y,8);
+                const uint64_t packed = mono_tile_rows(tile+x);
+                for (unsigned row = first_row; row < last_row; row++) {
+                    const unsigned y = tile_y+row;
+                    const uint8_t value = (uint8_t)(packed >> (row*8U));
+                    uint8_t *out = &image[(size_t)y*(WIDTH/8U)+x/8U];
+                    if (*out != value) {
+                        *out = value;
+                        dirty_include(&changed,x,y,8);
+                    }
                 }
             }
         }
@@ -639,20 +659,49 @@ static dirty_area_t take_graphics_target(solar_os_it8951_t *d)
     xSemaphoreTake(d->frame_mutex,portMAX_DELAY);
     dirty_area_t dirty = {WIDTH,0,HEIGHT,0,d->dirty_rows};
     memset(d->dirty_rows,0,HEIGHT*sizeof(*d->dirty_rows));
+    const unsigned pixels_per_byte = d->gray_levels == 2 ? 8U : 2U;
     if (d->pending_x1) {
         for (unsigned y = d->pending_y0; y < d->pending_y1; y++) {
             uint64_t bits = d->pending_rows[y];
             d->pending_rows[y] = 0;
+            uint64_t changed = 0;
             while (bits) {
-                const unsigned column = (unsigned)__builtin_ctzll(bits);
-                bits &= bits-1U;
-                const unsigned right = (column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
-                const unsigned x = WIDTH-right, width = right-column*32U;
-                const unsigned pixels_per_byte = d->gray_levels == 2 ? 8U : 2U;
+                const unsigned first = (unsigned)__builtin_ctzll(bits);
+                const unsigned count = (unsigned)__builtin_ctzll(~(bits >> first));
+                const unsigned end = first+count;
+                const uint64_t mask = ((UINT64_C(1) << count)-1U) << first;
+                bits &= ~mask;
+                const unsigned right = end*32U < WIDTH ? end*32U : WIDTH;
+                const unsigned x = WIDTH-right, width = right-first*32U;
                 const size_t offset = (size_t)y*(WIDTH/pixels_per_byte)+x/pixels_per_byte;
                 if (!memcmp(d->gray+offset,d->gray_pending+offset,width/pixels_per_byte)) continue;
-                memcpy(d->gray+offset,d->gray_pending+offset,width/pixels_per_byte);
-                dirty_include(&dirty,x,y,width);
+                /* Preserve exact sparse damage, including patches that were
+                 * reverted before scanning. Copy adjacent changed blocks once. */
+                uint64_t bit = UINT64_C(1) << first;
+                for (unsigned column = first; column < end; column++, bit <<= 1) {
+                    const unsigned block_right = (column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
+                    const size_t block = (size_t)y*(WIDTH/pixels_per_byte)+(WIDTH-block_right)/pixels_per_byte;
+                    const unsigned bytes = (block_right-column*32U)/pixels_per_byte;
+                    if (memcmp(d->gray+block,d->gray_pending+block,bytes)) changed |= bit;
+                }
+            }
+            if (!changed) continue;
+            d->dirty_rows[y] = changed;
+            const unsigned left_column = 63U-(unsigned)__builtin_clzll(changed);
+            const unsigned right_column = (unsigned)__builtin_ctzll(changed);
+            const unsigned x0 = (left_column+1U)*32U < WIDTH ? WIDTH-(left_column+1U)*32U : 0;
+            const unsigned x1 = WIDTH-right_column*32U;
+            if (x0 < dirty.x0) dirty.x0 = x0;
+            if (x1 > dirty.x1) dirty.x1 = x1;
+            if (y < dirty.y0) dirty.y0 = y;
+            dirty.y1 = y+1U;
+            while (changed) {
+                const unsigned first = (unsigned)__builtin_ctzll(changed);
+                const unsigned count = (unsigned)__builtin_ctzll(~(changed >> first));
+                changed &= ~(((UINT64_C(1) << count)-1U) << first);
+                const unsigned right = (first+count)*32U < WIDTH ? (first+count)*32U : WIDTH;
+                const size_t offset = (size_t)y*(WIDTH/pixels_per_byte)+(WIDTH-right)/pixels_per_byte;
+                memcpy(d->gray+offset,d->gray_pending+offset,(right-first*32U)/pixels_per_byte);
             }
         }
     }

@@ -923,8 +923,100 @@ static void test_binary_storage(void)
     assert(allocated_bytes == 0);
 }
 
+static uint32_t test_random(uint32_t *state)
+{
+    *state ^= *state << 13; *state ^= *state >> 17; *state ^= *state << 5;
+    return *state;
+}
+
+static void test_compact_conversion(void)
+{
+    for (unsigned x=0; x<8; x++) for (unsigned y=0; y<8; y++) {
+        uint8_t columns[8]={0};columns[x]=(uint8_t)(1U << y);
+        assert(mono_tile_rows(columns) == (UINT64_C(0x80) >> x) << (8U*y));
+    }
+    uint32_t random=0x23456789;
+    uint8_t *source=malloc(MONO_BYTES),*image=malloc(BINARY_BYTES),*expected=malloc(BINARY_BYTES);
+    assert(source && image && expected);
+    for (size_t i=0; i<MONO_BYTES; i++) source[i]=(uint8_t)test_random(&random);
+    const dirty_area_t areas[]={{0,WIDTH,0,HEIGHT,NULL},{3,21,5,19,NULL},
+        {WIDTH-1U,WIDTH,HEIGHT-1U,HEIGHT,NULL},{24,67,0,1,NULL}};
+    uint64_t rows[HEIGHT],expected_rows[HEIGHT];
+    solar_os_it8951_t d={.gray_levels=2};
+    for (unsigned a=0; a<sizeof(areas)/sizeof(areas[0]); a++) {
+        memset(image,0xa5,BINARY_BYTES);memcpy(expected,image,BINARY_BYTES);
+        memset(rows,0,sizeof(rows));memset(expected_rows,0,sizeof(expected_rows));
+        const dirty_area_t *area=&areas[a];
+        for (unsigned y=area->y0; y<area->y1; y++)
+            for (unsigned x=area->x0 & ~7U; x<((area->x1+7U)&~7U); x+=8U) {
+                uint8_t value=0;
+                for (unsigned bit=0; bit<8; bit++)
+                    if (source[(size_t)(y/8U)*WIDTH+x+bit] & (1U << (y & 7U))) value|=0x80U >> bit;
+                const size_t offset=(size_t)y*(WIDTH/8U)+x/8U;
+                if (expected[offset]!=value) expected_rows[y]|=UINT64_C(1) << ((WIDTH-1U-x)/32U);
+                expected[offset]=value;
+            }
+        mono_to_gray_area(&d,source,area,image,rows);
+        assert(!memcmp(image,expected,BINARY_BYTES) && !memcmp(rows,expected_rows,sizeof(rows)));
+    }
+    free(source);free(image);free(expected);
+}
+
+static void test_queued_block_runs(void)
+{
+    uint32_t random=0x13456789;
+    for (unsigned levels=2; levels<=16; levels+=14) {
+        const unsigned ppb=levels==2 ? 8U : 2U;
+        const size_t size=image_bytes(levels);
+        solar_os_it8951_t d={.gray_levels=levels};
+        d.frame_mutex=xSemaphoreCreateMutexStatic(&d.frame_mutex_storage);
+        d.gray=malloc(size);d.gray_pending=malloc(size);
+        d.pending_rows=calloc(HEIGHT,sizeof(*d.pending_rows));
+        d.dirty_rows=calloc(HEIGHT,sizeof(*d.dirty_rows));
+        uint8_t *expected=malloc(size);uint64_t expected_rows[HEIGHT];
+        assert(d.gray && d.gray_pending && d.pending_rows && d.dirty_rows && expected);
+        for (size_t i=0; i<size; i++) d.gray[i]=(uint8_t)test_random(&random);
+        const uint64_t all=(UINT64_C(1) << ((WIDTH+31U)/32U))-1U;
+        for (unsigned pattern=0; pattern<4; pattern++) {
+            memcpy(d.gray_pending,d.gray,size);memcpy(expected,d.gray,size);
+            memset(expected_rows,0,sizeof(expected_rows));
+            d.pending_x0=0;d.pending_x1=WIDTH;d.pending_y0=37;d.pending_y1=49;
+            dirty_area_t bounds={WIDTH,0,HEIGHT,0,NULL};
+            for (unsigned y=37; y<49; y++) {
+                d.pending_rows[y]=pattern==2 ?
+                    (((uint64_t)test_random(&random)<<32)|test_random(&random)) & all : all;
+                uint8_t *row=d.gray_pending+(size_t)y*(WIDTH/ppb);
+                if (pattern==1 || pattern==2)
+                    for (unsigned i=0; i<WIDTH/ppb; i++) row[i]^=(uint8_t)test_random(&random);
+                if (pattern==3) {row[0]^=0xff;row[WIDTH/ppb-1U]^=0xff;}
+                for (unsigned column=0; column<(WIDTH+31U)/32U; column++) {
+                    if (!(d.pending_rows[y] & (UINT64_C(1)<<column))) continue;
+                    const unsigned right=(column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
+                    const unsigned x=WIDTH-right,width=right-column*32U;
+                    const size_t offset=(size_t)y*(WIDTH/ppb)+x/ppb;
+                    if (!memcmp(expected+offset,d.gray_pending+offset,width/ppb)) continue;
+                    expected_rows[y]|=UINT64_C(1)<<column;
+                    memcpy(expected+offset,d.gray_pending+offset,width/ppb);
+                    if (x<bounds.x0) bounds.x0=x;
+                    if (x+width>bounds.x1) bounds.x1=x+width;
+                    if (y<bounds.y0) bounds.y0=y;
+                    bounds.y1=y+1U;
+                }
+            }
+            const dirty_area_t actual=take_graphics_target(&d);
+            assert(!memcmp(d.gray,expected,size) && !memcmp(d.dirty_rows,expected_rows,sizeof(expected_rows)));
+            assert(actual.x0==bounds.x0 && actual.x1==bounds.x1 && actual.y0==bounds.y0 && actual.y1==bounds.y1);
+            for (unsigned y=0; y<HEIGHT; y++) assert(!d.pending_rows[y]);
+            assert(!d.pending_x1 && !d.pending_y1);
+        }
+        free(d.gray);free(d.gray_pending);free(d.pending_rows);free(d.dirty_rows);free(expected);
+    }
+}
+
 int main(void)
 {
+    test_compact_conversion();
+    test_queued_block_runs();
     solar_os_it8951_t d;
     solar_os_it8951_config_t cfg = config();
     cfg.vcom_mv = 2330; assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_ARG);
