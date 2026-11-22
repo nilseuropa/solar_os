@@ -719,6 +719,12 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     const gpio_config_t busy = {.pin_bit_mask = 1ULL << cfg->busy,
         .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     TRY(gpio_config(&busy));
+    /* The controller remains powered while the CPU automatically sleeps,
+     * including between transfers and during waveform waits. Do not let GPIO
+     * isolation float its supplies, reset, chip select or ready input. */
+    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
+        TRY(gpio_sleep_sel_dis((gpio_num_t)pins[i]));
+    }
     /* Enforce the ED103TC2 profile's 10 MHz ceiling after SDK rounding too. */
     const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)cfg->clock_hz,
         .mode = 0, .spics_io_num = -1, .queue_size = 1};

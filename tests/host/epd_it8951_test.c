@@ -34,6 +34,8 @@ static uint16_t registers[0x1300];
 static uint16_t args[8];
 static uint8_t uploaded[(size_t)WIDTH * HEIGHT];
 static unsigned levels[49];
+static bool sleep_retained[49];
+static unsigned sleep_power_losses;
 static bool worker_init_fail;
 static int16_t temperature_sample = 27;
 static esp_err_t temperature_error;
@@ -101,8 +103,23 @@ static esp_err_t present_frame_and_wait(solar_os_it8951_t *d,
 }
 
 int64_t esp_timer_get_time(void) { return now; }
-void vTaskDelay(TickType_t ticks) { assert(ticks); now += (int64_t)ticks * 1000; }
+void vTaskDelay(TickType_t ticks)
+{
+    assert(ticks);
+    /* Automatic sleep isolates unretained GPIOs while the worker yields.
+     * Losing either supply or the deasserted reset interrupts the controller. */
+    if (levels[11] && levels[21] &&
+        (!sleep_retained[11] || !sleep_retained[21] ||
+         (levels[12] && !sleep_retained[12]))) ++sleep_power_losses;
+    now += (int64_t)ticks * 1000;
+}
 esp_err_t gpio_config(const gpio_config_t *cfg) { assert(cfg); return ESP_OK; }
+esp_err_t gpio_sleep_sel_dis(gpio_num_t pin)
+{
+    assert(pin >= 0 && pin < 49);
+    sleep_retained[pin] = true;
+    return ESP_OK;
+}
 int gpio_get_level(gpio_num_t pin)
 {
     assert(pin == 13);
@@ -617,7 +634,10 @@ int main(void)
     fail_power_pin = 21;
     assert(solar_os_it8951_init(&d, &cfg) == ESP_FAIL);
     assert(!d.spi && !levels[11] && !levels[21]);
+    sleep_power_losses = 0;
     assert(solar_os_it8951_init(&d, &cfg) == ESP_OK);
+    assert(!sleep_power_losses);
+    assert(sleep_retained[10] && sleep_retained[12] && sleep_retained[13]);
     assert(d.ready && d.image_address == 0x123456 && !updates);
     assert(d.gray_levels == 4 && strstr(solar_os_it8951_mode(&d),"grayscale=4"));
     assert(!strcmp(solar_os_it8951_mode(NULL),"refresh=auto grayscale=4"));
@@ -842,6 +862,7 @@ int main(void)
     assert(upload_calls==HEIGHT/2U && upload_bytes==GRAY_BYTES);
     solar_os_it8951_deinit(&d);
     spi_transfer_limit=4096;
-    puts("IT8951 protocol, framebuffer, grayscale, rotation and recovery tests passed");
+    assert(!sleep_power_losses);
+    puts("IT8951 protocol, framebuffer, grayscale, rotation, sleep retention and recovery tests passed");
     return 0;
 }
