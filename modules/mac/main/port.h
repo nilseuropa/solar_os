@@ -20,6 +20,7 @@ extern const solar_os_native_memory_api_v1_t *solar_os_mac_memory;
 extern jmp_buf solar_os_mac_trap;
 extern const char *solar_os_mac_failure;
 extern uint8_t *solar_os_mac_ram, *solar_os_mac_rom;
+extern bool solar_os_mac_packed_video;
 void solar_os_mac_report(const char *text);
 _Noreturn void solar_os_mac_fail(const char *text);
 void solar_os_mac_machine_init(void);

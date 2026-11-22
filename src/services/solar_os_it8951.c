@@ -54,8 +54,11 @@ static void deinit(solar_os_board_display_t *display)
 static const char *target_mode(const void *driver) { return solar_os_it8951_mode(driver); }
 static const char *target_modes(const void *driver)
 { (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS
-    "refresh=auto|full grayscale=4|16 spi-khz=<100..20000> spi-read-khz=<100..20000>"; }
+    "refresh=auto|full grayscale=2|4|16 spi-khz=<100..20000> spi-read-khz=<100..20000>"; }
 static esp_err_t target_set_mode(void *driver, const char *mode) { return solar_os_it8951_set_mode(driver, mode); }
+static bool target_prefers_mono(const void *driver)
+{ return __atomic_load_n(&((const solar_os_it8951_t *)driver)->gray_levels,__ATOMIC_ACQUIRE) == 2U; }
+static bool prefers_mono(const solar_os_board_display_t *d) { return target_prefers_mono(d->driver); }
 static const char *mode(const solar_os_board_display_t *d) { return target_mode(d->driver); }
 static const char *modes(const solar_os_board_display_t *d) { return target_modes(d->driver); }
 static esp_err_t set_mode(solar_os_board_display_t *d, const char *s) { return target_set_mode(d->driver, s); }
@@ -85,6 +88,7 @@ static const solar_os_board_display_ops_t ops = {
     .controller_mode_values = modes, .set_controller_mode = set_mode,
     .present_power_state = power_state, .present_mono_xbm = mono,
     .present_frame = frame, .present_surface = surface,
+    .prefers_mono = prefers_mono,
 };
 
 #define FRAME_FORMATS (SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT | SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | \
@@ -163,6 +167,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         target.controller_context = &device->driver;
         target.controller_mode = target_mode; target.controller_mode_values = target_modes;
         target.set_controller_mode = target_set_mode;
+        target.prefers_mono = target_prefers_mono; target.render_context = &device->driver;
         target.present_power_state = target_power_state; target.power_state_context = &device->driver;
         target.present_frame = target_frame; target.frame_context = &device->driver;
         target.frame_formats = FRAME_FORMATS;

@@ -1459,6 +1459,21 @@ preserved. The default `grayscale=4` quantizes output to levels 0, 5, 10 and 15;
 Both grayscale settings use the same transfer size. Native 2-bit uploads are
 not used: the controller maps them to levels 0, 4, 8 and 12, which omit white.
 The retained image keeps its original shades in either mode.
+`display mode display0 grayscale=2` selects monochrome output with ordered
+4x4 dithering and compact 1-bit retained and pending images. Each native image
+uses 328536 bytes instead of 1314144 bytes; asynchronous raster presentation
+uses 1971216 fewer PSRAM bytes across those two images. The shared display
+queue also handles monochrome text with compact targets, saving 1634248
+bytes compared with four- or sixteen-level text presentation. The shared display
+service also selects a monochrome application canvas. `view` decodes to gray
+and draws through that canvas, avoiding its INDEX8 canvas and RGB565 staging
+buffer. Close and reopen graphics apps after changing modes so their working
+buffers follow the new preference. `storage-bpp` and `image-bytes` report the retained image
+format and bytes per image, independently of transfer `bpp`.
+Switching back to `grayscale=4` or `grayscale=16` reallocates 4-bit images;
+new presentations supply their original shades again. Mode changes preserve
+the current mode if allocation fails and establish a full baseline on the next
+presentation. Grayscale selection is runtime-only.
 A change between transfer formats,
 startup, recovery, and periodic cleanup use the full panel. `display mode display0`
 reports the last refresh time, upload/preparation time, waveform wait, rectangle,

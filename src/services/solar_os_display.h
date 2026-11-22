@@ -53,6 +53,12 @@ typedef struct {
     bool black_is_one;
     uint32_t surface_formats;
     uint32_t frame_formats;
+    /* Working-buffer preference, independent of accepted transport formats.
+     * Applications may use the compact monochrome canvas on a color-capable
+     * target. The optional getter is sampled when taking a target snapshot. */
+    bool prefer_mono;
+    bool (*prefers_mono)(const void *context);
+    void *render_context;
     uint16_t preferred_stream_fps;
     /* Minimum caller task stack for synchronous presentation, bytes; 0 uses
      * the presenter's default. Protocol-backed targets may nest substantial I/O. */

@@ -79,9 +79,18 @@ static int video(uint16_t w, uint16_t h, const uint16_t *p, uint16_t fps, uint8_
     frame_width = w; frame_height = h;
     return display_error;
 }
+static bool packed_host;
+static int packed_video(uint16_t w, uint16_t h, uint16_t fps)
+{
+    assert(w == selected_width && h == selected_height && fps == 25);
+    packed_host = true; frame_width=w; frame_height=h;
+    return display_error;
+}
+static size_t frame_bytes(void)
+{ return (size_t)(packed_host ? (selected_width+7U)/8U : selected_width)*selected_height; }
 static int present(const uint8_t *p, size_t n)
 {
-    assert(n == (size_t)selected_width * selected_height);
+    assert(n == frame_bytes());
     last_frame = realloc(last_frame, n); assert(last_frame);
     memcpy(last_frame, p, n);
     ++frames;
@@ -103,14 +112,14 @@ static unsigned host_writing;
 static int acquire_frame(uint8_t **p, size_t *n)
 {
     host_writing = 0; *p = host_frames[0];
-    *n = (size_t)selected_width * selected_height; return 0;
+    *n = frame_bytes(); return 0;
 }
 static int exchange_frame(uint8_t **p)
 {
     assert(*p == host_frames[host_writing]);
-    present(*p, (size_t)selected_width * selected_height);
+    present(*p, frame_bytes());
     *p = host_frames[host_writing ^= 1];
-    memset(*p, 0xcd, (size_t)selected_width * selected_height);
+    memset(*p, 0xcd, frame_bytes());
     return 0;
 }
 static int read_key(solar_os_native_foreground_key_v1_t *key, bool *available)
@@ -334,6 +343,15 @@ static void render_tests(void)
         assert(!memcmp(out, expected, w * h));
         assert(!solar_os_mac_render(out, w, h));
         assert(!memcmp(out, expected, w * h));
+        solar_os_mac_packed_video=true; solar_os_mac_render_reset();
+        memset(out,0xcc,w*h);
+        assert(solar_os_mac_render(out,w,h));
+        const unsigned stride=(w+7U)/8U;
+        for (unsigned y=0; y<h; ++y)
+            for (unsigned x=0; x<w; ++x)
+                assert(!!(out[y*stride+x/8U] & (1U << (x & 7U))) == expected[y*w+x]);
+        assert(!solar_os_mac_render(out,w,h));
+        solar_os_mac_packed_video=false; solar_os_mac_render_reset();
     }
     /* Scan the complete packed screen, including a single-bit tail change. */
     assert(solar_os_mac_video_configure(512, 342, false));
@@ -380,6 +398,13 @@ int main(int argc, char **argv)
     for (unsigned i = 0; i < 480 * 320; ++i) { white += !last_frame[i]; black += last_frame[i] == 1; }
     assert(white > 60000 && black > 60000);
     app.struct_size = sizeof(app);
+    reset(); diagnostic=true;
+    app.video_open_mono1=packed_video;
+    app.video_acquire=acquire_frame; app.video_exchange=exchange_frame;
+    assert(!solar_os_mac_main(2,args) && !exit_code && !allocations && packed_host);
+    assert(frame_bytes() == 19200 && solar_os_mac_packed_video);
+    packed_host=false; app.video_open_mono1=NULL;
+    app.video_acquire=NULL; app.video_exchange=NULL;
     for (unsigned fail = 1; fail <= 3; ++fail) {
         reset(); fail_allocation = fail;
         assert(solar_os_mac_main(2, args) == 1 && exit_code == 1 && !allocations);

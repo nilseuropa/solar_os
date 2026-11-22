@@ -1596,6 +1596,23 @@ write/read clocks as `spi-target`. It also reports cumulative refresh `errors`,
 controller `resets` (including startup), and `last-error`. Resetting the display
 after a failed transfer does not clear these counters.
 
+IT8951 accepts `grayscale=2|4|16`; four levels are the default. For example,
+`display mode display0 grayscale=2` switches to compact 1-bit retained images
+with ordered 4x4 dithering. Each native image uses 328536 bytes, saving 985608
+PSRAM bytes compared with the 4-bit image used by the four- and sixteen-level
+modes. Asynchronous graphics uses both a retained and a pending image, saving
+1971216 bytes in total. Monochrome text uses the same compact queue, saving
+1634248 bytes compared with four- or sixteen-level text presentation.
+New graphics sessions use a compact monochrome canvas;
+`view` uses grayscale decoding and avoids INDEX8/RGB565 rendering buffers.
+Close and reopen existing apps after switching to release their old working
+buffers. Native apps can use the optional packed monochrome video API. Mode output
+reports `storage-bpp` and `image-bytes`; transfer `bpp` can already be 1 for a
+binary image in any grayscale mode. Switching modes reallocates storage when
+needed, waits for the current refresh, and redraws the terminal. If allocation
+fails, the previous mode and accepted frame remain usable. This setting is
+runtime-only.
+
 All built-in EPD profiles accept `cleanup-interval=<0..86400>` in seconds.
 Zero preserves the profile's normal cleanup policy. A nonzero value selects
 timed routine cleanup; `cleanup-interval=3600` requests an hourly interval.

@@ -546,6 +546,7 @@ void solar_os_gfx_prepare_surface(solar_os_gfx_t *gfx)
     if (!solar_os_display_target_name_for_u8g2(
             gfx->u8g2, target_name, sizeof(target_name)) ||
         !solar_os_display_find_target(target_name, &target) ||
+        target.prefer_mono ||
         (target.surface_formats & SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT) == 0U) {
         return;
     }

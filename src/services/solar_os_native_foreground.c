@@ -242,6 +242,27 @@ static int foreground_video_open_ex(uint16_t width, uint16_t height,
     return foreground_result(err);
 }
 
+static int foreground_video_open_mono1(uint16_t width, uint16_t height, uint16_t fps)
+{
+    foreground_state_t *state = foreground_current();
+    if (!foreground_caller()) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    if (!width || !height || width > 1024U || height > 1024U || fps > 60U)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (state->presenter) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    const uint16_t stride = (width+7U)/8U;
+    const solar_os_frame_presenter_config_t config = {
+        .gfx=state->gfx, .format=SOLAR_OS_DISPLAY_FORMAT_MONO1,
+        .width=width, .height=height, .stride=stride,
+        .fit=SOLAR_OS_FRAME_FIT_HEIGHT, .preferred_fps=fps,
+        .request_high_refresh=true, .clear_background_on_resume=true,
+        .literal_direct_palette=true,
+    };
+    esp_err_t err = solar_os_frame_presenter_init(&state->presenter,&config);
+    if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
+    if (err == ESP_OK) state->frame_size = (size_t)stride*height;
+    return foreground_result(err);
+}
+
 static int foreground_video_open(uint16_t width, uint16_t height,
     const uint16_t *palette, uint16_t fps)
 {
@@ -858,6 +879,7 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
     .video_acquire = foreground_video_acquire, .video_exchange = foreground_video_exchange,
     .cooperate = foreground_cooperate,
     .set_memory_reclaimer = foreground_set_memory_reclaimer,
+    .video_open_mono1 = foreground_video_open_mono1,
 };
 
 

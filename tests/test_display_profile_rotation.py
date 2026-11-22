@@ -255,7 +255,8 @@ int main(void) {
 typedef struct {uint16_t width,height;solar_os_display_rotation_t rotation;} u8g2_t;
 typedef struct {solar_os_display_surface_t surface;} index_t;
 typedef struct {u8g2_t *u8g2;index_t *index8;bool dirty;} solar_os_gfx_t;
-typedef struct {uint32_t surface_formats;} solar_os_display_target_t;
+typedef struct {uint32_t surface_formats;bool prefer_mono;} solar_os_display_target_t;
+static bool prefer_mono;
 static unsigned marks,allocations,releases;
 static bool gfx_ready(solar_os_gfx_t *g) {return g && g->u8g2;}
 static bool gfx_uses_index8(solar_os_gfx_t *g) {return g->index8!=NULL;}
@@ -265,8 +266,9 @@ static solar_os_display_rotation_t gfx_rotation(u8g2_t *u) {return u->rotation;}
 static void gfx_mark_index8_all_dirty(solar_os_gfx_t *g) {(void)g;marks++;}
 static void solar_os_gfx_release_surface(solar_os_gfx_t *g) {g->index8=NULL;releases++;}
 static esp_err_t solar_os_gfx_enable_index8(solar_os_gfx_t *g) {(void)g;allocations++;return ESP_OK;}
-static bool solar_os_display_target_name_for_u8g2(u8g2_t *u,char *out,size_t size) {(void)u;(void)out;(void)size;return false;}
-static bool solar_os_display_find_target(const char *name,solar_os_display_target_t *target) {(void)name;(void)target;return false;}
+static bool solar_os_display_target_name_for_u8g2(u8g2_t *u,char *out,size_t size) {(void)u;(void)out;(void)size;return true;}
+static bool solar_os_display_find_target(const char *name,solar_os_display_target_t *target)
+{(void)name;*target=(solar_os_display_target_t){.surface_formats=SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,.prefer_mono=prefer_mono};return true;}
 '''
         source += production_functions((ROOT / 'src/services/solar_os_gfx.c').read_text(),
                                        ('solar_os_gfx_prepare_surface',))
@@ -286,7 +288,11 @@ int main(void) {
         assert(gfx.index8==&index && index.surface.data==pixels && gfx.dirty);
         assert(!hashes[0]&&!hashes[1]&&!hashes[2]);
     }
-    assert(marks==4 && !allocations && !releases);return 0;
+    assert(marks==4 && !allocations && !releases);
+    gfx.index8=NULL;prefer_mono=true;solar_os_gfx_prepare_surface(&gfx);
+    assert(!allocations); /* Accepted INDEX8 input does not require an INDEX8 canvas. */
+    prefer_mono=false;solar_os_gfx_prepare_surface(&gfx);assert(allocations==1);
+    return 0;
 }
 '''
         self.run_native(source)

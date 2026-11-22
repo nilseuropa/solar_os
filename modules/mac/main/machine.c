@@ -223,7 +223,25 @@ bool solar_os_mac_render(uint8_t *pixels, uint16_t width, uint16_t height)
     size_t size = solar_os_mac_stride * solar_os_mac_height;
     if (render.valid && !memcmp(render.previous, fb, size)) return false;
     memcpy(render.previous, fb, size);
-    /* Expand each guest bit to one palette index, without resampling. */
+    /* Keep native monochrome packed when the host supports it. The guest uses
+     * MSB-first bits and word-aligned rows; the host uses LSB-first byte rows. */
+    if (solar_os_mac_packed_video) {
+        const unsigned stride = (width+7U)/8U;
+        for (unsigned y = 0; y < height; ++y) {
+            const uint8_t *source = render.previous + render.source_row[y];
+            uint8_t *out = pixels + (size_t)y*stride;
+            for (unsigned byte = 0; byte < stride; ++byte) {
+                uint8_t bits = source[byte];
+                bits = (uint8_t)(((bits & 0x55U) << 1) | ((bits >> 1) & 0x55U));
+                bits = (uint8_t)(((bits & 0x33U) << 2) | ((bits >> 2) & 0x33U));
+                out[byte] = (uint8_t)((bits << 4) | (bits >> 4));
+            }
+            if (width & 7U) out[stride-1U] &= (1U << (width & 7U))-1U;
+        }
+        render.valid = true;
+        return true;
+    }
+    /* Older hosts accept one palette index per guest pixel. */
     for (unsigned y = 0; y < height; ++y) {
         const uint8_t *source = render.previous + render.source_row[y];
         uint8_t *out = pixels + y * width;
