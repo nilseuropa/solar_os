@@ -1429,8 +1429,9 @@ GPIO47 has no ADC function. Only GPIO6 and GPIO47 are free GPIO/PWM slots;
 GPIO6 is also an ADC slot. The I2C pins on J2 remain owned by `i2c0`.
 The `io` Layout view shows all six J2 positions in pin order, including 3V3 and GND.
 
-The display defaults to 10 MHz SPI. `display mode display0` reports the actual
-SPI rate.
+The display defaults to 20 MHz SPI writes and 10 MHz reads. Initial controller
+setup uses 10 MHz before selecting the write clock. `display mode display0`
+reports the actual write and read rates.
 
 The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the

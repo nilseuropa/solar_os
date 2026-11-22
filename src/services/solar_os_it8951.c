@@ -53,7 +53,8 @@ static void deinit(solar_os_board_display_t *display)
 
 static const char *target_mode(const void *driver) { return solar_os_it8951_mode(driver); }
 static const char *target_modes(const void *driver)
-{ (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=auto|full grayscale=4|16"; }
+{ (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS
+    "refresh=auto|full grayscale=4|16 spi-khz=<100..20000> spi-read-khz=<100..20000>"; }
 static esp_err_t target_set_mode(void *driver, const char *mode) { return solar_os_it8951_set_mode(driver, mode); }
 static const char *mode(const solar_os_board_display_t *d) { return target_mode(d->driver); }
 static const char *modes(const solar_os_board_display_t *d) { return target_modes(d->driver); }
@@ -100,7 +101,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     }
     if (slot == 2) return ESP_ERR_NO_MEM;
     solar_os_it8951_config_t cfg = {.cs = -1, .reset = -1, .busy = -1, .power = -1,
-        .ite_power = -1, .clock_hz = 10000000, .vcom_mv = 1400,
+        .ite_power = -1, .clock_hz = 20000000, .vcom_mv = 1400,
         .read_temperature = read_temperature};
     unsigned seen = 0;
     const char *cs_bus = NULL;
@@ -119,7 +120,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
             else if (!strcmp(b->role, "ite_power")) { bit = 32U; cfg.ite_power = b->value; }
             else return ESP_ERR_INVALID_ARG;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER) {
-            if (!strcmp(b->role, "clock") && b->value >= 100 && b->value <= 10000) {
+            if (!strcmp(b->role, "clock") && b->value >= 100 && b->value <= 20000) {
                 bit = 64U; cfg.clock_hz = (unsigned)b->value * 1000U;
             } else if (!strcmp(b->role, "rotation") && b->value >= 0 && b->value <= 3) {
                 bit = 128U; cfg.rotation = (unsigned)b->value;
@@ -197,7 +198,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
     {.key="busy", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="busy", .required=true},
     {.key="power", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="power", .required=true},
     {.key="ite_power", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="ite_power", .required=true},
-    {.key="clock", .value_hint="100..10000kHz", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="clock", .has_value_range=true, .min_value=100, .max_value=10000},
+    {.key="clock", .value_hint="100..20000kHz", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="clock", .has_value_range=true, .min_value=100, .max_value=20000},
     {.key="rotation", .value_hint="0..3", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="rotation", .has_value_range=true, .min_value=0, .max_value=3},
 };
 

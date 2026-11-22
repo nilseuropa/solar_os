@@ -36,7 +36,7 @@ typedef struct {
     bool row_bpp_valid;
     unsigned transfer_size, gray_levels, shadow_bpp;
     uint32_t image_address;
-    unsigned spi_clock_khz;
+    unsigned spi_clock_khz, spi_read_clock_khz, spi_read_clock_hz;
     char firmware_version[17], waveform_version[17];
     StaticSemaphore_t mutex_storage;
     SemaphoreHandle_t mutex;
@@ -45,7 +45,7 @@ typedef struct {
     esp_err_t last_error;
     bool ready, powered, shadow_valid, full_refresh;
     unsigned updates;
-    uint32_t refreshes;
+    uint32_t refreshes, refresh_errors, controller_resets;
     unsigned last_x, last_y, last_width, last_height, last_bpp;
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
     unsigned last_upload_bytes, last_chunks, last_regions;
@@ -59,7 +59,7 @@ typedef struct {
     bool temperature_valid;
     int16_t temperature_c;
     int64_t temperature_due;
-    char mode_description[512];
+    char mode_description[640];
 } solar_os_it8951_t;
 
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *display,

@@ -41,6 +41,7 @@ static int16_t temperature_sample = 27;
 static esp_err_t temperature_error;
 static unsigned temperature_writes, commanded_temperature;
 static int spi_clock_khz;
+static int last_write_clock_khz, last_read_clock_khz;
 static bool overspeed;
 static unsigned info_words;
 static bool info_word_pending;
@@ -171,12 +172,19 @@ esp_err_t spi_device_polling_transmit(spi_device_handle_t spi, spi_transaction_t
     }
     if (fail_after == 0) { fail_after = -1; return ESP_FAIL; }
     if (fail_after > 0) fail_after--;
+    if (t->override_freq_hz) {
+        /* Model SDK rounding and its device-local, retained clock override. */
+        spi_clock_khz = t->override_freq_hz == 15000000U ? 16000 :
+            (int)(t->override_freq_hz / 1000U);
+    }
     const uint8_t *tx = t->tx_buffer;
     const size_t size = t->length / 8U;
     if (!phase++) {
         assert(size == 2 && tx);
         preamble = ((unsigned)tx[0] << 8) | tx[1];
         assert(preamble == 0 || preamble == 0x1000 || preamble == 0x6000);
+        if (preamble == 0x1000) last_read_clock_khz = spi_clock_khz;
+        else last_write_clock_khz = spi_clock_khz;
         return ESP_OK;
     }
     if (preamble == 0x1000) {
@@ -568,8 +576,11 @@ static void test_graphics_queue(solar_os_it8951_t *d)
     assert(updates==before+2);
     palette=0;
     assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
+    const uint32_t errors = d->refresh_errors, resets = d->controller_resets;
     fail_after=2; pump(&d->scan_worker);
     assert(d->ready && d->shadow_valid && gray_at(d->gray,0,0)==0);
+    assert(d->refresh_errors == errors+1U && d->controller_resets == resets+1U);
+    assert(d->last_error == ESP_OK);
     assert(solar_os_it8951_present_frame(d,&f)==ESP_OK);
     assert(solar_os_it8951_set_power_save(d,true)==ESP_OK);
     assert(!d->gray_pending && !d->scan_worker.task);
@@ -615,6 +626,69 @@ static void test_retained_baseline(solar_os_it8951_t *d)
     assert(updates==before+1 && last_waveform==1 && d->scan_worker.stats.scans==1);
 }
 
+static void test_spi_clocks(solar_os_it8951_t *d)
+{
+    static const char *invalid[] = {"spi-khz=", "spi-khz=-1", "spi-khz=+10000",
+        "spi-khz=99", "spi-khz=20001", "spi-khz=10000junk", "spi-khz= 10000",
+        "spi-khz=99999999999999999999999", "spi-read-khz=99", "spi-read-khz=20001"};
+    const uint32_t resets = d->controller_resets, errors = d->refresh_errors;
+    for (unsigned i = 0; i < sizeof(invalid)/sizeof(invalid[0]); i++)
+        assert(solar_os_it8951_set_mode(d,invalid[i]) == ESP_ERR_INVALID_ARG);
+    assert(d->config.clock_hz == 10000000U && d->spi_read_clock_hz == 10000000U);
+    d->mono[18] ^= 1;
+    assert(solar_os_it8951_present(d) == ESP_OK);
+    const TaskHandle_t task = d->scan_worker.task;
+    assert(solar_os_it8951_set_mode(d,"spi-khz=20000") == ESP_OK);
+    assert(d->scan_worker.task == task && d->scan_worker.has_target && d->shadow_valid);
+    assert(d->spi_clock_khz == 10000); /* The override has not transferred yet. */
+    pump(&d->scan_worker);
+    assert(last_write_clock_khz == 20000 && last_read_clock_khz == 10000);
+    assert(d->spi_clock_khz == 20000 && d->spi_read_clock_khz == 10000);
+    assert(d->controller_resets == resets && d->refresh_errors == errors);
+    assert(strstr(solar_os_it8951_mode(d),"spi=20000kHz read-spi=10000kHz spi-target=20000/10000kHz"));
+    assert(solar_os_it8951_set_mode(d,"spi-read-khz=4000") == ESP_OK);
+    uint16_t packed;
+    assert(read_reg(d,0x0004,&packed) == ESP_OK && packed == 1);
+    assert(last_write_clock_khz == 20000 && last_read_clock_khz == 4000);
+    assert(d->spi_read_clock_khz == 4000);
+    assert(solar_os_it8951_set_mode(d,"spi-read-khz=20000") == ESP_OK);
+    assert(read_reg(d,0x0004,&packed) == ESP_OK && packed == 1);
+    assert(d->spi_read_clock_khz == 20000); /* Same rate as the previous write. */
+    assert(solar_os_it8951_set_mode(d,"spi-khz=15000") == ESP_OK);
+    assert(read_reg(d,0x0004,&packed) == ESP_OK && packed == 1);
+    assert(d->spi_clock_khz == 16000 && last_write_clock_khz == 16000);
+    assert(strstr(solar_os_it8951_mode(d),"spi-target=15000/20000kHz"));
+    assert(solar_os_it8951_set_mode(d,"spi-khz=10000") == ESP_OK);
+    assert(solar_os_it8951_set_mode(d,"spi-read-khz=10000") == ESP_OK);
+    assert(read_reg(d,0x0004,&packed) == ESP_OK && packed == 1);
+    assert(last_write_clock_khz == 10000 && last_read_clock_khz == 10000);
+    assert(d->controller_resets == resets && d->refresh_errors == errors);
+}
+
+static void test_default_spi_clocks(void)
+{
+    solar_os_it8951_t d;
+    solar_os_it8951_config_t cfg = config();
+    cfg.clock_hz = 20000000U;
+    assert(solar_os_it8951_init(&d,&cfg) == ESP_OK);
+    /* Cold startup retains the established handshake timing. The first image
+     * selects fast writes without increasing the read clock. */
+    assert(last_write_clock_khz == 10000 && last_read_clock_khz == 10000);
+    assert(d.config.clock_hz == 20000000U && d.spi_read_clock_hz == 10000000U);
+    assert(d.spi_clock_khz == 10000 && d.spi_read_clock_khz == 10000);
+    assert(solar_os_it8951_present(&d) == ESP_OK); pump(&d.scan_worker);
+    assert(d.spi_clock_khz == 20000 && d.spi_read_clock_khz == 10000);
+    assert(last_write_clock_khz == 20000 && last_read_clock_khz == 10000);
+    assert(d.controller_resets == 1U && d.refresh_errors == 0U);
+    assert(solar_os_it8951_set_power_save(&d,true) == ESP_OK);
+    assert(solar_os_it8951_set_power_save(&d,false) == ESP_OK);
+    assert(d.config.clock_hz == 20000000U && d.spi_read_clock_hz == 10000000U);
+    assert(solar_os_it8951_present(&d) == ESP_OK); pump(&d.scan_worker);
+    assert(d.spi_clock_khz == 20000 && d.spi_read_clock_khz == 10000);
+    assert(d.controller_resets == 2U && d.refresh_errors == 0U);
+    solar_os_it8951_deinit(&d);
+}
+
 int main(void)
 {
     solar_os_it8951_t d;
@@ -622,7 +696,7 @@ int main(void)
     cfg.vcom_mv = 2330; assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_ARG);
     cfg = config(); cfg.ite_power = cfg.cs;
     assert(solar_os_it8951_init(&d, &cfg) == ESP_ERR_INVALID_ARG);
-    cfg = config(); cfg.clock_hz = 20000000;
+    cfg = config(); cfg.clock_hz = 40000000;
     assert(solar_os_it8951_init(&d,&cfg) == ESP_ERR_INVALID_ARG);
     cfg = config(); overspeed = true;
     assert(solar_os_it8951_init(&d,&cfg) == ESP_ERR_NOT_SUPPORTED && !d.spi);
@@ -639,6 +713,7 @@ int main(void)
     assert(!sleep_power_losses);
     assert(sleep_retained[10] && sleep_retained[12] && sleep_retained[13]);
     assert(d.ready && d.image_address == 0x123456 && !updates);
+    assert(d.controller_resets == 1U && d.refresh_errors == 0U);
     assert(d.gray_levels == 4 && strstr(solar_os_it8951_mode(&d),"grayscale=4"));
     assert(!strcmp(solar_os_it8951_mode(NULL),"refresh=auto grayscale=4"));
     assert(info_words == 20 && !info_word_pending);
@@ -845,11 +920,13 @@ int main(void)
     test_upload_packing(&d);
     test_read_recovery(&d);
     test_retained_baseline(&d);
+    test_spi_clocks(&d);
     solar_os_it8951_deinit(&d);
     assert(!held && !selected && !d.spi && removed == 4);
     cfg = config(); cfg.clock_hz = 5000000;
     assert(solar_os_it8951_init(&d,&cfg) == ESP_OK);
     assert(d.spi_clock_khz == 5000 && strstr(solar_os_it8951_mode(&d),"spi=5000kHz"));
+    assert(d.spi_read_clock_hz == 5000000U);
     solar_os_it8951_deinit(&d);
     /* Expansion buses with the previous row-sized transfer limit still work. */
     spi_transfer_limit=WIDTH;
@@ -862,6 +939,7 @@ int main(void)
     assert(upload_calls==HEIGHT/2U && upload_bytes==GRAY_BYTES);
     solar_os_it8951_deinit(&d);
     spi_transfer_limit=4096;
+    test_default_spi_clocks();
     assert(!sleep_power_losses);
     puts("IT8951 protocol, framebuffer, grayscale, rotation, sleep retention and recovery tests passed");
     return 0;

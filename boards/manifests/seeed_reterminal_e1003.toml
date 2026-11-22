@@ -40,7 +40,7 @@ SOLAR_OS_BOARD_DISPLAY_NATIVE_HEIGHT = "1404"
 SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION = "U8G2_R0"
 SOLAR_OS_BOARD_DISPLAY_DEFAULT_ORIENTATION = "0"
 SOLAR_OS_BOARD_DISPLAY_DEFAULT_SCALE = "3"
-SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "10000000"
+SOLAR_OS_BOARD_DISPLAY_SPI_CLOCK_HZ = "20000000"
 SOLAR_OS_BOARD_DISPLAY_SPI_HOST = "SPI2_HOST"
 SOLAR_OS_BOARD_PIN_LCD_SCK = "GPIO_NUM_7"
 SOLAR_OS_BOARD_PIN_LCD_MOSI = "GPIO_NUM_9"
@@ -117,7 +117,7 @@ max_transfer_size = 4096
 [[devices]]
 driver = "it8951"
 name = "display0"
-bindings = { spi = "spi0", cs = 10, reset = 12, busy = 13, power = 11, ite_power = 21, clock = 10000, rotation = 0 }
+bindings = { spi = "spi0", cs = 10, reset = 12, busy = 13, power = 11, ite_power = 21, clock = 20000, rotation = 0 }
 
 [[devices]]
 driver = "gt911"

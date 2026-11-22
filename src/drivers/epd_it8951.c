@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "driver/gpio.h"
 #include "solar_os_memory.h"
@@ -16,12 +17,13 @@
 #define GRAY_BYTES ((size_t)WIDTH * HEIGHT / 2U)
 #define TRANSFER_BYTES 4096U
 #define MAX_REGIONS 32U
+#define SPI_TUNING_MAX_KHZ 20000U
 #define TRY(call) do { esp_err_t err_ = (call); if (err_ != ESP_OK) return err_; } while (0)
 
 static const char *TAG = "it8951";
 static const u8x8_display_info_t display_info = {
     .chip_enable_level = 0, .chip_disable_level = 1,
-    .sck_clock_hz = 10000000, .spi_mode = 0,
+    .sck_clock_hz = 20000000, .spi_mode = 0,
     .tile_width = (WIDTH + 7U) / 8U, .tile_height = (HEIGHT + 7U) / 8U,
     .pixel_width = WIDTH, .pixel_height = HEIGHT,
 };
@@ -51,8 +53,21 @@ static esp_err_t transfer(solar_os_it8951_t *d, uint16_t preamble,
     TRY(spi_device_acquire_bus(d->spi, portMAX_DELAY));
     esp_err_t err = gpio_set_level(d->config.cs, 0);
     const uint8_t header[] = {(uint8_t)(preamble >> 8), (uint8_t)preamble};
-    spi_transaction_t t = {.length = 16, .tx_buffer = header};
+    /* Read timing can be tested independently of the pixel upload clock.
+     * ESP-IDF retains this device's override until its next clock change. */
+    spi_transaction_t t = {.length = 16, .tx_buffer = header,
+        .override_freq_hz = rx ? d->spi_read_clock_hz : d->config.clock_hz};
     if (err == ESP_OK) err = spi_device_polling_transmit(d->spi, &t);
+    if (err == ESP_OK) {
+        int actual_khz = 0;
+        err = spi_device_get_actual_freq(d->spi, &actual_khz);
+        if (err == ESP_OK && (actual_khz <= 0 || (unsigned)actual_khz > SPI_TUNING_MAX_KHZ))
+            err = ESP_ERR_NOT_SUPPORTED;
+        if (err == ESP_OK) {
+            if (rx) d->spi_read_clock_khz = (unsigned)actual_khz;
+            else d->spi_clock_khz = (unsigned)actual_khz;
+        }
+    }
     if (err == ESP_OK) err = wait_ready(d);
     if (err == ESP_OK && rx) {
         const uint8_t dummy[2] = {0};
@@ -187,6 +202,7 @@ static esp_err_t controller_init(solar_os_it8951_t *d)
     TRY(gpio_set_level(d->config.reset, 0));
     delay_ms(10);
     TRY(gpio_set_level(d->config.reset, 1));
+    ++d->controller_resets;
     delay_ms(50);
     TRY(command(d, 0x0001, NULL, 0));
     TRY(command(d, 0x0302, NULL, 0));
@@ -498,6 +514,7 @@ static esp_err_t finish_refresh(solar_os_it8951_t *d, bool known_binary,
     if (err != ESP_OK) {
         /* A partially transferred frame must never become the comparison baseline. */
         d->ready = d->shadow_valid = false;
+        ++d->refresh_errors;
         ESP_LOGE(TAG, "refresh failed: %s", esp_err_to_name(err));
     }
     d->last_error = err;
@@ -695,7 +712,7 @@ static uint8_t display_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg, void *ptr)
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_config_t *cfg)
 {
     if (!d || !cfg || !cfg->spi_bus || !cfg->spi_bus[0] || cfg->rotation > 3 ||
-        cfg->clock_hz < 100000U || cfg->clock_hz > 10000000U || cfg->vcom_mv != 1400)
+        cfg->clock_hz < 100000U || cfg->clock_hz > SPI_TUNING_MAX_KHZ * 1000U || cfg->vcom_mv != 1400)
         return ESP_ERR_INVALID_ARG;
     const int pins[] = {cfg->cs, cfg->reset, cfg->busy, cfg->power, cfg->ite_power};
     for (unsigned i = 0; i < 5; i++) {
@@ -705,6 +722,9 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     }
     memset(d, 0, sizeof(*d));
     d->config = *cfg;
+    const unsigned startup_clock_hz = cfg->clock_hz < 10000000U ? cfg->clock_hz : 10000000U;
+    d->config.clock_hz = startup_clock_hz;
+    d->spi_read_clock_hz = startup_clock_hz;
     d->gray_levels = 4;
     d->temperature_c = 25;
     /* No caller-owned strings are retained after initialization. */
@@ -725,8 +745,9 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
         TRY(gpio_sleep_sel_dis((gpio_num_t)pins[i]));
     }
-    /* Enforce the ED103TC2 profile's 10 MHz ceiling after SDK rounding too. */
-    const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)cfg->clock_hz,
+    /* Initialize at up to 10 MHz, then use the configured write clock while
+     * retaining the read clock. Clock overrides remain local to this device. */
+    const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)startup_clock_hz,
         .mode = 0, .spics_io_num = -1, .queue_size = 1};
     esp_err_t err = solar_os_bus_spi_add_device(cfg->spi_bus, &spi_cfg, &d->spi);
     if (err != ESP_OK) return err;
@@ -736,6 +757,7 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
         err = ESP_ERR_NOT_SUPPORTED;
     if (err != ESP_OK) { solar_os_it8951_deinit(d); return err; }
     d->spi_clock_khz = (unsigned)actual_khz;
+    d->spi_read_clock_khz = (unsigned)actual_khz;
     d->mono = solar_os_memory_calloc(1, MONO_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.mono");
     d->gray = solar_os_memory_alloc(GRAY_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.gray");
     solar_os_bus_info_t bus;
@@ -763,6 +785,7 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
         err = d->last_error;
     }
     if (err == ESP_OK) {
+        d->config.clock_hz = cfg->clock_hz;
         err = scan_start(d,false);
     }
     if (err != ESP_OK) solar_os_it8951_deinit(d);
@@ -789,16 +812,19 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
     xSemaphoreTake(state->mutex, portMAX_DELAY);
     const epd_scan_stats_t stats = epd_scan_worker_stats(&state->scan_worker);
     snprintf(state->mode_description, sizeof(state->mode_description),
-        "refresh=%s grayscale=%u spi=%ukHz last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
+        "refresh=%s grayscale=%u spi=%ukHz read-spi=%ukHz spi-target=%u/%ukHz "
+        "last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
         "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus "
-        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u refreshes=%lu",
-        d->full_refresh ? "full" : "auto", d->gray_levels, d->spi_clock_khz, d->last_refresh_ms, d->last_upload_ms,
+        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u refreshes=%lu errors=%lu resets=%lu last-error=0x%x",
+        d->full_refresh ? "full" : "auto", d->gray_levels, d->spi_clock_khz, d->spi_read_clock_khz,
+        d->config.clock_hz / 1000U, d->spi_read_clock_hz / 1000U, d->last_refresh_ms, d->last_upload_ms,
         d->last_lut_ms, d->last_x, d->last_y, d->last_width, d->last_height, d->last_bpp,
         (int)d->temperature_c,d->scan_worker.task ? "async" : "sync",
         (unsigned long)stats.submitted,(unsigned long)stats.coalesced,
         (unsigned long)stats.frames,(long long)stats.last_scan_us,
         d->firmware_version,d->waveform_version,
-        d->last_upload_bytes,d->last_chunks,d->last_regions,(unsigned long)d->refreshes);
+        d->last_upload_bytes,d->last_chunks,d->last_regions,(unsigned long)d->refreshes,
+        (unsigned long)d->refresh_errors,(unsigned long)d->controller_resets,(unsigned)d->last_error);
     solar_os_epd_append_maintenance(&d->maintenance, state->mode_description, sizeof(state->mode_description));
     xSemaphoreGive(state->mutex);
     return state->mode_description;
@@ -807,6 +833,21 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
 esp_err_t solar_os_it8951_set_mode(solar_os_it8951_t *d, const char *mode)
 {
     if (!d || !d->spi || !mode) return ESP_ERR_INVALID_ARG;
+    const bool read_clock = !strncmp(mode, "spi-read-khz=", 13);
+    if (read_clock || !strncmp(mode, "spi-khz=", 8)) {
+        const char *value = mode + (read_clock ? 13 : 8);
+        if (*value < '0' || *value > '9') return ESP_ERR_INVALID_ARG;
+        char *end;
+        const unsigned long khz = strtoul(value, &end, 10);
+        if (*end || khz < 100U || khz > SPI_TUNING_MAX_KHZ) return ESP_ERR_INVALID_ARG;
+        /* The worker holds this lock for each complete refresh. Keep its
+         * accepted target and retained image; apply timing on the next transfer. */
+        xSemaphoreTake(d->mutex, portMAX_DELAY);
+        if (read_clock) d->spi_read_clock_hz = (unsigned)khz * 1000U;
+        else d->config.clock_hz = (unsigned)khz * 1000U;
+        xSemaphoreGive(d->mutex);
+        return ESP_OK;
+    }
     if (!strncmp(mode, "cleanup-interval=", 17)) {
         xSemaphoreTake(d->mutex, portMAX_DELAY);
         const esp_err_t err = solar_os_epd_set_maintenance(&d->maintenance, mode);

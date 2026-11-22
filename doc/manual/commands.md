@@ -1584,6 +1584,18 @@ five frame-rate bytes. It supports `pulse-period=<auto,67..1000>`,
 `invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
 restores native auto. Pulse memory is allocated in PSRAM on demand.
 
+IT8951 targets expose separate runtime SPI clocks through
+`spi-khz=<100..20000>` for writes and `spi-read-khz=<100..20000>` for reads.
+The E1003 defaults to 20000 kHz writes and 10000 kHz reads. An attachment's `clock`
+selects writes; reads and initial controller setup use at most 10000 kHz.
+For example, `display mode display0 spi-khz=10000` lowers writes while retaining
+the read clock. Overrides take effect on the next transfer and are not saved.
+Mode output reports
+the last actual write/read clocks as `spi` and `read-spi`, and requested
+write/read clocks as `spi-target`. It also reports cumulative refresh `errors`,
+controller `resets` (including startup), and `last-error`. Resetting the display
+after a failed transfer does not clear these counters.
+
 All built-in EPD profiles accept `cleanup-interval=<0..86400>` in seconds.
 Zero preserves the profile's normal cleanup policy. A nonzero value selects
 timed routine cleanup; `cleanup-interval=3600` requests an hourly interval.
