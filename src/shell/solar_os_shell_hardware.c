@@ -52,7 +52,7 @@
 static const char * const disk_subcommands[] = {
     "status", "lsblk", "mount", "umount", "format",
 };
-static const char * const battery_subcommands[] = {"status", "config", "capacity", "min_voltage", "max_voltage"};
+static const char * const battery_subcommands[] = {"status", "config", "capacity", "runtime", "min_voltage", "max_voltage"};
 static const char * const ble_subcommands[] = {
     "status", "enable", "disable", "default", "keepalive", "scan", "pair", "forget", "gatt",
 };
@@ -466,6 +466,7 @@ static void battery_print_usage(solar_os_shell_io_t *term)
     solar_os_shell_io_writeln(term, "  battery [status]");
     solar_os_shell_io_writeln(term, "  battery config");
     solar_os_shell_io_writeln(term, "  battery capacity [mAh]");
+    solar_os_shell_io_writeln(term, "  battery runtime [hours] (full-charge runtime; 0 clears)");
     solar_os_shell_io_writeln(term, "  battery min_voltage [V|mV]");
     solar_os_shell_io_writeln(term, "  battery max_voltage [V|mV]");
 }
@@ -595,6 +596,34 @@ static void battery_print_config(solar_os_shell_io_t *term)
     }
     solar_os_shell_io_printf(term, "Min voltage: %s\n", min_voltage);
     solar_os_shell_io_printf(term, "Max voltage: %s\n", max_voltage);
+    if (config.runtime_min == 0U) {
+        solar_os_shell_io_writeln(term, "Full-charge runtime: unset");
+    } else {
+        solar_os_shell_io_printf(term, "Full-charge runtime: %" PRIu32 " h %" PRIu32 " min\n",
+                                 config.runtime_min / 60U, config.runtime_min % 60U);
+    }
+}
+
+static void battery_print_window_stats(solar_os_shell_io_t *term,
+                                       const char *name,
+                                       const solar_os_battery_window_status_t *window)
+{
+    if (window->current_valid) {
+        solar_os_shell_io_printf(term, "%s window estimated current: %+" PRId32 " mA\n",
+                                 name, window->current_ma);
+    } else {
+        solar_os_shell_io_printf(term, "%s window estimated current: unknown (%s)\n",
+                                 name, window->valid ? "capacity unavailable" : "collecting history");
+    }
+    if (window->valid) {
+        solar_os_shell_io_printf(term,
+                                 "%s window estimated voltage: %+" PRId32
+                                 " mV/hour (%" PRIu32 " s window)\n",
+                                 name, -window->voltage_drop_mvh, window->span_ms / 1000U);
+    } else {
+        solar_os_shell_io_printf(term, "%s window estimated voltage: unknown (collecting history)\n",
+                                 name);
+    }
 }
 
 static void battery_print_monitor_status(solar_os_shell_io_t *term)
@@ -628,6 +657,8 @@ static void battery_print_monitor_status(solar_os_shell_io_t *term)
                              (unsigned)(monitor.last_voltage_mv % 1000U),
                              (unsigned)monitor.last_percent,
                              age_s);
+    battery_print_window_stats(term, "Short", &monitor.short_window);
+    battery_print_window_stats(term, "Long", &monitor.long_window);
     solar_os_shell_io_printf(term,
                              "Trend: %s, power %s, %" PRId32 " mV/hour\n",
                              solar_os_battery_trend_name(monitor.trend),
@@ -639,9 +670,14 @@ static void battery_print_monitor_status(solar_os_shell_io_t *term)
                              monitor.slope_mvh);
     if (monitor.time_left_valid) {
         char eta[24];
+        battery_format_minutes(monitor.full_runtime_min, eta, sizeof(eta));
+        solar_os_shell_io_printf(term, "Estimated full charge runtime: %s%s\n", eta,
+                                 monitor.time_left_seeded ? " (configured runtime)" : "");
         battery_format_minutes(monitor.time_left_min, eta, sizeof(eta));
-        solar_os_shell_io_printf(term, "Time left: %s estimated\n", eta);
+        solar_os_shell_io_printf(term, "Time left: %s estimated%s\n", eta,
+                                 monitor.time_left_seeded ? " (configured runtime)" : "");
     } else {
+        solar_os_shell_io_writeln(term, "Estimated full charge runtime: unknown");
         solar_os_shell_io_writeln(term, "Time left: unknown");
     }
 }
@@ -738,6 +774,40 @@ static void battery_cmd_capacity(solar_os_shell_io_t *term, int argc, char **arg
     battery_print_config_result(term, "capacity", err);
 }
 
+static void battery_cmd_runtime(solar_os_shell_io_t *term, int argc, char **argv)
+{
+    if (argc == 2) {
+        solar_os_battery_config_t config;
+        solar_os_battery_get_config(&config);
+        if (config.runtime_min == 0U) {
+            solar_os_shell_io_writeln(term, "Full-charge runtime: unset");
+        } else {
+            solar_os_shell_io_printf(term, "Full-charge runtime: %" PRIu32 " h %" PRIu32 " min\n",
+                                     config.runtime_min / 60U, config.runtime_min % 60U);
+        }
+        return;
+    }
+    if (argc != 3) {
+        solar_os_shell_diag_unexpected(term, "battery runtime", argv[3],
+                                       "battery runtime [hours]");
+        return;
+    }
+
+    char *end = NULL;
+    errno = 0;
+    const double hours = strtod(argv[2], &end);
+    if (errno != 0 || end == argv[2] || *end != '\0' ||
+        !(hours >= 0.0 && hours <= SOLAR_OS_BATTERY_RUNTIME_MAX_MIN / 60U) ||
+        (hours > 0.0 && hours * 60.0 < 0.5)) {
+        solar_os_shell_diag_invalid(term, "battery runtime", "hours", argv[2],
+                                    "0 to 8760 hours, at least one minute; 0 clears",
+                                    "battery runtime [hours]", false);
+        return;
+    }
+    const uint32_t runtime_min = (uint32_t)(hours * 60.0 + 0.5);
+    battery_print_config_result(term, "runtime", solar_os_battery_set_runtime_min(runtime_min));
+}
+
 static void battery_cmd_min_voltage(solar_os_shell_io_t *term, int argc, char **argv)
 {
     if (argc == 2) {
@@ -817,6 +887,11 @@ void solar_os_shell_cmd_battery(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
 
+    if (strcmp(argv[1], "runtime") == 0) {
+        battery_cmd_runtime(term, argc, argv);
+        return;
+    }
+
     if (strcmp(argv[1], "min_voltage") == 0) {
         battery_cmd_min_voltage(term, argc, argv);
         return;
@@ -828,7 +903,7 @@ void solar_os_shell_cmd_battery(solar_os_context_t *ctx, int argc, char **argv)
     }
 
     solar_os_shell_diag_subcommand(term, "battery", argc, argv,
-                                   "battery [status|config|capacity|min_voltage|max_voltage] ...",
+                                   "battery [status|config|capacity|runtime|min_voltage|max_voltage] ...",
                                    battery_subcommands,
                                    sizeof(battery_subcommands) / sizeof(battery_subcommands[0]));
 }

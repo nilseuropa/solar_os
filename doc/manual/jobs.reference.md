@@ -145,23 +145,68 @@ Battery limits are configured with the `battery` shell command:
 
 ```text
 battery capacity <mAh>
+battery runtime <hours>
 battery min_voltage <volts>
 battery max_voltage <volts>
 ```
 
 Notes:
 
+- After `Last sample`, `battery` shows signed estimated current in mA and the
+  trend-line voltage rate in mV/hour for the short and long windows separately.
+  Each voltage line includes the actual window length. Voltage values are
+  positive for a rise and negative for a fall. Current values are positive for
+  discharge and negative for charge. These figures
+  remain available even when a trend is too weak to provide a learned ETA.
+- Estimated current uses `-capacity * voltage_rate / (max_voltage - min_voltage)`.
+  It requires a configured capacity and assumes charge changes linearly with
+  voltage. It is not a current-sensor measurement. Noise or a load change can
+  briefly produce a negative estimate while hardware reports battery power.
+- `battery runtime 48` sets an expected full-charge runtime of 48 hours.
+  Decimal hours are rounded to minutes; the supported range is one minute
+  through 8760 hours. `battery runtime 0` clears the setting. The value is
+  saved across reboots and does not need a battery capacity setting. New valid
+  long-window discharge estimates overwrite this value in NVS as each
+  fifteen-minute average completes. Unchanged values are not written again.
+  Short-window estimates and status reads do not write NVS.
+- With confirmed battery power, the configured runtime supplies time left
+  from the first sample, scaled by the voltage between `min_voltage` and
+  `max_voltage`. For example, halfway through that voltage range gives half
+  the configured runtime. The output labels this as `configured runtime`.
+  `Estimated full charge runtime` appears immediately before `Time left` and
+  uses the same discharge rate, applied to the full configured voltage range.
+  Both lines identify a configured-runtime starting estimate while learning.
+  A clear short or long discharge trend replaces the starting estimate.
+  Without hardware power
+  status, a falling trend is required before showing any time estimate.
 - Power uses the battery provider's hardware status when available, including
   before the voltage trend is ready. External power does not imply charging;
   use `charger status` to inspect the charger state and faults.
 - Trend describes voltage movement. Without hardware power status, a falling
   trend estimates battery power and a rising trend estimates external power.
-- Time left is estimated only with a falling voltage trend and no external
-  power; it remains unknown while external power is present.
+- Time left uses the voltage decline toward `min_voltage` while no external
+  power is present. For slow discharge, the monitor retains up to sixteen
+  hours of fifteen-minute voltage averages. This estimate needs at least an
+  hour between its oldest and newest averages and a measurable voltage drop.
+  It is approximate:
+  battery voltage is not linear with remaining capacity, and changing the
+  system load changes the discharge rate.
+- A hardware power-source change clears both windows and the voltage smoothing,
+  so the immediate voltage step from connecting or disconnecting USB does not
+  become an estimated discharge or charge rate. The sample counter continues;
+  each window collects fresh history. The configured runtime can still supply
+  an initial ETA on battery power. External power suppresses time left while
+  both windows can still report current and voltage movement.
+  Without hardware power status, a rising short-term
+  trend also clears that history. With confirmed battery power, the long
+  discharge trend can keep the estimate available during brief voltage rebounds.
 - Three consecutive samples at or below `min_voltage`, with an established
   discharging trend and no external power, request the selected action.
-- The voltage trend needs at least five minutes of history. This check runs
-  only while `batmon` is running.
+- The short-term voltage trend needs at least five minutes of history.
+  Sampling faster does not shorten the long-term estimate's learning period.
+  History is kept in memory while `batmon` runs; starting it again or rebooting
+  starts a new history. The sample count includes all successful readings,
+  including those already replaced by newer readings or averaged into history.
 - Set `min_voltage` above the board's minimum operating voltage, with margin
   for voltage drop under load. Changing the action does not change the threshold
   or bypass the trend and consecutive-sample checks.

@@ -1227,10 +1227,11 @@ available for the compiled board.
 | --- | --- | --- |
 | `usb` | `usb [status\|devices\|mode <off\|device\|host>\|serial ...]` | [USB modes](usb.host.md) and GPIO reuse. |
 | `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
-| `battery` | `battery config` | Show battery capacity and voltage thresholds. |
+| `battery` | `battery config` | Show battery capacity, voltage thresholds, and configured full-charge runtime. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
+| `battery` | `battery runtime [hours]` | Show or set expected runtime from full charge to the minimum voltage. Decimal hours are accepted and rounded to minutes; `0` clears the starting estimate. Saved across reboots. |
 | `battery` | `battery min_voltage [V\|mV]` | Show or set low-voltage threshold. |
-| `battery` | `battery max_voltage [V\|mV]` | Show or set full/external-power shortcut threshold. |
+| `battery` | `battery max_voltage [V\|mV]` | Show or set the full-charge voltage used for estimated charge, current, and configured-runtime estimates. |
 | `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio devices` | List registered audio devices and their capture/playback streams. |
 | `audio` | `audio device <id>` | Show one audio device and its native PCM format. |
