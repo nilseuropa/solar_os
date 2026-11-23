@@ -19,5 +19,9 @@ modules. It uses a private heap, cooperative cancellation, a stack guard and
 explicit limits on sources, headers, output and compile time. It loads when a
 consumer acquires its API and can be unloaded after all leases are released.
 
+Its built-in SDK includes the native service and compiler APIs, their shared
+image, vision and inference type headers, and the supported standard C headers.
+Use `cc sdk list` to browse these alongside the installed libraries' headers.
+
 The [compiler reference](../experimental/tinycc/README.md) describes the C
 subset, limits, API, pinned upstream sources and build tools.

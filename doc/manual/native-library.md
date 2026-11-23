@@ -206,6 +206,16 @@ run `pkg install jet`, then use `#include <jet/solar_os_jet_abi.h>`. The
 [native C graphics example](https://github.com/nilseuropa/solar_os/tree/main/modules/experimental/tinycc/examples/jet-cube)
 shows a resumable foreground app with input and explicit library cleanup.
 
+Other installed libraries expose these entry headers:
+
+| Package | Native C include |
+| --- | --- |
+| Emotion | `<emotion/solar_os_emotion_abi.h>` |
+| ESP-DL | `<espdl/solar_os_inference_backend_abi.h>` |
+| Himax processor | `<processor-himax/solar_os_processor_provider_abi.h>` |
+| Robot | `<robot/solar_os_robot_abi.h>` |
+| AOgmaNeo | `<aogmaneo/solar_os_aogmaneo_abi.h>` |
+
 No manual header copy or `-I` option is needed for installed library headers.
 Quoted relative includes within a packaged header stay in that library's
 namespace. Headers can include published SolarOS ABI headers from the compiler
@@ -234,6 +244,8 @@ The SDK supports up to 32 UTF-8 headers per library, 32 KiB per header and
 separators; absolute paths and parent traversal in declarations are rejected.
 Builds that share public headers can pass an explicit `--source-root` to the
 packer. Declared files, including symlinks, must stay within that root.
+The CMake `solar_os_native_sdk` helper accepts the same setting as
+`SOURCE_ROOT /path/to/public/headers` after its input and output arguments.
 
 ## Runtime helpers
 

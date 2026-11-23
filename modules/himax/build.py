@@ -16,6 +16,7 @@ ROOT = HERE.parents[1]
 def build(root, sdk, output):
     sys.path.insert(0, str(root / "scripts"))
     from solaros_build_lock import acquire_project_build_lock
+    from pack_native_sdk import pack_elf
     acquire_project_build_lock(root, "himax-library")
     commands = json.loads((sdk / "compile_commands.json").read_text())
     template = next(c for c in commands if c["file"].endswith("/src/services/solar_os_native_media.c"))
@@ -52,6 +53,8 @@ def build(root, sdk, output):
     remove_noop_relocations(artifact)
     imports = verify(artifact, {"solar_os_native_library_host_v1", "memcpy", "memmove", "memset", "memcmp", "strlen"})
     subprocess.run([prefix + "strip", "--strip-unneeded", str(artifact)], check=True)
+    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / "module.toml", root / "include"))
+    verify(artifact, set(imports))
     probe = output / "himax-check.app.elf"
     probe_object = compile_source(HERE / "probe.c")
     subprocess.run([compiler, "-nostartfiles", "-nostdlib", "-shared", "-Wl,-Bsymbolic",

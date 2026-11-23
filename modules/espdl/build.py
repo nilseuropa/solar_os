@@ -92,6 +92,8 @@ def load_sdk_commands(cached):
 
 
 def build(environment, output, sdk_build_dir=None):
+    sys.path.insert(0, str(ROOT / 'scripts'))
+    from pack_native_sdk import pack_elf
     output.mkdir(parents=True, exist_ok=True)
     cached = sdk_build_dir if sdk_build_dir is not None else prepare_sdk(environment)
     commands, adapter = load_sdk_commands(cached)
@@ -186,6 +188,7 @@ def build(environment, output, sdk_build_dir=None):
     imports=verify(artifact,expected)
     run('strip', '--strip-unneeded', '--remove-section=.got.loc', '--remove-section=.dynamic',
         '--remove-section=.xt.lit', '--remove-section=.xt.prop', '--remove-section=.xtensa.info', artifact)
+    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / 'module.toml', ROOT / 'include'))
     verify(artifact, expected)
     report = {'environment':environment,'artifact_bytes':artifact.stat().st_size,
               'imports':imports,
