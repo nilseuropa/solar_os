@@ -2358,6 +2358,7 @@ are shown as live video using the same JPEG renderer.
 Usage:
 
 ```text
+web
 web http://host/
 web https://host/path
 web http://camera-host/camera.mjpeg
@@ -2372,8 +2373,16 @@ HTTP provides no encryption or peer authentication.
 
 Controls:
 
-- The top toolbar provides Back, Reload, and Forward. Pointer or touch presses
-  activate the toolbar and open links or form controls directly.
+- The top navigation bar provides Back, Forward, Reload/Stop, an editable
+  address field, and Go. Reload becomes Stop while a page loads or an MJPEG
+  stream runs. Stop cancels the request and retains the last displayed video frame.
+- Launch `web` without a URL to enter an address. Click the address field or
+  press `Ctrl+L` to select its contents. Type a URL, then press Enter or Go to
+  open it. Addresses without a scheme use `http://`. Arrow keys, Home, End,
+  Backspace, and Delete edit the address; `Ctrl+A` selects it, `Ctrl+U` clears
+  it, and Esc restores the current URL.
+- Touch, mouse, and trackball pointers activate navigation buttons, links, and
+  form controls. Relative pointers show a cursor; touch uses the contact position.
 - `Left` or `b` goes back, `Right` or `f` goes forward, and `r` reloads while
   retaining the current reading position.
 - `Up`/`Down` or `k`/`j` scroll one rendered line. Page Up/Page Down, Home,
@@ -2385,7 +2394,8 @@ Controls:
   through the same five zoom levels as Reader.
 - `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
   rendered page text, wrapping at the end.
-- `Esc` or app-exit key exits.
+- `Esc` cancels address, search, or form editing first; otherwise it exits.
+  The app-exit key exits from any view.
 
 ## zoo
 
