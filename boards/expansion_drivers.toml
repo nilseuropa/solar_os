@@ -2449,7 +2449,18 @@ targets = ["esp32s3"]
 capabilities = ["qemu", "gfx"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_qemu_rgb"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "480", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "320" }
+early = true
+default_name = "display0"
+
+[drivers.qemu-mono]
+summary = "QEMU virtual monochrome panel"
+package = "driver_display_qemu_mono"
+targets = ["esp32s3"]
+capabilities = ["qemu", "gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_qemu_mono"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-MONO"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "300", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "400" }
 early = true
 default_name = "display0"
 

@@ -71,6 +71,21 @@ class BoardManifestTest(unittest.TestCase):
         for pin in board["pins"]:
             if pin["gpio"] in (17, 18): self.assertEqual(pin["policy"], "free")
 
+    def test_qemu_display_profiles_have_native_geometry_and_separate_drivers(self):
+        for profile, driver, width, height in (
+            ("qemu_esp32s3_rgb", "qemu-rgb", "480", "320"),
+            ("qemu_esp32s3_mono", "qemu-mono", "300", "400"),
+        ):
+            with self.subTest(profile=profile):
+                board = load_board_manifest(self.manifest_dir / f"{profile}.toml", self.manifest_dir)
+                validate_board(board, self.drivers)
+                self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_WIDTH"], width)
+                self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DISPLAY_HEIGHT"], height)
+                self.assertEqual({d["driver"] for d in board["devices"]},
+                                 {driver, "qemu-input", "qemu-eth", "qemu-audio"})
+                self.assertIn("driver_input_qemu", required_packages(board, self.drivers))
+                self.assertEqual(board["defines"]["SOLAR_OS_BOARD_DEFAULT_PORT_SHELL"], '"uart0"')
+
     def test_gc9a01_round_panel_as_primary_display(self) -> None:
         driver = self.drivers["gc9a01"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))

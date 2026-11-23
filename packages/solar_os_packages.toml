@@ -912,6 +912,11 @@ label = "QEMU virtual RGB display"
 category = "Expansion hardware"
 members = ["driver_display_qemu_rgb"]
 
+[groups.qemu_mono]
+label = "QEMU virtual monochrome display"
+category = "Expansion hardware"
+members = ["driver_display_qemu_mono"]
+
 [groups.qemu_eth]
 label = "QEMU virtual Ethernet"
 category = "Expansion hardware"
@@ -3013,12 +3018,25 @@ capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 label = "driver.display-qemu-rgb"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_qemu_rgb_expansion_driver"]
+depends = ["driver_display_qemu_backend"]
+capabilities = ["qemu", "gfx"]
+
+[packages.driver_display_qemu_backend]
+label = "driver.display-qemu-backend"
+targets = ["esp32s3"]
 depends = ["service_expansion"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "services/solar_os_qemu_rgb_display.c",
 ]
 requires = ["esp_lcd", "espressif__esp_lcd_qemu_rgb", "u8g2"]
+capabilities = ["qemu", "gfx"]
+
+[packages.driver_display_qemu_mono]
+label = "driver.display-qemu-mono"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_mono_expansion_driver"]
+depends = ["driver_display_qemu_backend"]
 capabilities = ["qemu", "gfx"]
 
 [packages.driver_network_qemu_eth]
