@@ -2079,7 +2079,7 @@ Controls:
 Open the native synthesizer and sound designer:
 
 ```text
-synth [--headless]
+synth [--headless|--tabs]
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
@@ -2105,6 +2105,10 @@ portamento. Hold is session performance state and is not part of a preset. The
 display also reports active voices, output sample rate, and audio errors. The
 volume button changes the shared SolarOS speaker volume.
 
+`synth --tabs` starts with tab-selection buttons in place of the on-screen
+piano. The Oscilloscope tab displays the live output PCM trace, peak and RMS
+levels, sample rate, and the time span of the captured samples.
+
 On display targets smaller than 240 pixels wide or 200 pixels high, Synth
 automatically replaces the full editor with a parameter HUD. The selected
 control gets a large value and level bar; waveform controls and the Wave tab
@@ -2124,11 +2128,21 @@ Controls:
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. Note input
   remains active on all tabs.
-- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
-  Number keys `1` through `6` select those tabs in that order.
-- `X` hides or shows the on-screen piano keyboard on every tab. When it is
-  hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
-  the physical note keys and MIDI input remain active.
+- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, Presets, and
+  Oscilloscope. Number keys `1` through `7` select those tabs in that order.
+- `X` switches the bottom panel between the on-screen piano and tab-selection
+  buttons. Tap or click a button to select its tab. Physical note keys and MIDI
+  input remain active in either mode.
+- The selector has eight buttons. `8 Keys`, or the `8` key, returns to the
+  piano while keeping the current tab selected.
+- The header's `Tabs`/`Keys` button switches the same panel by touch. Tap a
+  waveform, envelope segment, or knob to select it, then drag up or down to
+  adjust it. Press and slide across the piano to play; lifting releases the
+  note unless Hold is enabled.
+- On Wave, draw directly in the graph to reshape the wavetable. Tap the
+  baseline or point-count buttons to cycle them. On Presets, tap a slot, then
+  `Load` or `Save`; saving is available for user slots. On Glide, tap the
+  voice or Hold controls to toggle them, or drag Glide to adjust it.
 - On Glide, select Hold and use `Up` or `Enter` to enable it. Each physical or
   terminal piano-key press then toggles its note on or off, and releasing the
   key does not stop the note. Use `Down` or `Enter` to disable hold and release
