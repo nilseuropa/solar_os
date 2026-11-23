@@ -237,6 +237,21 @@ rate-limited setpoint, velocity, relative position, commanded servo position,
 last output command, friction feedforward, P/I/D contributions, saturation and counters. The library
 error uses `solar_os_native_service_result_v1_t`, with zero for success.
 
+## Native C
+
+The installed `robot` library package supplies its public headers to `cc`:
+
+```c
+#include <robot/solar_os_robot_abi.h>
+```
+
+The model and differential drive headers are included automatically. No manual
+header copy or include path is needed. Use `cc sdk list`,
+`cc sdk show robot/solar_os_robot_abi.h`, or `cc sdk export NEW_DIRECTORY` to
+browse them. Acquire the `robot` ABI 3 library API through the native library
+service and retain the lease until all its objects are closed. See
+[native library SDKs](native-library.md#c-headers-in-library-packages).
+
 ## Python and Lua
 
 Both runtimes expose `solaros.robot`:

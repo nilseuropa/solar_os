@@ -10,3 +10,8 @@ lifecycle_abi = 1
 minimum_host_api_size = 24
 required_capabilities = ["psram"]
 artifact = "robot.library.elf"
+
+[sdk.headers]
+"solar_os_robot_abi.h" = "solar_os_robot_abi.h"
+"solar_os_robot_model.h" = "solar_os_robot_model.h"
+"solar_os_robot_diff_drive.h" = "solar_os_robot_diff_drive.h"
