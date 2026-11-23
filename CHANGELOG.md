@@ -2,6 +2,17 @@
 
 ## 4.x
 
+- **4.18.3** — 2026-11-23 — Improved Web with an editable address bar,
+  Back, Forward, Reload/Stop and Go controls, touch and pointer navigation,
+  and `Ctrl++`/`Ctrl+-` text zoom while editing fields. Web can now open without
+  a URL.
+  Added compact battery reports, detailed discharge statistics, saved runtime
+  estimates, and charging detection from voltage changes when hardware status
+  is unavailable. Improved reTerminal E1003 display speed and IT8951 sleep
+  handling; added an optional two-level monochrome mode and reduced display
+  and Mac video memory use. Fixed delayed or broken telnet navigation keys.
+  Expanded the C SDK headers supplied with installed native libraries,
+  including Robot, Emotion, ESP-DL and Himax.
 - **4.18.2** — 2026-11-20 — Added headless and display QEMU targets for
   running SolarOS on a computer, with a serial console, shared host-directory
   storage, and audio playback. The display target adds keyboard, touch and

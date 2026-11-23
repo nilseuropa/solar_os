@@ -2349,11 +2349,11 @@ Controls:
 
 ## web
 
-Simple graphical web browser for lightweight HTML pages. It shares document and
-image rendering infrastructure with `reader` where possible. Embedded and
+Graphical browser for lightweight HTML pages, with an editable address bar,
+Back, Forward, Reload/Stop, Go, pointer navigation, and text zoom. Embedded and
 direct PNG, JPEG, GIF, and WebP images retain color on indexed-color displays;
-one-bit displays keep the grayscale decode and dither path. Direct MJPEG URLs
-are shown as live video using the same JPEG renderer.
+one-bit displays use grayscale decoding and dithering. Direct MJPEG URLs are
+shown as live video.
 
 Usage:
 
@@ -2367,7 +2367,7 @@ web http://camera-host/camera.mjpeg
 MJPEG playback uses a bounded 512 KiB assembly buffer and a single pending
 decoded frame. If decoding or display presentation falls behind the source,
 `web` drops the stale pending frame and keeps the newest one instead of growing
-latency or memory use. Reload, Back, Forward, and app exit cancel the active
+latency or memory use. Stop, Back, Forward, Go, and app exit cancel the active
 HTTP stream. The stream inherits the security properties of its URL; plain
 HTTP provides no encryption or peer authentication.
 
@@ -2383,19 +2383,26 @@ Controls:
   it, and Esc restores the current URL.
 - Touch, mouse, and trackball pointers activate navigation buttons, links, and
   form controls. Relative pointers show a cursor; touch uses the contact position.
-- `Left` or `b` goes back, `Right` or `f` goes forward, and `r` reloads while
-  retaining the current reading position.
+  A source assigned to [pointer-arrows](jobs.reference.md#pointer-arrows) sends
+  arrow keys instead; run `job stop pointer-arrows` to use it as a pointer.
+- `Left` or `b` goes back and `Right` or `f` goes forward. `r` reloads while
+  retaining the current reading position, or stops an active request.
 - `Up`/`Down` or `k`/`j` scroll one rendered line. Page Up/Page Down, Home,
   and End provide larger movement.
 - `n` or Tab selects the next link or form control; `p` selects the previous
   one. Selection stops at each end, and Enter activates it.
 - Links and plain page text use the same font size. Links remain underlined,
   headings remain bold, and `+`/`-` or `Ctrl++`/`Ctrl+-` reflow page text
-  through the same five zoom levels as Reader.
+  through the same five zoom levels as Reader. `Ctrl++`/`Ctrl+-` also works while
+  editing an address or form field. Zoom changes text size; direct images and
+  MJPEG video are not zoomed.
 - `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
   rendered page text, wrapping at the end.
 - `Esc` cancels address, search, or form editing first; otherwise it exits.
   The app-exit key exits from any view.
+
+Page navigation shortcuts apply when the page has keyboard focus. While editing
+the address, Tab returns focus to the page without opening the edited URL.
 
 ## zoo
 
