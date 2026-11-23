@@ -8767,6 +8767,16 @@ static void shell_completion_emit_expansion_spec(
             }
         }
         break;
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        for (size_t i = 0; i < solar_os_display_target_count(); ++i) {
+            solar_os_display_target_t target;
+            if (solar_os_display_get_target(i, &target) && target.ready &&
+                strlen(target.name) < SOLAR_OS_EXPANSION_TARGET_MAX) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, target.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
         for (size_t i = 0; i < solar_os_stream_count(); i++) {

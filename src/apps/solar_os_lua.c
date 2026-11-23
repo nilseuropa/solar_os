@@ -4378,6 +4378,7 @@ static int solua_expansion_devices(lua_State *L)
 static bool solua_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
+        "display", "pressure", "swap_xy", "invert_x", "invert_y",
         "row0", "row1", "row2", "row3", "row4", "row5", "row6", "row7", "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9",
         "drive", "diodes", "debounce-ms",
         "stream", "timeout-ms", "ready", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
@@ -4447,6 +4448,10 @@ static void solua_expansion_add_binding(lua_State *L,
                                         int value,
                                         int aux)
 {
+    if (kind == SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET && target &&
+        strlen(target) >= SOLAR_OS_EXPANSION_TARGET_MAX) {
+        luaL_error(L, "display target name is too long");
+    }
     if (*count >= SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX) {
         luaL_error(L, "too many expansion bindings");
     }
@@ -4474,6 +4479,9 @@ static int solua_expansion_attach(lua_State *L)
     const char *uart = solua_table_optional_string(L, 3, "uart");
     const char *ps2 = solua_table_optional_string(L, 3, "ps2");
     const char *stream = solua_table_optional_string(L, 3, "stream");
+    const char *display = solua_table_optional_string(L, 3, "display");
+    if (display != NULL) solua_expansion_add_binding(L, bindings, &binding_count,
+        SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET, "display", display, -1, -1);
     if (stream != NULL) solua_expansion_add_binding(L, bindings, &binding_count,
         SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM, "stream", stream, -1, -1);
     const char *x = solua_table_optional_string(L, 3, "x");
@@ -4694,6 +4702,7 @@ static int solua_expansion_attach(lua_State *L)
                                     -1);
     }
     static const char *const parameter_bindings[] = {
+        "pressure", "swap_xy", "invert_x", "invert_y",
         "drive", "diodes", "debounce-ms",
         "min", "center", "max", "deadzone", "timeout-ms", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
         "mode", "invert", "pull", "filter_ns",

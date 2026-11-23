@@ -123,6 +123,36 @@ class BoardManifestTest(unittest.TestCase):
         self.assertIn("#define SOLAR_OS_BOARD_DISPLAY_U8G2_ROTATION U8G2_R1", header)
         self.assertIn("driver_display_ili9488", required_packages(board, self.drivers))
 
+    def test_xpt2046_profile_keeps_display_and_touch_separate(self) -> None:
+        driver = self.drivers["xpt2046"]
+        self.assertEqual(driver.targets, ("esp32", "esp32s3"))
+        self.assertEqual(driver.package, "driver_xpt2046")
+        self.assertTrue((ROOT / "boards/drivers" / f"{driver.board_driver}.cmake").is_file())
+        base = load_board_manifest(self.manifest_dir / "waveshare_esp32_s3_sim7670g_4g.toml", self.manifest_dir)
+        export = {
+            "schema": 1, "base": {"board": base["board"]["id"]},
+            "buses": [{"name": "spi0", "protocol": "spi", "sharing": "shared",
+                       "host": "SPI2_HOST", "sclk": 7, "mosi": 8, "miso": 3,
+                       "cs": [9, 12], "max_transfer_size": 4096}],
+            "devices": [
+                {"name": "lcd0", "driver": "ili9488", "detachable": True,
+                 "bindings": {"spi": "spi0", "cs": 9, "dc": 10, "reset": 11}},
+                {"name": "touch0", "driver": "xpt2046", "detachable": True,
+                 "bindings": {"spi": "spi0", "cs": 12, "irq": 13, "display": "lcd0", "clock": 1000}},
+            ],
+        }
+        profile = profile_from_expansion(export, base, self.drivers, "test_touch", "SPI touch", "Custom", "Module")
+        board = merge_board_overlay(base, profile)
+        validate_board(board, self.drivers)
+        header = generate_header(board, self.drivers)
+        self.assertIn('SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET, .role = "display", .target = "lcd0"', header)
+        self.assertIn("driver_xpt2046", required_packages(board, self.drivers))
+        board["devices"][1]["bindings"]["clock"] = 2001
+        with self.assertRaises(ManifestError): validate_board(board, self.drivers)
+        board["devices"][1]["bindings"]["clock"] = 1000
+        board["devices"][1]["bindings"]["display"] = "display_name_too_long"
+        with self.assertRaises(ManifestError): validate_board(board, self.drivers)
+
     def test_ssd1680_catalog_has_an_optional_default_panel(self) -> None:
         driver = self.drivers["ssd1680"]
         self.assertEqual(driver.targets, ("esp32", "esp32s3"))

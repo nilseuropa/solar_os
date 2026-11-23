@@ -902,6 +902,11 @@ label = "SPD2010 capacitive touch"
 category = "Expansion hardware"
 members = ["driver_spd2010_touch"]
 
+[groups.xpt2046]
+label = "XPT2046 resistive touch"
+category = "Expansion hardware"
+members = ["driver_xpt2046"]
+
 [groups.qemu_rgb]
 label = "QEMU virtual RGB display"
 category = "Expansion hardware"
@@ -2994,6 +2999,15 @@ depends = ["service_expansion", "service_i2c"]
 sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
 requires = ["esp_driver_gpio", "esp_rom"]
 capabilities = ["gfx", "i2c"]
+
+[packages.driver_xpt2046]
+label = "driver.xpt2046"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_xpt2046_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = ["drivers/xpt2046.c", "services/solar_os_xpt2046.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
 
 [packages.driver_display_qemu_rgb]
 label = "driver.display-qemu-rgb"

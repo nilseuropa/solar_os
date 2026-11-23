@@ -293,6 +293,7 @@ static const char *binding_key(const solar_os_expansion_binding_t *binding)
         return "ps2";
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
         return binding->role[0] != '\0' ? binding->role : "stream";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0' ? binding->role : "parameter";
@@ -512,6 +513,8 @@ static esp_err_t append_binding_claims(const solar_os_expansion_binding_t *bindi
         return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         return ESP_OK;
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        return ESP_OK;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
         return ESP_OK;
@@ -592,6 +595,10 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
     }
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return binding->role[0] != '\0';
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        /* The consumer checks target existence and geometry during attachment;
+         * this is a reference, not an exclusive display ownership claim. */
+        return binding->target[0] != '\0' && binding->role[0] != '\0';
     default:
         return false;
     }
@@ -1707,6 +1714,8 @@ const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind
         return "ps2";
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
         return "bytes";
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        return "display";
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
         return "scalar";
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:

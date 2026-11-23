@@ -375,6 +375,10 @@ esp_err_t solar_os_input_pointer_calibration_get(
 esp_err_t solar_os_input_pointer_calibration_set(
     solar_os_input_source_t source,
     const solar_os_input_pointer_calibration_t *calibration);
+/* Producer fallback: applied only if no calibration is configured. Does not
+ * write NVS or replace calibration restored for this source name. */
+esp_err_t solar_os_input_pointer_calibration_default(solar_os_input_source_t source,
+    const solar_os_input_pointer_calibration_t *calibration);
 esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source);
 esp_err_t solar_os_input_pointer_filter_register(
     solar_os_input_pointer_filter_t filter,

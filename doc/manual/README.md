@@ -275,6 +275,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [SPD2010 QSPI display](spd2010.md) — Attach a 412x412 RGB565 display over a dedicated four-line SPI interface
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, environment, and IMU measurements
 - [USB host](usb.host.md) — Select USB off/device/host mode and use input, serial adapters, or FAT storage
+- [XPT2046 resistive touch](xpt2046.md) — Attach an SPI resistive touch controller to a named display
 
 ## Scripting APIs
 

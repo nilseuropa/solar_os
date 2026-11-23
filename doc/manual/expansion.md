@@ -537,7 +537,9 @@ RGB565 frames, rotation, and display-session routing.
 the screen independently of its touch controller and SD slot, using a named SPI
 bus and separate chip selects. It is included in `full` and available through
 the `ili9488` group in custom flavors. See [ILI9488 SPI displays](ili9488.md)
-for bindings, orientation, color order, and wiring.
+for bindings, orientation, color order, and wiring. The separate
+[XPT2046 driver](xpt2046.md) binds resistive touch to the selected display,
+with its own chip select, sampling clock, and saved calibration.
 
 ## Display Link Protocol over streams
 

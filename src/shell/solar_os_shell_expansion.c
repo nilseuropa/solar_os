@@ -606,6 +606,7 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
         solar_os_shell_io_table_printf(term,
                                  " %s=%s",
                                  binding->role,
@@ -1170,6 +1171,7 @@ static const char *expansion_spec_binding_role(
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return spec->key;
     default:
@@ -1254,6 +1256,9 @@ static bool expansion_parse_driver_binding_token(
                           value,
                           -1,
                           -1);
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        return value[0] && strlen(value) < SOLAR_OS_EXPANSION_TARGET_MAX &&
+            binding_store(bindings, binding_count, spec->kind, role, value, -1, -1);
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
         solar_os_stream_info_t stream;

@@ -2515,6 +2515,23 @@ esp_err_t solar_os_input_pointer_calibration_set(
     return err;
 }
 
+esp_err_t solar_os_input_pointer_calibration_default(solar_os_input_source_t source,
+    const solar_os_input_pointer_calibration_t *calibration)
+{
+    if (!input_calibration_valid(calibration)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        !(input_sources[source - 1U].capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE)) {
+        err = ESP_ERR_INVALID_STATE;
+    } else if (!input_diagnostics[source - 1U].calibration_enabled) {
+        input_diagnostics[source - 1U].calibration = *calibration;
+        input_diagnostics[source - 1U].calibration_enabled = true;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return err;
+}
+
 esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source)
 {
     char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
