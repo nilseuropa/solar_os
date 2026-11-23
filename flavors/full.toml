@@ -162,6 +162,7 @@ ili9341 = true
 st7796 = true
 st7789 = true
 gc9a01 = true
+ili9488 = true
 spd2010 = true
 spd2010_touch = true
 cvbs = true

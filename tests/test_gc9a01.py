@@ -20,7 +20,7 @@ class Gc9a01Test(unittest.TestCase):
 #define pdMS_TO_TICKS(ms) (ms)
 #define ESP_RETURN_ON_ERROR(expr, ...) do { esp_err_t e = (expr); if (e) return e; } while (0)
 typedef struct {
-    struct { bool gc9a01, st7796, st7789, invert_color; uint8_t madctl; } config;
+    struct { bool gc9a01, st7796, st7789, ili9488, invert_color; uint8_t madctl; } config;
     uint16_t background_rgb565;
     esp_err_t last_error;
     int display_info;
@@ -29,6 +29,7 @@ typedef struct { int unused; } u8x8_t, u8x8_tile_t;
 enum { U8X8_MSG_DISPLAY_SETUP_MEMORY, U8X8_MSG_DISPLAY_INIT,
        U8X8_MSG_DISPLAY_SET_POWER_SAVE, U8X8_MSG_DISPLAY_DRAW_TILE };
 static tft_ili9341_t *active_display;
+static tft_ili9341_t *ili9341_from_u8x8(u8x8_t *u8x8) { (void)u8x8; return active_display; }
 static struct { uint8_t command, data[16]; size_t length; unsigned time; } sent[128];
 static unsigned count, elapsed, fail_at, resets, clears, enables;
 static esp_err_t clear_error;
@@ -68,7 +69,7 @@ static esp_err_t ili9341_draw_tile(tft_ili9341_t *display, const u8x8_tile_t *ti
 '''
         source += production_functions(
             (ROOT / "src/drivers/tft_ili9341.c").read_text(),
-            ("solar_os_gc9a01_init_registers", "ili9341_full_init", "ili9341_u8x8_display_cb"))
+            ("solar_os_gc9a01_init_registers", "solar_os_ili9488_init_registers", "ili9341_full_init", "ili9341_u8x8_display_cb"))
         source += r'''
 static int command_index(uint8_t command) {
     for (unsigned i = 0; i < count; i++) if (sent[i].command == command) return (int)i;
@@ -108,6 +109,19 @@ int main(void) {
     assert(ili9341_u8x8_display_cb(NULL, U8X8_MSG_DISPLAY_INIT, 0, NULL) == 1);
     assert(command_index(0x21) == -1 && command_index(0x20) > pixel);
     assert(sent[command_index(0x36)].data[0] == 0);
+    reset(); display.config.gc9a01 = false; display.config.ili9488 = true;
+    display.config.madctl = 0x08;
+    assert(ili9341_u8x8_display_cb(NULL, U8X8_MSG_DISPLAY_INIT, 0, NULL) == 1);
+    assert(sent[command_index(0x3a)].data[0] == 0x66);
+    assert(sent[command_index(0x36)].data[0] == 0x08);
+    assert(sent[command_index(0xf7)].length == 4 && command_index(0xe9) > 0);
+    assert(command_index(0xcf) == -1 && command_index(0x21) == -1);
+    const unsigned ili_total = count;
+    for (unsigned failure = 1; failure <= ili_total; failure++) {
+        reset(); fail_at = failure; display.last_error = ESP_OK;
+        assert(ili9341_u8x8_display_cb(NULL, U8X8_MSG_DISPLAY_INIT, 0, NULL) == 0);
+        assert(display.last_error == ESP_FAIL && count == failure && !enables);
+    }
 }
 '''
         run_c(source)

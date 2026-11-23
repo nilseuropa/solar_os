@@ -311,9 +311,29 @@ static esp_err_t ili9341_set_window(tft_ili9341_t *display, uint16_t x0,
   return ili9341_cmd_data(display, 0x2b, row, sizeof(row));
 }
 
+/* Renderers retain RGB565; expand only the DMA band sent to an ILI9488.
+ * Work backwards so no full RGB666 framebuffer or extra staging copy is needed. */
+static void ili9488_expand_rgb565(uint8_t *data, size_t pixels) {
+  while (pixels > 0U) {
+    const size_t i = --pixels;
+    const uint16_t color = ((uint16_t)data[2U * i] << 8U) | data[2U * i + 1U];
+    const uint8_t red = (color >> 11U) & 31U;
+    const uint8_t green = (color >> 5U) & 63U;
+    const uint8_t blue = color & 31U;
+    data[3U * i] = (uint8_t)((red << 3U) | ((red >> 2U) & 4U));
+    data[3U * i + 1U] = (uint8_t)(green << 2U);
+    data[3U * i + 2U] = (uint8_t)((blue << 3U) | ((blue >> 2U) & 4U));
+  }
+}
+
+static size_t ili9341_wire_row_bytes(const tft_ili9341_t *display, size_t width) {
+  return width * (display->config.ili9488 ? 3U : 2U);
+}
+
 static void ili9341_fill_line(tft_ili9341_t *display, uint16_t rgb565,
                               size_t pixels) {
   solar_os_vector_fill_rgb565_be(display->line_buffer, rgb565, pixels);
+  if (display->config.ili9488) ili9488_expand_rgb565(display->line_buffer, pixels);
 }
 
 static esp_err_t ili9341_fill_screen(tft_ili9341_t *display, uint16_t rgb565) {
@@ -328,7 +348,7 @@ static esp_err_t ili9341_fill_screen(tft_ili9341_t *display, uint16_t rgb565) {
   ili9341_fill_line(display, rgb565, display->config.width);
   for (uint16_t row = 0; row < display->config.height; row++) {
     ESP_RETURN_ON_ERROR(ili9341_tx_bytes(display, display->line_buffer,
-                                         display->config.width * 2U),
+                                         ili9341_wire_row_bytes(display, display->config.width)),
                         TAG, "fill transmit failed");
   }
 
@@ -399,7 +419,7 @@ static esp_err_t ili9341_transmit_rendered_lines(
       display->line_buffer,
       display->line_buffer_alt,
   };
-  const size_t row_bytes = (size_t)width * 2U;
+  const size_t row_bytes = ili9341_wire_row_bytes(display, width);
   size_t rows_per_buffer = display->line_buffer_size / row_bytes;
   if (rows_per_buffer == 0U) {
     return ESP_ERR_INVALID_SIZE;
@@ -423,8 +443,10 @@ static esp_err_t ili9341_transmit_rendered_lines(
     if (rows > rows_per_buffer) rows = rows_per_buffer;
     for (size_t offset = 0U; offset < rows; offset++) {
       render(display, context, (uint16_t)(row + offset), width,
-             line_buffers[slot] + offset * row_bytes);
+             line_buffers[slot] + offset * (size_t)width * 2U);
     }
+    if (display->config.ili9488)
+      ili9488_expand_rgb565(line_buffers[slot], rows * width);
     transactions[slot].length = rows * row_bytes * 8U;
     /* ESP-IDF fills a zero RX length from TX length for full-duplex devices.
      * Clear that derived value before reusing a descriptor for a shorter final
@@ -1095,6 +1117,31 @@ static esp_err_t solar_os_gc9a01_init_registers(tft_ili9341_t *display) {
   return ESP_OK;
 }
 
+static esp_err_t solar_os_ili9488_init_registers(tft_ili9341_t *display) {
+  /* LCDWIKI MSP3520 / ILI9488 power and gamma settings. SPI pixels use
+   * RGB666 (COLMOD 0x66), irrespective of the host's RGB565 framebuffer.
+   * https://github.com/lcdwiki/LCDWIKI_spi/blob/master/LCDWIKI_SPI.cpp */
+  static const struct { uint8_t command, length, data[15]; } registers[] = {
+      {0xf7, 4, {0xa9, 0x51, 0x2c, 0x82}},
+      {0xc0, 2, {0x11, 0x09}}, {0xc1, 1, {0x41}},
+      {0xc5, 3, {0x00, 0x0a, 0x80}}, {0xb1, 2, {0xb0, 0x11}},
+      {0xb4, 1, {0x02}}, {0xb6, 2, {0x02, 0x22}},
+      {0xb7, 1, {0xc6}}, {0xbe, 2, {0x00, 0x04}}, {0xe9, 1, {0x00}},
+      {0xe0, 15, {0x00, 0x07, 0x10, 0x09, 0x17, 0x0b, 0x41, 0x89, 0x4b, 0x0a, 0x0c, 0x0e, 0x18, 0x1b, 0x0f}},
+      {0xe1, 15, {0x00, 0x17, 0x1a, 0x04, 0x0e, 0x06, 0x2f, 0x45, 0x43, 0x02, 0x0a, 0x09, 0x32, 0x36, 0x0f}},
+      {0x3a, 1, {0x66}},
+  };
+  for (size_t i = 0; i < sizeof(registers) / sizeof(registers[0]); ++i)
+    if (!ili9341_checked_cmd_data(display, registers[i].command, registers[i].data, registers[i].length))
+      return display->last_error;
+  const uint8_t madctl[] = {display->config.madctl};
+  if (!ili9341_checked_cmd_data(display, 0x36, madctl, sizeof(madctl)) ||
+      !ili9341_checked_cmd(display, display->config.invert_color ? 0x21 : 0x20) ||
+      !ili9341_checked_cmd(display, 0x11)) return display->last_error;
+  vTaskDelay(pdMS_TO_TICKS(120));
+  return ESP_OK;
+}
+
 static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   ili9341_hardware_reset(display);
 
@@ -1106,6 +1153,9 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
   if (display->config.gc9a01) {
     ESP_RETURN_ON_ERROR(solar_os_gc9a01_init_registers(display), TAG,
                         "GC9A01 init failed");
+  } else if (display->config.ili9488) {
+    ESP_RETURN_ON_ERROR(solar_os_ili9488_init_registers(display), TAG,
+                        "ILI9488 init failed");
   } else if (display->config.st7789) {
     const uint8_t colmod[] = {0x55};
     const uint8_t madctl[] = {display->config.madctl};
@@ -1256,7 +1306,7 @@ static esp_err_t ili9341_full_init(tft_ili9341_t *display) {
     return display->last_error;
   }
   /* Some IPS panels require display inversion on for literal RGB colors. */
-  if (!display->config.gc9a01 &&
+  if (!display->config.gc9a01 && !display->config.ili9488 &&
       (display->config.st7796 || display->config.invert_color) &&
       !ili9341_checked_cmd(display, 0x21)) {
     return display->last_error;
@@ -1278,17 +1328,25 @@ static uint8_t ili9341_u8x8_byte_cb(u8x8_t *u8x8, uint8_t message,
   return 1;
 }
 
+static tft_ili9341_t *ili9341_from_u8x8(u8x8_t *u8x8) {
+  /* user_ptr belongs to the display geometry service. Recover our enclosing
+   * context from the embedded U8g2 object instead of sharing that pointer. */
+  return u8x8 == NULL ? active_display :
+      (tft_ili9341_t *)((uint8_t *)u8x8 - offsetof(u8g2_t, u8x8) -
+                        offsetof(tft_ili9341_t, u8g2));
+}
+
 static uint8_t ili9341_u8x8_display_cb(u8x8_t *u8x8, uint8_t message,
                                        uint8_t arg_int, void *arg_ptr) {
+  tft_ili9341_t *display = ili9341_from_u8x8(u8x8);
   if (message == U8X8_MSG_DISPLAY_SETUP_MEMORY) {
-    if (active_display == NULL) {
+    if (display == NULL) {
       return 0;
     }
-    u8x8_d_helper_display_setup_memory(u8x8, &active_display->display_info);
+    u8x8_d_helper_display_setup_memory(u8x8, &display->display_info);
     return 1;
   }
 
-  tft_ili9341_t *display = active_display;
   if (display == NULL) {
     return 0;
   }
@@ -1374,7 +1432,7 @@ esp_err_t tft_ili9341_init(tft_ili9341_t *display,
       TAG, "spi add device failed");
 
   display->line_buffer_size =
-      display->config.width * 2U * ILI9341_DMA_LINES;
+      ili9341_wire_row_bytes(display, display->config.width) * ILI9341_DMA_LINES;
   /* SPI transmits directly from this line buffer, so it must be internal DMA
    * memory. */
   display->line_buffer = heap_caps_malloc(display->line_buffer_size,

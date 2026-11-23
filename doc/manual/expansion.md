@@ -531,6 +531,14 @@ including the canvas corners, are physically hidden; keep essential content
 inside the circle. The normal display service provides text, indexed color,
 RGB565 frames, rotation, and display-session routing.
 
+## ILI9488 SPI displays
+
+`ili9488` supports 320x480 color TFT panels such as the LCDWIKI MSP3520. Attach
+the screen independently of its touch controller and SD slot, using a named SPI
+bus and separate chip selects. It is included in `full` and available through
+the `ili9488` group in custom flavors. See [ILI9488 SPI displays](ili9488.md)
+for bindings, orientation, color order, and wiring.
+
 ## Display Link Protocol over streams
 
 `stream-dlp` connects a DLP peripheral through an existing exclusive duplex
