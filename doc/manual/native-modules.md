@@ -65,8 +65,9 @@ stored under `/modules/.catalog/` on the preferred storage volume. A failed
 refresh leaves the previous catalog available. A catalog for a different host
 firmware version is not used; press `R` after a firmware update.
 After a successful catalog check, `pkg install` completion uses that verified
-catalog. `pkg remove` completion and `pkg installed` read the installed module
-directories directly.
+catalog. `pkg remove` and `pkg upgrade` completion read the installed module
+directories. `pkg installed` shows versions and checks compatibility using the
+saved signed catalog, without a network request.
 
 Installed application modules are shell commands: the module ID resolves under
 `/modules/apps` after built-in commands, compiled applications, and aliases.
@@ -91,10 +92,67 @@ hello SolarOS
 pkg remove hello
 ```
 
+## Update installed modules
+
+```text
+pkg update
+pkg upgrade
+```
+
+`pkg update` refreshes and saves the signed catalog for the running SolarOS
+version. It lists installed modules with replacements, for example:
+
+```text
+library jet: 1.11.0 -> 1.12.0 (available for upgrade)
+```
+
+This command downloads package information only. It also reports compatibility
+with the current OS. Compatibility is verified when installed bytes match a
+compatible entry in the current signed catalog. A different or missing entry
+leaves installed compatibility unverified; this does not by itself mean the
+module cannot run. An exact match to an incompatible entry is reported as
+incompatible. Run `pkg update` again after a firmware update.
+
+`pkg upgrade` uses the saved catalog, shows the changes and download size, and
+asks `Apply these changes? [y/N]`. Enter cancels. Use `pkg upgrade ID` to select
+one installed module and its required dependencies. Add `-y` to accept the shown
+plan without a prompt, including in shell scripts. A usable saved catalog is
+required; run `pkg update` first.
+
+Versions and exact library dependencies are saved beside installed ELF files.
+Older installations and manually changed files may show `unknown` as their
+installed version. They are compared by content hash and, if different,
+offered for replacement with the current catalog package. A matching hash
+avoids downloading an unchanged module. A changed artifact with the same
+version can be upgraded, for example after a firmware update. Known newer
+versions and version labels whose order cannot be determined are held back;
+use `pkg install ID` when you intend an explicit replacement. Automatic version
+ordering supports numeric dotted versions such as `1.12.0`.
+
+Close app sessions and unload affected resident modules before upgrading.
+Stop jobs or detach driver devices first, then use `pkg unload ID` to keep their
+installed files while releasing their registrations. In-use libraries refuse
+to unload until their clients release them. The upgrade checks active modules
+and exact dependency requirements before downloading. A shared library change
+is refused if it would break an installed consumer that is not being upgraded,
+or if that consumer's requirements cannot be verified.
+
+All upgrade artifacts are downloaded and validated before the ELF files and
+their version records are replaced together. Ctrl+C, Esc, or the app-exit key
+cancels preparation. Failed downloads and cancellation preserve installed
+files. Publication rolls the group back on an I/O error; this is not a
+power-loss recovery journal. New jobs and drivers are registered after
+publication; libraries load when needed.
+
+These commands manage downloadable native modules. Firmware features listed
+by `pkg system` are updated with the firmware.
+
 ## Quick reference
 
 Use `load PATH [ARGS...]` to run a trusted native ELF module directly. Run `pkg`
 to browse the signed module catalog, `pkg install ID` to install a module, and
 `pkg remove ID` to remove it. Installed apps run by module ID. Stop jobs and
 detach driver devices before removal; `pkg unload ID` releases an unused native
-library image while keeping its installed file.
+library image while keeping its installed file. `pkg unload ID` also releases a
+stopped job or detached driver. Use `pkg update` to check for module upgrades and
+`pkg upgrade [ID]` to apply them after confirmation.

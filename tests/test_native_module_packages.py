@@ -99,6 +99,9 @@ class NativeModulePackagesTest(unittest.TestCase):
         service = (ROOT / "src/services/solar_os_module_packages.c").read_text(
             encoding="utf-8"
         )
+        service += (ROOT / "src/services/solar_os_module_receipts.inc").read_text(
+            encoding="utf-8"
+        )
         for contract in (
             "SOLAR_OS_OTA_PUBLIC_KEY_PEM",
             "SOLAR_OS_VERSION",
@@ -141,7 +144,7 @@ class NativeModulePackagesTest(unittest.TestCase):
             '"service_json"',
         ):
             self.assertIn(dependency, packages)
-        for command in ("available", "installed", "install", "remove"):
+        for command in ("available", "installed", "install", "update", "upgrade", "remove"):
             self.assertIn(f'strcmp(argv[1], "{command}")', shell)
 
         self.assertIn("PKG_NETWORK_TASK_STACK (16U * 1024U)", shell)
@@ -165,9 +168,10 @@ class NativeModulePackagesTest(unittest.TestCase):
 
         self.assertIn('"shell/solar_os_shell_pkg_tui.c"', packages)
         self.assertIn("solar_os_shell_launch_pkg_tui(ctx)", shell_command)
-        self.assertIn("pkg_print_installed(term)", shell_command)
+        self.assertIn("pkg_run_network_worker(term, PKG_NETWORK_INSTALLED", shell_command)
         self.assertIn("solar_os_module_package_foreach_installed", shell_command)
         self.assertIn("SHELL_COMPLETION_MODULES_AVAILABLE(path_pkg_install)", shell)
+        self.assertIn("SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_upgrade)", shell)
         self.assertIn("SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_remove)", shell)
         self.assertIn("solar_os_module_catalog_cached_get", shell)
         self.assertIn("solar_os_module_package_foreach_installed", shell)
