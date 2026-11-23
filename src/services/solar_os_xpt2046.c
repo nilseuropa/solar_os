@@ -113,8 +113,14 @@ static void xpt_poll(xpt_device_t *d)
         return;
     }
     solar_os_xpt2046_sample_t sample;
-    esp_err_t err = spi_device_acquire_bus(d->spi, pdMS_TO_TICKS(100) + 1U);
+    /* ESP-IDF rejects finite waits here. Detach keeps the device alive if its
+     * bounded task join expires while another SPI device owns the bus. */
+    esp_err_t err = spi_device_acquire_bus(d->spi, portMAX_DELAY);
     if (err == ESP_OK) {
+        if (d->stop_requested) {
+            spi_device_release_bus(d->spi);
+            return;
+        }
         err = solar_os_xpt2046_read(&d->io, d->pressure, &sample);
         spi_device_release_bus(d->spi);
     }

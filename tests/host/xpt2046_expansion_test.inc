@@ -14,6 +14,7 @@
 #define pdMS_TO_TICKS(ms) (ms)
 #define pdTRUE 1
 #define pdPASS 1
+#define portMAX_DELAY UINT32_MAX
 #define tskIDLE_PRIORITY 0
 #define tskNO_AFFINITY 0
 #define SOLAR_OS_TASK_ROLE_BACKGROUND 1
@@ -23,6 +24,7 @@ typedef void *TaskHandle_t;
 static unsigned allocations, spi_devices, sources, task_count, writes, reads, removed;
 static bool present = true, miso = true, irq_high, fail_task, fail_source, fail_default, fail_spi, fail_irq, fail_idle, fail_join, fail_write, fail_remove;
 static esp_err_t read_error;
+static void (*after_acquire)(void);
 static solar_os_input_pointer_event_t event;
 static solar_os_input_pointer_calibration_t defaults;
 static spi_device_interface_config_t spi_config;
@@ -40,7 +42,8 @@ esp_err_t spi_bus_remove_device(spi_device_handle_t handle)
 { assert(handle && spi_devices);if(fail_remove)return ESP_FAIL;--spi_devices;++removed;return ESP_OK; }
 esp_err_t spi_device_polling_transmit(spi_device_handle_t handle, spi_transaction_t *t)
 { assert(handle && t->length==24 && t->flags==(SPI_TRANS_USE_TXDATA|SPI_TRANS_USE_RXDATA));return fail_idle?ESP_FAIL:ESP_OK; }
-esp_err_t spi_device_acquire_bus(spi_device_handle_t handle, unsigned wait) { assert(handle && wait<=101); return ESP_OK; }
+esp_err_t spi_device_acquire_bus(spi_device_handle_t handle, unsigned wait)
+{ assert(handle);if(wait!=portMAX_DELAY)return ESP_ERR_INVALID_ARG;if(after_acquire)after_acquire();return ESP_OK; }
 void spi_device_release_bus(spi_device_handle_t handle) { assert(handle); }
 esp_err_t gpio_config(const gpio_config_t *config) { assert(config->mode==GPIO_MODE_INPUT);return fail_irq?ESP_FAIL:ESP_OK; }
 int gpio_get_level(gpio_num_t pin) { assert(pin==15); return irq_high; }
@@ -63,6 +66,7 @@ static bool solar_os_task_wait_done(TaskHandle_t task, volatile bool *done, unsi
 static unsigned ulTaskNotifyTake(int clear, unsigned wait) { (void)clear;(void)wait;return 0; }
 static void solar_os_task_delete_internal(void *unused) { (void)unused; }
 /* SERVICE */
+static void stop_after_acquire(void) { devices->stop_requested=true; }
 static solar_os_expansion_binding_t bindings[] = {
     {.kind=SOLAR_OS_EXPANSION_BINDING_SPI_BUS,.target="spi0"},
     {.kind=SOLAR_OS_EXPANSION_BINDING_SPI_CS,.target="spi0",.value=7},
@@ -91,6 +95,9 @@ int main(void)
     assert(defaults.max_x==4095 && defaults.width==480 && defaults.height==320);
     assert(spi_config.clock_speed_hz==2000000 && spi_config.mode==0 && spi_config.flags==0 && spi_config.spics_io_num==7);
     assert(driver->attach("touch0",bindings,3)==ESP_ERR_INVALID_STATE);
+    after_acquire=stop_after_acquire;unsigned stopped_reads=reads;
+    xpt_poll(devices);assert(reads==stopped_reads && writes==0);
+    after_acquire=NULL;devices->stop_requested=false;
     xpt_poll(devices);assert(writes==1 && event.action==SOLAR_OS_INPUT_POINTER_PRESS && event.x==2095 && event.y==1000 && !strcmp(event.target,"lcd0"));
     xpt_poll(devices);assert(writes==1);
     raw.x=1100;xpt_poll(devices);assert(writes==2 && event.action==SOLAR_OS_INPUT_POINTER_MOVE);

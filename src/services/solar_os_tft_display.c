@@ -224,6 +224,12 @@ static esp_err_t present_auxiliary_frame(
     return tft_ili9341_present_frame((tft_ili9341_t *)context, frame);
 }
 
+static esp_err_t set_auxiliary_colors(void *context, uint32_t foreground,
+    uint32_t background)
+{
+    return tft_ili9341_set_colors(context, foreground, background);
+}
+
 static esp_err_t shutdown(solar_os_board_display_t *display)
 {
     return display != NULL ? tft_ili9341_shutdown(display->driver) : ESP_ERR_INVALID_STATE;
@@ -265,6 +271,8 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
     target.present_surface = present_auxiliary_surface;
     target.frame_context = &attached->driver;
     target.present_frame = present_auxiliary_frame;
+    target.set_colors = set_auxiliary_colors;
+    target.color_context = &attached->driver;
     return solar_os_display_register_target(&target);
 }
 

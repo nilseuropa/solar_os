@@ -676,6 +676,12 @@ static void display_init_slot_gfx(display_target_slot_t *slot)
 }
 
 #if SOLAR_OS_BOARD_HAS_DISPLAY
+static esp_err_t display_board_set_colors(void *context, uint32_t foreground,
+    uint32_t background)
+{
+    return solar_os_board_display_set_colors(context, foreground, background);
+}
+
 static esp_err_t display_board_present_canvas(void *context,
     const solar_os_display_mono_canvas_t *canvas)
 {
@@ -704,6 +710,8 @@ static esp_err_t display_register_board_target(solar_os_board_display_t *display
     target.max_stream_pixels_per_second =
         solar_os_board_display_max_stream_pixels_per_second(display);
     target.u8g2 = solar_os_board_display_u8g2(display);
+    target.set_colors = display_board_set_colors;
+    target.color_context = display;
     if (display->ops->present_canvas) {
         target.present_canvas = display_board_present_canvas;
         target.canvas_context = display;
@@ -804,6 +812,17 @@ esp_err_t solar_os_display_register_target(const solar_os_display_target_t *targ
     SemaphoreHandle_t present_mutex = xSemaphoreCreateMutex();
     if (present_mutex == NULL) {
         return ESP_ERR_NO_MEM;
+    }
+    display_load_colors();
+    if (target->set_colors != NULL) {
+        /* The caller still owns this unpublished target, so no other
+         * presentation or detach can access its context yet. */
+        const esp_err_t err = target->set_colors(target->color_context,
+            display_foreground_rgb888, display_background_rgb888);
+        if (err != ESP_OK) {
+            vSemaphoreDelete(present_mutex);
+            return err;
+        }
     }
     solar_os_terminal_profile_t terminal_profile;
     solar_os_terminal_profile_load_preferences(&terminal_profile);
@@ -1467,46 +1486,64 @@ esp_err_t solar_os_display_get_colors(uint32_t *foreground_rgb888,
     return ESP_OK;
 }
 
+static esp_err_t display_apply_colors(uint32_t foreground, uint32_t background)
+{
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; ++i) {
+        portENTER_CRITICAL(&display_targets_lock);
+        display_target_slot_t *slot = &display_targets[i];
+        if (!slot->active || !slot->target.ready || !slot->target.set_colors) {
+            portEXIT_CRITICAL(&display_targets_lock);
+            continue;
+        }
+        const uint32_t generation = slot->generation;
+        SemaphoreHandle_t mutex = slot->present_mutex;
+        slot->refs++;
+        portEXIT_CRITICAL(&display_targets_lock);
+        esp_err_t err = ESP_ERR_INVALID_STATE;
+        if (mutex != NULL && xSemaphoreTake(mutex, portMAX_DELAY) == pdTRUE) {
+            err = slot->target.set_colors(slot->target.color_context, foreground, background);
+            xSemaphoreGive(mutex);
+        }
+        display_release_slot_ref(i, generation);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t display_change_colors(uint32_t foreground, uint32_t background)
+{
+    if (foreground == display_foreground_rgb888 && background == display_background_rgb888)
+        return ESP_OK;
+    esp_err_t err = display_apply_colors(foreground, background);
+    if (err != ESP_OK) {
+        (void)display_apply_colors(display_foreground_rgb888, display_background_rgb888);
+    } else {
+        display_foreground_rgb888 = foreground;
+        display_background_rgb888 = background;
+    }
+    /* Wake existing display sessions even when their monochrome pixels have
+     * not changed, including after restoring colors on an update failure. */
+    portENTER_CRITICAL(&display_targets_lock);
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_TARGET_MAX; ++i)
+        if (display_targets[i].active) display_targets[i].terminal_epoch++;
+    portEXIT_CRITICAL(&display_targets_lock);
+    return err;
+}
+
 esp_err_t solar_os_display_set_foreground_color(uint32_t rgb888)
 {
-    if (rgb888 > 0xffffffU) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (rgb888 > 0xffffffU) return ESP_ERR_INVALID_ARG;
     display_load_colors();
-
-#if SOLAR_OS_BOARD_HAS_DISPLAY
-    if (display_handle != NULL) {
-        const esp_err_t err = solar_os_board_display_set_colors(display_handle,
-                                                                rgb888,
-                                                                display_background_rgb888);
-        if (err != ESP_OK) {
-            return err;
-        }
-    }
-#endif
-    display_foreground_rgb888 = rgb888;
-    return display_save_color(DISPLAY_NVS_FOREGROUND_KEY, rgb888);
+    esp_err_t err = display_change_colors(rgb888, display_background_rgb888);
+    return err == ESP_OK ? display_save_color(DISPLAY_NVS_FOREGROUND_KEY, rgb888) : err;
 }
 
 esp_err_t solar_os_display_set_background_color(uint32_t rgb888)
 {
-    if (rgb888 > 0xffffffU) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (rgb888 > 0xffffffU) return ESP_ERR_INVALID_ARG;
     display_load_colors();
-
-#if SOLAR_OS_BOARD_HAS_DISPLAY
-    if (display_handle != NULL) {
-        const esp_err_t err = solar_os_board_display_set_colors(display_handle,
-                                                                display_foreground_rgb888,
-                                                                rgb888);
-        if (err != ESP_OK) {
-            return err;
-        }
-    }
-#endif
-    display_background_rgb888 = rgb888;
-    return display_save_color(DISPLAY_NVS_BACKGROUND_KEY, rgb888);
+    esp_err_t err = display_change_colors(display_foreground_rgb888, rgb888);
+    return err == ESP_OK ? display_save_color(DISPLAY_NVS_BACKGROUND_KEY, rgb888) : err;
 }
 
 esp_err_t solar_os_display_show_power_state(const char *status)

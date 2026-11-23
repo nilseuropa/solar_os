@@ -23,6 +23,8 @@ static solar_os_display_target_t target;
 static solar_os_board_display_t *primary_display;
 static const solar_os_display_raster_t *received_frame;
 static const solar_os_display_surface_t *received_surface;
+static tft_ili9341_t *colored_display;
+static uint32_t received_foreground, received_background;
 
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
@@ -62,7 +64,7 @@ esp_err_t tft_ili9341_get_backlight(const tft_ili9341_t *display, uint8_t *perce
 esp_err_t tft_ili9341_set_backlight(tft_ili9341_t *display, uint8_t percent)
 { (void)display; (void)percent; return ESP_OK; }
 esp_err_t tft_ili9341_set_colors(tft_ili9341_t *display, uint32_t fg, uint32_t bg)
-{ (void)display; (void)fg; (void)bg; return ESP_OK; }
+{ colored_display=display;received_foreground=fg;received_background=bg;return ESP_OK; }
 esp_err_t tft_ili9341_present_surface(tft_ili9341_t *display, const solar_os_display_surface_t *surface)
 { assert(display == &devices->driver); received_surface = surface; return ESP_OK; }
 esp_err_t tft_ili9341_present_frame(tft_ili9341_t *display, const solar_os_display_raster_t *frame)
@@ -104,6 +106,9 @@ int main(void)
     assert(!strcmp(target.driver, "gc9a01") && !strcmp(target.controller, "GC9A01"));
     assert(target.width == 240 && target.height == 240 && !target.brightness_supported);
     assert(target.frame_formats & SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT);
+    assert(target.set_colors && target.color_context == &devices->driver);
+    assert(target.set_colors(target.color_context,0xff0000,0xffffff)==ESP_OK);
+    assert(colored_display==&devices->driver && received_foreground==0xff0000 && received_background==0xffffff);
     const solar_os_display_raster_t frame = {.format = SOLAR_OS_DISPLAY_FORMAT_RGB565};
     const solar_os_display_surface_t surface = {.format = SOLAR_OS_DISPLAY_FORMAT_INDEX8};
     assert(target.present_frame(target.frame_context, &frame) == ESP_OK && received_frame == &frame);
@@ -155,6 +160,10 @@ int main(void)
     assert(received.spi_clock_hz == 20000000 && !received.invert_color);
     assert(!strcmp(target.controller, "ILI9488") && !strcmp(target.driver, "ili9488"));
     assert(received.backlight_pulse_steps == 0 && !received.col_offset && !received.row_offset);
+    assert(target.set_colors(target.color_context,0x00ff00,0x001122)==ESP_OK);
+    assert(colored_display==&devices->driver && received_foreground==0x00ff00);
+    assert(primary_display->ops->set_colors(primary_display,0xff0000,0xffffff)==ESP_OK);
+    assert(colored_display==&original->driver && received_foreground==0xff0000);
     assert(ili->detach("lcd0") == ESP_OK && devices == original);
     assert(driver->detach("display0") == ESP_OK && devices == NULL);
     puts("gc9a01_expansion_test: ok");
