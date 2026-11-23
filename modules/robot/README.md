@@ -48,6 +48,11 @@ quantity. There is no startup boost.
 
 ## Native API
 
+The library package includes its three public C headers. With `cc` and `robot`
+installed, use `#include <robot/solar_os_robot_abi.h>`; its model and differential
+drive headers resolve in the same namespace. Browse them with `cc sdk list`,
+`cc sdk show robot/solar_os_robot_abi.h`, or `cc sdk export NEW_DIRECTORY`.
+
 The firmware's `motion` ABI supplies generic claims and device access. Its
 thread/time/memory services supply joinable workers, clocks and allocation.
 Creation does not claim hardware; enable is explicit. Motor enable waits with

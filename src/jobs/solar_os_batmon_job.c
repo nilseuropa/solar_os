@@ -120,7 +120,7 @@ static void batmon_log_status(void)
     }
 
     SOLAR_OS_LOGI(TAG,
-             "%u.%03u V %u%% trend=%s power=%s slope=%" PRId32 " mV/h eta=%s samples=%" PRIu32,
+             "%u.%03u V %u%% trend=%s power=%s slope=%" PRId32 " mV/h eta=%s%s samples=%" PRIu32,
              (unsigned)(status.last_voltage_mv / 1000U),
              (unsigned)(status.last_voltage_mv % 1000U),
              (unsigned)status.last_percent,
@@ -128,6 +128,7 @@ static void batmon_log_status(void)
              power,
              status.slope_mvh,
              eta,
+             status.time_left_seeded ? " (configured runtime)" : "",
              status.sample_count);
 }
 

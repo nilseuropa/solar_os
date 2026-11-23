@@ -760,13 +760,23 @@ static void telnet_send_bytes_escaped(const uint8_t *data, size_t len)
         return;
     }
 
+    /* Keep key sequences together. Sending Escape separately lets TCP's
+     * delayed acknowledgements outlast the remote terminal's key timeout. */
+    uint8_t escaped[32];
+    size_t used = 0;
     for (size_t i = 0; i < len; i++) {
-        if (data[i] == TELNET_IAC) {
-            const uint8_t escaped[] = {TELNET_IAC, TELNET_IAC};
-            (void)telnet_send_raw(escaped, sizeof(escaped));
-        } else {
-            (void)telnet_send_raw(&data[i], 1);
+        const size_t needed = data[i] == TELNET_IAC ? 2U : 1U;
+        if (sizeof(escaped) - used < needed) {
+            (void)telnet_send_raw(escaped, used);
+            used = 0;
         }
+        escaped[used++] = data[i];
+        if (data[i] == TELNET_IAC) {
+            escaped[used++] = TELNET_IAC;
+        }
+    }
+    if (used > 0) {
+        (void)telnet_send_raw(escaped, used);
     }
 }
 
@@ -774,7 +784,7 @@ static void telnet_send_key(char ch)
 {
     const uint8_t key = (uint8_t)ch;
     const char *seq = NULL;
-    uint8_t data[2] = {0};
+    uint8_t data[8] = {0};
     size_t len = 0;
 
     switch (key) {
@@ -868,14 +878,17 @@ static void telnet_send_key(char ch)
         break;
     }
 
+    if (seq != NULL) {
+        len = strlen(seq);
+        memcpy(data, seq, len);
+    }
     if (telnet_app.alt_prefix_pending) {
         telnet_app.alt_prefix_pending = false;
-        const uint8_t escape = 0x1b;
-        telnet_send_bytes_escaped(&escape, 1);
+        memmove(data + 1, data, len);
+        data[0] = 0x1b;
+        len++;
     }
-    if (seq != NULL) {
-        telnet_send_bytes_escaped((const uint8_t *)seq, strlen(seq));
-    } else if (len > 0) {
+    if (len > 0) {
         telnet_send_bytes_escaped(data, len);
     }
 }

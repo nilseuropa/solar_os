@@ -123,6 +123,55 @@ static void test_tick_wrap(void)
     assert(result.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_RISING);
 }
 
+static void test_long_history_slow_discharge(uint32_t interval_ms, uint32_t start_ms)
+{
+    solar_os_battery_trend_estimator_t estimator;
+    solar_os_battery_trend_init(&estimator, interval_ms);
+    solar_os_battery_trend_result_t result;
+    /* Exercise retention beyond sixteen hours and timestamp wraparound. */
+    for (uint32_t elapsed = 0U; elapsed <= 24U * 3600000U; elapsed += interval_ms) {
+        const int noise = (int)((elapsed / interval_ms) % 7U) - 3;
+        solar_os_battery_trend_push(&estimator, start_ms + elapsed,
+            (uint16_t)(3900 - (int)(elapsed / 300000U) + noise));
+    }
+    assert(solar_os_battery_trend_estimate(&estimator, &result));
+    assert(result.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_STABLE);
+    assert(solar_os_battery_trend_estimate_long(&estimator, &result));
+    assert(result.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_FALLING);
+    assert(result.slope_mvh >= -13 && result.slope_mvh <= -11);
+    assert(result.span_ms > 15U * 3600000U && result.span_ms <= 16U * 3600000U);
+
+    solar_os_battery_trend_reset_long(&estimator);
+    assert(!solar_os_battery_trend_estimate_long(&estimator, &result));
+}
+
+static void test_long_history_noise_and_gaps(void)
+{
+    solar_os_battery_trend_estimator_t estimator;
+    solar_os_battery_trend_init(&estimator, 10000U);
+    solar_os_battery_trend_result_t result;
+    for (uint32_t i = 0U; i <= 5040U; i++) {
+        const int noise = (int)(i % 11U) - 5;
+        solar_os_battery_trend_push(&estimator, i * 10000U,
+            (uint16_t)(3800 + noise));
+        if (i == 180U) {
+            assert(!solar_os_battery_trend_estimate_long(&estimator, &result));
+        }
+    }
+    assert(solar_os_battery_trend_estimate_long(&estimator, &result));
+    assert(result.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_STABLE);
+
+    solar_os_battery_trend_push(&estimator, 40U * 3600000U, 3600U);
+    assert(!solar_os_battery_trend_estimate_long(&estimator, &result));
+
+    /* Long sampling intervals continue to use the original short estimator. */
+    solar_os_battery_trend_init(&estimator, 86400000U);
+    for (uint32_t i = 0U; i < 60U; i++) {
+        solar_os_battery_trend_push(&estimator, i * 86400000U, 3800U);
+    }
+    assert(!solar_os_battery_trend_estimate_long(&estimator, &result));
+}
+
 int main(void)
 {
     test_short_noisy_window_is_unknown();
@@ -131,6 +180,9 @@ int main(void)
     test_short_reversal_does_not_flip_direction();
     test_sixty_second_rate_keeps_eight_sample_window();
     test_tick_wrap();
+    test_long_history_slow_discharge(10000U, 0U);
+    test_long_history_slow_discharge(60000U, UINT32_MAX - 6U * 3600000U);
+    test_long_history_noise_and_gaps();
     puts("battery trend tests: ok");
     return 0;
 }

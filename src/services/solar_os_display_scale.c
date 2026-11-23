@@ -103,24 +103,43 @@ void solar_os_display_scale_apply(solar_os_display_scale_t *state, uint8_t facto
 }
 
 static uint32_t expand_byte(uint8_t value, unsigned factor)
+{ return solar_os_display_mono_expand(value, factor); }
+
+void solar_os_display_send_regions(u8g2_t *canvas,
+    const solar_os_display_rect_t *areas, size_t count)
 {
-    uint32_t bits = value;
-    if (factor == 2U) {
-        bits = (bits | (bits << 4U)) & 0x0f0fU;
-        bits = (bits | (bits << 2U)) & 0x3333U;
-        bits = (bits | (bits << 1U)) & 0x5555U;
-        return bits * 3U;
+    const u8x8_display_info_t *info = canvas->u8x8.display_info;
+    if (!areas || !count || canvas->tile_buf_height != info->tile_height ||
+        (canvas->cb != U8G2_R0 && canvas->cb != U8G2_R1 &&
+         canvas->cb != U8G2_R2 && canvas->cb != U8G2_R3)) {
+        u8g2_SendBuffer(canvas);
+        return;
     }
-    if (factor == 3U) {
-        bits = (bits | (bits << 8U)) & 0x00f00fU;
-        bits = (bits | (bits << 4U)) & 0x0c30c3U;
-        bits = (bits | (bits << 2U)) & 0x249249U;
-        return bits * 7U;
+    const int width = u8g2_GetDisplayWidth(canvas), height = u8g2_GetDisplayHeight(canvas);
+    bool submitted = false;
+    for (size_t i = 0; i < count; i++) {
+        int64_t x0 = areas[i].x, y0 = areas[i].y;
+        int64_t x1 = x0 + areas[i].width, y1 = y0 + areas[i].height;
+        if (areas[i].width <= 0 || areas[i].height <= 0) continue;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > width) x1 = width;
+        if (y1 > height) y1 = height;
+        if (x0 >= x1 || y0 >= y1) continue;
+        int nx0=x0, ny0=y0, nx1=x1, ny1=y1;
+        if (canvas->cb == U8G2_R1) {
+            nx0=info->pixel_width-y1; nx1=info->pixel_width-y0; ny0=x0; ny1=x1;
+        } else if (canvas->cb == U8G2_R2) {
+            nx0=info->pixel_width-x1; nx1=info->pixel_width-x0;
+            ny0=info->pixel_height-y1; ny1=info->pixel_height-y0;
+        } else if (canvas->cb == U8G2_R3) {
+            nx0=y0; nx1=y1; ny0=info->pixel_height-x1; ny1=info->pixel_height-x0;
+        }
+        const unsigned tx=nx0/8U, ty=ny0/8U;
+        u8g2_UpdateDisplayArea(canvas,tx,ty,(nx1+7U)/8U-tx,(ny1+7U)/8U-ty);
+        submitted = true;
     }
-    bits = (bits | (bits << 12U)) & 0x000f000fU;
-    bits = (bits | (bits << 6U)) & 0x03030303U;
-    bits = (bits | (bits << 3U)) & 0x11111111U;
-    return bits * 15U;
+    if (submitted) u8x8_RefreshDisplay(&canvas->u8x8);
 }
 
 static void expand_rectangle(solar_os_display_scale_t *state,
@@ -203,6 +222,20 @@ static uint8_t scale_callback(u8x8_t *display, uint8_t message, uint8_t count, v
         unsigned y1 = state->dirty_y1 * state->factor * 8U;
         if (x1 > width) x1 = width;
         if (y1 > height) y1 = height;
+        if (state->present_canvas) {
+            const solar_os_display_mono_canvas_t source = {
+                .data=state->logical_buffer, .data_size=state->logical_capacity,
+                .width=state->logical_info.pixel_width, .height=state->logical_info.pixel_height,
+                .stride=state->logical_info.tile_width*8U, .scale=state->factor,
+                .native_buffer=state->physical_buffer, .native_width=width, .native_height=height,
+                .native_stride=stride, .area={x0,y0,x1-x0,y1-y0},
+            };
+            const esp_err_t err = state->present_canvas(state->canvas_context,&source);
+            if (err != ESP_ERR_NOT_SUPPORTED) {
+                if (err == ESP_OK) state->dirty = false;
+                return err == ESP_OK;
+            }
+        }
         expand_rectangle(state, x0, y0, x1, y1);
         solar_os_display_scale_begin_native(state);
         for (unsigned row = y0 / 8U; row < (y1 + 7U) / 8U; row++) {

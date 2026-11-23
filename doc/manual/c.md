@@ -105,6 +105,14 @@ cc sdk show stdio.h
 cc sdk export sdk-copy
 ```
 
+Installed library SDKs include the supporting headers needed by their public
+entry header. For example, after installing Robot, use
+`cc sdk show robot/solar_os_robot_abi.h` to display its C interface, and
+`#include <robot/solar_os_robot_abi.h>` also resolves the packaged model and
+differential-drive headers. No manual header copy or `-I` option is needed.
+See [library entry headers](native-library.md#c-headers-in-library-packages)
+for Emotion, ESP-DL, Himax, and other native libraries.
+
 Export requires a new destination directory. Use `-I directory` for local
 headers. For multiple source files without a project file, use
 `cc main.c helpers.c -I include -o program.elf`.

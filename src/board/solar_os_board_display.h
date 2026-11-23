@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_display_mono_canvas.h"
 #include "solar_os_display_maintenance.h"
 #include "u8g2.h"
 
@@ -64,6 +65,9 @@ typedef struct solar_os_board_display_ops {
     esp_err_t (*relax)(solar_os_board_display_t *display,
                        solar_os_display_relax_phase_t phase);
     esp_err_t (*shutdown)(solar_os_board_display_t *display);
+    bool (*prefers_mono)(const solar_os_board_display_t *display);
+    esp_err_t (*present_canvas)(solar_os_board_display_t *display,
+        const solar_os_display_mono_canvas_t *canvas);
 } solar_os_board_display_ops_t;
 
 esp_err_t solar_os_board_display_register_primary(solar_os_board_display_t *display);

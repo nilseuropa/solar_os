@@ -74,7 +74,12 @@ pixel: there is no scaling, cropping or letterboxing. Both dimensions must be
 64..1024 pixels; larger surfaces may exceed the available PSRAM. Rows are
 word-aligned even when the visible width is not a multiple of 16 pixels.
 The app checks for screen changes at up to 25 Hz and submits only changed
-frames, with a complete redraw after resume. Precomputed source rows, byte
+frames, with a complete redraw after resume. Hosts with `video_open_mono1`
+keep video frames packed at one bit per pixel, including acquired/exchanged
+buffers. At 624x468 each frame uses 36504 bytes instead of 292032; the three
+host-owned video buffers save 766584 bytes together. Older hosts and targets
+without packed monochrome video use the indexed path. Guest RAM remains 4 MiB.
+Precomputed source rows, byte
 offsets and bit masks expand the packed guest pixels to display palette indices.
 Software that assumes the original Mac screen size may have windows or dialogs
 that do not fit smaller displays.

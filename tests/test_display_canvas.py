@@ -85,6 +85,9 @@ int main(void) {
         sources += sorted((ROOT / "fonts/build/u8g2").glob("u8g2_font_solar_os_default_*_tf.c"))
         sources += [ROOT / "src/services/solar_os_display_geometry.c"]
         with tempfile.TemporaryDirectory() as directory:
+            decoder = Path(directory) / "utf8.c"
+            decoder.write_text("#include <stdint.h>\n#include <stddef.h>\n" + production_functions(
+                (ROOT / "src/services/solar_os_fonts.c").read_text(), ("solar_os_utf8_next",)))
             binary = Path(directory) / "canvas"
             subprocess.run([
                 "cc", "-std=c11", "-O1", "-ffunction-sections", "-fdata-sections",
@@ -92,7 +95,7 @@ int main(void) {
                 "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
                 "-I", str(ROOT / "src"), "-idirafter", str(ROOT / "include"),
                 "-I", str(component / "src/clib"),
-                str(ROOT / "tests/host/display_canvas_test.c"), *map(str, sources),
+                str(ROOT / "tests/host/display_canvas_test.c"), str(decoder), *map(str, sources),
                 "-Wl,--gc-sections", "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

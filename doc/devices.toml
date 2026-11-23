@@ -88,7 +88,7 @@ sensors = "PCF85063 RTC; SHTC3 temperature/humidity sensor; QMI8658 six-axis IMU
 expansion = "I2C and UART expansion."
 
 [devices.seeed_reterminal_e1003]
-display = "10.3-inch 1872×1404 IT8951/ED103TC2 grayscale e-paper; defaults to four gray levels and display scale 3 (624×468 logical canvas); 16 gray levels selectable."
+display = "10.3-inch 1872×1404 IT8951/ED103TC2 grayscale e-paper; defaults to four gray levels and display scale 3 (624×468 logical canvas); two-level monochrome and 16 gray levels selectable."
 keyboard = "GT911 capacitive touch and confirm/up/down buttons; hold UP for BLE pairing or DOWN for Escape; no built-in keyboard."
 sound = "PWM buzzer output and PDM microphone capture."
 storage = "microSD over SPI shared with the display; internal FAT storage on 32 MB flash."

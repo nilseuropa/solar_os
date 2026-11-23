@@ -31,6 +31,7 @@ static bool fail_task_creation;
 static bool rotate_during_present;
 static bool native_view;
 static bool fullscreen_test;
+static bool prefer_mono;
 static int signed_x,signed_y;
 static solar_os_display_raster_t captured;
 
@@ -51,6 +52,7 @@ bool solar_os_display_find_target(const char *name, solar_os_display_target_t *t
         .height = panel_height ? panel_height : display_height,
         .frame_formats = display_formats, .preferred_stream_fps = 25,
         .presentation_stack_bytes = display_stack_bytes,
+        .prefer_mono = prefer_mono,
     };
     return true;
 }
@@ -124,7 +126,8 @@ static void check_fit(uint16_t width, uint16_t height, uint16_t output_width,
         .palette_rgb565 = palette, .palette_size = 256,
         .fit = fit, .preferred_fps = 35, .allow_mono_fallback = true,
     };
-    display_formats = mono ? SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT :
+    display_formats = mono ? SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT |
+                            (prefer_mono ? SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT : 0U) :
                             SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT;
     solar_os_frame_presenter_t *p = NULL;
     assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
@@ -210,6 +213,22 @@ int main(void)
     check_fit(320, 240, 168, 126, true, SOLAR_OS_FRAME_FIT_HEIGHT); /* Width limited */
     display_width = 320; display_height = 240;
     check_fit(640, 480, 320, 240, false, SOLAR_OS_FRAME_FIT_HEIGHT); /* Direct raster */
+    prefer_mono=true;
+    check_fit(640,480,320,240,true,SOLAR_OS_FRAME_FIT_HEIGHT); /* Capable of INDEX8, prefers compact mono. */
+    prefer_mono=false;
+    /* Native monochrome keeps every host-owned frame packed, including the
+     * third buffer obtained by the zero-copy exchange API. */
+    display_width=624;display_height=468;display_formats=SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
+    solar_os_frame_presenter_config_t packed={.gfx=(solar_os_gfx_t *)&captured,
+        .width=624,.height=468,.stride=78,.format=SOLAR_OS_DISPLAY_FORMAT_MONO1};
+    solar_os_frame_presenter_t *compact=NULL;
+    assert(solar_os_frame_presenter_init(&compact,&packed)==ESP_OK);
+    uint8_t *compact_writing=NULL;size_t compact_bytes=0;
+    assert(solar_os_frame_presenter_acquire(compact,&compact_writing,&compact_bytes)==ESP_OK);
+    assert(compact_bytes==36504 && compact->source_size==36504 && compact->writing==compact_writing);
+    assert(3U*((size_t)624*468-compact_bytes)==766584);
+    assert(solar_os_frame_presenter_deinit(compact)==ESP_OK);
+    display_width=320;display_height=240;
     check_fit(320, 240, 320, 240, false, SOLAR_OS_FRAME_FIT_DEFAULT);
     display_stack_bytes = 12288; /* A target can require a larger stack. */
     check_fit(320, 240, 320, 240, false, SOLAR_OS_FRAME_FIT_DEFAULT);

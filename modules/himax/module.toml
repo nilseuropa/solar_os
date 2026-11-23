@@ -10,3 +10,6 @@ lifecycle_abi = 1
 minimum_host_api_size = 24
 required_capabilities = ["psram"]
 artifact = "processor-himax.library.elf"
+
+[sdk.headers]
+"solar_os_processor_provider_abi.h" = "solar_os_processor_provider_abi.h"

@@ -605,7 +605,9 @@ esp_err_t solar_os_frame_presenter_init(
     }
     const uint32_t format_bit = SOLAR_OS_DISPLAY_FORMAT_BIT(config->format);
     presenter->mono_fallback =
-        (presenter->target.frame_formats & format_bit) == 0U;
+        (presenter->target.frame_formats & format_bit) == 0U ||
+        (presenter->target.prefer_mono && config->allow_mono_fallback &&
+         config->format != SOLAR_OS_DISPLAY_FORMAT_MONO1);
     if (presenter->mono_fallback &&
         (!config->allow_mono_fallback ||
          config->format == SOLAR_OS_DISPLAY_FORMAT_MONO1 ||

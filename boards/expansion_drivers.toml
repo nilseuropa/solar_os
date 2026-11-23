@@ -1389,10 +1389,10 @@ required = true
 [[drivers.it8951.bindings]]
 key = "clock"
 kind = "parameter"
-hint = "100..10000"
+hint = "100..20000"
 role = "clock"
 min = 100
-max = 10000
+max = 20000
 
 [[drivers.it8951.bindings]]
 key = "rotation"

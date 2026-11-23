@@ -1639,6 +1639,7 @@ static const char * const battery_subcommands[] = {
     "status",
     "config",
     "capacity",
+    "runtime",
     "min_voltage",
     "max_voltage",
 };

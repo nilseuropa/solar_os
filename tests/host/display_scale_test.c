@@ -11,6 +11,44 @@ static bool fail_allocation;
 static unsigned refreshes, tiles;
 static u8x8_display_info_t info;
 static uint8_t *physical;
+static unsigned fused_calls;
+static bool reject_fused;
+
+static esp_err_t fused_present(void *context, const solar_os_display_mono_canvas_t *source)
+{
+    assert(context==physical && source->native_buffer==physical);
+    fused_calls++;
+    if (reject_fused) return ESP_ERR_NOT_SUPPORTED;
+    const unsigned x1=source->area.x+source->area.width;
+    const unsigned y1=source->area.y+source->area.height;
+    const unsigned factor=source->scale;
+    for (unsigned sy=((unsigned)source->area.y/factor) & ~7U; sy*factor<y1; sy+=8U)
+        for (unsigned sx=((unsigned)source->area.x/factor) & ~7U; sx*factor<x1; sx+=8U) {
+            solar_os_display_mono_tile_t tile;
+            solar_os_display_mono_canvas_expand_tile(source,sx,sy,&tile);
+            /* Check both orientations against individual source pixels. */
+            for (unsigned i=0; i<8U; i++) for (unsigned bit=0; bit<factor*8U; bit++) {
+                unsigned x=sx+i,y=sy+bit/factor;
+                bool expected=x<source->width && y<source->height &&
+                    (source->data[(size_t)(y/8U)*source->stride+x] & (1U<<(y&7U)));
+                assert(!!(tile.columns[i] & (UINT32_C(1)<<bit))==expected);
+                x=sx+7U-bit/factor;y=sy+i;
+                expected=x<source->width && y<source->height &&
+                    (source->data[(size_t)(y/8U)*source->stride+x] & (1U<<(y&7U)));
+                assert(!!(tile.rows[i] & (UINT32_C(1)<<bit))==expected);
+            }
+        }
+    for (unsigned y=source->area.y & ~7U; y<y1 && y<source->native_height; y++)
+        for (unsigned x=source->area.x & ~7U; x<x1 && x<source->native_width; x++) {
+            const unsigned sx=x/factor,sy=y/factor;
+            const bool on=sx<source->width && sy<source->height &&
+                (source->data[(size_t)(sy/8U)*source->stride+sx] & (1U<<(sy&7U)));
+            uint8_t *out=physical+(size_t)(y/8U)*source->native_stride+x;
+            if (on) *out|=1U<<(y&7U);else *out&=(uint8_t)~(1U<<(y&7U));
+        }
+    refreshes++;
+    return ESP_OK;
+}
 
 void *solar_os_memory_alloc(size_t bytes, solar_os_memory_class_t kind, const char *tag)
 { (void)kind; (void)tag; return fail_allocation ? NULL : malloc(bytes); }
@@ -82,6 +120,30 @@ static void exercise(unsigned width, unsigned height)
                 bool expected=x/factor<w && y/factor<h && pixel(logical,source_stride,x/factor,y/factor);
                 assert(pixel(physical,stride,x,y)==expected);
             }
+            /* The real U8g2 renderer rotates drawing, while update-area tile
+             * coordinates are unrotated. A one-pixel invalidation must repaint
+             * the correct native tile in every orientation and scale. */
+            for (unsigned fused=0; fused<3; fused++) {
+                state.present_canvas=fused ? fused_present : NULL;
+                state.canvas_context=physical;
+                reject_fused=fused==2;
+                const unsigned px=u8g2_GetDisplayWidth(&canvas)/2U;
+                const unsigned py=u8g2_GetDisplayHeight(&canvas)/2U;
+                u8g2_SetDrawColor(&canvas,2);u8g2_DrawPixel(&canvas,px,py);
+                u8g2_SetDrawColor(&canvas,1);
+                solar_os_display_rect_t area={px,py,1,1};
+                before=refreshes;
+                solar_os_display_send_regions(&canvas,&area,1);
+                assert(refreshes==before+1U);
+                for(unsigned y=0;y<height;y++) for(unsigned x=0;x<width;x++) {
+                    const bool expected=x/factor<w && y/factor<h && pixel(logical,source_stride,x/factor,y/factor);
+                    assert(pixel(physical,stride,x,y)==expected);
+                }
+                area=(solar_os_display_rect_t){-100,-100,1,1};
+                solar_os_display_send_regions(&canvas,&area,1);
+                assert(refreshes==before+1U);
+            }
+            state.present_canvas=NULL;
         }
     }
     uint8_t *saved=state.logical_buffer;
@@ -238,6 +300,6 @@ static void exercise(unsigned width, unsigned height)
 int main(void)
 {
     exercise(800,480); exercise(319,241); exercise(128,64); exercise(1872,1404);
-    assert(tiles>0); puts("display scale: geometry, pixels, rotations, surfaces and cleanup passed");
+    assert(tiles>0 && fused_calls>0); puts("display scale: regions, fused packing, geometry, rotations, surfaces and cleanup passed");
     return 0;
 }
