@@ -24,6 +24,8 @@
 #define BATTERY_ALLOWED_MAX_MV 5000U
 #define BATTERY_CAPACITY_MAX_MAH 100000U
 #define BATTERY_VOLTAGE_AVG_WINDOW 8U
+#define BATTERY_CHARGE_STEP_MV 20
+#define BATTERY_CHARGE_STEP_MAX_MS (2U * 60U * 1000U)
 
 #ifndef SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH
 #define SOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH 0U
@@ -51,7 +53,14 @@ static size_t battery_voltage_sample_index;
 static uint32_t battery_voltage_sample_sum;
 static bool battery_voltage_external_power_valid;
 static bool battery_voltage_external_power;
+static portMUX_TYPE battery_voltage_lock = portMUX_INITIALIZER_UNLOCKED;
 static solar_os_battery_trend_estimator_t monitor_trend;
+static struct {
+    bool sample_valid;
+    bool charging;
+    uint16_t voltage_mv;
+    uint32_t tick_ms;
+} monitor_charge;
 
 static esp_err_t battery_stream_read_scalar(
     void *user,
@@ -180,19 +189,24 @@ static uint8_t battery_percent_from_voltage(uint16_t mv)
     return (uint8_t)(((uint32_t)(mv - min_mv) * 100U) / (uint32_t)(max_mv - min_mv));
 }
 
-static uint16_t battery_push_voltage_average(const solar_os_battery_sample_t *sample)
+static void battery_reset_voltage_average(void)
 {
-    if (battery_voltage_sample_count > 0U &&
-        (sample->external_power_valid != battery_voltage_external_power_valid ||
-         (sample->external_power_valid &&
-          sample->external_power != battery_voltage_external_power))) {
-        battery_voltage_sample_count = 0U;
-        battery_voltage_sample_index = 0U;
-        battery_voltage_sample_sum = 0U;
+    battery_voltage_sample_count = 0U;
+    battery_voltage_sample_index = 0U;
+    battery_voltage_sample_sum = 0U;
+}
+
+static uint16_t battery_push_voltage_average(uint16_t mv, bool power_valid,
+                                             bool external_power, bool reset_average)
+{
+    portENTER_CRITICAL(&battery_voltage_lock);
+    if (reset_average || (battery_voltage_sample_count > 0U &&
+        (power_valid != battery_voltage_external_power_valid ||
+         (power_valid && external_power != battery_voltage_external_power)))) {
+        battery_reset_voltage_average();
     }
-    battery_voltage_external_power_valid = sample->external_power_valid;
-    battery_voltage_external_power = sample->external_power;
-    const uint16_t mv = sample->battery_mv;
+    battery_voltage_external_power_valid = power_valid;
+    battery_voltage_external_power = external_power;
     if (battery_voltage_sample_count < BATTERY_VOLTAGE_AVG_WINDOW) {
         battery_voltage_samples[battery_voltage_sample_count++] = mv;
         battery_voltage_sample_sum += mv;
@@ -206,15 +220,16 @@ static uint16_t battery_push_voltage_average(const solar_os_battery_sample_t *sa
         }
     }
 
-    return (uint16_t)((battery_voltage_sample_sum + (battery_voltage_sample_count / 2U)) /
-                      battery_voltage_sample_count);
+    const uint16_t averaged = (uint16_t)(
+        (battery_voltage_sample_sum + (battery_voltage_sample_count / 2U)) /
+        battery_voltage_sample_count);
+    portEXIT_CRITICAL(&battery_voltage_lock);
+    return averaged;
 }
 
 static bool battery_monitor_indicates_external_power(void)
 {
-    return monitor_status.running &&
-        monitor_status.trend == SOLAR_OS_BATTERY_TREND_CHARGING &&
-        monitor_status.external_power;
+    return monitor_status.running && monitor_charge.charging;
 }
 
 static bool battery_provider_snapshot(solar_os_battery_provider_t *provider)
@@ -249,7 +264,30 @@ static void battery_monitor_reset_estimate(uint32_t interval_ms)
     memset(&monitor_status.short_window, 0, sizeof(monitor_status.short_window));
     memset(&monitor_status.long_window, 0, sizeof(monitor_status.long_window));
     monitor_status.last_error = ESP_OK;
+    memset(&monitor_charge, 0, sizeof(monitor_charge));
     solar_os_battery_trend_init(&monitor_trend, interval_ms);
+}
+
+static bool battery_monitor_fast_charge(uint32_t now_ms, uint16_t mv,
+                                        const solar_os_battery_status_t *status)
+{
+    /* A known absent supply always wins over voltage recovery under load.
+     * Charging telemetry is applied separately by battery_get_status(). */
+    if (status->external_power_known && !status->external_power) {
+        memset(&monitor_charge, 0, sizeof(monitor_charge));
+        return false;
+    }
+    const bool previous = monitor_charge.charging;
+    const uint32_t elapsed = now_ms - monitor_charge.tick_ms;
+    if (monitor_charge.sample_valid && elapsed > 0U && elapsed <= BATTERY_CHARGE_STEP_MAX_MS) {
+        const int delta = (int)mv - monitor_charge.voltage_mv;
+        if (delta >= BATTERY_CHARGE_STEP_MV) monitor_charge.charging = true;
+        else if (delta <= -BATTERY_CHARGE_STEP_MV) monitor_charge.charging = false;
+    }
+    monitor_charge.sample_valid = true;
+    monitor_charge.voltage_mv = mv;
+    monitor_charge.tick_ms = now_ms;
+    return previous != monitor_charge.charging;
 }
 
 static void battery_monitor_window_status(
@@ -338,14 +376,30 @@ static void battery_monitor_update_estimate(const solar_os_battery_status_t *sta
 {
     monitor_status.trend = SOLAR_OS_BATTERY_TREND_UNKNOWN;
     monitor_status.external_power_known = status->external_power_known;
-    monitor_status.external_power = status->external_power_known && status->external_power;
     monitor_status.slope_mvh = 0;
     solar_os_battery_trend_result_t estimate;
     const bool short_valid = solar_os_battery_trend_estimate(&monitor_trend, &estimate);
     solar_os_battery_trend_result_t long_estimate;
-    const bool long_valid = solar_os_battery_trend_estimate_long(&monitor_trend, &long_estimate);
+    bool long_valid = solar_os_battery_trend_estimate_long(&monitor_trend, &long_estimate);
     battery_monitor_window_status(&monitor_status.short_window, &estimate, short_valid);
     battery_monitor_window_status(&monitor_status.long_window, &long_estimate, long_valid);
+
+    const bool was_charging = monitor_charge.charging;
+    if (short_valid && monitor_charge.sample_valid) {
+        /* Once detected, even a weak positive fitted slope keeps charging
+         * latched; it need not pass the initial rise thresholds again. */
+        monitor_charge.charging = estimate.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_RISING ||
+            (was_charging && estimate.slope_mvh > 0);
+    }
+    monitor_status.external_power = status->external_power_known ?
+        status->external_power : monitor_charge.charging;
+    if (!status->external_power_known && (was_charging || monitor_charge.charging)) {
+        /* Inferred charging must not become a learned discharge rate, even
+         * while the rise is too small to classify as a strong short trend. */
+        solar_os_battery_trend_reset_long(&monitor_trend);
+        memset(&monitor_status.long_window, 0, sizeof(monitor_status.long_window));
+        long_valid = false;
+    }
 
     if (!short_valid) {
         battery_monitor_refresh_estimates(&monitor_status);
@@ -370,11 +424,6 @@ static void battery_monitor_update_estimate(const solar_os_battery_status_t *sta
 
     if (estimate.trend == SOLAR_OS_BATTERY_VOLTAGE_TREND_RISING) {
         monitor_status.trend = SOLAR_OS_BATTERY_TREND_CHARGING;
-        if (!monitor_status.external_power_known) {
-            monitor_status.external_power = true;
-            solar_os_battery_trend_reset_long(&monitor_trend);
-            memset(&monitor_status.long_window, 0, sizeof(monitor_status.long_window));
-        }
         battery_monitor_refresh_estimates(&monitor_status);
         return;
     }
@@ -461,7 +510,7 @@ bool solar_os_battery_has_provider(void)
     return available;
 }
 
-esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
+static esp_err_t battery_get_status(solar_os_battery_status_t *status, uint16_t *raw_mv)
 {
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -480,7 +529,9 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
         return ret;
     }
 
-    const uint16_t averaged_mv = battery_push_voltage_average(&sample);
+    if (raw_mv != NULL) *raw_mv = sample.battery_mv;
+    const uint16_t averaged_mv = battery_push_voltage_average(sample.battery_mv,
+        sample.external_power_valid, sample.external_power, false);
     status->voltage_mv = averaged_mv;
     status->percent = sample.percent_valid
         ? (sample.percent > 100U ? 100U : sample.percent)
@@ -498,6 +549,11 @@ esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
     status->charging_known = sample.charging_valid;
     status->external_power_known = sample.external_power_valid;
     return ESP_OK;
+}
+
+esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status)
+{
+    return battery_get_status(status, NULL);
 }
 
 void solar_os_battery_get_config(solar_os_battery_config_t *config)
@@ -577,7 +633,8 @@ void solar_os_battery_monitor_stop(void)
 esp_err_t solar_os_battery_monitor_sample(uint32_t now_ms)
 {
     solar_os_battery_status_t status;
-    const esp_err_t ret = solar_os_battery_get_status(&status);
+    uint16_t raw_mv;
+    const esp_err_t ret = battery_get_status(&status, &raw_mv);
     monitor_status.last_error = ret;
     if (ret != ESP_OK) {
         return ret;
@@ -590,6 +647,15 @@ esp_err_t solar_os_battery_monitor_sample(uint32_t now_ms)
         /* Switching supply can cause an immediate voltage step. Neither
          * regression may interpret that step as sustained drain or charge. */
         solar_os_battery_trend_init(&monitor_trend, monitor_status.interval_ms);
+        memset(&monitor_charge, 0, sizeof(monitor_charge));
+    }
+    if (battery_monitor_fast_charge(now_ms, raw_mv, &status)) {
+        /* Detect the supply step before averaging hides it. Start both rate
+         * windows after the step so it cannot produce a spurious current/ETA. */
+        solar_os_battery_trend_init(&monitor_trend, monitor_status.interval_ms);
+        status.voltage_mv = battery_push_voltage_average(raw_mv,
+            status.external_power_known, status.external_power, true);
+        if (status.percent_estimated) status.percent = battery_percent_from_voltage(status.voltage_mv);
     }
     monitor_status.sample_count++;
     monitor_status.last_sample_ms = now_ms;

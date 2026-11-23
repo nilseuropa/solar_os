@@ -626,6 +626,20 @@ static void battery_print_window_stats(solar_os_shell_io_t *term,
     }
 }
 
+static void battery_print_time_left(solar_os_shell_io_t *term,
+                                     const solar_os_battery_monitor_status_t *monitor)
+{
+    if (monitor->running && monitor->last_error == ESP_OK &&
+        monitor->sample_count > 0U && monitor->time_left_valid) {
+        char eta[24];
+        battery_format_minutes(monitor->time_left_min, eta, sizeof(eta));
+        solar_os_shell_io_printf(term, "Time left: %s estimated%s\n", eta,
+                                 monitor->time_left_seeded ? " (configured runtime)" : "");
+    } else {
+        solar_os_shell_io_writeln(term, "Time left: unknown");
+    }
+}
+
 static void battery_print_monitor_status(solar_os_shell_io_t *term)
 {
     solar_os_battery_monitor_status_t monitor;
@@ -673,16 +687,13 @@ static void battery_print_monitor_status(solar_os_shell_io_t *term)
         battery_format_minutes(monitor.full_runtime_min, eta, sizeof(eta));
         solar_os_shell_io_printf(term, "Estimated full charge runtime: %s%s\n", eta,
                                  monitor.time_left_seeded ? " (configured runtime)" : "");
-        battery_format_minutes(monitor.time_left_min, eta, sizeof(eta));
-        solar_os_shell_io_printf(term, "Time left: %s estimated%s\n", eta,
-                                 monitor.time_left_seeded ? " (configured runtime)" : "");
     } else {
         solar_os_shell_io_writeln(term, "Estimated full charge runtime: unknown");
-        solar_os_shell_io_writeln(term, "Time left: unknown");
     }
+    battery_print_time_left(term, &monitor);
 }
 
-static void battery_print_status(solar_os_shell_io_t *term)
+static void battery_print_status(solar_os_shell_io_t *term, bool full)
 {
     solar_os_battery_status_t status;
     const esp_err_t err = solar_os_battery_get_status(&status);
@@ -693,6 +704,8 @@ static void battery_print_status(solar_os_shell_io_t *term)
         solar_os_shell_io_printf(term, "battery: read failed: %s\n", solar_os_shell_error_text(err));
         return;
     }
+    solar_os_battery_monitor_status_t monitor;
+    solar_os_battery_monitor_get_status(&monitor);
 
     solar_os_shell_io_printf(term,
                              "Battery: %u.%03u V\n",
@@ -707,8 +720,6 @@ static void battery_print_status(solar_os_shell_io_t *term)
     if (!status.external_power && status.external_power_known) {
         power = "battery";
     } else if (!status.external_power && !status.external_power_known) {
-        solar_os_battery_monitor_status_t monitor;
-        solar_os_battery_monitor_get_status(&monitor);
         if (monitor.running && monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING) {
             power = "battery";
         }
@@ -718,14 +729,20 @@ static void battery_print_status(solar_os_shell_io_t *term)
         solar_os_shell_io_printf(term,
                                  "Charging: %s\n",
                                  status.charging ? "yes" : "no");
+    } else if (status.charging) {
+        solar_os_shell_io_writeln(term, "Charging: yes (estimated)");
+    } else if ((status.external_power_known && !status.external_power) ||
+               (monitor.running && monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING)) {
+        solar_os_shell_io_writeln(term, "Charging: no (estimated)");
     } else {
-        solar_os_shell_io_writeln(term,
-                                  status.charging ?
-                                      "Charging: yes (estimated)" :
-                                      "Charging: unknown");
+        solar_os_shell_io_writeln(term, "Charging: unknown");
     }
-    battery_print_config(term);
-    battery_print_monitor_status(term);
+    if (full) {
+        battery_print_config(term);
+        battery_print_monitor_status(term);
+    } else {
+        battery_print_time_left(term, &monitor);
+    }
 }
 
 static void battery_print_config_result(solar_os_shell_io_t *term,
@@ -868,8 +885,16 @@ void solar_os_shell_cmd_battery(solar_os_context_t *ctx, int argc, char **argv)
 {
     solar_os_shell_io_t *term = terminal(ctx);
 
-    if (argc == 1 || strcmp(argv[1], "status") == 0) {
-        battery_print_status(term);
+    if (argc == 1) {
+        battery_print_status(term, false);
+        return;
+    }
+    if (strcmp(argv[1], "status") == 0) {
+        if (argc != 2) {
+            solar_os_shell_diag_unexpected(term, "battery status", argv[2], "battery status");
+            return;
+        }
+        battery_print_status(term, true);
         return;
     }
 

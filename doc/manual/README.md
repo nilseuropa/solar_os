@@ -21,7 +21,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [agent command](agent.md) — Text/image questions and speech. Guide.
 - [apps command](commands.md) — List registered foreground apps compiled into the firmware.
 - [audio command](commands.md) — Show audio state, global speaker level, tone queue, and active synth telemetry.
-- [battery command](commands.md) — Show voltage, state of charge, power source, config, and monitor trend.
+- [battery command](commands.md) — Show voltage, state of charge, power source, charging state, and estimated time left.
 - [ble command](commands.md) — Show BLE keyboard state and the current/next boot setting.
 - [board command](commands.md) — Print board ID, name, and capabilities.
 - [camera command](commands.md) — Initialize on first use; show sensor, settings, owner, leases, captures, and last error.

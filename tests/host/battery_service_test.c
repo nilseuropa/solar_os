@@ -259,6 +259,151 @@ static void test_monitor_hardware_power(void)
     solar_os_battery_monitor_stop();
 }
 
+static void start_voltage_only_monitor(uint16_t mv, uint32_t interval_ms)
+{
+    provider_sample = (solar_os_battery_sample_t){.battery_mv = mv};
+    for (unsigned i = 0U; i < 8U; i++) (void)read_status();
+    assert(solar_os_battery_monitor_start(interval_ms) == ESP_OK);
+}
+
+static void test_fast_charging_step(uint32_t interval_ms, uint32_t start_ms)
+{
+    start_voltage_only_monitor(3800U, interval_ms);
+    (void)sample_monitor(start_ms);
+    /* Interactive status polling must not trigger or advance the detector. */
+    provider_sample.battery_mv = 3840U;
+    for (unsigned i = 0U; i < 16U; i++) assert(!read_status().charging);
+    solar_os_battery_monitor_status_t monitor = sample_monitor(start_ms + interval_ms);
+    assert(monitor.external_power && !monitor.external_power_known);
+    assert(!monitor.short_window.valid && !monitor.long_window.valid);
+    assert(!monitor.time_left_valid);
+    assert(monitor.last_voltage_mv == 3840U);
+    solar_os_battery_status_t status = read_status();
+    assert(status.charging && !status.charging_known);
+
+    /* Disconnect must clear the latch before the old rising regression can
+     * reassert it, and must not interpret the voltage step as battery drain. */
+    provider_sample.battery_mv = 3800U;
+    monitor = sample_monitor(start_ms + interval_ms * 2U);
+    assert(!monitor.external_power && !read_status().charging);
+    assert(!monitor.short_window.valid && !monitor.time_left_valid);
+    solar_os_battery_monitor_stop();
+    assert(!read_status().charging);
+}
+
+static void test_charging_latch_weak_positive_trend(void)
+{
+    start_voltage_only_monitor(3800U, 10000U);
+    (void)sample_monitor(0U);
+    provider_sample.battery_mv = 3840U;
+    (void)sample_monitor(10000U);
+    solar_os_battery_monitor_status_t monitor;
+    /* 30 mV/h is below the 40 mV/h threshold for initially inferring a rise. */
+    for (uint32_t i = 1U; i <= 120U; i++) {
+        provider_sample.battery_mv = (uint16_t)(3840U + i / 12U);
+        monitor = sample_monitor(10000U + i * 10000U);
+        assert(monitor.external_power && read_status().charging);
+        assert(!monitor.time_left_valid && !monitor.long_window.valid);
+    }
+    assert(monitor.short_window.valid);
+    assert(monitor.trend == SOLAR_OS_BATTERY_TREND_FLAT);
+    assert(monitor.short_window.voltage_drop_mvh < 0);
+    assert(monitor.short_window.voltage_drop_mvh > -40);
+
+    /* A sustained flat voltage releases the estimate once the slope is zero. */
+    for (uint32_t i = 121U; i <= 180U; i++) {
+        monitor = sample_monitor(10000U + i * 10000U);
+    }
+    assert(monitor.short_window.voltage_drop_mvh == 0);
+    assert(!monitor.external_power && !read_status().charging);
+    solar_os_battery_monitor_stop();
+}
+
+static void test_fast_charging_after_discharge(void)
+{
+    start_voltage_only_monitor(3900U, 10000U);
+    solar_os_battery_monitor_status_t monitor;
+    for (uint32_t i = 0U; i <= 36U; i++) {
+        provider_sample.battery_mv = (uint16_t)(3900U - i);
+        monitor = sample_monitor(i * 10000U);
+    }
+    assert(monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING && monitor.time_left_valid);
+    provider_sample.battery_mv += 40U;
+    monitor = sample_monitor(370000U);
+    assert(monitor.external_power && read_status().charging);
+    assert(!monitor.time_left_valid && !monitor.short_window.valid);
+    solar_os_battery_monitor_stop();
+    assert(!read_status().charging);
+    assert(solar_os_battery_monitor_start(10000U) == ESP_OK);
+    assert(!sample_monitor(380000U).external_power);
+    solar_os_battery_monitor_stop();
+}
+
+static void test_charging_latch_slow_reversal(void)
+{
+    start_voltage_only_monitor(3800U, 10000U);
+    (void)sample_monitor(0U);
+    provider_sample.battery_mv = 3840U;
+    (void)sample_monitor(10000U);
+    solar_os_battery_monitor_status_t monitor;
+    for (uint32_t i = 1U; i <= 60U; i++) {
+        provider_sample.battery_mv = (uint16_t)(3840U - i / 3U);
+        monitor = sample_monitor(10000U + i * 10000U);
+    }
+    assert(!monitor.external_power && !read_status().charging);
+    assert(monitor.trend == SOLAR_OS_BATTERY_TREND_DISCHARGING);
+    assert(monitor.time_left_valid);
+    solar_os_battery_monitor_stop();
+}
+
+static void test_fast_charging_noise_and_gaps(void)
+{
+    start_voltage_only_monitor(3800U, 10000U);
+    for (uint32_t i = 0U; i < 40U; i++) {
+        provider_sample.battery_mv = (uint16_t)(3800U + i % 5U);
+        assert(!sample_monitor(i * 10000U).external_power);
+    }
+    provider_sample.battery_mv = 3840U;
+    assert(sample_monitor(400000U).external_power);
+    provider_sample.battery_mv = 3800U;
+    assert(!sample_monitor(410000U).external_power);
+    assert(!read_status().charging);
+
+    start_voltage_only_monitor(3800U, 180000U);
+    (void)sample_monitor(0U);
+    provider_sample.battery_mv = 3840U;
+    assert(!sample_monitor(180000U).external_power); /* Not a sudden rise. */
+    solar_os_battery_monitor_stop();
+
+    start_voltage_only_monitor(3800U, 10000U);
+    (void)sample_monitor(0U);
+    provider_sample.battery_mv = 3840U;
+    assert(!sample_monitor(0U).external_power); /* No elapsed time. */
+    solar_os_battery_monitor_stop();
+}
+
+static void test_fast_charging_hardware_precedence(void)
+{
+    provider_sample = (solar_os_battery_sample_t){
+        .battery_mv = 3800U, .external_power_valid = true,
+        .external_power = true, .charging_valid = true,
+    };
+    assert(solar_os_battery_monitor_start(10000U) == ESP_OK);
+    (void)sample_monitor(0U);
+    provider_sample.battery_mv = 3840U;
+    (void)sample_monitor(10000U);
+    assert(!read_status().charging && read_status().charging_known);
+    provider_sample.charging_valid = false;
+    assert(read_status().charging && !read_status().charging_known);
+    provider_sample.external_power = false;
+    assert(!read_status().charging); /* Hardware absence wins immediately. */
+    assert(!sample_monitor(20000U).external_power);
+    provider_sample.battery_mv = 3880U;
+    assert(!sample_monitor(30000U).external_power);
+    assert(!read_status().charging);
+    solar_os_battery_monitor_stop();
+}
+
 static void test_monitor_slow_discharge(void)
 {
     provider_sample = (solar_os_battery_sample_t) {
@@ -612,6 +757,14 @@ int main(void)
     test_monitor_slow_discharge();
     test_monitor_runtime_seed_and_window_stats();
     test_monitor_learned_runtime_persistence();
+    test_fast_charging_step(1000U, 0U);
+    test_fast_charging_step(10000U, UINT32_MAX - 5000U);
+    test_fast_charging_step(60000U, 0U);
+    test_charging_latch_weak_positive_trend();
+    test_fast_charging_after_discharge();
+    test_charging_latch_slow_reversal();
+    test_fast_charging_noise_and_gaps();
+    test_fast_charging_hardware_precedence();
 
     assert(solar_os_battery_unregister_provider("test-battery") == ESP_OK);
     assert(stream_unregister_count == 1U);

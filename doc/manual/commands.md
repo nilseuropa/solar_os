@@ -1226,7 +1226,8 @@ available for the compiled board.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `usb` | `usb [status\|devices\|mode <off\|device\|host>\|serial ...]` | [USB modes](usb.host.md) and GPIO reuse. |
-| `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
+| `battery` | `battery` | Show voltage, state of charge, power source, charging state, and estimated time left. |
+| `battery` | `battery status` | Show the full report, including config, monitor history, short/long window statistics, and estimated full-charge runtime. |
 | `battery` | `battery config` | Show battery capacity, voltage thresholds, and configured full-charge runtime. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
 | `battery` | `battery runtime [hours]` | Show or set expected runtime from full charge to the minimum voltage. Decimal hours are accepted and rounded to minutes; `0` clears the starting estimate. Saved across reboots. |

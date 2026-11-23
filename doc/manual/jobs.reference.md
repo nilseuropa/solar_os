@@ -152,7 +152,9 @@ battery max_voltage <volts>
 
 Notes:
 
-- After `Last sample`, `battery` shows signed estimated current in mA and the
+- `battery` shows a short report with voltage, charge, power, charging, and time
+  left. Use `battery status` for configuration and full monitor statistics.
+- After `Last sample`, `battery status` shows signed estimated current in mA and the
   trend-line voltage rate in mV/hour for the short and long windows separately.
   Each voltage line includes the actual window length. Voltage values are
   positive for a rise and negative for a fall. Current values are positive for
@@ -182,6 +184,15 @@ Notes:
 - Power uses the battery provider's hardware status when available, including
   before the voltage trend is ready. External power does not imply charging;
   use `charger status` to inspect the charger state and faults.
+- Without hardware charging status, charging is estimated from voltage movement
+  and marked `estimated`. A rise of at least 20 mV between monitor samples no
+  more than two minutes apart detects charging before the five-minute trend
+  is ready. This fast path uses raw voltage, so smoothing and interactive status
+  reads do not delay detection. A matching fall clears the estimate promptly.
+  Once detected, charging remains set while the short-window fitted slope is
+  positive, including rises below the initial trend threshold. A flat or falling
+  fitted slope releases it. Hardware charging status and known absence of
+  external power take priority over the estimate.
 - Trend describes voltage movement. Without hardware power status, a falling
   trend estimates battery power and a rising trend estimates external power.
 - Time left uses the voltage decline toward `min_voltage` while no external
@@ -197,8 +208,10 @@ Notes:
   each window collects fresh history. The configured runtime can still supply
   an initial ETA on battery power. External power suppresses time left while
   both windows can still report current and voltage movement.
-  Without hardware power status, a rising short-term
-  trend also clears that history. With confirmed battery power, the long
+  Fast inferred charging transitions also clear both windows and smoothing,
+  keeping the voltage step out of current and runtime estimates. Without
+  hardware power status, inferred charging clears long-term discharge history.
+  With confirmed battery power, the long
   discharge trend can keep the estimate available during brief voltage rebounds.
 - Three consecutive samples at or below `min_voltage`, with an established
   discharging trend and no external power, request the selected action.
