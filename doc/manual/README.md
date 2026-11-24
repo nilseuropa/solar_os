@@ -265,6 +265,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [GPIO, ADC, PWM, and LED APIs](gpio.analog.md) — Use runtime-safe digital and analog expansion pins
 - [Himax HX6538 camera](himax-hx6538.md) — JPEG sampling through the factory Himax HX6538 SSCMA firmware
 - [Himax model management](himax-models.md) — Program storage bundles into HX6538 model slots and select a model
+- [ILI9488 SPI displays](ili9488.md) — Attach a 320x480 color TFT as a primary or auxiliary display
 - [Motor control](motor.md) — Control named motors with normalized drive commands
 - [Robot joints](robot.md) — Use the optional external robot library for calibrated servo and motor/encoder joints
 - [Robot models and transforms](robot-models.md) — Load URDF models, query transforms and run declared joint and differential-drive components
@@ -274,6 +275,7 @@ This is the canonical documentation used by GitHub, the generated solar-os.eu we
 - [SPD2010 QSPI display](spd2010.md) — Attach a 412x412 RGB565 display over a dedicated four-line SPI interface
 - [Time, battery, and environment APIs](time.sensors.md) — Read clocks, battery state, environment, and IMU measurements
 - [USB host](usb.host.md) — Select USB off/device/host mode and use input, serial adapters, or FAT storage
+- [XPT2046 resistive touch](xpt2046.md) — Attach an SPI resistive touch controller to a named display
 
 ## Scripting APIs
 

@@ -1,0 +1,3 @@
+include("${CMAKE_CURRENT_LIST_DIR}/spi_esp_idf.cmake")
+set(SOLAR_OS_BOARD_POINTER_DRIVER "xpt2046")
+list(APPEND SOLAR_OS_BOARD_REQUIRED_PACKAGES driver_xpt2046)

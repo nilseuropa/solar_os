@@ -96,6 +96,35 @@ static void test_release_all(void)
     assert(!state.pressed[0x04] && !state.pressed[0x05] && !state.mouse_buttons);
 }
 
+static void test_native_display_pixel_coordinates(void)
+{
+    const uint16_t sizes[][2] = {{300, 400}, {480, 320}};
+    for (size_t profile = 0; profile < sizeof(sizes) / sizeof(sizes[0]); profile++) {
+        state.width = sizes[profile][0];
+        state.height = sizes[profile][1];
+        for (unsigned axis = 0; axis < 2; axis++) {
+            unsigned length = sizes[profile][axis];
+            for (unsigned pixel = 0; pixel < length; pixel++) {
+                solar_os_qemu_input_event_t event = {.type = SOLAR_OS_QEMU_INPUT_TOUCH,
+                    .c = SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY};
+                /* QEMU maps the frontend's logical pixels into 0..32767. */
+                unsigned normalized = pixel * SOLAR_OS_QEMU_INPUT_AXIS_MAX / (length - 1);
+                if (axis) event.b = normalized;
+                else event.a = normalized;
+                assert(solar_os_qemu_input_process(&state, &event) == ESP_OK);
+                solar_os_input_pointer_event_t pointer;
+                assert(solar_os_input_read_pointer_events(&pointer, 1) == 1);
+                assert(pointer.x == (axis ? 0 : (int)pixel));
+                assert(pointer.y == (axis ? (int)pixel : 0));
+            }
+        }
+        assert(solar_os_qemu_input_release_all(&state) == ESP_OK);
+        drain();
+    }
+    state.width = 800;
+    state.height = 600;
+}
+
 static void test_pressure_retries_caps_lock_once(void)
 {
     drain();
@@ -203,6 +232,7 @@ int main(void)
     test_focus_release_survives_a_full_key_queue();
     test_focus_retries_a_full_pointer_queue();
     test_wheel_pressure_does_not_repeat_mouse_movement();
+    test_native_display_pixel_coordinates();
     solar_os_input_source_close(state.keyboard);
     solar_os_input_source_close(state.touch);
     solar_os_input_source_close(state.mouse);

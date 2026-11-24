@@ -73,8 +73,11 @@ static esp_err_t pointer_event(solar_os_qemu_input_state_t *state,
         if (touch) {
             if (event->a > SOLAR_OS_QEMU_INPUT_AXIS_MAX || event->b > SOLAR_OS_QEMU_INPUT_AXIS_MAX ||
                 state->width < 1U || state->height < 1U) return ESP_ERR_INVALID_ARG;
-            sample.event.x = (int16_t)((event->a * (state->width - 1U)) / SOLAR_OS_QEMU_INPUT_AXIS_MAX);
-            sample.event.y = (int16_t)((event->b * (state->height - 1U)) / SOLAR_OS_QEMU_INPUT_AXIS_MAX);
+            /* Recover the nearest pixel after QEMU's normalized-axis conversion. */
+            sample.event.x = (int16_t)((event->a * (state->width - 1U) +
+                SOLAR_OS_QEMU_INPUT_AXIS_MAX / 2U) / SOLAR_OS_QEMU_INPUT_AXIS_MAX);
+            sample.event.y = (int16_t)((event->b * (state->height - 1U) +
+                SOLAR_OS_QEMU_INPUT_AXIS_MAX / 2U) / SOLAR_OS_QEMU_INPUT_AXIS_MAX);
         } else {
             sample.event.delta_x = clamp_delta(event->a);
             sample.event.delta_y = clamp_delta(event->b);

@@ -1899,6 +1899,7 @@ static void dispatch_input_key(const solar_os_input_key_event_t *raw_event)
                 changed = solar_os_sessions_cycle_display_focus_up();
             }
             if (changed) {
+                session_switch_alt_held = true;
                 clear_text_compose();
                 session_switch_nav_held |= navigation_bit;
                 solar_os_sessions_show_input_focus_overlay();

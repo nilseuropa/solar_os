@@ -3,7 +3,7 @@ extends = "qemu_esp32s3"
 
 [board]
 id = "qemu_esp32s3_rgb"
-name = "QEMU ESP32-S3 with virtual display"
+name = "QEMU ESP32-S3 with 480x320 RGB display"
 vendor = "Espressif"
 module = "QEMU esp32s3 machine"
 
@@ -14,8 +14,8 @@ capabilities = ["display"]
 
 [defines]
 SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"'
-SOLAR_OS_BOARD_DISPLAY_WIDTH = "800"
-SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600"
+SOLAR_OS_BOARD_DISPLAY_WIDTH = "480"
+SOLAR_OS_BOARD_DISPLAY_HEIGHT = "320"
 # UART0 provides console access alongside the virtual display.
 SOLAR_OS_BOARD_DEFAULT_PORT_SHELL = '"uart0"'
 

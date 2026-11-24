@@ -180,12 +180,20 @@ connectivity = "UART0 host pseudo-terminal on Linux and macOS, or console input/
 notes = "Run `pio run -e qemu_esp32s3 -t qemu`. Host storage and audio default on for Linux and macOS; native Windows requires WSL or an emulator built with the SolarOS extensions for these features. GPIO and peripheral-bus capabilities do not provide emulated external hardware."
 
 [devices.qemu_esp32s3_rgb]
-display = "800×600 monochrome display0 in the QEMU window."
+display = "480×320 RGB565 color display0; 960×640 desktop window at the default 2× zoom."
 keyboard = "Native HID keyboard, single-contact touch, or relative mouse input from the QEMU window; separate UART0 console."
 sound = "Virtual audio0 playback through the host output, a WAV file, or a silent backend; no microphone."
 storage = "Virtual internal flash and a shared host directory mounted at /host; no SD card."
 connectivity = "Host networking through virtual Ethernet eth0, reported as Wi-Fi; UART0 console; no Wi-Fi radio or BLE."
 notes = "Run `pio run -e qemu_esp32s3_rgb -t qemu`. The extended emulator builds on Linux and macOS; use WSL or a supplied extended emulator on Windows. GPIO and peripheral-bus capabilities do not provide emulated external hardware."
+
+[devices.qemu_esp32s3_mono]
+display = "300×400 monochrome 1bpp display0; 600×800 desktop window at the default 2× zoom."
+keyboard = "Native HID keyboard, single-contact touch, or relative mouse input from the QEMU window; separate UART0 console."
+sound = "Virtual audio0 playback through the host output, a WAV file, or a silent backend; no microphone."
+storage = "Virtual internal flash and a shared host directory mounted at /host; no SD card."
+connectivity = "Host networking through virtual Ethernet eth0, reported as Wi-Fi; UART0 console; no Wi-Fi radio or BLE."
+notes = "Run `pio run -e qemu_esp32s3_mono -t qemu`. The extended emulator builds on Linux and macOS; use WSL or a supplied extended emulator on Windows. GPIO and peripheral-bus capabilities do not provide emulated external hardware."
 
 [devices.goouuu_esp32_s3cam]
 display = "Headless; no primary display."

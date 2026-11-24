@@ -84,6 +84,10 @@ typedef struct {
     bool epaper;
     solar_os_display_mono_canvas_presenter_t present_canvas;
     void *canvas_context;
+    /* Optional monochrome-to-color theme. Applied before registration becomes
+     * visible, then under the presentation mutex on terminal color changes. */
+    esp_err_t (*set_colors)(void *context, uint32_t foreground, uint32_t background);
+    void *color_context;
 } solar_os_display_target_t;
 
 /* Runtime-only layout rectangle in the current panel's oriented/scaled pixels.

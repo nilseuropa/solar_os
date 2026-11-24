@@ -11,20 +11,31 @@ ROOT = Path(__file__).resolve().parents[1]
 class SmallDisplayAppsTest(unittest.TestCase):
     def test_synth_full_play_controls_stay_above_piano(self):
         source = (ROOT / "src/apps/solar_os_synth_app.c").read_text()
+        declarations = source[source.index("typedef enum {"):source.index("typedef struct {\n  bool active;")]
         functions = production_functions(source, (
-            "synth_envelope_value_index", "synth_draw_knob", "synth_draw_envelope",
-            "synth_draw_volume_button", "synth_editor_bottom", "synth_visualizer_extra_height",
-            "synth_play_graph_height", "synth_draw_keyboard", "synth_use_compact_layout",
-            "synth_draw_play"))
+            "synth_add_touch_target", "synth_touch_target_at",
+            "synth_envelope_value_index", "synth_filter_cutoff_value_index",
+            "synth_draw_knob", "synth_draw_envelope", "synth_draw_volume_button",
+            "synth_draw_piano", "synth_bottom_height", "synth_editor_bottom",
+            "synth_play_graph_height", "synth_tab_button_rect", "synth_tab_at",
+            "synth_tab_name", "synth_piano_note_at", "synth_draw_bottom", "synth_draw_header",
+            "synth_use_compact_layout", "synth_use_micro_layout", "synth_draw_play",
+            "synth_draw_filter_response", "synth_format_frequency", "synth_draw_filter_editor",
+            "synth_draw_oscillator_panel", "synth_draw_oscillator2_editor",
+            "synth_draw_wave_editor", "synth_draw_preset_editor", "synth_draw_mode_editor",
+            "synth_draw_scope_trace", "synth_draw_scope"))
+        functions = functions.replace("static void synth_draw_bottom(",
+                                      "static void synth_draw_bottom_pixels(", 1)
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
+            (tmp / "synth_types.inc").write_text(declarations)
             (tmp / "synth_play_view.inc").write_text(functions)
             binary = tmp / "synth-view"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-I" + str(tmp), "-I" + str(ROOT / "tests/host"),
                 "-I" + str(ROOT / "src/services"),
-                str(ROOT / "tests/host/synth_play_view_test.c"), "-o", str(binary)], check=True)
+                str(ROOT / "tests/host/synth_play_view_test.c"), "-lm", "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
     def test_media_app_views(self):

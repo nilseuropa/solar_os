@@ -271,10 +271,12 @@ job for periodic polling.
 | `pkg` | `pkg` | Open the native-module package manager. |
 | `pkg` | `pkg system` | Print compiled package groups and build units. |
 | `pkg` | `pkg available` | Verify the signed native-module catalog and print its compact module list. |
-| `pkg` | `pkg installed` | List installed application, job, driver, and library modules. |
+| `pkg` | `pkg installed` | List installed modules, versions, and compatibility with the current OS using the saved catalog. |
 | `pkg` | `pkg install <module>` | Download, verify, validate, and atomically install a native module; Ctrl+C, Esc, or the app-exit key cancels. |
+| `pkg` | `pkg update` | Refresh the signed catalog and list installed modules and versions available for upgrade. |
+| `pkg` | `pkg upgrade [-y] [module]` | Preview and confirm upgrades from the saved catalog; optionally select one installed module or use `-y` to accept the plan. |
 | `pkg` | `pkg remove <module>` | Remove an installed native module. |
-| `pkg` | `pkg unload <library>` | Unload an unused library while keeping its installed file. |
+| `pkg` | `pkg unload <module>` | Unload an unused library, stopped job, or detached driver while keeping its installed file. |
 | `load` | `load <file.elf> [args...]` | Validate, relocate, run, and unload one native ELF module from storage. |
 | `cc` | `cc [--help]`; `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Included in `full` on ESP32-S3 boards with PSRAM; other builds can enable the `cc` group or install `cc`. Bare `cc` and `cc --help` display usage successfully. See [C development](c.md). |
 | `board` | `board` | Print board ID, name, and capabilities. |

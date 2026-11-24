@@ -16,6 +16,7 @@ KEYBOARD_LAYOUT_INPUTS := $(wildcard $(ROOT)/keymaps/layouts/*.json) $(ROOT)/scr
 
 .PHONY: all test clean
 
+TARGETS += file_search_test
 TARGETS += lr11xx_test lr11xx_service_test
 TARGETS += usb_hid_input_test usb_hid_keyboard_report_test usb_hid_mouse_report_test usb_hid_joystick_report_test usb_service_test usb_service_no_cdc_test cdc_lifecycle_test
 TARGETS += usb_service_serial_test
@@ -831,6 +832,10 @@ writer_files_test: writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c $(W
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src/services -I$(WRITER_DIR) \
 		writer_files_test.c $(WRITER_DIR)/solar_os_writer_files.c -o $@
 
+file_search_test: file_search_test.c $(WRITER_DIR)/solar_os_file_search.h $(ROOT)/src/services/solar_os_text_search.c
+	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services -I$(WRITER_DIR) \
+		file_search_test.c $(ROOT)/src/services/solar_os_text_search.c -o $@
+
 file_shortcuts_test: file_shortcuts_test.c $(WRITER_DIR)/solar_os_file_shortcuts.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services -I$(WRITER_DIR) \
 		file_shortcuts_test.c -o $@
@@ -1526,6 +1531,8 @@ test: $(TARGETS)
 	./ble_lua_bindings_test
 	./writer_buffer_test
 	./writer_files_test
+	./file_shortcuts_test
+	./file_search_test
 	./sketch_canvas_test
 	./launcher_layout_test
 	./display_layout_test

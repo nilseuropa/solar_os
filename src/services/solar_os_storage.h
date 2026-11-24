@@ -172,7 +172,8 @@ esp_err_t solar_os_storage_sibling_path(const char *path,
 esp_err_t solar_os_storage_replace_file(const char *staged_path,
                                         const char *active_path,
                                         const char *backup_path);
-#define SOLAR_OS_STORAGE_REPLACE_MAX 8U
+/* Allows an upgrade to publish up to 16 ELF/receipt pairs together. */
+#define SOLAR_OS_STORAGE_REPLACE_MAX 32U
 typedef struct {
     const char *staged_path;
     const char *active_path;

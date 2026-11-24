@@ -16,6 +16,7 @@
 #include "esp_err.h"
 #include "solar_os_board.h"
 #include "solar_os_buses.h"
+#include "solar_os_display.h"
 #include "solar_os_expansion.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_keys.h"
@@ -606,6 +607,7 @@ static void expansion_print_binding(solar_os_shell_io_t *term, const solar_os_ex
         break;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
         solar_os_shell_io_table_printf(term,
                                  " %s=%s",
                                  binding->role,
@@ -1170,6 +1172,7 @@ static const char *expansion_spec_binding_role(
     case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
     case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
         return spec->key;
     default:
@@ -1254,6 +1257,9 @@ static bool expansion_parse_driver_binding_token(
                           value,
                           -1,
                           -1);
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        return value[0] && strlen(value) < SOLAR_OS_EXPANSION_TARGET_MAX &&
+            binding_store(bindings, binding_count, spec->kind, role, value, -1, -1);
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM: {
         solar_os_stream_info_t stream;
@@ -1345,6 +1351,8 @@ static bool expansion_parse_driver_binding_token(
 
 static void expansion_print_attach_error(solar_os_shell_io_t *term,
                                          const char *driver,
+                                         const solar_os_expansion_binding_t *bindings,
+                                         size_t binding_count,
                                          esp_err_t err)
 {
     switch (err) {
@@ -1352,11 +1360,27 @@ static void expansion_print_attach_error(solar_os_shell_io_t *term,
         solar_os_shell_io_writeln(term, "expansion attach: operation not supported");
         break;
     case ESP_ERR_NOT_FOUND:
+        for (size_t i = 0U; i < binding_count; i++) {
+            if (bindings[i].kind != SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET) {
+                continue;
+            }
+            solar_os_display_target_t target;
+            const bool found = solar_os_display_find_target(bindings[i].target, &target);
+            if (!found || !target.ready) {
+                solar_os_shell_io_printf(term,
+                                         "expansion attach: display target '%s' %s\n",
+                                         bindings[i].target,
+                                         found ? "is not ready" : "not found");
+                solar_os_shell_io_writeln(term,
+                                          "run 'display list' to list display targets");
+                return;
+            }
+        }
         solar_os_shell_io_printf(term,
-                                 "expansion attach: driver '%s' is unavailable\n",
+                                 "expansion attach: required resource not found for '%s'\n",
                                  driver);
         solar_os_shell_io_writeln(term,
-                                  "run 'expansion drivers' to list registered drivers");
+                                  "run 'expansion status' to list available resources");
         break;
     case ESP_ERR_INVALID_STATE:
         solar_os_shell_io_writeln(term, "expansion attach: device name or resource already in use");
@@ -1416,7 +1440,7 @@ static void expansion_cmd_attach_with_bindings(solar_os_shell_io_t *term, int ar
             return;
         }
         if (ret != ESP_ERR_NOT_FOUND) {
-            expansion_print_attach_error(term, argv[2], ret);
+            expansion_print_attach_error(term, argv[2], NULL, 0U, ret);
             return;
         }
     }
@@ -1495,7 +1519,7 @@ static void expansion_cmd_attach_with_bindings(solar_os_shell_io_t *term, int ar
     const esp_err_t err = solar_os_expansion_attach(argv[2], argv[3], bindings, binding_count);
     expansion_print_attach_diagnostics(term, driver.name);
     if (err != ESP_OK) {
-        expansion_print_attach_error(term, driver.name, err);
+        expansion_print_attach_error(term, driver.name, bindings, binding_count, err);
         return;
     }
     solar_os_shell_io_printf(term, "attached %s using %s\n", argv[3], argv[2]);

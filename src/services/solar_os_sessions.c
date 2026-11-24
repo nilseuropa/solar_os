@@ -18,6 +18,7 @@
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_keys.h"
+#include "solar_os_input.h"
 #include "solar_os_terminal_internal.h"
 #include "solar_os_terminal_preferences.h"
 #include "solar_os_tui_widgets.h"
@@ -179,9 +180,12 @@ static bool app_is_shell_inline(const solar_os_app_t *app)
 
 static void session_store_input_focus(const char *target_name)
 {
+    const char *target = target_name != NULL ? target_name : "";
     portENTER_CRITICAL(&input_focus_lock);
+    const bool changed = strcmp(session_state.input_target, target) != 0;
+    if (changed) solar_os_input_release_session_keyboard();
     strlcpy(session_state.input_target,
-            target_name != NULL ? target_name : "",
+            target,
             sizeof(session_state.input_target));
     portEXIT_CRITICAL(&input_focus_lock);
 }
@@ -2832,12 +2836,9 @@ bool solar_os_sessions_builtin_display_base(solar_os_context_t *ctx,
     return true;
 }
 
-esp_err_t solar_os_sessions_focus_display(const char *target_name)
+static esp_err_t session_focus_display_on_owner(void *user)
 {
-    if (target_name == NULL || target_name[0] == '\0') {
-        return ESP_ERR_INVALID_ARG;
-    }
-
+    const char *target_name = user;
     solar_os_display_target_t target;
     if (!solar_os_display_find_target(target_name, &target)) {
         return ESP_ERR_NOT_FOUND;
@@ -2849,6 +2850,15 @@ esp_err_t solar_os_sessions_focus_display(const char *target_name)
 
     session_store_input_focus(target.name);
     return ESP_OK;
+}
+
+esp_err_t solar_os_sessions_focus_display(const char *target_name)
+{
+    if (target_name == NULL || target_name[0] == '\0') {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return solar_os_sessions_run_on_owner(session_focus_display_on_owner,
+                                          (void *)target_name);
 }
 
 bool solar_os_sessions_input_focus(char *target_name, size_t target_name_len)

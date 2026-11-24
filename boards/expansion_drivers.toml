@@ -2341,6 +2341,84 @@ kind = "parameter"
 hint = "0|1"
 allowed = [0, 1]
 
+[drivers.ili9488]
+summary = "480x320 ILI9488 SPI color TFT"
+package = "driver_display_ili9488"
+targets = ["esp32", "esp32s3"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_ili9488"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"ILI9488"' }
+early = true
+default_name = "display0"
+
+[[drivers.ili9488.display_profiles]]
+name = "tft-320x480"
+label = "3.5-inch 320x480 TFT"
+width = 320
+height = 480
+rotation = 1
+default = true
+
+[[drivers.ili9488.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+[[drivers.ili9488.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+[[drivers.ili9488.bindings]]
+key = "dc"
+kind = "gpio"
+hint = "gpio"
+required = true
+[[drivers.ili9488.bindings]]
+key = "reset"
+kind = "gpio"
+hint = "gpio"
+[[drivers.ili9488.bindings]]
+key = "bl"
+kind = "gpio"
+hint = "gpio"
+[[drivers.ili9488.bindings]]
+key = "power"
+kind = "gpio"
+hint = "gpio"
+[[drivers.ili9488.bindings]]
+key = "active"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.ili9488.bindings]]
+key = "pwm"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.ili9488.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..40000 kHz"
+min = 100
+max = 40000
+[[drivers.ili9488.bindings]]
+key = "rotation"
+kind = "parameter"
+hint = "0|1|2|3"
+allowed = [0, 1, 2, 3]
+[[drivers.ili9488.bindings]]
+key = "bgr"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.ili9488.bindings]]
+key = "invert"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+
 [drivers.cvbs-pal]
 summary = "PAL composite video"
 package = "driver_display_cvbs_pal"
@@ -2371,7 +2449,18 @@ targets = ["esp32s3"]
 capabilities = ["qemu", "gfx"]
 board_capabilities = ["display", "gfx"]
 board_driver = "display_qemu_rgb"
-board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "800", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "600" }
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-RGB"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "480", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "320" }
+early = true
+default_name = "display0"
+
+[drivers.qemu-mono]
+summary = "QEMU virtual monochrome panel"
+package = "driver_display_qemu_mono"
+targets = ["esp32s3"]
+capabilities = ["qemu", "gfx"]
+board_capabilities = ["display", "gfx"]
+board_driver = "display_qemu_mono"
+board_defines = { SOLAR_OS_BOARD_DISPLAY_CONTROLLER = '"QEMU-MONO"', SOLAR_OS_BOARD_DISPLAY_WIDTH = "300", SOLAR_OS_BOARD_DISPLAY_HEIGHT = "400" }
 early = true
 default_name = "display0"
 
@@ -2633,6 +2722,62 @@ kind = "parameter"
 hint = "0|1"
 min = 0
 max = 1
+
+[drivers.xpt2046]
+summary = "SPI resistive touch controller"
+package = "driver_xpt2046"
+targets = ["esp32", "esp32s3"]
+capabilities = ["expansion_spi", "expansion_gpio", "gfx"]
+board_capabilities = ["pointer"]
+board_driver = "pointer_xpt2046"
+default_name = "touch0"
+
+[[drivers.xpt2046.bindings]]
+key = "spi"
+kind = "spi_bus"
+hint = "bus"
+required = true
+[[drivers.xpt2046.bindings]]
+key = "cs"
+kind = "spi_cs"
+hint = "gpio"
+required = true
+[[drivers.xpt2046.bindings]]
+key = "display"
+kind = "display_target"
+hint = "target"
+required = true
+[[drivers.xpt2046.bindings]]
+key = "irq"
+kind = "gpio"
+hint = "gpio"
+[[drivers.xpt2046.bindings]]
+key = "clock"
+kind = "parameter"
+hint = "100..2000 kHz"
+min = 100
+max = 2000
+[[drivers.xpt2046.bindings]]
+key = "pressure"
+kind = "parameter"
+hint = "1..4095"
+min = 1
+max = 4095
+[[drivers.xpt2046.bindings]]
+key = "swap_xy"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.xpt2046.bindings]]
+key = "invert_x"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
+[[drivers.xpt2046.bindings]]
+key = "invert_y"
+kind = "parameter"
+hint = "0|1"
+allowed = [0, 1]
 
 [drivers.ft6336]
 summary = "capacitive touch"

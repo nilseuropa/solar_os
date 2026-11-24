@@ -15,6 +15,14 @@ build tree, and installed binary under PlatformIO's `tool-solaros-qemu` package.
 The cache stamp covers the source pin, overlay, protocol, build profile, and
 builder. Changing any of these rebuilds the extension.
 
+The SDL extension accepts `-display sdl,zoom=1..4`. The launcher defaults to 2x
+for both graphical profiles. Zoom sets the desktop window size, while SDL's
+logical rendering size and absolute input coordinates remain in guest pixels.
+Nearest-neighbour rendering keeps integer zoom sharp. Ctrl+Alt+U restores the
+native window size. The mono profile exposes only MONO1 graphics to SolarOS;
+the RGB profile accepts MONO1, INDEX2, INDEX8, and RGB565 frames. Both use the
+QEMU RGB panel transport at their native resolution.
+
 The `solar-os-input` device is a separate memory-mapped peripheral at
 `0x600ff000`. Keyboard events carry canonical USB HID usages, modifier bits,
 and down/up state. Touch events carry normalized absolute coordinates; mouse

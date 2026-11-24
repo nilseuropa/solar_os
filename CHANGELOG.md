@@ -2,6 +2,16 @@
 
 ## 4.x
 
+- **4.18.4** — 2026-11-24 — Added `pkg update` and `pkg upgrade` for
+  checking and updating installed native modules. Added ILI9488 SPI display
+  and XPT2046 resistive touch support. Fixed expansion touch polling and
+  terminal colors on attached displays, with clearer errors for missing
+  display targets. Added separate monochrome and RGB565 color QEMU profiles
+  with desktop zoom. Synth now has touch and pointer controls, an on-screen
+  tab selector, and a live oscilloscope. Files, FTP and SFTP now use Midnight
+  Commander-style filename quick search. Improved split-display speed,
+  enabled Game Boy in split panes, and fixed keyboard focus switching and
+  focus labels that remained visible after releasing Alt.
 - **4.18.3** — 2026-11-23 — Improved Web with an editable address bar,
   Back, Forward, Reload/Stop and Go controls, touch and pointer navigation,
   and `Ctrl++`/`Ctrl+-` text zoom while editing fields. Web can now open without

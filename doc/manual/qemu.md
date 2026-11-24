@@ -3,22 +3,26 @@ id = "qemu"
 title = "Running SolarOS in QEMU"
 section = "build"
 summary = "Build and launch the qemu_esp32s3 boards in Espressif's QEMU, with native input, host storage, audio output, and networking"
-aliases = ["emulator", "qemu_esp32s3"]
-keywords = "qemu emulator virtual esp32s3 qemu_esp32s3 qemu_esp32s3_rgb open_eth esp_rgb sdl uart keyboard audio playback host storage development testing"
+aliases = ["emulator", "qemu_esp32s3", "qemu_esp32s3_mono", "qemu_esp32s3_rgb"]
+keywords = "qemu emulator virtual esp32s3 qemu_esp32s3 qemu_esp32s3_mono qemu_esp32s3_rgb monochrome color zoom open_eth esp_rgb sdl uart keyboard audio playback host storage"
 packages_any = []
 +++
 # Running SolarOS in QEMU
 
-Two board targets run SolarOS in Espressif's QEMU, without hardware:
+Three board targets run SolarOS in Espressif's QEMU, without hardware:
 
 | Target | PlatformIO env | What you get |
 | --- | --- | --- |
 | `qemu_esp32s3` | `qemu_esp32s3` | Headless: the shell on UART0, exposed as a host serial device, host storage, and audio output. |
-| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | An 800x600 display in the QEMU window, native keyboard, touch or relative mouse input, host storage, audio output, networking, and a separate UART0 console. |
+| `qemu_esp32s3_mono` | `qemu_esp32s3_mono` | A 300x400 black-and-white, 1bpp display. Default desktop window: 600x800. |
+| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | A 480x320 RGB565 color display with indexed and monochrome graphics support. Default desktop window: 960x640. |
+
+Both graphical targets include native keyboard, touch or relative mouse input,
+host storage, audio output, networking, and a separate UART0 console.
 
 ## Build and run
 
-From the root of the SolarOS checkout, start the display target:
+From the root of the SolarOS checkout, start the color display target:
 
 ```sh
 pio run -e qemu_esp32s3_rgb -t qemu
@@ -30,6 +34,12 @@ For the headless target:
 pio run -e qemu_esp32s3 -t qemu
 ```
 
+For the monochrome display:
+
+```sh
+pio run -e qemu_esp32s3_mono -t qemu
+```
+
 The `qemu` target builds the firmware, prepares a 16 MB virtual flash image,
 and launches the emulator. Native input, host-directory storage, and audio use a cached
 QEMU extension built from pinned Espressif source on Linux and macOS.
@@ -39,21 +49,36 @@ Espressif tool instead. Prebuilt tools are available for Linux and macOS on
 x86-64 and ARM64, and Windows on x86-64. Use WSL on Windows for the extended
 emulator, or configure an executable built with the SolarOS extensions.
 
-On Linux and macOS, UART0 is a host pseudo-terminal (PTY) on both targets.
+On Linux and macOS, UART0 is a host pseudo-terminal (PTY) on all three targets.
 The launcher prints its stable path, `.pio/build/<env>/uart0`, which points
 to the allocated host device, such as `/dev/pts/7`. Open it in a serial terminal
 or another program that uses serial ports. The launching terminal controls
 QEMU's monitor independently of UART0. Type `quit` there to stop QEMU, or
 `system_reset` to reboot the guest. The device link is removed when QEMU exits.
 
-On the display target, type into the QEMU window to control the display shell.
+On either graphical target, type into the QEMU window to control the display shell.
 Closing the display window also stops QEMU. **Ctrl+Alt+G** releases the mouse
 from the window.
 
-While a serial client is connected, UART0 output is saved to
-`.pio/build/<env>/uart0.log`.
+### Desktop zoom
+
+The graphical targets open at 2x zoom with crisp pixel scaling. Set
+`custom_qemu_zoom` to an integer from 1 to 4 in the target environment to
+change the initial window magnification:
+
+```ini
+[env:qemu_esp32s3_mono]
+custom_qemu_zoom = 2
+```
+
+Zoom changes only the desktop window. SolarOS keeps the target's native
+resolution, text layout, and display scale. Touch coordinates follow the
+display pixels at every zoom level. The window can also be resized manually.
 
 ### Connect to UART0
+
+While a serial client is connected, UART0 output is saved to
+`.pio/build/<env>/uart0.log`.
 
 From a separate terminal with VT100 support, disable host software flow control
 so Ctrl+S/Ctrl+Q reach SolarOS, then use PlatformIO's raw monitor:
@@ -92,7 +117,7 @@ shortcuts apply in the host console, independently of the graphical window.
 
 ## Host directory storage
 
-On Linux and macOS, both targets expose the checkout's `qemu-storage` directory
+On Linux and macOS, all three targets expose the checkout's `qemu-storage` directory
 at `/host` in SolarOS. The launcher creates the directory when needed and prints
 the host path. It is outside `.pio`, so cleaning or rebuilding firmware does not
 remove its files. Files saved under `/host` update the host directory directly;
@@ -128,7 +153,7 @@ are not block devices and cannot be formatted with `disk format`.
 
 ## Audio output
 
-On Linux and macOS, both targets play audio through the host's default output
+On Linux and macOS, all three targets play audio through the host's default output
 using SDL. SolarOS registers `audio0` with the playback stream `audio0.playback`.
 The existing audio player, tones, and Python/Lua audio APIs use it automatically.
 For example, in the SolarOS shell:
@@ -198,7 +223,7 @@ the build directory also removes the virtual flash and its contents.
 
 ## Native input
 
-The display target attaches the `qemu-input` device as `input0`. QEMU window
+Each graphical target attaches the `qemu-input` device as `input0`. QEMU window
 input reaches SolarOS through a memory-mapped event queue, independently of
 all UART peripherals. The input service exposes three sources:
 
@@ -234,7 +259,7 @@ and the accompanying device sources and shared protocol headers.
 ## Network
 
 QEMU's ESP32-S3 machine has no Wi-Fi model, but an OpenCores Ethernet card.
-On `qemu_esp32s3_rgb` the `qemu-eth` driver (`eth0`) brings it up with DHCP from
+On both graphical targets the `qemu-eth` driver (`eth0`) brings it up with DHCP from
 QEMU's user network (`-nic user,model=open_eth`, no setup on the host). While it
 has an address, SolarOS reports it as a connected Wi-Fi station with the SSID
 `qemu-eth`, so `curl`, `ntp`, web, SSH, and Python networking work unchanged.
@@ -268,7 +293,7 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
   USB host have no peripheral to talk to. Sources: Espressif's
   [QEMU feature table](https://github.com/espressif/esp-toolchain-docs/blob/main/qemu/README.md)
   and `hw/xtensa/esp32s3.c` in the QEMU release above.
-- Mono display only, 800x600 at most (the largest panel QEMU's `esp_rgb` model takes).
+- The monochrome target accepts 1bpp graphics; color applications use the RGB target.
 - Wi-Fi commands (`wifi scan`, `wifi connect`) have no radio to work with; the
   network comes only from `eth0`.
 - No network on `qemu_esp32s3` (headless): it has no `eth0` device.
@@ -279,7 +304,8 @@ python scripts/qemu_pcap_dns.py .pio/build/qemu_esp32s3_rgb/net.pcap
 
 ## Quick reference
 
-Run `pio run -e qemu_esp32s3_rgb -t qemu` for the display target, or
+Run `pio run -e qemu_esp32s3_rgb -t qemu` for the color target,
+`pio run -e qemu_esp32s3_mono -t qemu` for monochrome, or
 `pio run -e qemu_esp32s3 -t qemu` for headless. PlatformIO builds the firmware,
 prepares the emulator and flash image, and starts the virtual board. Type
 directly into the QEMU window for display input; connect a serial terminal to

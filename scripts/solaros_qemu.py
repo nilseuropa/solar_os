@@ -12,7 +12,8 @@ import sys
 
 
 FLASH_BYTES = 16 * 1024 * 1024
-QEMU_BOARDS = ("qemu_esp32s3", "qemu_esp32s3_rgb")
+QEMU_GRAPHICAL_BOARDS = ("qemu_esp32s3_rgb", "qemu_esp32s3_mono")
+QEMU_BOARDS = ("qemu_esp32s3", *QEMU_GRAPHICAL_BOARDS)
 DEFAULT_UART0_MODE = "stdio" if sys.platform == "win32" else "pty"
 
 
@@ -114,10 +115,12 @@ def launch_qemu(command: list[str], build: Path) -> int:
 
 def qemu_command(executable: Path, board: str, image: Path,
                  pointer_mode: str = "touch", uart0_mode: str = DEFAULT_UART0_MODE,
-                 storage: Path | None = None, audio: str = "off") -> list[str]:
+                 storage: Path | None = None, audio: str = "off", zoom: int = 2) -> list[str]:
     if board not in QEMU_BOARDS:
         raise ValueError(f"Not a QEMU board: {board}")
-    graphical = board == "qemu_esp32s3_rgb"
+    graphical = board in QEMU_GRAPHICAL_BOARDS
+    if isinstance(zoom, bool) or not isinstance(zoom, int) or not 1 <= zoom <= 4:
+        raise ValueError("QEMU window zoom must be an integer from 1 to 4")
     if pointer_mode not in ("touch", "mouse"):
         raise ValueError("QEMU pointer mode must be 'touch' or 'mouse'")
     if uart0_mode not in ("pty", "stdio"):
@@ -131,7 +134,7 @@ def qemu_command(executable: Path, board: str, image: Path,
         str(executable), "-machine", "esp32s3", "-m", "8M",
         "-global", "driver=ssi_psram,property=is_octal,value=true",
         "-drive", f"file={flash},if=mtd,format=raw",
-        "-display", "sdl" if graphical else "none",
+        "-display", f"sdl,zoom={zoom}" if graphical else "none",
     ]
     if uart0_mode == "pty":
         port = str(image.parent / "uart0").replace(",", ",,")

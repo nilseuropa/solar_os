@@ -35,9 +35,11 @@ BINDING_KINDS = {
     "scalar_stream",
     "byte_stream",
     "parameter",
+    "display_target",
 }
 PIN_BINDING_KINDS = {"gpio", "adc", "pwm", "spi_cs"}
 TARGET_BINDING_KINDS = {
+    "display_target",
     "i2c_bus",
     "spi_bus",
     "uart_port",
@@ -266,7 +268,7 @@ def load_driver_catalog(path: Path) -> dict[str, DriverDef]:
             if minimum is not None and maximum is not None and minimum > maximum:
                 raise ManifestError(f"{binding_path} has an inverted value range")
             default_role = key if kind in {
-                "gpio", "gpio_line", "adc", "pwm", "parameter", "scalar_stream", "byte_stream"
+                "gpio", "gpio_line", "adc", "pwm", "parameter", "scalar_stream", "byte_stream", "display_target"
             } else ""
             bindings.append(DriverBinding(
                 key=key,
@@ -642,6 +644,8 @@ def validate_board(board: dict[str, Any], drivers: dict[str, DriverDef]) -> None
             if spec.kind in TARGET_BINDING_KINDS:
                 if not isinstance(value, str) or not value:
                     raise ManifestError(f"device {name}.{key} must name a resource")
+                if spec.kind == "display_target" and len(value) >= 16:
+                    raise ManifestError(f"device {name}.{key} display name must fit 15 characters")
                 expected_protocol = {
                     "i2c_bus": "i2c",
                     "spi_bus": "spi",

@@ -57,7 +57,7 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
     # Only these managed source files are reset before reapplying the overlay.
     patched = ["audio/audio.c", "audio/audio.h", "hw/audio/meson.build",
                "hw/input/meson.build", "hw/misc/meson.build", "hw/xtensa/esp32s3.c", "include/ui/input.h",
-               "ui/input.c", "ui/sdl2.c"]
+               "ui/input.c", "ui/sdl2.c", "qapi/ui.json"]
     subprocess.run(["git", "restore", "--source=" + QEMU_COMMIT, "--", *patched], cwd=source, check=True)
     subprocess.run(["git", "apply", str(overlay / "solar-input.patch")], cwd=source, check=True)
     for path in (overlay / "overlay").rglob("*.c"):
@@ -74,7 +74,7 @@ def ensure_input_qemu(package: Path, project: Path, ninja: Path) -> Path:
         "--enable-tcg", "--enable-sdl", "--enable-pixman", "--enable-slirp", "--enable-gcrypt",
         "--audio-drv-list=sdl",
         "--disable-docs", "--disable-werror", "--disable-debug-info", "--disable-tools",
-        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-os3",
+        "--with-pkgversion=esp_develop_9.2.2_20261109-solar-os4",
         "--prefix=" + str(installed), "--ninja=" + str(ninja),
     ], cwd=build, env=environment, check=True)
     subprocess.run([str(ninja), "-j", str(min(os.cpu_count() or 2, 8)), "install"],

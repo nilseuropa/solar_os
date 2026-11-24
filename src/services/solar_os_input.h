@@ -375,6 +375,10 @@ esp_err_t solar_os_input_pointer_calibration_get(
 esp_err_t solar_os_input_pointer_calibration_set(
     solar_os_input_source_t source,
     const solar_os_input_pointer_calibration_t *calibration);
+/* Producer fallback: applied only if no calibration is configured. Does not
+ * write NVS or replace calibration restored for this source name. */
+esp_err_t solar_os_input_pointer_calibration_default(solar_os_input_source_t source,
+    const solar_os_input_pointer_calibration_t *calibration);
 esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source);
 esp_err_t solar_os_input_pointer_filter_register(
     solar_os_input_pointer_filter_t filter,
@@ -403,6 +407,10 @@ esp_err_t solar_os_input_capture_keyboard(const char *name, const void *owner);
 /* Capture guest keys while leaving desktop session shortcuts to SolarOS. */
 esp_err_t solar_os_input_capture_keyboard_with_shortcuts(const char *name, const void *owner);
 void solar_os_input_release_keyboard(const void *owner);
+bool solar_os_input_keyboard_captured_by(const void *owner);
+/* A display focus change revokes session capture immediately. Explicit full
+ * captures, such as a script's raw keyboard claim, keep their ownership. */
+void solar_os_input_release_session_keyboard(void);
 bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event);
 /* Main-loop wake/idle accounting for events queued directly by drivers. */
 /* Captured keyboard presses and pointer samples still count as user activity. */

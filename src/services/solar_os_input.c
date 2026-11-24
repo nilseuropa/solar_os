@@ -2515,6 +2515,23 @@ esp_err_t solar_os_input_pointer_calibration_set(
     return err;
 }
 
+esp_err_t solar_os_input_pointer_calibration_default(solar_os_input_source_t source,
+    const solar_os_input_pointer_calibration_t *calibration)
+{
+    if (!input_calibration_valid(calibration)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = ESP_OK;
+    portENTER_CRITICAL(&input_lock);
+    if (!input_source_valid_locked(source) ||
+        !(input_sources[source - 1U].capabilities & SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE)) {
+        err = ESP_ERR_INVALID_STATE;
+    } else if (!input_diagnostics[source - 1U].calibration_enabled) {
+        input_diagnostics[source - 1U].calibration = *calibration;
+        input_diagnostics[source - 1U].calibration_enabled = true;
+    }
+    portEXIT_CRITICAL(&input_lock);
+    return err;
+}
+
 esp_err_t solar_os_input_pointer_calibration_reset(solar_os_input_source_t source)
 {
     char name[SOLAR_OS_INPUT_SOURCE_NAME_MAX];
@@ -2662,6 +2679,28 @@ void solar_os_input_release_keyboard(const void *owner)
         input_capture_reset = false;
         input_capture_session_shortcuts = false;
         input_capture_shortcut_keys = 0;
+    }
+    portEXIT_CRITICAL(&input_lock);
+}
+
+bool solar_os_input_keyboard_captured_by(const void *owner)
+{
+    portENTER_CRITICAL(&input_lock);
+    const bool captured = owner != NULL && input_capture_owner == owner;
+    portEXIT_CRITICAL(&input_lock);
+    return captured;
+}
+
+void solar_os_input_release_session_keyboard(void)
+{
+    portENTER_CRITICAL(&input_lock);
+    if (input_capture_session_shortcuts) {
+        input_capture_owner = NULL;
+        input_capture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+        input_capture_head = input_capture_count = 0;
+        input_capture_reset = false;
+        input_capture_session_shortcuts = false;
+        input_capture_shortcut_keys = 0U;
     }
     portEXIT_CRITICAL(&input_lock);
 }

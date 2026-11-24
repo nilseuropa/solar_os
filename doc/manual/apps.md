@@ -1139,6 +1139,14 @@ Controls:
 - Arrows navigate panes.
 - `Tab` switches active pane.
 - `Enter` opens directories or launches known files.
+- `Ctrl+S` or `Alt+S` starts Midnight Commander-style quick search in the active
+  pane. Typing selects matching filename prefixes immediately; `*` and `?` are
+  wildcards, and matching ignores ASCII letter case. Press either shortcut again
+  for the next match, wrapping at the end. Backspace or Delete corrects the
+  pattern; characters with no match are ignored. `Esc` cancels search. Enter
+  ends search and opens the selected item; navigation and function keys end
+  search and perform their usual action. Press the search shortcut twice to
+  reuse that pane's previous pattern.
 - Returning to a parent directory restores the cursor to the directory that
   was just exited.
 - `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`k`/`K`, `F8`/`D`, and `F9`/`Z`
@@ -1188,6 +1196,12 @@ Controls:
 
 - Up/Down selects an item. `PgUp`/`PgDn` moves by one visible page, and
   Home/End selects the first/last item. `Tab`, Left, and Right switch panes.
+- `Ctrl+S` or `Alt+S` starts the same quick search as Files in the active local
+  or remote listing. Matches are selected while typing, with prefix and `*`/`?`
+  wildcard matching. Repeat the shortcut for the next match; press it twice to
+  reuse that pane's previous pattern. Backspace or Delete corrects the pattern.
+  `Esc` cancels search; Enter opens the selected item. Navigation and function
+  keys end search and perform their usual action.
 - `Space` toggles a mark on the current file or directory and advances to the
   next item, as in Files. Marked items show `*`; each pane shows its mark count.
   Copy, move, and delete use the active pane's marked items, or the current
@@ -1261,6 +1275,9 @@ or the current item if none are marked. Transfers are recursive, show progress,
 retain both pane positions after refresh, and stage downloaded and uploaded
 files before replacement. `q`, `F10`, or the app-exit key closes the
 SSH connection and exits.
+
+`Ctrl+S` and `Alt+S` provide the same incremental filename quick search as Files
+and FTP, including wildcards, next-match cycling, and a previous pattern per pane.
 
 ## flash
 
@@ -2079,7 +2096,7 @@ Controls:
 Open the native synthesizer and sound designer:
 
 ```text
-synth [--headless]
+synth [--headless|--tabs]
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
@@ -2105,6 +2122,10 @@ portamento. Hold is session performance state and is not part of a preset. The
 display also reports active voices, output sample rate, and audio errors. The
 volume button changes the shared SolarOS speaker volume.
 
+`synth --tabs` starts with tab-selection buttons in place of the on-screen
+piano. The Oscilloscope tab displays the live output PCM trace, peak and RMS
+levels, sample rate, and the time span of the captured samples.
+
 On display targets smaller than 240 pixels wide or 200 pixels high, Synth
 automatically replaces the full editor with a parameter HUD. The selected
 control gets a large value and level bar; waveform controls and the Wave tab
@@ -2124,11 +2145,21 @@ Controls:
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. Note input
   remains active on all tabs.
-- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
-  Number keys `1` through `6` select those tabs in that order.
-- `X` hides or shows the on-screen piano keyboard on every tab. When it is
-  hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
-  the physical note keys and MIDI input remain active.
+- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, Presets, and
+  Oscilloscope. Number keys `1` through `7` select those tabs in that order.
+- `X` switches the bottom panel between the on-screen piano and tab-selection
+  buttons. Tap or click a button to select its tab. Physical note keys and MIDI
+  input remain active in either mode.
+- The selector has eight buttons. `8 Keys`, or the `8` key, returns to the
+  piano while keeping the current tab selected.
+- The header's `Tabs`/`Keys` button switches the same panel by touch. Tap a
+  waveform, envelope segment, or knob to select it, then drag up or down to
+  adjust it. Press and slide across the piano to play; lifting releases the
+  note unless Hold is enabled.
+- On Wave, draw directly in the graph to reshape the wavetable. Tap the
+  baseline or point-count buttons to cycle them. On Presets, tap a slot, then
+  `Load` or `Save`; saving is available for user slots. On Glide, tap the
+  voice or Hold controls to toggle them, or drag Glide to adjust it.
 - On Glide, select Hold and use `Up` or `Enter` to enable it. Each physical or
   terminal piano-key press then toggles its note on or off, and releasing the
   key does not stop the note. Use `Down` or `Enter` to disable hold and release

@@ -35,6 +35,12 @@ jobs
 native modules. A compiled driver is available to use, but does not mean its
 hardware is attached; check `expansion devices`.
 
+Use `pkg update` to refresh the signed native-module catalog and list installed
+modules available for upgrade. `pkg upgrade` shows and confirms the upgrade
+plan; `pkg upgrade ID` selects one installed module and its dependencies.
+See [Native ELF modules](native-modules.md) for version tracking, compatibility
+checks, and preparation of active modules.
+
 Native packages can require exact versions of library packages and minimum
 firmware service tables. `pkg install cc` installs its matching `tinycc` library
 first. Installation verifies the complete dependency graph and required services

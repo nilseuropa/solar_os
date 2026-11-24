@@ -1,6 +1,7 @@
 #include "solar_os_display_layout_core.h"
 
 #include <limits.h>
+#include <string.h>
 
 static size_t mono_stride(uint16_t width)
 {
@@ -132,6 +133,62 @@ void solar_os_display_layout_mono_set(uint8_t *buffer,
     }
 }
 
+static bool mono_copy_region(
+    uint8_t *destination,
+    uint16_t destination_width,
+    uint16_t destination_height,
+    uint16_t destination_x,
+    uint16_t destination_y,
+    const uint8_t *source,
+    uint16_t source_width,
+    uint16_t source_height,
+    uint16_t source_x,
+    uint16_t source_y,
+    uint16_t width,
+    uint16_t height)
+{
+    if (destination == NULL || source == NULL || width == 0U ||
+        height == 0U || destination_x > destination_width ||
+        destination_y > destination_height ||
+        source_x > source_width || source_y > source_height ||
+        width > (uint16_t)(destination_width - destination_x) ||
+        height > (uint16_t)(destination_height - destination_y) ||
+        width > (uint16_t)(source_width - source_x) ||
+        height > (uint16_t)(source_height - source_y)) {
+        return false;
+    }
+
+    const size_t destination_stride = mono_stride(destination_width);
+    const size_t source_stride = mono_stride(source_width);
+    while (height > 0U) {
+        const unsigned destination_shift = destination_y & 7U;
+        const unsigned source_shift = source_y & 7U;
+        const unsigned rows = height < 8U - destination_shift ?
+            height : 8U - destination_shift;
+        uint8_t *out = destination +
+            (size_t)(destination_y / 8U) * destination_stride + destination_x;
+        const uint8_t *in = source +
+            (size_t)(source_y / 8U) * source_stride + source_x;
+        if (rows == 8U && source_shift == 0U) {
+            memcpy(out, in, width);
+        } else {
+            const uint8_t mask = (uint8_t)(((1U << rows) - 1U) << destination_shift);
+            for (uint16_t x = 0U; x < width; x++) {
+                unsigned value = in[x] >> source_shift;
+                if (source_shift + rows > 8U) {
+                    value |= (unsigned)in[source_stride + x] << (8U - source_shift);
+                }
+                out[x] = (uint8_t)((out[x] & (uint8_t)~mask) |
+                    ((value << destination_shift) & mask));
+            }
+        }
+        destination_y = (uint16_t)(destination_y + rows);
+        source_y = (uint16_t)(source_y + rows);
+        height = (uint16_t)(height - rows);
+    }
+    return true;
+}
+
 bool solar_os_display_layout_mono_blit(
     uint8_t *destination,
     uint16_t destination_width,
@@ -142,22 +199,23 @@ bool solar_os_display_layout_mono_blit(
     uint16_t source_width,
     uint16_t source_height)
 {
-    if (destination == NULL || source == NULL || source_width == 0U ||
-        source_height == 0U || destination_x > destination_width ||
-        destination_y > destination_height ||
-        source_width > (uint16_t)(destination_width - destination_x) ||
-        source_height > (uint16_t)(destination_height - destination_y)) {
-        return false;
-    }
+    return mono_copy_region(destination, destination_width, destination_height,
+                             destination_x, destination_y, source,
+                             source_width, source_height, 0U, 0U,
+                             source_width, source_height);
+}
 
-    for (uint16_t y = 0U; y < source_height; y++) {
-        for (uint16_t x = 0U; x < source_width; x++) {
-            solar_os_display_layout_mono_set(
-                destination, destination_width, destination_height,
-                (uint16_t)(destination_x + x), (uint16_t)(destination_y + y),
-                solar_os_display_layout_mono_get(
-                    source, source_width, source_height, x, y));
-        }
-    }
-    return true;
+bool solar_os_display_layout_mono_extract(
+    uint8_t *destination,
+    uint16_t width,
+    uint16_t height,
+    const uint8_t *source,
+    uint16_t source_width,
+    uint16_t source_height,
+    uint16_t source_x,
+    uint16_t source_y)
+{
+    return mono_copy_region(destination, width, height, 0U, 0U, source,
+                             source_width, source_height, source_x, source_y,
+                             width, height);
 }

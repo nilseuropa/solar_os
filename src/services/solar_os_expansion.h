@@ -30,6 +30,7 @@ typedef enum {
     SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM,
     SOLAR_OS_EXPANSION_BINDING_PARAMETER,
     SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM,
+    SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET,
 } solar_os_expansion_binding_kind_t;
 
 bool solar_os_expansion_stream_binding_valid(solar_os_expansion_binding_kind_t,

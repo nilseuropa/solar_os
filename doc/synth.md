@@ -103,11 +103,22 @@ MIDI Note On, Note Off, and sustain keep their normal behavior. User slots are
 stored as versioned,
 checksummed files below `.solar/synth/presets` on the preferred persistent
 volume, with internal flash used when no SD card is mounted.
-All six tabs use the same compact on-screen piano. `X` hides or shows it while
-physical note keys and MIDI input remain active. When the piano is hidden, each
-tab expands its knobs, graphs, panels, or preset list into the freed space.
-`Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
-Number keys `1` through `6` select them in that order.
+The Oscilloscope tab shows a live trace of captured output PCM, peak and RMS
+levels, sample rate, and the captured time span. All seven tabs share a
+responsive bottom panel. `X` switches between the on-screen piano and clickable
+tab-selection buttons; physical note keys and MIDI input remain active in
+either mode. `synth --tabs` starts with the tab selector.
+`Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, Presets, and
+Oscilloscope. Number keys `1` through `7` select them in that order.
+The selector has eight buttons; its `8 Keys` button returns to the piano
+without changing the selected tab. The `8` key performs the same action.
+The header's `Tabs`/`Keys` button changes the bottom panel by touch. Waveforms,
+envelope segments, and knobs can be selected by tapping and adjusted by
+dragging vertically. Pressing and sliding on the piano plays notes; lifting
+releases them unless Hold is enabled. The Wave graph accepts direct drawing,
+with buttons for the baseline and point count. Presets provides slot selection
+and explicit Load and Save buttons; only user slots can be saved. Glide's
+voice and Hold controls toggle on a tap.
 
 Display targets smaller than 240 pixels wide or 200 pixels high automatically
 use the Synth parameter HUD instead of the full editor. It shows the selected
