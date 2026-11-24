@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_file_shortcuts.h"
+#include "solar_os_file_search.h"
 #ifndef SOLAR_OS_FTP_APP_SFTP
 #include "solar_os_ftp.h"
 #endif
@@ -178,7 +179,7 @@ typedef struct {
     ftp_app_input_t input_mode;
     char input[FTP_APP_INPUT_MAX];
     size_t input_len;
-    solar_os_text_search_state_t search;
+    solar_os_text_search_state_t search[2];
     bool alt_prefix_pending;
     char message[FTP_APP_MESSAGE_MAX];
     char host[SOLAR_OS_NET_HOST_MAX];
@@ -1208,9 +1209,9 @@ static void ftp_app_render(void)
         ftp_app.input_mode == FTP_APP_INPUT_SEARCH) {
         const bool search = ftp_app.input_mode == FTP_APP_INPUT_SEARCH;
         const char *label = search ? "search: " : "mkdir: ";
-        const char *value = search ? ftp_app.search.input : ftp_app.input;
+        const char *value = search ? ftp_app.search[ftp_app.active].input : ftp_app.input;
         const size_t value_len = search ?
-            ftp_app.search.input_len : ftp_app.input_len;
+            ftp_app.search[ftp_app.active].input_len : ftp_app.input_len;
         char prompt[FTP_APP_INPUT_MAX + 12U];
         snprintf(prompt, sizeof(prompt), "%s%s", label, value);
         solar_os_tui_write_cell(&ftp_app.tui, message_row, 0, cols,
@@ -1947,7 +1948,7 @@ static bool ftp_app_search_segment(void *user,
 {
     const ftp_app_pane_t *pane = (const ftp_app_pane_t *)user;
     if (pane == NULL || text == NULL || text_len == NULL ||
-        segment_index >= pane->count || pane->entries[segment_index].parent) {
+        segment_index >= pane->count) {
         return false;
     }
     *text = pane->entries[segment_index].name;
@@ -1957,40 +1958,12 @@ static bool ftp_app_search_segment(void *user,
 
 static void ftp_app_begin_search(void)
 {
-    solar_os_text_search_begin_input(&ftp_app.search);
-    ftp_app.input_mode = FTP_APP_INPUT_SEARCH;
-    ftp_app_set_message("");
-}
-
-static void ftp_app_submit_search(void)
-{
-    ftp_app.input_mode = FTP_APP_INPUT_NONE;
-    if (!solar_os_text_search_submit_input(&ftp_app.search)) {
-        ftp_app_set_message("");
-        return;
-    }
-
     ftp_app_pane_t *pane = &ftp_app.panes[ftp_app.active];
-    solar_os_text_search_match_t match;
-    if (!solar_os_text_search_find_segments(pane->count,
-                                            ftp_app_search_segment,
-                                            pane,
-                                            ftp_app.search.query,
-                                            pane->cursor,
-                                            SIZE_MAX,
-                                            true,
-                                            SOLAR_OS_TEXT_SEARCH_FORWARD,
-                                            &match)) {
-        char message[FTP_APP_MESSAGE_MAX];
-        snprintf(message, sizeof(message), "not found: %s", ftp_app.search.query);
-        ftp_app_set_message(message);
-        return;
-    }
-
-    ftp_app.search.match = match;
-    ftp_app.search.match_valid = true;
-    pane->cursor = match.segment_index;
-    ftp_app_set_message(match.wrapped ? "search wrapped" : "");
+    solar_os_file_search_begin(&ftp_app.search[ftp_app.active], pane->count,
+                               ftp_app_search_segment, pane, &pane->cursor);
+    ftp_app.input_mode = ftp_app.search[ftp_app.active].input_active ?
+        FTP_APP_INPUT_SEARCH : FTP_APP_INPUT_NONE;
+    ftp_app_set_message("");
 }
 
 static bool ftp_app_input_event(uint8_t ch)
@@ -2039,27 +2012,16 @@ static bool ftp_app_input_event(uint8_t ch)
         return true;
     }
     if (ftp_app.input_mode == FTP_APP_INPUT_SEARCH) {
-        switch (ch) {
-        case SOLAR_OS_KEY_ESCAPE:
-            solar_os_text_search_cancel_input(&ftp_app.search);
+        ftp_app_pane_t *pane = &ftp_app.panes[ftp_app.active];
+        solar_os_text_search_state_t *search = &ftp_app.search[ftp_app.active];
+        const bool handled = solar_os_file_search_key(search, ch, pane->count,
+                                                      ftp_app_search_segment,
+                                                      pane, &pane->cursor);
+        if (!search->input_active) {
             ftp_app.input_mode = FTP_APP_INPUT_NONE;
             ftp_app_set_message("");
-            break;
-        case '\r':
-        case '\n':
-            ftp_app_submit_search();
-            break;
-        case '\b':
-        case 0x7f:
-            (void)solar_os_text_search_input_backspace(&ftp_app.search);
-            break;
-        default:
-            if (isprint(ch) || ch >= 0xa0) {
-                (void)solar_os_text_search_input_append(&ftp_app.search, (char)ch);
-            }
-            break;
         }
-        return true;
+        return handled;
     }
     if (ftp_app.input_mode == FTP_APP_INPUT_DELETE) {
         if (ch == 'y' || ch == 'Y') {
@@ -2134,9 +2096,6 @@ static bool ftp_app_event(solar_os_context_t *ctx, const solar_os_event_t *event
             return true;
         }
         ch = event->data.key.key;
-        if (ch == 0U && shortcut == SOLAR_OS_FILE_SHORTCUT_SEARCH) {
-            ch = 's';
-        }
     } else {
         return true;
     }
@@ -2146,26 +2105,26 @@ static bool ftp_app_event(solar_os_context_t *ctx, const solar_os_event_t *event
         }
         return true;
     }
-    if (ftp_app_input_event(ch)) {
-        ftp_app_render();
-        return true;
-    }
-    if (shortcut == SOLAR_OS_FILE_SHORTCUT_SEARCH) {
-        ftp_app_begin_search();
-        ftp_app_render();
-        return true;
-    }
-    if (ch == SOLAR_OS_KEY_ALT_PREFIX) {
-        ftp_app.alt_prefix_pending = true;
-        return true;
-    }
-    if (ftp_app.alt_prefix_pending) {
-        ftp_app.alt_prefix_pending = false;
-        if (ch == 's' || ch == 'S') {
+    if (ftp_app.input_mode == FTP_APP_INPUT_NONE || ftp_app.input_mode == FTP_APP_INPUT_SEARCH) {
+        if (ch == SOLAR_OS_KEY_ALT_PREFIX) {
+            ftp_app.alt_prefix_pending = true;
+            return true;
+        }
+        if (ftp_app.alt_prefix_pending) {
+            ftp_app.alt_prefix_pending = false;
+            if (ch == 's' || ch == 'S') {
+                shortcut = SOLAR_OS_FILE_SHORTCUT_SEARCH;
+            }
+        }
+        if (ch == 0x13U || shortcut == SOLAR_OS_FILE_SHORTCUT_SEARCH) {
             ftp_app_begin_search();
             ftp_app_render();
             return true;
         }
+    }
+    if (ftp_app_input_event(ch)) {
+        ftp_app_render();
+        return true;
     }
     ftp_app_pane_t *pane = &ftp_app.panes[ftp_app.active];
     switch (ch) {

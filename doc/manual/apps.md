@@ -1139,6 +1139,14 @@ Controls:
 - Arrows navigate panes.
 - `Tab` switches active pane.
 - `Enter` opens directories or launches known files.
+- `Ctrl+S` or `Alt+S` starts Midnight Commander-style quick search in the active
+  pane. Typing selects matching filename prefixes immediately; `*` and `?` are
+  wildcards, and matching ignores ASCII letter case. Press either shortcut again
+  for the next match, wrapping at the end. Backspace or Delete corrects the
+  pattern; characters with no match are ignored. `Esc` cancels search. Enter
+  ends search and opens the selected item; navigation and function keys end
+  search and perform their usual action. Press the search shortcut twice to
+  reuse that pane's previous pattern.
 - Returning to a parent directory restores the cursor to the directory that
   was just exited.
 - `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`k`/`K`, `F8`/`D`, and `F9`/`Z`
@@ -1188,6 +1196,12 @@ Controls:
 
 - Up/Down selects an item. `PgUp`/`PgDn` moves by one visible page, and
   Home/End selects the first/last item. `Tab`, Left, and Right switch panes.
+- `Ctrl+S` or `Alt+S` starts the same quick search as Files in the active local
+  or remote listing. Matches are selected while typing, with prefix and `*`/`?`
+  wildcard matching. Repeat the shortcut for the next match; press it twice to
+  reuse that pane's previous pattern. Backspace or Delete corrects the pattern.
+  `Esc` cancels search; Enter opens the selected item. Navigation and function
+  keys end search and perform their usual action.
 - `Space` toggles a mark on the current file or directory and advances to the
   next item, as in Files. Marked items show `*`; each pane shows its mark count.
   Copy, move, and delete use the active pane's marked items, or the current
@@ -1261,6 +1275,9 @@ or the current item if none are marked. Transfers are recursive, show progress,
 retain both pane positions after refresh, and stage downloaded and uploaded
 files before replacement. `q`, `F10`, or the app-exit key closes the
 SSH connection and exits.
+
+`Ctrl+S` and `Alt+S` provide the same incremental filename quick search as Files
+and FTP, including wildcards, next-match cycling, and a previous pattern per pane.
 
 ## flash
 

@@ -17,16 +17,17 @@ typedef enum {
 static inline solar_os_file_shortcut_t solar_os_file_shortcut_from_key_event(
     const solar_os_input_key_event_t *event)
 {
-    if (event == NULL || event->action == SOLAR_OS_INPUT_KEY_RELEASE ||
-        (event->modifiers & SOLAR_OS_INPUT_MOD_ALT) == 0U) {
+    if (event == NULL || event->action == SOLAR_OS_INPUT_KEY_RELEASE) {
         return SOLAR_OS_FILE_SHORTCUT_NONE;
     }
-    if (event->usage == SOLAR_OS_FILE_SHORTCUT_SEARCH_USAGE ||
-        event->key == 's' || event->key == 'S') {
+    if ((event->modifiers & (SOLAR_OS_INPUT_MOD_ALT | SOLAR_OS_INPUT_MOD_CTRL)) != 0U &&
+        (event->usage == SOLAR_OS_FILE_SHORTCUT_SEARCH_USAGE ||
+         event->key == 's' || event->key == 'S' || event->key == 0x13U)) {
         return SOLAR_OS_FILE_SHORTCUT_SEARCH;
     }
-    if (event->usage == SOLAR_OS_FILE_SHORTCUT_ENTER_USAGE ||
-        event->key == SOLAR_OS_KEY_ENTER || event->key == '\r') {
+    if ((event->modifiers & SOLAR_OS_INPUT_MOD_ALT) != 0U &&
+        (event->usage == SOLAR_OS_FILE_SHORTCUT_ENTER_USAGE ||
+         event->key == SOLAR_OS_KEY_ENTER || event->key == '\r')) {
         return SOLAR_OS_FILE_SHORTCUT_FULLSCREEN;
     }
     return SOLAR_OS_FILE_SHORTCUT_NONE;
