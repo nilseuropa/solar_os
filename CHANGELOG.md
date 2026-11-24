@@ -2,6 +2,27 @@
 
 ## 4.x
 
+- **4.18.4** — 2026-11-24 — Added `pkg update` and `pkg upgrade` for
+  checking and updating installed native modules. Added ILI9488 SPI display
+  and XPT2046 resistive touch support. Fixed expansion touch polling and
+  terminal colors on attached displays, with clearer errors for missing
+  display targets. Added separate monochrome and RGB565 color QEMU profiles
+  with desktop zoom. Synth now has touch and pointer controls, an on-screen
+  tab selector, and a live oscilloscope. Files, FTP and SFTP now use Midnight
+  Commander-style filename quick search. Improved split-display speed,
+  enabled Game Boy in split panes, and fixed keyboard focus switching and
+  focus labels that remained visible after releasing Alt.
+- **4.18.3** — 2026-11-23 — Improved Web with an editable address bar,
+  Back, Forward, Reload/Stop and Go controls, touch and pointer navigation,
+  and `Ctrl++`/`Ctrl+-` text zoom while editing fields. Web can now open without
+  a URL.
+  Added compact battery reports, detailed discharge statistics, saved runtime
+  estimates, and charging detection from voltage changes when hardware status
+  is unavailable. Improved reTerminal E1003 display speed and IT8951 sleep
+  handling; added an optional two-level monochrome mode and reduced display
+  and Mac video memory use. Fixed delayed or broken telnet navigation keys.
+  Expanded the C SDK headers supplied with installed native libraries,
+  including Robot, Emotion, ESP-DL and Himax.
 - **4.18.2** — 2026-11-20 — Added headless and display QEMU targets for
   running SolarOS on a computer, with a serial console, shared host-directory
   storage, and audio playback. The display target adds keyboard, touch and

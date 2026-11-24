@@ -40,7 +40,7 @@ class WebMjpegPolicyTest(unittest.TestCase):
         self.assertIn("worker->dropped_frames++", publish)
 
     def test_navigation_cancels_live_stream(self):
-        cancel = WEB_SOURCE.split("static bool web_stop_mjpeg_for_navigation", 1)[
+        cancel = WEB_SOURCE.split("static bool web_stop_worker_for_navigation", 1)[
             1
         ].split("static esp_err_t web_start_load", 1)[0]
         self.assertIn("web_cancel_request();", cancel)

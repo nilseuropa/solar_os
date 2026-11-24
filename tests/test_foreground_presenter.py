@@ -27,6 +27,32 @@ def production_functions(source, names):
 
 
 class ForegroundPresenterTest(unittest.TestCase):
+    def test_native_keyboard_capture_follows_display_focus(self):
+        source = (ROOT / "src/services/solar_os_native_foreground.c").read_text()
+        sessions = (ROOT / "src/services/solar_os_sessions.c").read_text()
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "native_focus.inc").write_text(production_functions(source,
+                ("foreground_key", "foreground_poll_keyboard")))
+            Path(tmp, "session_focus.inc").write_text(production_functions(sessions,
+                ("session_store_input_focus", "session_copy_input_focus",
+                 "session_focus_display_on_owner", "solar_os_sessions_focus_display")))
+            write_keyboard_layouts(tmp)
+            binary = Path(tmp, "focus")
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                "-include", str(ROOT / "tests/host/compat.h"),
+                "-I", tmp, "-I", str(ROOT / "tests/host"),
+                "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
+                "-idirafter", str(ROOT / "include"),
+                str(ROOT / "tests/host/native_foreground_focus_test.c"),
+                str(ROOT / "src/services/solar_os_input.c"),
+                str(ROOT / "src/services/solar_os_keys.c"),
+                str(ROOT / "src/services/solar_os_input_composition.c"),
+                "-o", str(binary),
+            ], check=True)
+            subprocess.run([str(binary)], check=True)
+
     def test_ordinary_buttons_keep_mechanical_debounce(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "solar_os_board.h").write_text(

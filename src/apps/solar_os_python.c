@@ -4653,6 +4653,7 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_expansion_devices_obj, solaros_expansion_devic
 static bool python_expansion_key_known(const char *key)
 {
     static const char *const keys[] = {
+        "display", "pressure", "swap_xy", "invert_x", "invert_y",
         "row0", "row1", "row2", "row3", "row4", "row5", "row6", "row7", "col0", "col1", "col2", "col3", "col4", "col5", "col6", "col7", "col8", "col9",
         "drive", "diodes", "debounce-ms",
         "stream", "timeout-ms", "ready", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
@@ -4698,6 +4699,10 @@ static void python_expansion_add_binding(solar_os_expansion_binding_t *bindings,
                                          int value,
                                          int aux)
 {
+    if (kind == SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET && target &&
+        strlen(target) >= SOLAR_OS_EXPANSION_TARGET_MAX) {
+        mp_raise_ValueError(MP_ERROR_TEXT("display target name is too long"));
+    }
     if (*count >= SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX) {
         mp_raise_ValueError(MP_ERROR_TEXT("too many expansion bindings"));
     }
@@ -4723,6 +4728,9 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
     const mp_obj_t uart_obj = python_get_dict_obj(config_obj, "uart", false);
     const mp_obj_t ps2_obj = python_get_dict_obj(config_obj, "ps2", false);
     const mp_obj_t stream_obj = python_get_dict_obj(config_obj, "stream", false);
+    const mp_obj_t display_obj = python_get_dict_obj(config_obj, "display", false);
+    if (display_obj != MP_OBJ_NULL) python_expansion_add_binding(bindings, &binding_count,
+        SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET, "display", mp_obj_str_get_str(display_obj), -1, -1);
     if (stream_obj != MP_OBJ_NULL) python_expansion_add_binding(bindings, &binding_count,
         SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM, "stream", mp_obj_str_get_str(stream_obj), -1, -1);
     const mp_obj_t x_obj = python_get_dict_obj(config_obj, "x", false);
@@ -4942,6 +4950,7 @@ static mp_obj_t solaros_expansion_attach(mp_obj_t driver_obj,
                                      -1);
     }
     static const char *const parameter_bindings[] = {
+        "pressure", "swap_xy", "invert_x", "invert_y",
         "drive", "diodes", "debounce-ms",
         "min", "center", "max", "deadzone", "timeout-ms", "clock", "reset-ms", "boot-ms", "reset-active", "max_mv",
         "mode", "invert", "pull", "filter_ns",

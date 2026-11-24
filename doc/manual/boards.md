@@ -38,7 +38,8 @@ The current tree includes these board targets:
 | `ttgo_vga32_v14` | `ttgo_vga32_v14` | LilyGO TTGO VGA32 v1.4 | ESP32-PICO-D4 desktop target with 8 MB external PSRAM, build-selectable 320x200@70Hz, 320x240@60Hz, 640x400@70Hz, or 640x480@60Hz VGA output through the onboard RGB222 resistor DAC, GPIO25 mono DAC audio, a default-attached PS/2 keyboard, v1.4 microSD wiring over HSPI, USB-UART, Wi-Fi, BLE disabled by default, and two input-only expansion GPIOs. |
 | `esp32_s3_devkitc1_n16r8` | `esp32_s3_devkitc1_n16r8` | Espressif ESP32-S3-DevKitC-1-N16R8 | Headless ESP32-S3 target with CDC, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM, graphics through attachable display targets, and no primary display or onboard sensors. |
 | `qemu_esp32s3` | `qemu_esp32s3` | QEMU ESP32-S3 (DevKitC-1-N16R8 layout) | Headless ESP32-S3 target for Espressif's QEMU `esp32s3` machine, with a UART0 shell exposed as a host serial device, shared host-directory storage at `/host`, and audio playback through `audio0`. No display, networking, BLE, microphone, battery or SD card. Host storage and audio default on for Linux and macOS; native Windows requires WSL or an extended emulator for these features. Build and launch: [Running SolarOS in QEMU](qemu.md). |
-| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | QEMU ESP32-S3 with virtual display | `qemu_esp32s3` plus an 800x600 monochrome `display0`, native HID keyboard, absolute touch or relative mouse input through `input0`, and host networking through `eth0`, reported as Wi-Fi. The UART0 shell remains available alongside the display shell; `session create <app> display0` starts apps on the window. Build and launch with the required graphical backend: [Running SolarOS in QEMU](qemu.md). |
+| `qemu_esp32s3_mono` | `qemu_esp32s3_mono` | QEMU ESP32-S3 with 300x400 monochrome display | A 1bpp `display0`, native HID keyboard, absolute touch or relative mouse input through `input0`, and host networking through `eth0`, reported as Wi-Fi. Includes host storage, audio playback, and a separate UART0 console. The desktop window defaults to 600x800 at 2x zoom. [Running SolarOS in QEMU](qemu.md). |
+| `qemu_esp32s3_rgb` | `qemu_esp32s3_rgb` | QEMU ESP32-S3 with 480x320 RGB display | An RGB565 color `display0` with indexed and monochrome graphics, native HID keyboard, absolute touch or relative mouse input through `input0`, and host networking through `eth0`, reported as Wi-Fi. Includes host storage, audio playback, and a separate UART0 console. The desktop window defaults to 960x640 at 2x zoom. [Running SolarOS in QEMU](qemu.md). |
 | `goouuu_esp32_s3cam` | `goouuu_esp32_s3cam` | GOOUUU ESP32-S3CAM | Headless ESP32-S3 camera target with 16 MB flash, 8 MB PSRAM, native USB CDC, CH340/UART console, one-bit SDMMC, an onboard WS2812, Wi-Fi, BLE, and fixed DVP/SCCB camera wiring. Its required `driver.camera-esp32` package exposes OV2640/OV5640 detection and bounded QVGA/VGA JPEG capture through `service.camera`; `cam-webd` adds a single-client MJPEG stream and JPEG snapshots with optional authentication over the shared HTTP server. |
 | `esp32_devkitc_v4_wrover` | `esp32_devkitc_v4_wrover` | Espressif ESP32-DevKitC V4 with ESP32-WROVER-E | Headless classic ESP32 target with PSRAM, UART, Wi-Fi, BLE, a GPIO0 BOOT/KEY button, expansion I2C/SPI/UART/GPIO/ADC/PWM/I2S, graphics through attachable display targets, and no built-in peripherals. |
 | `devkitc1_epaper_workbench` | `esp32_s3_devkitc1_n16r8` with `SOLAR_OS_BOARD=devkitc1_epaper_workbench` | ESP32-S3 DevKitC-1 E-paper Workbench | Manifest-generated development target with fixed CardKB, 400x300 SSD1683 display, and SDSPI storage attachments. |
@@ -1429,8 +1430,9 @@ GPIO47 has no ADC function. Only GPIO6 and GPIO47 are free GPIO/PWM slots;
 GPIO6 is also an ADC slot. The I2C pins on J2 remain owned by `i2c0`.
 The `io` Layout view shows all six J2 positions in pin order, including 3V3 and GND.
 
-The display defaults to 10 MHz SPI. `display mode display0` reports the actual
-SPI rate.
+The display defaults to 20 MHz SPI writes and 10 MHz reads. Initial controller
+setup uses 10 MHz before selecting the write clock. `display mode display0`
+reports the actual write and read rates.
 
 The display provider uses PSRAM for its monochrome canvas, packed gray image,
 and comparison image. Its transfer buffer uses DMA memory. It reads the
@@ -1458,12 +1460,32 @@ preserved. The default `grayscale=4` quantizes output to levels 0, 5, 10 and 15;
 Both grayscale settings use the same transfer size. Native 2-bit uploads are
 not used: the controller maps them to levels 0, 4, 8 and 12, which omit white.
 The retained image keeps its original shades in either mode.
+`display mode display0 grayscale=2` selects monochrome output with ordered
+4x4 dithering and compact 1-bit retained and pending images. Each native image
+uses 328536 bytes instead of 1314144 bytes; asynchronous raster presentation
+uses 1971216 fewer PSRAM bytes across those two images. The shared display
+queue also handles monochrome text with compact targets, saving 1634248
+bytes compared with four- or sixteen-level text presentation. The shared display
+service also selects a monochrome application canvas. `view` decodes to gray
+and draws through that canvas, avoiding its INDEX8 canvas and RGB565 staging
+buffer. Close and reopen graphics apps after changing modes so their working
+buffers follow the new preference. `storage-bpp` and `image-bytes` report the retained image
+format and bytes per image, independently of transfer `bpp`.
+Switching back to `grayscale=4` or `grayscale=16` reallocates 4-bit images;
+new presentations supply their original shades again. Mode changes preserve
+the current mode if allocation fails and establish a full baseline on the next
+presentation. Grayscale selection is runtime-only.
 A change between transfer formats,
 startup, recovery, and periodic cleanup use the full panel. `display mode display0`
 reports the last refresh time, upload/preparation time, waveform wait, rectangle,
 and transfer bit depth, plus upload bytes, chunks and regions. These timings
 cover the driver refresh, after rendering. Bulk uploads use interrupt-driven
 DMA in chunks of up to 4 KiB and release the shared SD bus between chunks.
+Compact full-width images can transfer directly from PSRAM; `dma-direct`
+reports how many bytes of the last upload used that path. Other regions and
+unaligned ends use the bounded DMA staging buffer. Monochrome text preserves
+changed regions through scaling and conversion; compatible presenters combine
+both steps while keeping the native canvas available for overlays and exports.
 Mode status also reports the controller firmware (`fw`) and waveform identity (`lut-id`).
 Monochrome and raster graphics presentations use the shared e-paper worker:
 input processing continues during panel uploads and waveform waits, and newer

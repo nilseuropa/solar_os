@@ -24,6 +24,7 @@
 #include "solar_os_task.h"
 #include "solar_os_queue.h"
 #include "solar_os_shell.h"
+#include "solar_os_sessions.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -239,6 +240,27 @@ static int foreground_video_open_ex(uint16_t width, uint16_t height,
     esp_err_t err = solar_os_frame_presenter_init(&state->presenter, &config);
     if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
     if (err == ESP_OK) state->frame_size = (size_t)width * height;
+    return foreground_result(err);
+}
+
+static int foreground_video_open_mono1(uint16_t width, uint16_t height, uint16_t fps)
+{
+    foreground_state_t *state = foreground_current();
+    if (!foreground_caller()) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    if (!width || !height || width > 1024U || height > 1024U || fps > 60U)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (state->presenter) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    const uint16_t stride = (width+7U)/8U;
+    const solar_os_frame_presenter_config_t config = {
+        .gfx=state->gfx, .format=SOLAR_OS_DISPLAY_FORMAT_MONO1,
+        .width=width, .height=height, .stride=stride,
+        .fit=SOLAR_OS_FRAME_FIT_HEIGHT, .preferred_fps=fps,
+        .request_high_refresh=true, .clear_background_on_resume=true,
+        .literal_direct_palette=true,
+    };
+    esp_err_t err = solar_os_frame_presenter_init(&state->presenter,&config);
+    if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
+    if (err == ESP_OK) state->frame_size = (size_t)stride*height;
     return foreground_result(err);
 }
 
@@ -858,6 +880,7 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
     .video_acquire = foreground_video_acquire, .video_exchange = foreground_video_exchange,
     .cooperate = foreground_cooperate,
     .set_memory_reclaimer = foreground_set_memory_reclaimer,
+    .video_open_mono1 = foreground_video_open_mono1,
 };
 
 
@@ -1132,6 +1155,19 @@ static solar_os_native_foreground_key_v1_t foreground_key(const solar_os_input_k
 
 static void foreground_poll_keyboard(foreground_state_t *state)
 {
+    char focus[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    const bool focused = !solar_os_sessions_input_focus(focus, sizeof(focus)) ||
+        (solar_os_gfx_display_target_name(state->gfx, target, sizeof(target)) &&
+         strcmp(focus, target) == 0);
+    if (state->keyboard_captured &&
+        (!focused || !solar_os_input_keyboard_captured_by(state))) {
+        solar_os_input_release_keyboard(state);
+        state->keyboard_captured = false;
+        xQueueReset(state->keys);
+        atomic_store(&state->input_reset, true);
+    }
+    if (!focused) return;
     if (!state->keyboard_captured) {
         for (size_t i = 0; i < solar_os_input_source_count(); ++i) {
             solar_os_input_source_info_t source;

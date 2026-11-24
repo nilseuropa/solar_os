@@ -139,7 +139,7 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(command.count("-serial"), 1)
         self.assertEqual(command[command.index("-serial") + 1], "chardev:console")
         self.assertIn("user,model=open_eth", command)
-        self.assertEqual(command[command.index("-display") + 1], "sdl")
+        self.assertEqual(command[command.index("-display") + 1], "sdl,zoom=2")
         self.assertIn("solar-os-input.absolute=on", command)
 
     @unittest.skipIf(sys.platform == "win32", "QEMU PTYs require a POSIX host")
@@ -179,6 +179,18 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("solar-os-input.absolute=off", command)
         with self.assertRaises(ValueError):
             qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", Path("flash.bin"), "invalid")
+
+    def test_graphical_profiles_zoom_without_changing_guest_geometry(self):
+        for board in ("qemu_esp32s3_rgb", "qemu_esp32s3_mono"):
+            for zoom in (1, 2, 3, 4):
+                command = qemu.qemu_command(Path("qemu"), board, Path("flash.bin"), zoom=zoom)
+                self.assertEqual(command[command.index("-display") + 1], f"sdl,zoom={zoom}")
+                self.assertIn("solar-os-input.absolute=on", command)
+                self.assertIn("user,model=open_eth", command)
+                self.assertEqual(command.count("-serial"), 1)
+        for invalid in (0, 5, -1, True, 1.5, "2"):
+            with self.subTest(zoom=invalid), self.assertRaises(ValueError):
+                qemu.qemu_command(Path("qemu"), "qemu_esp32s3_rgb", Path("flash.bin"), zoom=invalid)
 
     def test_physical_boards_are_rejected(self):
         with self.assertRaises(ValueError):

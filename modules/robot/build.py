@@ -31,6 +31,7 @@ def prepare(environment):
 def build(sdk, output):
     sys.path.insert(0, str(ROOT / "scripts"))
     from solaros_build_lock import acquire_project_build_lock
+    from pack_native_sdk import pack_elf
     acquire_project_build_lock(ROOT, "robot-library")
     commands = json.loads((sdk / "compile_commands.json").read_text())
     template = next(c for c in commands if c["file"].endswith("/src/services/solar_os_motor.c"))
@@ -67,6 +68,8 @@ def build(sdk, output):
     remove_noop_relocations(artifact)
     imports = verify(artifact, {"solar_os_native_library_host_v1", "memcpy", "memmove", "memset", "memcmp", "strlen"})
     subprocess.run([prefix + "strip", "--strip-unneeded", str(artifact)], check=True)
+    artifact.write_bytes(pack_elf(artifact.read_bytes(), HERE / "module.toml", ROOT / "include"))
+    verify(artifact, set(imports))
     report = {"artifact_bytes": artifact.stat().st_size, "sha256": hashlib.sha256(artifact.read_bytes()).hexdigest(), "imports": imports}
     (output / "build.json").write_text(json.dumps(report, indent=2) + "\n")
     print(json.dumps(report, indent=2))

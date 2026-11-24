@@ -485,6 +485,81 @@ static void test_matrix_trackball_text_navigation(void)
 }
 #endif
 
+static void test_display_switch_overlay_release(bool captured)
+{
+    solar_os_input_source_t source;
+    assert(solar_os_input_keyboard_source_open("focus-shortcut", true, &source) == ESP_OK);
+    const bool previous_char_input = char_input;
+    char_input = !captured;
+    int owner;
+    if (captured)
+        assert(solar_os_input_capture_keyboard_with_shortcuts("focus-shortcut", &owner) == ESP_OK);
+    const uint16_t arrow_usages[] = {0x4fU, 0x50U, 0x51U, 0x52U};
+    /* Modifier and arrow releases may arrive in any order. */
+    const unsigned release_orders[][3] = {
+        {0, 1, 2}, {0, 2, 1}, {1, 0, 2}, {1, 2, 0}, {2, 0, 1}, {2, 1, 0},
+    };
+    for (unsigned alt_side = 0; alt_side < 2; alt_side++) {
+        const uint8_t alt = alt_side ? SOLAR_OS_INPUT_MOD_RIGHT_ALT : SOLAR_OS_INPUT_MOD_LEFT_ALT;
+        const uint16_t alt_usage = alt_side ? 0xe6U : 0xe2U;
+        for (unsigned ctrl_side = 0; ctrl_side < 2; ctrl_side++) {
+            const uint8_t ctrl = ctrl_side ? SOLAR_OS_INPUT_MOD_RIGHT_CTRL : SOLAR_OS_INPUT_MOD_LEFT_CTRL;
+            const uint16_t ctrl_usage = ctrl_side ? 0xe4U : 0xe0U;
+            for (unsigned alt_first = 0; alt_first < 2; alt_first++) {
+                for (unsigned direction = 0; direction < 4; direction++) {
+                    for (unsigned order = 0; order < 6; order++) {
+                        const uint16_t first = alt_first ? alt_usage : ctrl_usage;
+                        const uint16_t second = alt_first ? ctrl_usage : alt_usage;
+                        assert(solar_os_input_write_key(source, first, first, 0,
+                            alt_first ? alt : ctrl, SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+                        dispatch_desktop_queue();
+                        assert(solar_os_input_write_key(source, second, second, 0,
+                            alt | ctrl, SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+                        dispatch_desktop_queue();
+                        const uint16_t usage = arrow_usages[direction];
+                        const uint8_t key = solar_os_input_translate_hid_usage(usage, alt | ctrl, false);
+                        const unsigned moves_before = display_moves[direction];
+                        assert(solar_os_input_write_key(source, usage, usage, key,
+                            alt | ctrl, SOLAR_OS_INPUT_KEY_PRESS) == ESP_OK);
+                        dispatch_desktop_queue();
+                        assert(display_moves[direction] == moves_before + 1);
+                        assert(overlay_active && session_switch_alt_held);
+                        assert(solar_os_input_write_key(source, usage, usage, key,
+                            alt | ctrl, SOLAR_OS_INPUT_KEY_REPEAT) == ESP_OK);
+                        dispatch_desktop_queue();
+                        assert(display_moves[direction] == moves_before + 1);
+                        uint8_t modifiers = alt | ctrl;
+                        bool arrow_released = false;
+                        for (unsigned release = 0; release < 3; release++) {
+                            const unsigned kind = release_orders[order][release];
+                            if (kind == 0) modifiers &= (uint8_t)~alt;
+                            if (kind == 1) modifiers &= (uint8_t)~ctrl;
+                            if (kind == 2) arrow_released = true;
+                            const uint16_t released_usage = kind == 0 ? alt_usage : kind == 1 ? ctrl_usage : usage;
+                            assert(solar_os_input_write_key(source, released_usage, released_usage,
+                                kind == 2 ? key : 0, modifiers, SOLAR_OS_INPUT_KEY_RELEASE) == ESP_OK);
+                            dispatch_desktop_queue();
+                            assert(overlay_active == ((modifiers & alt) != 0));
+                            assert((session_switch_nav_held != 0) == !arrow_released);
+                        }
+                        assert(!overlay_active && !session_switch_alt_held && !session_switch_nav_held);
+                    }
+                }
+            }
+        }
+    }
+    if (captured) {
+        solar_os_input_key_event_t event;
+        bool reset;
+        assert(!solar_os_input_read_captured_key(&owner, &event, &reset));
+        solar_os_input_release_keyboard(&owner);
+    }
+    solar_os_input_source_close(source);
+    dispatch_desktop_queue();
+    char_input = previous_char_input;
+    puts("Display focus overlay closes on Alt release for both modifier orders, all arrows and AltGr");
+}
+
 int main(void)
 {
     assert(solar_os_input_init() == ESP_OK);
@@ -552,6 +627,8 @@ int main(void)
         assert(!overlay_active && !session_switch_alt_held);
     }
     assert(app_exits == 2);
+    test_display_switch_overlay_release(false);
+    test_display_switch_overlay_release(true);
     /* Key-event apps receive a typed key first, then its text, unless the key
      * was typed with left Alt or moved input focus. */
     char_input = false;

@@ -29,6 +29,7 @@ typedef struct {
     bool st7796;
     bool st7789;
     bool gc9a01;
+    bool ili9488;
     bool invert_color;
     int power_pin;
     bool power_active_high;

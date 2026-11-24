@@ -896,7 +896,7 @@ static const char * const mem_subcommands[] = {"policy", "reclaim", "compact", "
 static const char * const cc_subcommands[] = {"build", "sdk"};
 static const char * const cc_sdk_subcommands[] = {"list", "show", "export"};
 static const char * const pkg_subcommands[] = {
-    "system", "available", "installed", "install", "remove", "unload",
+    "system", "available", "installed", "install", "update", "upgrade", "remove", "unload",
 };
 #else
 static const char * const pkg_subcommands[] = {"system"};
@@ -1639,6 +1639,7 @@ static const char * const battery_subcommands[] = {
     "status",
     "config",
     "capacity",
+    "runtime",
     "min_voltage",
     "max_voltage",
 };
@@ -2178,6 +2179,8 @@ static const char * const path_mem[] = {"mem"};
 static const char * const path_pkg[] = {"pkg"};
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static const char * const path_pkg_install[] = {"pkg", "install"};
+static const char * const path_pkg_upgrade[] = {"pkg", "upgrade"};
+static const char * const path_pkg_upgrade_yes[] = {"pkg", "upgrade", "-y"};
 static const char * const path_cc[] = {"cc"};
 static const char * const path_cc_build[] = {"cc", "build"};
 static const char * const path_cc_sdk[] = {"cc", "sdk"};
@@ -3671,6 +3674,8 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_cc_sdk, cc_sdk_subcommands),
     SHELL_COMPLETION_PATH(path_cc_sdk_export, true),
     SHELL_COMPLETION_MODULES_AVAILABLE(path_pkg_install),
+    SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_upgrade),
+    SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_upgrade_yes),
     SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_remove),
     SHELL_COMPLETION_MODULES_INSTALLED(path_pkg_unload),
 #endif
@@ -8758,6 +8763,16 @@ static void shell_completion_emit_expansion_spec(
             solar_os_bus_info_t bus;
             if (solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_PS2, i, &bus)) {
                 snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, bus.name);
+                shell_completion_emit(state, candidate);
+            }
+        }
+        break;
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        for (size_t i = 0; i < solar_os_display_target_count(); ++i) {
+            solar_os_display_target_t target;
+            if (solar_os_display_get_target(i, &target) && target.ready &&
+                strlen(target.name) < SOLAR_OS_EXPANSION_TARGET_MAX) {
+                snprintf(candidate, sizeof(candidate), "%s=%s", spec->key, target.name);
                 shell_completion_emit(state, candidate);
             }
         }

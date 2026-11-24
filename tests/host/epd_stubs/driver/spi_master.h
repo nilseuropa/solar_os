@@ -10,10 +10,14 @@ typedef void *spi_device_handle_t;
 #define SPI3_HOST 2
 #define SPI_DMA_CH_AUTO 3
 #define SPI_TRANS_USE_TXDATA 1
+#define SPI_TRANS_USE_RXDATA 32
 #define SPI_TRANS_CS_KEEP_ACTIVE 2
 #define SPI_DEVICE_3WIRE 4
 #define SPI_DEVICE_HALFDUPLEX 8
 #define SPI_DEVICE_NO_DUMMY 16
+#define SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL (1U << 11)
+#define SPI_TRANS_DMA_USE_PSRAM (1U << 12)
+#define SPI_TRANS_DMA_TX_FAIL (1U << 14)
 
 typedef struct {
     int clock_speed_hz, mode, spics_io_num, queue_size;
@@ -29,6 +33,7 @@ typedef struct {
     size_t rxlength;
     uint32_t override_freq_hz;
     uint8_t tx_data[4];
+    uint8_t rx_data[4];
     const void *tx_buffer;
     void *rx_buffer;
 } spi_transaction_t;

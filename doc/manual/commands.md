@@ -271,10 +271,12 @@ job for periodic polling.
 | `pkg` | `pkg` | Open the native-module package manager. |
 | `pkg` | `pkg system` | Print compiled package groups and build units. |
 | `pkg` | `pkg available` | Verify the signed native-module catalog and print its compact module list. |
-| `pkg` | `pkg installed` | List installed application, job, driver, and library modules. |
+| `pkg` | `pkg installed` | List installed modules, versions, and compatibility with the current OS using the saved catalog. |
 | `pkg` | `pkg install <module>` | Download, verify, validate, and atomically install a native module; Ctrl+C, Esc, or the app-exit key cancels. |
+| `pkg` | `pkg update` | Refresh the signed catalog and list installed modules and versions available for upgrade. |
+| `pkg` | `pkg upgrade [-y] [module]` | Preview and confirm upgrades from the saved catalog; optionally select one installed module or use `-y` to accept the plan. |
 | `pkg` | `pkg remove <module>` | Remove an installed native module. |
-| `pkg` | `pkg unload <library>` | Unload an unused library while keeping its installed file. |
+| `pkg` | `pkg unload <module>` | Unload an unused library, stopped job, or detached driver while keeping its installed file. |
 | `load` | `load <file.elf> [args...]` | Validate, relocate, run, and unload one native ELF module from storage. |
 | `cc` | `cc [--help]`; `cc <source.c> [more.c ...] [-I directory] [-o output.elf]`; `cc build [cc.toml]`; `cc sdk list\|show HEADER\|export NEW_DIRECTORY` | Compile native C applications and browse SDK headers. Included in `full` on ESP32-S3 boards with PSRAM; other builds can enable the `cc` group or install `cc`. Bare `cc` and `cc --help` display usage successfully. See [C development](c.md). |
 | `board` | `board` | Print board ID, name, and capabilities. |
@@ -1226,11 +1228,13 @@ available for the compiled board.
 | Command | Usage | Description |
 | --- | --- | --- |
 | `usb` | `usb [status\|devices\|mode <off\|device\|host>\|serial ...]` | [USB modes](usb.host.md) and GPIO reuse. |
-| `battery` | `battery [status]` | Show voltage, state of charge, power source, config, and monitor trend. |
-| `battery` | `battery config` | Show battery capacity and voltage thresholds. |
+| `battery` | `battery` | Show voltage, state of charge, power source, charging state, and estimated time left. |
+| `battery` | `battery status` | Show the full report, including config, monitor history, short/long window statistics, and estimated full-charge runtime. |
+| `battery` | `battery config` | Show battery capacity, voltage thresholds, and configured full-charge runtime. |
 | `battery` | `battery capacity [mAh]` | Show or set capacity estimate. |
+| `battery` | `battery runtime [hours]` | Show or set expected runtime from full charge to the minimum voltage. Decimal hours are accepted and rounded to minutes; `0` clears the starting estimate. Saved across reboots. |
 | `battery` | `battery min_voltage [V\|mV]` | Show or set low-voltage threshold. |
-| `battery` | `battery max_voltage [V\|mV]` | Show or set full/external-power shortcut threshold. |
+| `battery` | `battery max_voltage [V\|mV]` | Show or set the full-charge voltage used for estimated charge, current, and configured-runtime estimates. |
 | `audio` | `audio status` | Show audio state, global speaker level, tone queue, and active synth telemetry. |
 | `audio` | `audio devices` | List registered audio devices and their capture/playback streams. |
 | `audio` | `audio device <id>` | Show one audio device and its native PCM format. |
@@ -1582,6 +1586,35 @@ five frame-rate bytes. It supports `pulse-period=<auto,67..1000>`,
 `pulse-spi-khz=<100..20000>`, `pulse-power=<cycle,hold>`, and
 `invert=<false,true>`; it retains the native booster ramp. `waveform=otp`
 restores native auto. Pulse memory is allocated in PSRAM on demand.
+
+IT8951 targets expose separate runtime SPI clocks through
+`spi-khz=<100..20000>` for writes and `spi-read-khz=<100..20000>` for reads.
+The E1003 defaults to 20000 kHz writes and 10000 kHz reads. An attachment's `clock`
+selects writes; reads and initial controller setup use at most 10000 kHz.
+For example, `display mode display0 spi-khz=10000` lowers writes while retaining
+the read clock. Overrides take effect on the next transfer and are not saved.
+Mode output reports
+the last actual write/read clocks as `spi` and `read-spi`, and requested
+write/read clocks as `spi-target`. It also reports cumulative refresh `errors`,
+controller `resets` (including startup), and `last-error`. Resetting the display
+after a failed transfer does not clear these counters.
+
+IT8951 accepts `grayscale=2|4|16`; four levels are the default. For example,
+`display mode display0 grayscale=2` switches to compact 1-bit retained images
+with ordered 4x4 dithering. Each native image uses 328536 bytes, saving 985608
+PSRAM bytes compared with the 4-bit image used by the four- and sixteen-level
+modes. Asynchronous graphics uses both a retained and a pending image, saving
+1971216 bytes in total. Monochrome text uses the same compact queue, saving
+1634248 bytes compared with four- or sixteen-level text presentation.
+New graphics sessions use a compact monochrome canvas;
+`view` uses grayscale decoding and avoids INDEX8/RGB565 rendering buffers.
+Close and reopen existing apps after switching to release their old working
+buffers. Native apps can use the optional packed monochrome video API. Mode output
+reports `storage-bpp` and `image-bytes`; transfer `bpp` can already be 1 for a
+binary image in any grayscale mode. Switching modes reallocates storage when
+needed, waits for the current refresh, and redraws the terminal. If allocation
+fails, the previous mode and accepted frame remain usable. This setting is
+runtime-only.
 
 All built-in EPD profiles accept `cleanup-interval=<0..86400>` in seconds.
 Zero preserves the profile's normal cleanup policy. A nonzero value selects

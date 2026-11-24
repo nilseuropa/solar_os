@@ -877,6 +877,11 @@ label = "GC9A01 round display"
 category = "Expansion hardware"
 members = ["driver_display_gc9a01"]
 
+[groups.ili9488]
+label = "ILI9488 SPI display"
+category = "Expansion hardware"
+members = ["driver_display_ili9488"]
+
 [groups.cvbs]
 label = "PAL composite display"
 category = "Expansion hardware"
@@ -897,10 +902,20 @@ label = "SPD2010 capacitive touch"
 category = "Expansion hardware"
 members = ["driver_spd2010_touch"]
 
+[groups.xpt2046]
+label = "XPT2046 resistive touch"
+category = "Expansion hardware"
+members = ["driver_xpt2046"]
+
 [groups.qemu_rgb]
 label = "QEMU virtual RGB display"
 category = "Expansion hardware"
 members = ["driver_display_qemu_rgb"]
+
+[groups.qemu_mono]
+label = "QEMU virtual monochrome display"
+category = "Expansion hardware"
+members = ["driver_display_qemu_mono"]
 
 [groups.qemu_eth]
 label = "QEMU virtual Ethernet"
@@ -2933,6 +2948,19 @@ sources = [
 requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
 capabilities = ["gfx", "expansion_gpio"]
 
+[packages.driver_display_ili9488]
+label = "driver.display-ili9488"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_ili9488_expansion_driver"]
+depends = ["service_expansion", "service_spi", "driver_pwm_port"]
+sources = [
+  "board/solar_os_board_display_expansion.c",
+  "drivers/tft_ili9341.c",
+  "services/solar_os_tft_display.c",
+]
+requires = ["esp_driver_gpio", "esp_driver_spi", "u8g2"]
+capabilities = ["gfx", "expansion_gpio"]
+
 [packages.driver_display_spd2010]
 label = "driver.display-spd2010"
 targets = ["esp32", "esp32s3"]
@@ -2977,16 +3005,38 @@ sources = ["drivers/spd2010_touch.c", "services/solar_os_spd2010_touch.c"]
 requires = ["esp_driver_gpio", "esp_rom"]
 capabilities = ["gfx", "i2c"]
 
+[packages.driver_xpt2046]
+label = "driver.xpt2046"
+targets = ["esp32", "esp32s3"]
+expansion_drivers = ["solar_os_xpt2046_expansion_driver"]
+depends = ["service_expansion", "service_spi"]
+sources = ["drivers/xpt2046.c", "services/solar_os_xpt2046.c"]
+requires = ["esp_driver_gpio", "esp_driver_spi"]
+capabilities = ["gfx", "expansion_spi", "expansion_gpio"]
+
 [packages.driver_display_qemu_rgb]
 label = "driver.display-qemu-rgb"
 targets = ["esp32s3"]
 expansion_drivers = ["solar_os_qemu_rgb_expansion_driver"]
+depends = ["driver_display_qemu_backend"]
+capabilities = ["qemu", "gfx"]
+
+[packages.driver_display_qemu_backend]
+label = "driver.display-qemu-backend"
+targets = ["esp32s3"]
 depends = ["service_expansion"]
 sources = [
   "board/solar_os_board_display_expansion.c",
   "services/solar_os_qemu_rgb_display.c",
 ]
 requires = ["esp_lcd", "espressif__esp_lcd_qemu_rgb", "u8g2"]
+capabilities = ["qemu", "gfx"]
+
+[packages.driver_display_qemu_mono]
+label = "driver.display-qemu-mono"
+targets = ["esp32s3"]
+expansion_drivers = ["solar_os_qemu_mono_expansion_driver"]
+depends = ["driver_display_qemu_backend"]
 capabilities = ["qemu", "gfx"]
 
 [packages.driver_network_qemu_eth]

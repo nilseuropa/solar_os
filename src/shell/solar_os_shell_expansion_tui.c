@@ -12,6 +12,7 @@
 #include "esp_err.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_buses.h"
+#include "solar_os_display.h"
 #include "solar_os_expansion.h"
 #include "solar_os_expansion_profiles_generated.h"
 #include "solar_os_gpio_controller.h"
@@ -379,6 +380,7 @@ static void expansion_tui_format_binding(
         break;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
     case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
         snprintf(line, line_len, "%s = %s", binding->role, binding->target);
         break;
     case SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS:
@@ -1214,6 +1216,19 @@ static bool expansion_tui_get_choice(size_t index,
         return false;
     }
 
+    if (spec->kind == SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET) {
+        for (size_t i = 0; i < solar_os_display_target_count(); ++i) {
+            solar_os_display_target_t target;
+            if (!solar_os_display_get_target(i, &target) || !target.ready ||
+                strlen(target.name) >= SOLAR_OS_EXPANSION_TARGET_MAX) continue;
+            if (index == current++) {
+                strlcpy(choice->value, target.name, sizeof(choice->value));
+                strlcpy(choice->label, target.name, sizeof(choice->label));
+                return true;
+            }
+        }
+        return false;
+    }
     if (spec->kind == SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM || spec->kind == SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM) {
         for (size_t i = 0U; i < solar_os_stream_count(); i++) {
             solar_os_stream_info_t stream;
@@ -1286,6 +1301,7 @@ static bool expansion_tui_field_has_choices(size_t field)
          expansion_tui_kind_protocol(spec->kind, &protocol) ||
          spec->kind == SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM ||
          spec->kind == SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM ||
+         spec->kind == SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET ||
          spec->allowed_value_count > 0U);
 }
 
@@ -1517,6 +1533,7 @@ static bool expansion_tui_binding_from_spec(
         case SOLAR_OS_EXPANSION_BINDING_SPI_CS:
         case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:
         case SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM:
+        case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
         case SOLAR_OS_EXPANSION_BINDING_PARAMETER:
             role = spec->key;
             break;
@@ -1545,6 +1562,10 @@ static bool expansion_tui_binding_from_spec(
     }
     case SOLAR_OS_EXPANSION_BINDING_PS2_BUS:
         if (!solar_os_bus_find(text, SOLAR_OS_BUS_PROTOCOL_PS2, NULL)) return false;
+        strlcpy(binding->target, text, sizeof(binding->target));
+        return true;
+    case SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET:
+        if (!text[0] || strlen(text) >= sizeof(binding->target)) return false;
         strlcpy(binding->target, text, sizeof(binding->target));
         return true;
     case SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM:

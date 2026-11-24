@@ -48,6 +48,25 @@ int main(void)
     assert(solar_os_file_shortcut_from_key_event(&event) ==
            SOLAR_OS_FILE_SHORTCUT_NONE);
 
+    const uint8_t search_modifiers[] = {
+        SOLAR_OS_INPUT_MOD_LEFT_CTRL, SOLAR_OS_INPUT_MOD_RIGHT_CTRL,
+        SOLAR_OS_INPUT_MOD_LEFT_ALT, SOLAR_OS_INPUT_MOD_RIGHT_ALT,
+    };
+    for (size_t i = 0; i < sizeof(search_modifiers); i++) {
+        event = key_event(SOLAR_OS_FILE_SHORTCUT_SEARCH_USAGE,
+                          's', search_modifiers[i]);
+        assert(solar_os_file_shortcut_from_key_event(&event) ==
+               SOLAR_OS_FILE_SHORTCUT_SEARCH);
+        event.action = SOLAR_OS_INPUT_KEY_REPEAT;
+        event.key = 0x13U;
+        assert(solar_os_file_shortcut_from_key_event(&event) ==
+               SOLAR_OS_FILE_SHORTCUT_SEARCH);
+    }
+    event = key_event(SOLAR_OS_FILE_SHORTCUT_ENTER_USAGE,
+                      SOLAR_OS_KEY_ENTER, SOLAR_OS_INPUT_MOD_LEFT_CTRL);
+    assert(solar_os_file_shortcut_from_key_event(&event) ==
+           SOLAR_OS_FILE_SHORTCUT_NONE);
+
     puts("file shortcut tests: ok");
     return 0;
 }

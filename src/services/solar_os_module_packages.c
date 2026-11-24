@@ -6,6 +6,7 @@
 #include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "esp_attr.h"
 #include "freertos/FreeRTOS.h"
@@ -686,12 +687,13 @@ esp_err_t solar_os_module_package_path(solar_os_module_type_t type,
     return solar_os_storage_default_path(relative, path, path_len);
 }
 
-esp_err_t solar_os_module_package_foreach_installed(
+static esp_err_t module_foreach_directory(
     solar_os_module_type_t type,
     solar_os_module_package_visit_fn visit,
-    void *user)
+    void *user, bool legacy, bool *stopped)
 {
     static const char suffix[] = ".elf";
+    const char *file_suffix = legacy ? ".app.elf" : suffix;
     char modules_path[SOLAR_OS_STORAGE_PATH_MAX];
     const char *directory = module_type_directory(type);
 
@@ -701,8 +703,8 @@ esp_err_t solar_os_module_package_foreach_installed(
     char relative[32];
     const int written = snprintf(relative,
                                  sizeof(relative),
-                                 "modules/%s",
-                                 directory);
+                                 legacy ? "modules%s" : "modules/%s",
+                                 legacy ? "" : directory);
     if (written < 0 || (size_t)written >= sizeof(relative)) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -720,11 +722,14 @@ esp_err_t solar_os_module_package_foreach_installed(
     }
 
     struct dirent *entry = NULL;
-    while ((entry = readdir(dir)) != NULL) {
+    for (;;) {
+        errno = 0;
+        entry = readdir(dir);
+        if (entry == NULL) { err = errno ? ESP_FAIL : ESP_OK; break; }
         const size_t name_len = strlen(entry->d_name);
-        const size_t suffix_len = sizeof(suffix) - 1U;
+        const size_t suffix_len = strlen(file_suffix);
         if (name_len <= suffix_len ||
-            strcmp(&entry->d_name[name_len - suffix_len], suffix) != 0) {
+            strcmp(&entry->d_name[name_len - suffix_len], file_suffix) != 0) {
             continue;
         }
 
@@ -741,18 +746,37 @@ esp_err_t solar_os_module_package_foreach_installed(
 
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         solar_os_storage_metadata_t metadata;
-        if (solar_os_module_package_path(type, id, path, sizeof(path)) != ESP_OK ||
-            solar_os_storage_stat(path, &metadata) != ESP_OK ||
+        if (solar_os_module_package_path(type, id, path, sizeof(path)) != ESP_OK) continue;
+        if (legacy) {
+            bool exists = false;
+            if (solar_os_storage_exists(path, &exists) != ESP_OK) { closedir(dir); return ESP_FAIL; }
+            if (exists) continue;
+            if (module_legacy_app_path(id, path, sizeof(path)) != ESP_OK) continue;
+        }
+        if (solar_os_storage_stat(path, &metadata) != ESP_OK ||
             metadata.type != SOLAR_OS_STORAGE_ENTRY_FILE) {
             continue;
         }
         if (!visit(id, user)) {
+            *stopped = true;
             break;
         }
     }
 
     closedir(dir);
-    return ESP_OK;
+    return err;
+}
+
+esp_err_t solar_os_module_package_foreach_installed(
+    solar_os_module_type_t type,
+    solar_os_module_package_visit_fn visit,
+    void *user)
+{
+    bool stopped = false;
+    esp_err_t err = module_foreach_directory(type, visit, user, false, &stopped);
+    if (err == ESP_OK && !stopped && type == SOLAR_OS_MODULE_TYPE_APP)
+        err = module_foreach_directory(type, visit, user, true, &stopped);
+    return err;
 }
 
 typedef struct {
@@ -864,11 +888,14 @@ static esp_err_t module_validate_download(const char *path,
     return err;
 }
 
-static esp_err_t module_install_one(const solar_os_module_package_t *package,
+#include "solar_os_module_receipts.inc"
+
+static esp_err_t module_install_one_ex(const solar_os_module_package_t *package,
                                           const solar_os_module_install_options_t *options,
                                           solar_os_module_install_result_t *result,
                                           char *detail,
-                                          size_t detail_len)
+                                          size_t detail_len,
+                                          bool stage_only)
 {
     const char *id = package->id;
     esp_err_t err = ESP_OK;
@@ -989,15 +1016,14 @@ static esp_err_t module_install_one(const solar_os_module_package_t *package,
     }
     /* Validate a library's registration during installation, then leave it
      * cold. Libraries are activated by consumers, never by the boot scan. */
-    if (err == ESP_OK && package->type == SOLAR_OS_MODULE_TYPE_LIBRARY) {
+    if (err == ESP_OK && resident_activated &&
+        (package->type == SOLAR_OS_MODULE_TYPE_LIBRARY || stage_only)) {
         err = solar_os_native_module_deactivate(package->type, package->id,
                                                 detail, detail_len);
         resident_activated = err != ESP_OK;
     }
     if (err == ESP_OK) {
-        err = solar_os_storage_replace_file(staged_path,
-                                            active_path,
-                                            backup_path);
+        err = module_publish_install(package, staged_path, active_path, backup_path, stage_only);
     }
     if (err != ESP_OK) {
         if (resident_activated) {
@@ -1013,7 +1039,7 @@ static esp_err_t module_install_one(const solar_os_module_package_t *package,
         }
         goto done;
     }
-    if (package->type == SOLAR_OS_MODULE_TYPE_APP) {
+    if (!stage_only && package->type == SOLAR_OS_MODULE_TYPE_APP) {
         char legacy_path[SOLAR_OS_STORAGE_PATH_MAX];
         if (module_legacy_app_path(id,
                                    legacy_path,
@@ -1032,6 +1058,13 @@ static esp_err_t module_install_one(const solar_os_module_package_t *package,
 
 done:
     return err;
+}
+
+static esp_err_t module_install_one(const solar_os_module_package_t *package,
+    const solar_os_module_install_options_t *options,
+    solar_os_module_install_result_t *result, char *detail, size_t detail_len)
+{
+    return module_install_one_ex(package, options, result, detail, detail_len, false);
 }
 
 /* A dependency is reusable only when its bytes match the signed catalog.
@@ -1126,6 +1159,8 @@ done:
     return err;
 }
 
+#include "solar_os_module_upgrade.inc"
+
 esp_err_t solar_os_module_package_remove(const char *id,
                                          char *detail,
                                          size_t detail_len)
@@ -1207,9 +1242,12 @@ esp_err_t solar_os_module_package_remove(const char *id,
     err = solar_os_storage_remove(path);
     if (err != ESP_OK) {
         module_set_detail(detail, detail_len, "could not remove the installed module");
-    } else if (matched_type == SOLAR_OS_MODULE_TYPE_APP && legacy_exists &&
-               strcmp(path, legacy_path) != 0) {
-        (void)solar_os_storage_remove(legacy_path);
+    } else {
+        char receipt_path[SOLAR_OS_STORAGE_PATH_MAX];
+        if (module_receipt_path(matched_type, id, receipt_path, sizeof(receipt_path)) == ESP_OK)
+            (void)solar_os_storage_remove(receipt_path);
+        if (matched_type == SOLAR_OS_MODULE_TYPE_APP && legacy_exists &&
+            strcmp(path, legacy_path) != 0) (void)solar_os_storage_remove(legacy_path);
     }
 
 done:

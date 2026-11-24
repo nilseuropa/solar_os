@@ -181,6 +181,14 @@ do not write to it. Never free these buffers or mix this path with `present`.
 The writing buffer survives suspension, and the host restores the latest frame
 on resume. All host-owned buffers are released when the worker exits.
 
+For a monochrome source, check for the appended
+`video_open_mono1(width, height, fps)` method. Rows use `(width + 7) / 8` bytes,
+with the least significant bit first and one meaning black. `present`,
+`video_acquire`, and `video_exchange` then use that packed size. This avoids
+expanding a monochrome guest screen to INDEX8 and saves seven eighths of each
+host-owned frame buffer. Older hosts may omit this method; check `struct_size`
+and fall back to indexed video when unavailable or unsupported by the target.
+
 Use `cooperate` at regular CPU-work checkpoints. The host coalesces these
 requests while allowing periodic idle-task work. Use `sleep_ms` for timed waits,
 and continue polling stop and suspend requests. The

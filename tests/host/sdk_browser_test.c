@@ -87,11 +87,25 @@ static void expect(const char *relative,const char *text)
 }
 int main(int argc,char **argv)
 {
-    assert(argc==3 && strlen(argv[1])<sizeof(root));strcpy(root,argv[1]);
+    assert(argc>=3 && strlen(argv[1])<sizeof(root));strcpy(root,argv[1]);
     storage=(solar_os_native_storage_api_v1_t){.abi_version=1,.struct_size=sizeof(storage),.resolve_path=resolve,
         .file_size=file_size,.read_file=read_file,.replace_file=replace,.stop_requested=stopped,
         .directory_entry=entry,.make_directories=mkdirs,.remove_path=remove_path};
-    if(!strcmp(argv[2],"valid")) {
+    if(!strcmp(argv[2],"library")) {
+        assert(argc>=6);
+        assert(!run("list",NULL) && strstr(output,argv[3]) && strstr(output,argv[4]));
+        for(int i=5;i<argc;i++) assert(!run("show",argv[i]) && output[0]);
+        char count[64];snprintf(count,sizeof(count),"exported %d headers",argc-3);
+        assert(!run("export","sdk") && strstr(output,count));
+    } else if(!strcmp(argv[2],"robot")) {
+        assert(!run("list",NULL));
+        assert(strstr(output,"robot/solar_os_robot_abi.h") && strstr(output,"1.0.0"));
+        assert(strstr(output,"robot/solar_os_robot_model.h") && strstr(output,"robot/solar_os_robot_diff_drive.h"));
+        assert(!run("show","robot/solar_os_robot_abi.h") && strstr(output,"#define SOLAR_OS_ROBOT_ABI 3U"));
+        assert(!run("show","robot/solar_os_robot_model.h") && strstr(output,"solar_os_robot_model_info_t"));
+        assert(!run("show","robot/solar_os_robot_diff_drive.h") && strstr(output,"solar_os_robot_diff_drive_status_t"));
+        assert(!run("export","sdk") && strstr(output,"exported 5 headers"));
+    } else if(!strcmp(argv[2],"valid")) {
         assert(!run("list",NULL));assert(strstr(output,"stdio.h") && strstr(output,"0.6.0") && strstr(output,"testlib/api.h") && strstr(output,"1.2.3"));
         assert(!strstr(output,"plain"));
         assert(!run("show","stdio.h") && !strcmp(output,headers[1].text));

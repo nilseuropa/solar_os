@@ -14,6 +14,18 @@ from build import HERE, ROOT, CACHE, prepare, replace, run
 from isolate import isolate
 
 
+def sdk_headers(source):
+    headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
+    headers.update({p.name: p for p in (ROOT / "include").glob("solar_os_*_types_v1.h")})
+    headers["solar_os_key_codes.h"] = ROOT / "include/solar_os_key_codes.h"
+    headers["solar_os_cc_abi.h"] = HERE / "include/solar_os_cc_abi.h"
+    headers.update({p.name: p for p in (HERE / "sdk").glob("*.h")})
+    for name in ("stddef.h", "stdbool.h", "stdarg.h"):
+        if name not in headers: headers[name] = source / "include" / name
+    headers["hello_library_api.h"] = ROOT / "modules/examples/hello-library/main/hello_library_api.h"
+    return headers
+
+
 def build_builtin(cc, prefix, output, destination, libgcc):
     destination.mkdir(parents=True, exist_ok=True)
     # Resolve reset-region boundaries while retaining ordinary firmware
@@ -102,13 +114,7 @@ def main():
         rename += ["--rename-section", f"{name}=.tcccore.{group}.{i}"]
     run(prefix + "objcopy", *rename, output / "core.raw.o", output / "core.o")
     # Embed a target SDK as bounded read-only files, without a host filesystem.
-    headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
-    headers["solar_os_key_codes.h"] = ROOT / "include/solar_os_key_codes.h"
-    headers["solar_os_cc_abi.h"] = HERE / "include/solar_os_cc_abi.h"
-    headers.update({p.name: p for p in (HERE / "sdk").glob("*.h")})
-    for name in ("stddef.h", "stdbool.h", "stdarg.h"):
-        if name not in headers: headers[name] = source / "include" / name
-    headers["hello_library_api.h"] = ROOT / "modules/examples/hello-library/main/hello_library_api.h"
+    headers = sdk_headers(source)
     sdk = []
     for name, path in sorted(headers.items()):
         data = path.read_bytes()

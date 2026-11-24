@@ -7,7 +7,7 @@ import sys
 Import("env")
 
 sys.path.insert(0, str(Path(env.subst("$PROJECT_DIR")) / "scripts"))
-from solaros_qemu import (DEFAULT_UART0_MODE, ensure_qemu, launch_qemu,
+from solaros_qemu import (DEFAULT_UART0_MODE, QEMU_GRAPHICAL_BOARDS, ensure_qemu, launch_qemu,
                           prepare_audio_backend, prepare_flash, prepare_host_storage, prepare_uart0, qemu_command)
 from solaros_qemu_build import ensure_input_qemu
 
@@ -27,7 +27,7 @@ def run_qemu(source, target, env):
             executable = Path(configured).expanduser()
             if not executable.is_absolute(): executable = project / executable
             if not executable.is_file(): raise RuntimeError(f"QEMU executable not found: {executable}")
-        elif env["PIOENV"] == "qemu_esp32s3_rgb" or storage is not None or audio != "off":
+        elif env["PIOENV"] in QEMU_GRAPHICAL_BOARDS or storage is not None or audio != "off":
             ninja_name = "ninja.exe" if sys.platform == "win32" else "ninja"
             ninja = Path(platform.get_package_dir("tool-ninja")) / ninja_name
             executable = ensure_input_qemu(package, project, ninja)
@@ -41,7 +41,8 @@ def run_qemu(source, target, env):
         image = prepare_flash(build, images)
         pointer_mode = env.GetProjectOption("custom_qemu_pointer", "touch")
         uart0_mode = env.GetProjectOption("custom_qemu_uart0", DEFAULT_UART0_MODE)
-        command = qemu_command(executable, env["PIOENV"], image, pointer_mode, uart0_mode, storage, audio)
+        zoom = int(env.GetProjectOption("custom_qemu_zoom", "2"))
+        command = qemu_command(executable, env["PIOENV"], image, pointer_mode, uart0_mode, storage, audio, zoom)
         prepare_uart0(build, uart0_mode)
         if storage is not None:
             print(f"SolarOS /host directory: {storage}", flush=True)

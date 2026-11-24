@@ -6,6 +6,8 @@
 
 #include "esp_err.h"
 
+#define SOLAR_OS_BATTERY_RUNTIME_MAX_MIN (365U * 24U * 60U)
+
 typedef enum {
     SOLAR_OS_BATTERY_TREND_UNKNOWN,
     SOLAR_OS_BATTERY_TREND_DISCHARGING,
@@ -28,7 +30,16 @@ typedef struct {
     uint32_t capacity_mah;
     uint16_t min_voltage_mv;
     uint16_t max_voltage_mv;
+    uint32_t runtime_min; /* Full-charge runtime seed; zero disables it. */
 } solar_os_battery_config_t;
+
+typedef struct {
+    bool valid;
+    uint32_t span_ms;
+    int32_t voltage_drop_mvh; /* Trend-line rate; positive means discharge. */
+    bool current_valid;
+    int32_t current_ma; /* Capacity/voltage estimate; positive means discharge. */
+} solar_os_battery_window_status_t;
 
 typedef struct {
     bool running;
@@ -45,6 +56,10 @@ typedef struct {
     bool time_left_valid;
     esp_err_t last_error;
     bool external_power_known;
+    solar_os_battery_window_status_t short_window;
+    solar_os_battery_window_status_t long_window;
+    bool time_left_seeded;
+    uint32_t full_runtime_min; /* Uses the same rate/source as time_left_min. */
 } solar_os_battery_monitor_status_t;
 
 typedef struct {
@@ -78,6 +93,7 @@ void solar_os_battery_get_config(solar_os_battery_config_t *config);
 esp_err_t solar_os_battery_set_capacity_mah(uint32_t capacity_mah);
 esp_err_t solar_os_battery_set_min_voltage_mv(uint16_t min_voltage_mv);
 esp_err_t solar_os_battery_set_max_voltage_mv(uint16_t max_voltage_mv);
+esp_err_t solar_os_battery_set_runtime_min(uint32_t runtime_min);
 esp_err_t solar_os_battery_monitor_start(uint32_t interval_ms);
 void solar_os_battery_monitor_stop(void);
 esp_err_t solar_os_battery_monitor_sample(uint32_t now_ms);

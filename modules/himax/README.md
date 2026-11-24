@@ -93,3 +93,8 @@ Management also uses the host's `storage.files` and strict `json` tables. Close
 file leases and JSON roots before releasing the provider lease. Older providers
 retain the capture ABI prefix; callers check size and capability bits before
 accessing appended management methods.
+
+The installed package publishes this contract as
+`processor-himax/solar_os_processor_provider_abi.h`. Native C clients can include
+that path directly. Use `cc sdk show processor-himax/solar_os_processor_provider_abi.h`
+or `cc sdk export NEW_DIRECTORY` to inspect or export it.

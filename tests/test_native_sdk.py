@@ -167,5 +167,22 @@ int main(int argc,char **argv)
             subprocess.run(['cmake','--build',str(build)],check=True,stdout=subprocess.DEVNULL)
             self.assertEqual((build/'output.elf').read_bytes(),self.valid)
 
+    def test_cmake_packages_headers_from_explicit_shared_root(self):
+        project=self.path/'cmake-shared-project';project.mkdir()
+        shared=self.path/'shared-headers';shared.mkdir()
+        for name in ('api.h','detail.h'):
+            (shared/name).write_bytes((self.path/name).read_bytes())
+        (project/'module.toml').write_bytes(self.manifest.read_bytes())
+        (project/'raw.elf').write_bytes(fixture())
+        (project/'CMakeLists.txt').write_text('cmake_minimum_required(VERSION 3.16)\n'
+            'project(shared_sdk_test NONE)\nadd_custom_target(elf COMMAND "${CMAKE_COMMAND}" -E copy '
+            '"${CMAKE_CURRENT_SOURCE_DIR}/raw.elf" input.elf)\n'
+            f'include("{ROOT}/cmake/solar_os_native_sdk.cmake")\n'
+            f'solar_os_native_sdk(input.elf output.elf SOURCE_ROOT "{shared}")\n')
+        build=project/'build'
+        subprocess.run(['cmake','-S',str(project),'-B',str(build)],check=True,stdout=subprocess.DEVNULL)
+        subprocess.run(['cmake','--build',str(build)],check=True,stdout=subprocess.DEVNULL)
+        self.assertEqual((build/'output.elf').read_bytes(),self.valid)
+
 
 if __name__=='__main__':unittest.main()

@@ -1,6 +1,7 @@
 #include "solar_os_tft_display.h"
 
 #include <string.h>
+#include <stdatomic.h>
 
 #include "esp_check.h"
 #include "esp_heap_caps.h"
@@ -36,23 +37,25 @@
 #define SOLAR_OS_BOARD_LCD_POWER_ACTIVE_LEVEL 1
 #endif
 
-typedef struct {
+typedef struct tft_device {
     bool active;
     bool primary;
     char name[SOLAR_OS_EXPANSION_DEVICE_NAME_MAX];
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     tft_ili9341_t driver;
     solar_os_board_display_t display;
+    struct tft_device *next;
 } tft_device_t;
 
-static tft_device_t *device;
+static tft_device_t *devices;
+static atomic_flag tft_operation_running = ATOMIC_FLAG_INIT;
 
 typedef struct {
     uint32_t clock_hz;
     uint8_t rotation;
     bool bgr;
     bool invert;
-} gc9a01_options_t;
+} tft_options_t;
 
 static bool role_is(const solar_os_expansion_binding_t *binding, const char *role)
 {
@@ -69,7 +72,7 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
                                 int *power,
                                 bool *backlight_active_high,
                                 bool *backlight_pwm,
-                                gc9a01_options_t *options)
+                                tft_options_t *options)
 {
     bool have_spi = false;
     bool have_cs = false;
@@ -166,8 +169,8 @@ static void deinit(solar_os_board_display_t *display)
 
 static bool brightness_supported(const solar_os_board_display_t *display)
 {
-    (void)display;
-    return tft_ili9341_backlight_supported();
+    const tft_ili9341_t *driver = display != NULL ? display->driver : NULL;
+    return driver != NULL && driver->config.backlight_pin >= 0;
 }
 
 static esp_err_t get_brightness(const solar_os_board_display_t *display, uint8_t *percent)
@@ -221,6 +224,12 @@ static esp_err_t present_auxiliary_frame(
     return tft_ili9341_present_frame((tft_ili9341_t *)context, frame);
 }
 
+static esp_err_t set_auxiliary_colors(void *context, uint32_t foreground,
+    uint32_t background)
+{
+    return tft_ili9341_set_colors(context, foreground, background);
+}
+
 static esp_err_t shutdown(solar_os_board_display_t *display)
 {
     return display != NULL ? tft_ili9341_shutdown(display->driver) : ESP_ERR_INVALID_STATE;
@@ -262,16 +271,23 @@ static esp_err_t register_auxiliary(tft_device_t *attached)
     target.present_surface = present_auxiliary_surface;
     target.frame_context = &attached->driver;
     target.present_frame = present_auxiliary_frame;
+    target.set_colors = set_auxiliary_colors;
+    target.color_context = &attached->driver;
     return solar_os_display_register_target(&target);
 }
 
-static esp_err_t attach_tft(const char *name,
+static esp_err_t attach_tft_locked(const char *name,
                             const solar_os_expansion_binding_t *bindings,
                             size_t binding_count,
                             bool st7796,
                             bool st7789,
-                            bool gc9a01)
+                            bool gc9a01,
+                            bool ili9488)
 {
+    tft_device_t *const previous = devices;
+    for (tft_device_t *d = devices; d != NULL; d = d->next)
+        if (name != NULL && !strcmp(d->name, name)) return ESP_ERR_INVALID_STATE;
+    tft_device_t *device = NULL;
     char spi_bus[SOLAR_OS_EXPANSION_TARGET_MAX];
     int cs = -1;
     int dc = -1;
@@ -280,15 +296,14 @@ static esp_err_t attach_tft(const char *name,
     int power = -1;
     bool active_high = true;
     bool pwm = false;
-    gc9a01_options_t options = {
-        .clock_hz = 40000000U,
-        .rotation = 0,
+    tft_options_t options = {
+        .clock_hz = ili9488 ? 20000000U : 40000000U,
+        .rotation = ili9488 ? 1 : 0,
         .bgr = true,
-        .invert = true,
+        .invert = gc9a01,
     };
-    if (device != NULL || name == NULL || name[0] == '\0') {
-        return ESP_ERR_INVALID_STATE;
-    }
+    if (name == NULL || name[0] == '\0' || strnlen(name, SOLAR_OS_EXPANSION_DEVICE_NAME_MAX) >= SOLAR_OS_EXPANSION_DEVICE_NAME_MAX)
+        return ESP_ERR_INVALID_ARG;
     ESP_RETURN_ON_ERROR(parse_bindings(bindings,
                                        binding_count,
                                        spi_bus,
@@ -299,7 +314,7 @@ static esp_err_t attach_tft(const char *name,
                                        &power,
                                        &active_high,
                                        &pwm,
-                                       gc9a01 ? &options : NULL),
+                                       (gc9a01 || ili9488) ? &options : NULL),
                         "tft",
                         "invalid bindings");
     device = heap_caps_calloc(1, sizeof(*device), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
@@ -332,6 +347,7 @@ static esp_err_t attach_tft(const char *name,
         .st7796 = st7796,
         .st7789 = st7789,
         .gc9a01 = gc9a01,
+        .ili9488 = ili9488,
 #ifdef SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR
         .invert_color = SOLAR_OS_BOARD_DISPLAY_INVERT_COLOR != 0,
 #else
@@ -349,12 +365,12 @@ static esp_err_t attach_tft(const char *name,
         .rotation = U8G2_R1,
 #endif
     };
-    if (gc9a01) {
+    if (gc9a01 || ili9488) {
         /* Runtime expansions must not inherit the primary board's geometry,
          * offsets, IPS settings or backlight-dimmer wiring. */
         const u8g2_cb_t *const rotations[] = {U8G2_R0, U8G2_R1, U8G2_R2, U8G2_R3};
-        config.width = 240;
-        config.height = 240;
+        config.width = ili9488 ? 320 : 240;
+        config.height = ili9488 ? 480 : 240;
         config.col_offset = 0;
         config.row_offset = 0;
         config.spi_clock_hz = options.clock_hz;
@@ -376,17 +392,17 @@ static esp_err_t attach_tft(const char *name,
     device->display = (solar_os_board_display_t) {
         .ops = &display_ops,
         .driver = &device->driver,
-        .driver_name = gc9a01 ? "gc9a01" : (st7796 ? "st7796" : (st7789 ? "st7789" : "ili9341")),
+        .driver_name = ili9488 ? "ili9488" : (gc9a01 ? "gc9a01" : (st7796 ? "st7796" : (st7789 ? "st7789" : "ili9341"))),
         .u8g2 = u8g2,
-        .controller = gc9a01 ? "GC9A01" : (st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341")),
+        .controller = ili9488 ? "ILI9488" : (gc9a01 ? "GC9A01" : (st7796 ? "ST7796" : (st7789 ? "ST7789" : "ILI9341"))),
         .width = u8g2_GetDisplayWidth(u8g2),
         .height = u8g2_GetDisplayHeight(u8g2),
         .round = gc9a01,
         .surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT,
         .frame_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT |
             SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT,
-        .preferred_stream_fps = st7796 ? 25 : 30,
-        .max_stream_pixels_per_second = 1600000U,
+        .preferred_stream_fps = ili9488 ? 10 : (st7796 ? 25 : 30),
+        .max_stream_pixels_per_second = ili9488 ? options.clock_hz / 24U : 1600000U,
         .ready = true,
     };
     device->primary = solar_os_display_target_is_board_primary(name);
@@ -400,43 +416,60 @@ static esp_err_t attach_tft(const char *name,
         return ret;
     }
     device->active = true;
+    device->next = previous;
+    devices = device;
     return ESP_OK;
+}
+
+static esp_err_t attach_tft(const char *name, const solar_os_expansion_binding_t *bindings,
+    size_t count, bool st7796, bool st7789, bool gc9a01, bool ili9488)
+{
+    if (atomic_flag_test_and_set(&tft_operation_running)) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = attach_tft_locked(name, bindings, count, st7796, st7789, gc9a01, ili9488);
+    atomic_flag_clear(&tft_operation_running);
+    return err;
 }
 
 static esp_err_t attach_ili9341(const char *name,
                                 const solar_os_expansion_binding_t *bindings,
                                 size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false, false, false);
+    return attach_tft(name, bindings, binding_count, false, false, false, false);
 }
 
 static esp_err_t attach_st7796(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, true, false, false);
+    return attach_tft(name, bindings, binding_count, true, false, false, false);
 }
 
 static esp_err_t attach_st7789(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false, true, false);
+    return attach_tft(name, bindings, binding_count, false, true, false, false);
 }
 
 static esp_err_t attach_gc9a01(const char *name,
                                const solar_os_expansion_binding_t *bindings,
                                size_t binding_count)
 {
-    return attach_tft(name, bindings, binding_count, false, false, true);
+    return attach_tft(name, bindings, binding_count, false, false, true, false);
 }
 
-static esp_err_t detach(const char *name)
+static esp_err_t attach_ili9488(const char *name, const solar_os_expansion_binding_t *bindings, size_t count)
 {
-    if (device == NULL || !device->active || name == NULL ||
-        strcmp(device->name, name) != 0) {
-        return ESP_ERR_NOT_FOUND;
-    }
+    return attach_tft(name, bindings, count, false, false, false, true);
+}
+
+static esp_err_t detach_locked(const char *name)
+{
+    tft_device_t **link = &devices;
+    if (name == NULL) return ESP_ERR_NOT_FOUND;
+    while (*link != NULL && strcmp((*link)->name, name)) link = &(*link)->next;
+    tft_device_t *device = *link;
+    if (device == NULL || !device->active) return ESP_ERR_NOT_FOUND;
     const esp_err_t ret = device->primary ?
         solar_os_board_display_unregister_primary(&device->display) :
         solar_os_display_unregister_target(name);
@@ -444,9 +477,17 @@ static esp_err_t detach(const char *name)
         return ret;
     }
     tft_ili9341_deinit(&device->driver);
+    *link = device->next;
     heap_caps_free(device);
-    device = NULL;
     return ESP_OK;
+}
+
+static esp_err_t detach(const char *name)
+{
+    if (atomic_flag_test_and_set(&tft_operation_running)) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = detach_locked(name);
+    atomic_flag_clear(&tft_operation_running);
+    return err;
 }
 
 static const int bool_values[] = {0, 1};
@@ -526,5 +567,17 @@ const solar_os_expansion_driver_t solar_os_gc9a01_expansion_driver = {
     .binding_specs = gc9a01_binding_specs,
     .binding_spec_count = sizeof(gc9a01_binding_specs) / sizeof(gc9a01_binding_specs[0]),
     .attach = attach_gc9a01,
+    .detach = detach,
+};
+
+const solar_os_expansion_driver_t solar_os_ili9488_expansion_driver = {
+    .name = "ili9488",
+    .category = SOLAR_OS_EXPANSION_CATEGORY_DISPLAY,
+    .summary = "480x320 ILI9488 SPI color TFT",
+    .required_capabilities = TFT_CAPABILITIES,
+    .early = true,
+    .binding_specs = gc9a01_binding_specs,
+    .binding_spec_count = sizeof(gc9a01_binding_specs) / sizeof(gc9a01_binding_specs[0]),
+    .attach = attach_ili9488,
     .detach = detach,
 };

@@ -24,6 +24,11 @@ the installed file. `pkg remove espdl` also removes the file. Built-in firmware
 always uses its built-in engine. See [Model inference](../../doc/manual/inference.md)
 for Python, Lua, native clients, bundles, and execution modes.
 
+Native provider clients can include `<espdl/solar_os_inference_backend_abi.h>`.
+The package also carries its inference and image type headers. Browse the
+contract with `cc sdk show espdl/solar_os_inference_backend_abi.h`, or export
+it with `cc sdk export NEW_DIRECTORY`.
+
 ## Build and catalog
 
 Use the project's ESP-IDF 5.5 toolchain with GCC 14.2.0 and PlatformIO installed:

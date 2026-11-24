@@ -94,6 +94,21 @@ int main(void)
     assert(strcmp(value, "10") == 0);
     assert(!string_value);
 
+    static const solar_os_expansion_binding_spec_t touch_specs[] = {
+        {.key="spi", .kind=SOLAR_OS_EXPANSION_BINDING_SPI_BUS},
+        {.key="cs", .kind=SOLAR_OS_EXPANSION_BINDING_SPI_CS},
+        {.key="display", .kind=SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET, .role="display"},
+    };
+    const solar_os_expansion_driver_t touch_driver = {.name="xpt2046", .binding_specs=touch_specs, .binding_spec_count=3};
+    solar_os_expansion_device_t touch = {.name="touch0", .driver="xpt2046", .binding_count=3};
+    touch.bindings[0] = binding(SOLAR_OS_EXPANSION_BINDING_SPI_BUS,"","spi0",-1);
+    touch.bindings[1] = binding(SOLAR_OS_EXPANSION_BINDING_SPI_CS,"cs","spi0",7);
+    touch.bindings[2] = binding(SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET,"display","lcd0",-1);
+    assert(solar_os_shell_expansion_attach_command(&touch_driver,&touch,command,sizeof(command))==ESP_OK);
+    assert(!strcmp(command,"expansion attach xpt2046 touch0 spi=spi0 cs=gpio7 display=lcd0"));
+    assert(solar_os_shell_expansion_binding_manifest_field(&touch_driver,&touch.bindings[2],key,sizeof(key),value,sizeof(value),&string_value)==ESP_OK);
+    assert(!strcmp(key,"display") && !strcmp(value,"lcd0") && string_value);
+
     static const solar_os_expansion_binding_spec_t sensor_specs[] = {
         {.key = "i2c", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_BUS},
         {.key = "addr", .kind = SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS},

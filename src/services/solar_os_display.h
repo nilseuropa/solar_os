@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_display_mono_canvas.h"
 #include "solar_os_display_maintenance.h"
 #include "solar_os_display_geometry.h"
 #include "solar_os_gfx.h"
@@ -53,6 +54,12 @@ typedef struct {
     bool black_is_one;
     uint32_t surface_formats;
     uint32_t frame_formats;
+    /* Working-buffer preference, independent of accepted transport formats.
+     * Applications may use the compact monochrome canvas on a color-capable
+     * target. The optional getter is sampled when taking a target snapshot. */
+    bool prefer_mono;
+    bool (*prefers_mono)(const void *context);
+    void *render_context;
     uint16_t preferred_stream_fps;
     /* Minimum caller task stack for synchronous presentation, bytes; 0 uses
      * the presenter's default. Protocol-backed targets may nest substantial I/O. */
@@ -75,6 +82,12 @@ typedef struct {
     uint16_t native_width;
     uint16_t native_height;
     bool epaper;
+    solar_os_display_mono_canvas_presenter_t present_canvas;
+    void *canvas_context;
+    /* Optional monochrome-to-color theme. Applied before registration becomes
+     * visible, then under the presentation mutex on terminal color changes. */
+    esp_err_t (*set_colors)(void *context, uint32_t foreground, uint32_t background);
+    void *color_context;
 } solar_os_display_target_t;
 
 /* Runtime-only layout rectangle in the current panel's oriented/scaled pixels.
@@ -188,6 +201,10 @@ esp_err_t solar_os_display_set_layer(const char *name, const char *owner,
 esp_err_t solar_os_display_clear_layer(const char *name, const char *owner);
 bool solar_os_display_has_layer(const char *name, const char *owner);
 void solar_os_display_present(u8g2_t *u8g2, solar_os_display_present_mode_t mode);
+/* Areas use oriented/scaled panel pixels. Add the layout canvas origin when
+ * drawing with canvas-relative coordinates. NULL/zero selects a full frame. */
+void solar_os_display_present_regions(u8g2_t *u8g2, solar_os_display_present_mode_t mode,
+    const solar_os_display_rect_t *areas, size_t count);
 void solar_os_display_present_overlay(u8g2_t *u8g2,
                                       uint16_t x,
                                       uint16_t y,

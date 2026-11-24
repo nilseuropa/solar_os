@@ -181,6 +181,10 @@ typedef struct {
      * Recheck it to handle hot-plug; source IDs are not permanent identities. */
     int (*read_axis)(solar_os_native_foreground_axis_v1_t *axis, bool *available);
     uint8_t (*joystick_source)(void);
+    /* Packed row-major monochrome video: stride=(width+7)/8, least significant
+     * pixel first; one=black, zero=white. Frame acquire/exchange uses this same
+     * packed size. Optional; check struct_size before accessing. */
+    int (*video_open_mono1)(uint16_t width, uint16_t height, uint16_t fps);
 } solar_os_native_foreground_api_v1_t;
 
 static inline bool solar_os_native_foreground_has_exchange(

@@ -96,6 +96,48 @@ typedef struct {
 
 typedef bool (*solar_os_module_package_visit_fn)(const char *id, void *user);
 
+/* Receipts describe the bytes installed by pkg, including exact library pins.
+ * A missing receipt is normal for files installed by older firmware. */
+typedef struct {
+    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
+    char sha256[SOLAR_OS_MODULE_PACKAGE_SHA256_MAX];
+    uint32_t size;
+    uint8_t dependency_count;
+    solar_os_module_dependency_t dependencies[SOLAR_OS_MODULE_DEPENDENCIES_MAX];
+} solar_os_module_receipt_t;
+
+typedef struct {
+    uint8_t package_index;
+    bool installed;
+    char previous_version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
+    char previous_sha256[SOLAR_OS_MODULE_PACKAGE_SHA256_MAX];
+    uint32_t previous_size;
+} solar_os_module_upgrade_entry_t;
+
+typedef enum {
+    SOLAR_OS_MODULE_COMPATIBILITY_UNKNOWN,
+    SOLAR_OS_MODULE_COMPATIBILITY_VERIFIED,
+    SOLAR_OS_MODULE_COMPATIBILITY_INCOMPATIBLE,
+} solar_os_module_compatibility_t;
+
+typedef struct {
+    bool installed;
+    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
+    solar_os_module_compatibility_t compatibility;
+} solar_os_module_installed_info_t;
+
+typedef struct {
+    solar_os_module_catalog_t *catalog;
+    size_t count;
+    size_t held_count;
+    size_t verified_count;
+    size_t unverified_count;
+    size_t incompatible_count;
+    uint32_t download_bytes;
+    solar_os_module_upgrade_entry_t entries[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    bool applied;
+} solar_os_module_upgrade_plan_t;
+
 esp_err_t solar_os_module_packages_init(void);
 
 /* Read the saved signed catalog without network access. Verification and host
@@ -134,6 +176,27 @@ esp_err_t solar_os_module_package_foreach_installed(
     solar_os_module_type_t type,
     solar_os_module_package_visit_fn visit,
     void *user);
+
+esp_err_t solar_os_module_package_receipt(solar_os_module_type_t type,
+                                         const char *id,
+                                         solar_os_module_receipt_t *receipt);
+/* Verify installed bytes against a catalog already verified for this OS.
+ * A differing or absent catalog entry leaves compatibility unknown. */
+esp_err_t solar_os_module_package_inspect(const solar_os_module_catalog_t *catalog,
+    solar_os_module_type_t type, const char *id,
+    const solar_os_module_install_options_t *options, solar_os_module_installed_info_t *info);
+/* Plan from the saved, verified catalog; NULL id selects all installed modules.
+ * The plan owns the module-operation lock until freed. No artifacts are fetched
+ * and no files are changed while planning or checking. */
+esp_err_t solar_os_module_upgrade_plan(const char *id,
+    const solar_os_module_install_options_t *options,
+    solar_os_module_upgrade_plan_t **out_plan, char *detail, size_t detail_len);
+esp_err_t solar_os_module_upgrade_check(const solar_os_module_upgrade_plan_t *plan,
+    const solar_os_module_install_options_t *options, char *detail, size_t detail_len);
+esp_err_t solar_os_module_upgrade_apply(solar_os_module_upgrade_plan_t *plan,
+    const solar_os_module_install_options_t *options, size_t *completed,
+    char *detail, size_t detail_len);
+void solar_os_module_upgrade_plan_free(solar_os_module_upgrade_plan_t *plan);
 
 #ifdef __cplusplus
 }

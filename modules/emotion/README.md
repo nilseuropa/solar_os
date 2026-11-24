@@ -10,6 +10,10 @@ with normal heap alignment, call `init`, and serialize calls on each state.
 Keep the library lease until all state users have stopped. The library starts
 no workers and acquires no hardware; different states are independent.
 
+The installed package publishes `emotion/solar_os_emotion_abi.h` for native C
+clients. Use `cc sdk show emotion/solar_os_emotion_abi.h` to inspect it, or
+`cc sdk export NEW_DIRECTORY` to export it with the other available SDK headers.
+
 `set` changes the persistent pose. `react` temporarily replaces it, then returns
 to it after the transition and hold. A new reaction replaces the previous one;
 `set` cancels the reaction. `look` accepts -1000..1000 on each axis. Negative y

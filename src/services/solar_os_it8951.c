@@ -53,8 +53,12 @@ static void deinit(solar_os_board_display_t *display)
 
 static const char *target_mode(const void *driver) { return solar_os_it8951_mode(driver); }
 static const char *target_modes(const void *driver)
-{ (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS "refresh=auto|full grayscale=4|16"; }
+{ (void)driver; return SOLAR_OS_EPD_MAINTENANCE_OPTIONS
+    "refresh=auto|full grayscale=2|4|16 spi-khz=<100..20000> spi-read-khz=<100..20000>"; }
 static esp_err_t target_set_mode(void *driver, const char *mode) { return solar_os_it8951_set_mode(driver, mode); }
+static bool target_prefers_mono(const void *driver)
+{ return __atomic_load_n(&((const solar_os_it8951_t *)driver)->gray_levels,__ATOMIC_ACQUIRE) == 2U; }
+static bool prefers_mono(const solar_os_board_display_t *d) { return target_prefers_mono(d->driver); }
 static const char *mode(const solar_os_board_display_t *d) { return target_mode(d->driver); }
 static const char *modes(const solar_os_board_display_t *d) { return target_modes(d->driver); }
 static esp_err_t set_mode(solar_os_board_display_t *d, const char *s) { return target_set_mode(d->driver, s); }
@@ -68,6 +72,10 @@ static esp_err_t target_surface(void *driver, const solar_os_display_surface_t *
 { return solar_os_it8951_present_surface(driver, s); }
 static esp_err_t surface(solar_os_board_display_t *d, const solar_os_display_surface_t *s)
 { return target_surface(d->driver, s); }
+static esp_err_t target_canvas(void *driver, const solar_os_display_mono_canvas_t *canvas)
+{ return solar_os_it8951_present_canvas(driver,canvas); }
+static esp_err_t canvas(solar_os_board_display_t *d, const solar_os_display_mono_canvas_t *source)
+{ return target_canvas(d->driver,source); }
 static esp_err_t mono(solar_os_board_display_t *d, const uint8_t *bitmap, size_t size,
     uint16_t x, uint16_t y, uint16_t width, uint16_t height, uint16_t stride, bool inverted)
 {
@@ -84,6 +92,8 @@ static const solar_os_board_display_ops_t ops = {
     .controller_mode_values = modes, .set_controller_mode = set_mode,
     .present_power_state = power_state, .present_mono_xbm = mono,
     .present_frame = frame, .present_surface = surface,
+    .prefers_mono = prefers_mono,
+    .present_canvas = canvas,
 };
 
 #define FRAME_FORMATS (SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT | SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT | \
@@ -100,7 +110,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
     }
     if (slot == 2) return ESP_ERR_NO_MEM;
     solar_os_it8951_config_t cfg = {.cs = -1, .reset = -1, .busy = -1, .power = -1,
-        .ite_power = -1, .clock_hz = 10000000, .vcom_mv = 1400,
+        .ite_power = -1, .clock_hz = 20000000, .vcom_mv = 1400,
         .read_temperature = read_temperature};
     unsigned seen = 0;
     const char *cs_bus = NULL;
@@ -119,7 +129,7 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
             else if (!strcmp(b->role, "ite_power")) { bit = 32U; cfg.ite_power = b->value; }
             else return ESP_ERR_INVALID_ARG;
         } else if (b->kind == SOLAR_OS_EXPANSION_BINDING_PARAMETER) {
-            if (!strcmp(b->role, "clock") && b->value >= 100 && b->value <= 10000) {
+            if (!strcmp(b->role, "clock") && b->value >= 100 && b->value <= 20000) {
                 bit = 64U; cfg.clock_hz = (unsigned)b->value * 1000U;
             } else if (!strcmp(b->role, "rotation") && b->value >= 0 && b->value <= 3) {
                 bit = 128U; cfg.rotation = (unsigned)b->value;
@@ -162,12 +172,14 @@ static esp_err_t attach(const char *name, const solar_os_expansion_binding_t *bi
         target.controller_context = &device->driver;
         target.controller_mode = target_mode; target.controller_mode_values = target_modes;
         target.set_controller_mode = target_set_mode;
+        target.prefers_mono = target_prefers_mono; target.render_context = &device->driver;
         target.present_power_state = target_power_state; target.power_state_context = &device->driver;
         target.present_frame = target_frame; target.frame_context = &device->driver;
         target.frame_formats = FRAME_FORMATS;
         target.present_surface = target_surface; target.surface_context = &device->driver;
         target.surface_formats = SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT;
         target.preferred_stream_fps = 1;
+        target.present_canvas = target_canvas; target.canvas_context = &device->driver;
         err = solar_os_display_register_target(&target);
     }
     if (err != ESP_OK) { solar_os_it8951_deinit(&device->driver); solar_os_memory_free(device); }
@@ -197,7 +209,7 @@ static const solar_os_expansion_binding_spec_t specs[] = {
     {.key="busy", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="busy", .required=true},
     {.key="power", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="power", .required=true},
     {.key="ite_power", .value_hint="gpio", .kind=SOLAR_OS_EXPANSION_BINDING_GPIO, .role="ite_power", .required=true},
-    {.key="clock", .value_hint="100..10000kHz", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="clock", .has_value_range=true, .min_value=100, .max_value=10000},
+    {.key="clock", .value_hint="100..20000kHz", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="clock", .has_value_range=true, .min_value=100, .max_value=20000},
     {.key="rotation", .value_hint="0..3", .kind=SOLAR_OS_EXPANSION_BINDING_PARAMETER, .role="rotation", .has_value_range=true, .min_value=0, .max_value=3},
 };
 

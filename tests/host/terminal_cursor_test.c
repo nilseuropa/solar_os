@@ -7,6 +7,7 @@
 #include "solar_os_terminal_internal.h"
 
 #define TERM_MARGIN_X 4
+#define TERM_STATUS_BAR_HEIGHT 16
 #define TERM_CURSOR_BLINK_MS 500U
 #define SOLAR_OS_DISPLAY_PRESENT_TEXT 0
 
@@ -44,6 +45,12 @@ static void solar_os_display_present(u8g2_t *u, int mode)
         font_change_on_present = false;
         font_pack_generation++;
     }
+}
+static void solar_os_display_present_regions(u8g2_t *u, int mode,
+    const solar_os_display_rect_t *areas, size_t count)
+{
+    assert(areas && count == 3);
+    solar_os_display_present(u,mode);
 }
 static size_t terminal_rows(const solar_os_terminal_t *t) { return t->rows; }
 static size_t terminal_cols(const solar_os_terminal_t *t) { return t->cols; }

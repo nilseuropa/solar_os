@@ -1139,6 +1139,14 @@ Controls:
 - Arrows navigate panes.
 - `Tab` switches active pane.
 - `Enter` opens directories or launches known files.
+- `Ctrl+S` or `Alt+S` starts Midnight Commander-style quick search in the active
+  pane. Typing selects matching filename prefixes immediately; `*` and `?` are
+  wildcards, and matching ignores ASCII letter case. Press either shortcut again
+  for the next match, wrapping at the end. Backspace or Delete corrects the
+  pattern; characters with no match are ignored. `Esc` cancels search. Enter
+  ends search and opens the selected item; navigation and function keys end
+  search and perform their usual action. Press the search shortcut twice to
+  reuse that pane's previous pattern.
 - Returning to a parent directory restores the cursor to the directory that
   was just exited.
 - `F3`/`V`, `F4`/`E`, `F5`/`C`, `F6`/`M`, `F7`/`k`/`K`, `F8`/`D`, and `F9`/`Z`
@@ -1188,6 +1196,12 @@ Controls:
 
 - Up/Down selects an item. `PgUp`/`PgDn` moves by one visible page, and
   Home/End selects the first/last item. `Tab`, Left, and Right switch panes.
+- `Ctrl+S` or `Alt+S` starts the same quick search as Files in the active local
+  or remote listing. Matches are selected while typing, with prefix and `*`/`?`
+  wildcard matching. Repeat the shortcut for the next match; press it twice to
+  reuse that pane's previous pattern. Backspace or Delete corrects the pattern.
+  `Esc` cancels search; Enter opens the selected item. Navigation and function
+  keys end search and perform their usual action.
 - `Space` toggles a mark on the current file or directory and advances to the
   next item, as in Files. Marked items show `*`; each pane shows its mark count.
   Copy, move, and delete use the active pane's marked items, or the current
@@ -1261,6 +1275,9 @@ or the current item if none are marked. Transfers are recursive, show progress,
 retain both pane positions after refresh, and stage downloaded and uploaded
 files before replacement. `q`, `F10`, or the app-exit key closes the
 SSH connection and exits.
+
+`Ctrl+S` and `Alt+S` provide the same incremental filename quick search as Files
+and FTP, including wildcards, next-match cycling, and a previous pattern per pane.
 
 ## flash
 
@@ -2079,7 +2096,7 @@ Controls:
 Open the native synthesizer and sound designer:
 
 ```text
-synth [--headless]
+synth [--headless|--tabs]
 ```
 
 The app uses the same eight-voice fixed-point engine exposed to Python and Lua,
@@ -2105,6 +2122,10 @@ portamento. Hold is session performance state and is not part of a preset. The
 display also reports active voices, output sample rate, and audio errors. The
 volume button changes the shared SolarOS speaker volume.
 
+`synth --tabs` starts with tab-selection buttons in place of the on-screen
+piano. The Oscilloscope tab displays the live output PCM trace, peak and RMS
+levels, sample rate, and the time span of the captured samples.
+
 On display targets smaller than 240 pixels wide or 200 pixels high, Synth
 automatically replaces the full editor with a parameter HUD. The selected
 control gets a large value and level bar; waveform controls and the Wave tab
@@ -2124,11 +2145,21 @@ Controls:
 - `A W S E D F T G Y/Z H U J K` play one chromatic octave. The positions are
   physical, so the `Y` position is the `Z` key on a German keyboard. Note input
   remains active on all tabs.
-- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, and Presets.
-  Number keys `1` through `6` select those tabs in that order.
-- `X` hides or shows the on-screen piano keyboard on every tab. When it is
-  hidden, the tab's knobs, graphs, panels, or preset list use the freed space;
-  the physical note keys and MIDI input remain active.
+- `Tab` cycles through Play, Filter, Wave, Oscillator 2, Glide, Presets, and
+  Oscilloscope. Number keys `1` through `7` select those tabs in that order.
+- `X` switches the bottom panel between the on-screen piano and tab-selection
+  buttons. Tap or click a button to select its tab. Physical note keys and MIDI
+  input remain active in either mode.
+- The selector has eight buttons. `8 Keys`, or the `8` key, returns to the
+  piano while keeping the current tab selected.
+- The header's `Tabs`/`Keys` button switches the same panel by touch. Tap a
+  waveform, envelope segment, or knob to select it, then drag up or down to
+  adjust it. Press and slide across the piano to play; lifting releases the
+  note unless Hold is enabled.
+- On Wave, draw directly in the graph to reshape the wavetable. Tap the
+  baseline or point-count buttons to cycle them. On Presets, tap a slot, then
+  `Load` or `Save`; saving is available for user slots. On Glide, tap the
+  voice or Hold controls to toggle them, or drag Glide to adjust it.
 - On Glide, select Hold and use `Up` or `Enter` to enable it. Each physical or
   terminal piano-key press then toggles its note on or off, and releasing the
   key does not stop the note. Use `Down` or `Enter` to disable hold and release
@@ -2349,15 +2380,16 @@ Controls:
 
 ## web
 
-Simple graphical web browser for lightweight HTML pages. It shares document and
-image rendering infrastructure with `reader` where possible. Embedded and
+Graphical browser for lightweight HTML pages, with an editable address bar,
+Back, Forward, Reload/Stop, Go, pointer navigation, and text zoom. Embedded and
 direct PNG, JPEG, GIF, and WebP images retain color on indexed-color displays;
-one-bit displays keep the grayscale decode and dither path. Direct MJPEG URLs
-are shown as live video using the same JPEG renderer.
+one-bit displays use grayscale decoding and dithering. Direct MJPEG URLs are
+shown as live video.
 
 Usage:
 
 ```text
+web
 web http://host/
 web https://host/path
 web http://camera-host/camera.mjpeg
@@ -2366,26 +2398,42 @@ web http://camera-host/camera.mjpeg
 MJPEG playback uses a bounded 512 KiB assembly buffer and a single pending
 decoded frame. If decoding or display presentation falls behind the source,
 `web` drops the stale pending frame and keeps the newest one instead of growing
-latency or memory use. Reload, Back, Forward, and app exit cancel the active
+latency or memory use. Stop, Back, Forward, Go, and app exit cancel the active
 HTTP stream. The stream inherits the security properties of its URL; plain
 HTTP provides no encryption or peer authentication.
 
 Controls:
 
-- The top toolbar provides Back, Reload, and Forward. Pointer or touch presses
-  activate the toolbar and open links or form controls directly.
-- `Left` or `b` goes back, `Right` or `f` goes forward, and `r` reloads while
-  retaining the current reading position.
+- The top navigation bar provides Back, Forward, Reload/Stop, an editable
+  address field, and Go. Reload becomes Stop while a page loads or an MJPEG
+  stream runs. Stop cancels the request and retains the last displayed video frame.
+- Launch `web` without a URL to enter an address. Click the address field or
+  press `Ctrl+L` to select its contents. Type a URL, then press Enter or Go to
+  open it. Addresses without a scheme use `http://`. Arrow keys, Home, End,
+  Backspace, and Delete edit the address; `Ctrl+A` selects it, `Ctrl+U` clears
+  it, and Esc restores the current URL.
+- Touch, mouse, and trackball pointers activate navigation buttons, links, and
+  form controls. Relative pointers show a cursor; touch uses the contact position.
+  A source assigned to [pointer-arrows](jobs.reference.md#pointer-arrows) sends
+  arrow keys instead; run `job stop pointer-arrows` to use it as a pointer.
+- `Left` or `b` goes back and `Right` or `f` goes forward. `r` reloads while
+  retaining the current reading position, or stops an active request.
 - `Up`/`Down` or `k`/`j` scroll one rendered line. Page Up/Page Down, Home,
   and End provide larger movement.
 - `n` or Tab selects the next link or form control; `p` selects the previous
   one. Selection stops at each end, and Enter activates it.
 - Links and plain page text use the same font size. Links remain underlined,
   headings remain bold, and `+`/`-` or `Ctrl++`/`Ctrl+-` reflow page text
-  through the same five zoom levels as Reader.
+  through the same five zoom levels as Reader. `Ctrl++`/`Ctrl+-` also works while
+  editing an address or form field. Zoom changes text size; direct images and
+  MJPEG video are not zoomed.
 - `Ctrl+F` opens Find and `F3` jumps to the next case-insensitive match in
   rendered page text, wrapping at the end.
-- `Esc` or app-exit key exits.
+- `Esc` cancels address, search, or form editing first; otherwise it exits.
+  The app-exit key exits from any view.
+
+Page navigation shortcuts apply when the page has keyboard focus. While editing
+the address, Tab returns focus to the page without opening the edited URL.
 
 ## zoo
 

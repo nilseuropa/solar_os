@@ -2,26 +2,33 @@
 
 #include <stddef.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "driver/gpio.h"
 #include "solar_os_memory.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_rom_sys.h"
 #include "freertos/task.h"
 #include "solar_os_buses.h"
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+#include "esp_memory_utils.h"
+#endif
 
 #define WIDTH SOLAR_OS_IT8951_WIDTH
 #define HEIGHT SOLAR_OS_IT8951_HEIGHT
 #define MONO_BYTES ((size_t)WIDTH * ((HEIGHT + 7U) / 8U))
+#define BINARY_BYTES ((size_t)WIDTH * HEIGHT / 8U)
 #define GRAY_BYTES ((size_t)WIDTH * HEIGHT / 2U)
 #define TRANSFER_BYTES 4096U
 #define MAX_REGIONS 32U
+#define SPI_TUNING_MAX_KHZ 20000U
 #define TRY(call) do { esp_err_t err_ = (call); if (err_ != ESP_OK) return err_; } while (0)
 
 static const char *TAG = "it8951";
 static const u8x8_display_info_t display_info = {
     .chip_enable_level = 0, .chip_disable_level = 1,
-    .sck_clock_hz = 10000000, .spi_mode = 0,
+    .sck_clock_hz = 20000000, .spi_mode = 0,
     .tile_width = (WIDTH + 7U) / 8U, .tile_height = (HEIGHT + 7U) / 8U,
     .pixel_width = WIDTH, .pixel_height = HEIGHT,
 };
@@ -35,11 +42,27 @@ static void delay_ms(unsigned ms)
 static esp_err_t wait_ready(solar_os_it8951_t *d)
 {
     const int64_t deadline = esp_timer_get_time() + 2000000;
+    /* Most command handshakes are shorter than one scheduler tick. Keep the
+     * spin bounded; long refresh waits still yield to input, audio and sleep. */
+    for (unsigned i = 0; i < 32U; i++) {
+        if (gpio_get_level(d->config.busy)) return ESP_OK;
+        esp_rom_delay_us(1);
+    }
     while (!gpio_get_level(d->config.busy)) {
         if (esp_timer_get_time() >= deadline) return ESP_ERR_TIMEOUT;
         delay_ms(1);
     }
     return ESP_OK;
+}
+
+static bool external_dma_buffer(const void *data)
+{
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+    return esp_ptr_external_ram(data) && esp_ptr_dma_ext_capable(data);
+#else
+    (void)data;
+    return false;
+#endif
 }
 
 /* CS is managed explicitly across preamble, ready waits, dummy and payload.
@@ -51,8 +74,21 @@ static esp_err_t transfer(solar_os_it8951_t *d, uint16_t preamble,
     TRY(spi_device_acquire_bus(d->spi, portMAX_DELAY));
     esp_err_t err = gpio_set_level(d->config.cs, 0);
     const uint8_t header[] = {(uint8_t)(preamble >> 8), (uint8_t)preamble};
-    spi_transaction_t t = {.length = 16, .tx_buffer = header};
+    /* Read timing can be tested independently of the pixel upload clock.
+     * ESP-IDF retains this device's override until its next clock change. */
+    spi_transaction_t t = {.length = 16, .tx_buffer = header,
+        .override_freq_hz = rx ? d->spi_read_clock_hz : d->config.clock_hz};
     if (err == ESP_OK) err = spi_device_polling_transmit(d->spi, &t);
+    if (err == ESP_OK) {
+        int actual_khz = 0;
+        err = spi_device_get_actual_freq(d->spi, &actual_khz);
+        if (err == ESP_OK && (actual_khz <= 0 || (unsigned)actual_khz > SPI_TUNING_MAX_KHZ))
+            err = ESP_ERR_NOT_SUPPORTED;
+        if (err == ESP_OK) {
+            if (rx) d->spi_read_clock_khz = (unsigned)actual_khz;
+            else d->spi_clock_khz = (unsigned)actual_khz;
+        }
+    }
     if (err == ESP_OK) err = wait_ready(d);
     if (err == ESP_OK && rx) {
         const uint8_t dummy[2] = {0};
@@ -74,10 +110,20 @@ static esp_err_t transfer(solar_os_it8951_t *d, uint16_t preamble,
         }
     } else if (err == ESP_OK) {
         t = (spi_transaction_t){.length = size * 8U, .tx_buffer = tx};
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+        /* A conservative cache-line alignment also avoids SDK bounce buffers.
+         * The scan worker owns this retained image until physical completion. */
+        if (size >= 64U && !(((uintptr_t)tx | size) & 63U) && external_dma_buffer(tx))
+            t.flags = SPI_TRANS_DMA_USE_PSRAM | SPI_TRANS_DMA_BUFFER_ALIGN_MANUAL;
+#endif
         /* Short commands stay polling; bulk DMA sleeps this worker until the
          * interrupt completes. Drain it before changing CS or releasing SD. */
         err = size >= 64U ? spi_device_transmit(d->spi, &t) :
             spi_device_polling_transmit(d->spi, &t);
+#ifdef SPI_TRANS_DMA_USE_PSRAM
+        if (err == ESP_OK && (t.flags & SPI_TRANS_DMA_TX_FAIL)) err = ESP_ERR_INVALID_STATE;
+        if (err == ESP_OK && (t.flags & SPI_TRANS_DMA_USE_PSRAM)) d->last_direct_bytes += size;
+#endif
     }
     const esp_err_t cs_err = gpio_set_level(d->config.cs, 1);
     spi_device_release_bus(d->spi);
@@ -187,6 +233,7 @@ static esp_err_t controller_init(solar_os_it8951_t *d)
     TRY(gpio_set_level(d->config.reset, 0));
     delay_ms(10);
     TRY(gpio_set_level(d->config.reset, 1));
+    ++d->controller_resets;
     delay_ms(50);
     TRY(command(d, 0x0001, NULL, 0));
     TRY(command(d, 0x0302, NULL, 0));
@@ -223,14 +270,82 @@ static uint8_t gray_at(const uint8_t *image, unsigned x, unsigned y)
     return (x & 1U) ? b & 15U : b >> 4;
 }
 
+static size_t image_bytes(unsigned levels)
+{
+    return levels == 2 ? BINARY_BYTES : GRAY_BYTES;
+}
+
+/* Binary pixels stay in IT8951 transfer order: 16-pixel words right to left,
+ * bytes within each word unchanged. This removes upload-time rearrangement. */
+static size_t binary_offset(unsigned x, unsigned y)
+{
+    const unsigned byte = x/8U;
+    return (size_t)y*(WIDTH/8U)+(WIDTH/8U-2U-(byte & ~1U))+(byte & 1U);
+}
+
+static size_t image_run_offset(const solar_os_it8951_t *d, unsigned y,
+    unsigned first, unsigned end)
+{
+    if (d->gray_levels == 2) return (size_t)y*(WIDTH/8U)+first*4U;
+    const unsigned right = end*32U < WIDTH ? end*32U : WIDTH;
+    return (size_t)y*(WIDTH/2U)+(WIDTH-right)/2U;
+}
+
+static uint8_t image_gray_at(const solar_os_it8951_t *d, const uint8_t *image,
+    unsigned x, unsigned y)
+{
+    if (d->gray_levels != 2) return gray_at(image,x,y);
+    return image[binary_offset(x,y)] & (0x80U >> (x & 7U)) ? 15 : 0;
+}
+
+static uint8_t binary_gray(uint8_t gray, unsigned x, unsigned y)
+{
+    static const uint8_t bayer[4][4] = {
+        {0,8,2,10}, {12,4,14,6}, {3,11,1,9}, {15,7,13,5},
+    };
+    const unsigned white = ((unsigned)gray*16U+7U)/15U;
+    return bayer[y & 3U][x & 3U] < white ? 15 : 0;
+}
+
+static void fill_image(solar_os_it8951_t *d, uint8_t *image, uint8_t gray)
+{
+    if (d->gray_levels != 2) {
+        memset(image,(gray << 4) | gray,GRAY_BYTES);
+        memset(d->mono,gray >= 8U ? 0xff : 0,MONO_BYTES);
+        return;
+    }
+    for (unsigned y = 0; y < HEIGHT; y++) {
+        uint8_t packed = 0;
+        for (unsigned x = 0; x < 8; x++)
+            if (binary_gray(gray,x,y)) packed |= 0x80U >> x;
+        memset(image+(size_t)y*(WIDTH/8U),packed,WIDTH/8U);
+    }
+    /* The dither repeats every four pixels in both directions. */
+    uint8_t columns[4] = {0};
+    for (unsigned x = 0; x < 4; x++)
+        for (unsigned y = 0; y < 8; y++)
+            if (binary_gray(gray,x,y)) columns[x] |= 1U << y;
+    for (size_t i = 0; i < MONO_BYTES; i += sizeof(columns))
+        memcpy(d->mono+i,columns,sizeof(columns));
+}
+
 static bool set_pixel(solar_os_it8951_t *d, unsigned x, unsigned y, uint8_t gray)
 {
     uint8_t *image = d->gray_pending ? d->gray_pending : d->gray;
-    uint8_t *b = &image[(size_t)y * (WIDTH / 2U) + x / 2U];
-    const uint8_t old = gray_at(image,x,y);
+    if (d->gray_levels == 2) gray = binary_gray(gray,x,y);
+    const uint8_t old = image_gray_at(d,image,x,y);
     const bool changed = old != gray;
-    *b = (x & 1U) ? (uint8_t)((*b & 0xf0U) | gray) :
-                    (uint8_t)((*b & 0x0fU) | (gray << 4));
+    uint8_t *b;
+    if (d->gray_levels == 2) {
+        b = &image[binary_offset(x,y)];
+        const uint8_t bit = (uint8_t)(0x80U >> (x & 7U));
+        if (gray) *b |= bit;
+        else *b &= (uint8_t)~bit;
+    } else {
+        b = &image[(size_t)y*(WIDTH/2U)+x/2U];
+        *b = (x & 1U) ? (uint8_t)((*b & 0xf0U) | gray) :
+                        (uint8_t)((*b & 0x0fU) | (gray << 4));
+    }
     b = &d->mono[(size_t)(y / 8U) * WIDTH + x];
     const uint8_t mask = (uint8_t)(1U << (y & 7U));
     if (gray >= 8U) *b |= mask;
@@ -253,11 +368,38 @@ static void dirty_include(dirty_area_t *area,unsigned x,unsigned y,unsigned widt
     }
 }
 
-static dirty_area_t mono_to_gray_area(solar_os_it8951_t *d, const uint8_t *source,
-    const dirty_area_t *area)
+/* Transpose eight vertical U8g2 bytes into eight MSB-left row bytes. Each
+ * source byte is read once for a complete 8x8 tile. Low result byte is row 0. */
+static uint64_t mono_tile_rows(const uint8_t *source)
 {
-    dirty_area_t changed = {WIDTH,0,HEIGHT,0,d->dirty_rows};
-    memset(d->dirty_rows,0,HEIGHT*sizeof(*d->dirty_rows));
+    return solar_os_display_mono_transpose(source);
+}
+
+static dirty_area_t mono_to_gray_area(solar_os_it8951_t *d, const uint8_t *source,
+    const dirty_area_t *area, uint8_t *image, uint64_t *rows)
+{
+    dirty_area_t changed = {WIDTH,0,HEIGHT,0,rows};
+    if (d->gray_levels == 2) {
+        const unsigned x0 = area->x0 & ~7U, x1 = (area->x1+7U) & ~7U;
+        for (unsigned tile_y = area->y0 & ~7U; tile_y < area->y1; tile_y += 8U) {
+            const uint8_t *tile = source+(size_t)(tile_y/8U)*WIDTH;
+            const unsigned first_row = area->y0 > tile_y ? area->y0-tile_y : 0;
+            const unsigned last_row = area->y1-tile_y < 8U ? area->y1-tile_y : 8U;
+            for (unsigned x = x0; x < x1; x += 8U) {
+                const uint64_t packed = mono_tile_rows(tile+x);
+                for (unsigned row = first_row; row < last_row; row++) {
+                    const unsigned y = tile_y+row;
+                    const uint8_t value = (uint8_t)(packed >> (row*8U));
+                    uint8_t *out = &image[binary_offset(x,y)];
+                    if (*out != value) {
+                        *out = value;
+                        dirty_include(&changed,x,y,8);
+                    }
+                }
+            }
+        }
+        return changed;
+    }
     const unsigned x0 = area->x0 & ~1U, x1 = (area->x1+1U) & ~1U;
     for (unsigned y = area->y0; y < area->y1; y++) {
         const uint8_t *row = source + (size_t)(y / 8U) * WIDTH;
@@ -266,8 +408,8 @@ static dirty_area_t mono_to_gray_area(solar_os_it8951_t *d, const uint8_t *sourc
             const size_t i = (size_t)y*(WIDTH/2U)+x/2U;
             const uint8_t b = (uint8_t)((row[x] & mask ? 0xf0 : 0) |
                 (row[x+1U] & mask ? 0x0f : 0));
-            if (d->gray[i] != b) {
-                d->gray[i] = b;
+            if (image[i] != b) {
+                image[i] = b;
                 dirty_include(&changed,x,y,2);
             }
         }
@@ -278,7 +420,8 @@ static dirty_area_t mono_to_gray_area(solar_os_it8951_t *d, const uint8_t *sourc
 static dirty_area_t mono_to_gray(solar_os_it8951_t *d, const uint8_t *source)
 {
     const dirty_area_t full = {0,WIDTH,0,HEIGHT,NULL};
-    return mono_to_gray_area(d,source,&full);
+    memset(d->dirty_rows,0,HEIGHT*sizeof(*d->dirty_rows));
+    return mono_to_gray_area(d,source,&full,d->gray,d->dirty_rows);
 }
 
 static dirty_area_t mono_dirty_area(solar_os_it8951_t *d, const uint8_t *source)
@@ -326,6 +469,7 @@ static unsigned row_bpp(const uint8_t *row)
 
 static unsigned image_bpp(solar_os_it8951_t *d, bool known_binary, const dirty_area_t *dirty)
 {
+    if (d->gray_levels == 2) return 1;
     if (known_binary) memset(d->row_bpp,1,HEIGHT);
     else {
         /* A small patch must not rescan 1.3 MB merely to choose its encoding.
@@ -401,6 +545,28 @@ static esp_err_t upload_area(solar_os_it8951_t *d, const upload_area_t *area, un
         binary ? area->width/8U : area->width, area->height};
     TRY(command(d,0x0021,load,5));
     const size_t row_bytes = (size_t)area->width*bpp/8U;
+    if (d->gray_levels == 2 && area->x == 0 && area->width == WIDTH &&
+        external_dma_buffer(d->gray)) {
+        const uint8_t *source = d->gray+(size_t)area->y*row_bytes;
+        size_t remaining = row_bytes*area->height;
+        while (remaining) {
+            size_t bytes;
+            const uint8_t *data = source;
+            const unsigned prefix = (unsigned)(-(uintptr_t)source & 63U);
+            if (prefix || remaining < 64U) {
+                bytes = prefix ? prefix : remaining;
+                if (bytes > remaining) bytes = remaining;
+                memcpy(d->transfer,source,bytes); data = d->transfer;
+            } else {
+                bytes = remaining < d->transfer_size ? remaining : d->transfer_size;
+                bytes &= ~(size_t)63U;
+            }
+            TRY(transfer(d,0,data,NULL,bytes));
+            d->last_upload_bytes += bytes; ++d->last_chunks;
+            source += bytes; remaining -= bytes;
+        }
+        return command(d,0x0022,NULL,0);
+    }
     unsigned rows_per_chunk = d->transfer_size/row_bytes;
     /* Pair 234-byte full-width binary rows to avoid DMA bounce buffers. */
     if ((row_bytes & 3U) && rows_per_chunk > 1U) rows_per_chunk &= ~1U;
@@ -408,15 +574,19 @@ static esp_err_t upload_area(solar_os_it8951_t *d, const upload_area_t *area, un
         unsigned lines = area->y+area->height-y;
         if (lines > rows_per_chunk) lines = rows_per_chunk;
         for (unsigned row = 0; row < lines; row++) {
-            const uint8_t *source = d->gray+(size_t)(y+row)*(WIDTH/2U)+(WIDTH-area->x)/2U;
             uint8_t *out = d->transfer+row*row_bytes;
-            if (binary) {
+            if (d->gray_levels == 2) {
+                const uint8_t *source = d->gray+(size_t)(y+row)*(WIDTH/8U)+area->x/8U;
+                memcpy(out,source,row_bytes);
+            } else if (binary) {
+                const uint8_t *source = d->gray+(size_t)(y+row)*(WIDTH/2U)+(WIDTH-area->x)/2U;
                 for (unsigned x = 0; x < area->width; x += 16U) {
                     source -= 8;
                     out[x/8U] = pack_binary_byte(source);
                     out[x/8U+1U] = pack_binary_byte(source+4);
                 }
             } else {
+                const uint8_t *source = d->gray+(size_t)(y+row)*(WIDTH/2U)+(WIDTH-area->x)/2U;
                 for (size_t x = 0; x < row_bytes; x++) {
                     const uint8_t pair = *--source;
                     out[x] = d->gray_levels == 4 ? gray_pairs_four_level[pair] :
@@ -466,6 +636,7 @@ static esp_err_t refresh(solar_os_it8951_t *d, bool known_binary,
     /* Multiple image loads update retained controller RAM before one display
      * command. Release the shared SD bus after each bounded bulk transfer. */
     d->last_upload_bytes = d->last_chunks = 0;
+    d->last_direct_bytes = 0;
     d->last_regions = count;
     for (unsigned i = 0; i < count; i++) TRY(upload_area(d,&areas[i],bpp));
     uint16_t up1sr;
@@ -498,6 +669,7 @@ static esp_err_t finish_refresh(solar_os_it8951_t *d, bool known_binary,
     if (err != ESP_OK) {
         /* A partially transferred frame must never become the comparison baseline. */
         d->ready = d->shadow_valid = false;
+        ++d->refresh_errors;
         ESP_LOGE(TAG, "refresh failed: %s", esp_err_to_name(err));
     }
     d->last_error = err;
@@ -513,15 +685,25 @@ static void scan_enable(solar_os_it8951_t *d, bool enabled)
 
 /* Join before changing presentation formats, mode or power. Merely disabling
  * submissions cannot cancel a callback already waiting for the panel lock. */
-static void scan_stop(solar_os_it8951_t *d)
+static void scan_join(solar_os_it8951_t *d)
 {
     scan_enable(d,false);
     epd_scan_worker_deinit(&d->scan_worker);
+}
+
+static void scan_free_images(solar_os_it8951_t *d)
+{
     solar_os_memory_free(d->mono_shadow); d->mono_shadow = NULL;
     solar_os_memory_free(d->gray_pending); d->gray_pending = NULL;
     solar_os_memory_free(d->pending_rows); d->pending_rows = NULL;
     d->mono_shadow_valid = false;
     d->graphics_scan = false;
+}
+
+static void scan_stop(solar_os_it8951_t *d)
+{
+    scan_join(d);
+    scan_free_images(d);
 }
 
 /* The producer lock protects only image composition/copying. Never retain it
@@ -532,19 +714,49 @@ static dirty_area_t take_graphics_target(solar_os_it8951_t *d)
     xSemaphoreTake(d->frame_mutex,portMAX_DELAY);
     dirty_area_t dirty = {WIDTH,0,HEIGHT,0,d->dirty_rows};
     memset(d->dirty_rows,0,HEIGHT*sizeof(*d->dirty_rows));
+    const unsigned pixels_per_byte = d->gray_levels == 2 ? 8U : 2U;
     if (d->pending_x1) {
         for (unsigned y = d->pending_y0; y < d->pending_y1; y++) {
             uint64_t bits = d->pending_rows[y];
             d->pending_rows[y] = 0;
+            uint64_t changed = 0;
             while (bits) {
-                const unsigned column = (unsigned)__builtin_ctzll(bits);
-                bits &= bits-1U;
-                const unsigned right = (column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
-                const unsigned x = WIDTH-right, width = right-column*32U;
-                const size_t offset = (size_t)y*(WIDTH/2U)+x/2U;
-                if (!memcmp(d->gray+offset,d->gray_pending+offset,width/2U)) continue;
-                memcpy(d->gray+offset,d->gray_pending+offset,width/2U);
-                dirty_include(&dirty,x,y,width);
+                const unsigned first = (unsigned)__builtin_ctzll(bits);
+                const unsigned count = (unsigned)__builtin_ctzll(~(bits >> first));
+                const unsigned end = first+count;
+                const uint64_t mask = ((UINT64_C(1) << count)-1U) << first;
+                bits &= ~mask;
+                const unsigned right = end*32U < WIDTH ? end*32U : WIDTH;
+                const unsigned width = right-first*32U;
+                const size_t offset = image_run_offset(d,y,first,end);
+                if (!memcmp(d->gray+offset,d->gray_pending+offset,width/pixels_per_byte)) continue;
+                /* Preserve exact sparse damage, including patches that were
+                 * reverted before scanning. Copy adjacent changed blocks once. */
+                uint64_t bit = UINT64_C(1) << first;
+                for (unsigned column = first; column < end; column++, bit <<= 1) {
+                    const unsigned block_right = (column+1U)*32U < WIDTH ? (column+1U)*32U : WIDTH;
+                    const size_t block = image_run_offset(d,y,column,column+1U);
+                    const unsigned bytes = (block_right-column*32U)/pixels_per_byte;
+                    if (memcmp(d->gray+block,d->gray_pending+block,bytes)) changed |= bit;
+                }
+            }
+            if (!changed) continue;
+            d->dirty_rows[y] = changed;
+            const unsigned left_column = 63U-(unsigned)__builtin_clzll(changed);
+            const unsigned right_column = (unsigned)__builtin_ctzll(changed);
+            const unsigned x0 = (left_column+1U)*32U < WIDTH ? WIDTH-(left_column+1U)*32U : 0;
+            const unsigned x1 = WIDTH-right_column*32U;
+            if (x0 < dirty.x0) dirty.x0 = x0;
+            if (x1 > dirty.x1) dirty.x1 = x1;
+            if (y < dirty.y0) dirty.y0 = y;
+            dirty.y1 = y+1U;
+            while (changed) {
+                const unsigned first = (unsigned)__builtin_ctzll(changed);
+                const unsigned count = (unsigned)__builtin_ctzll(~(changed >> first));
+                changed &= ~(((UINT64_C(1) << count)-1U) << first);
+                const unsigned right = (first+count)*32U < WIDTH ? (first+count)*32U : WIDTH;
+                const size_t offset = image_run_offset(d,y,first,first+count);
+                memcpy(d->gray+offset,d->gray_pending+offset,(right-first*32U)/pixels_per_byte);
             }
         }
     }
@@ -568,7 +780,10 @@ static esp_err_t scan_process(void *context, const uint8_t *source,
         if (d->graphics_scan) dirty = take_graphics_target(d);
         else {
             dirty = mono_dirty_area(d,source);
-            if (dirty.x1) dirty = mono_to_gray_area(d,source,&dirty);
+            if (dirty.x1) {
+                memset(d->dirty_rows,0,HEIGHT*sizeof(*d->dirty_rows));
+                dirty = mono_to_gray_area(d,source,&dirty,d->gray,d->dirty_rows);
+            }
         }
         err = finish_refresh(d,!d->graphics_scan,&dirty);
         *scanned = err == ESP_OK && d->refreshes != before;
@@ -594,7 +809,7 @@ static esp_err_t scan_start(solar_os_it8951_t *d, bool graphics)
      * and encoding changes establish a new native baseline when required. */
     d->graphics_scan = graphics;
     if (graphics) {
-        d->gray_pending = solar_os_memory_alloc(GRAY_BYTES,SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.gray-pending");
+        d->gray_pending = solar_os_memory_alloc(image_bytes(d->gray_levels),SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.gray-pending");
         d->pending_rows = solar_os_memory_calloc(HEIGHT,sizeof(*d->pending_rows),
             SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.pending-rows");
         if (!d->gray_pending || !d->pending_rows) {
@@ -602,7 +817,7 @@ static esp_err_t scan_start(solar_os_it8951_t *d, bool graphics)
             solar_os_memory_free(d->pending_rows); d->pending_rows = NULL;
             return ESP_ERR_NO_MEM;
         }
-        memcpy(d->gray_pending,d->gray,GRAY_BYTES);
+        memcpy(d->gray_pending,d->gray,image_bytes(d->gray_levels));
         d->pending_x0 = WIDTH; d->pending_x1 = 0;
         d->pending_y0 = HEIGHT; d->pending_y1 = 0;
     } else {
@@ -619,6 +834,111 @@ static esp_err_t scan_start(solar_os_it8951_t *d, bool graphics)
         solar_os_memory_free(d->gray_pending); d->gray_pending = NULL;
         solar_os_memory_free(d->pending_rows); d->pending_rows = NULL;
     }
+    return err;
+}
+
+static esp_err_t queue_graphics(solar_os_it8951_t *d, const dirty_area_t *dirty)
+{
+    /* The frame lock protects pending pixels and accumulated disjoint patches. */
+    if (dirty->x1) {
+        if (dirty->x0 < d->pending_x0) d->pending_x0 = dirty->x0;
+        if (dirty->x1 > d->pending_x1) d->pending_x1 = dirty->x1;
+        if (dirty->y0 < d->pending_y0) d->pending_y0 = dirty->y0;
+        if (dirty->y1 > d->pending_y1) d->pending_y1 = dirty->y1;
+    }
+    ++d->frame_generation;
+    return epd_scan_worker_submit(&d->scan_worker,(const uint8_t *)&d->frame_generation);
+}
+
+static esp_err_t start_binary_scan(solar_os_it8951_t *d)
+{
+    if (!d->graphics_scan || !__atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE)) {
+        scan_stop(d);
+        xSemaphoreTake(d->mutex,portMAX_DELAY);
+        const esp_err_t err = d->suspended ? ESP_ERR_INVALID_STATE : scan_start(d,true);
+        xSemaphoreGive(d->mutex);
+        if (err != ESP_OK) return err;
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_it8951_present_canvas(solar_os_it8951_t *d,
+    const solar_os_display_mono_canvas_t *canvas)
+{
+    if (!d || !canvas || d->gray_levels != 2) return ESP_ERR_NOT_SUPPORTED;
+    if (!canvas->data || canvas->native_buffer != d->mono ||
+        canvas->native_width != WIDTH || canvas->native_height != HEIGHT ||
+        canvas->native_stride != WIDTH || canvas->scale < 1U || canvas->scale > 4U ||
+        canvas->width != WIDTH/canvas->scale || canvas->height != HEIGHT/canvas->scale ||
+        canvas->stride < canvas->width ||
+        canvas->data_size < (size_t)canvas->stride*((canvas->height+7U)/8U) ||
+        canvas->area.x < 0 || canvas->area.y < 0 || canvas->area.width <= 0 || canvas->area.height <= 0 ||
+        (int64_t)canvas->area.x+canvas->area.width > WIDTH ||
+        (int64_t)canvas->area.y+canvas->area.height > HEIGHT) return ESP_ERR_INVALID_ARG;
+    const esp_err_t started = start_binary_scan(d);
+    if (started != ESP_OK) return started == ESP_ERR_NO_MEM ? ESP_ERR_NOT_SUPPORTED : started;
+    xSemaphoreTake(d->frame_mutex,portMAX_DELAY);
+    dirty_area_t dirty = {WIDTH,0,HEIGHT,0,d->pending_rows};
+    const unsigned factor=canvas->scale;
+    const unsigned x0=(unsigned)canvas->area.x & ~7U, y0=(unsigned)canvas->area.y & ~7U;
+    const unsigned x1=(canvas->area.x+canvas->area.width+7U) & ~7U;
+    unsigned y1=(canvas->area.y+canvas->area.height+7U) & ~7U;
+    if (y1>HEIGHT) y1=HEIGHT;
+    for (unsigned sy=(y0/factor) & ~7U; sy*factor<y1; sy+=8U) {
+        for (unsigned sx=(x0/factor) & ~7U; sx*factor<x1; sx+=8U) {
+            solar_os_display_mono_tile_t tile;
+            solar_os_display_mono_canvas_expand_tile(canvas,sx,sy,&tile);
+            for (unsigned page=0; page<factor; page++) {
+                const unsigned ny=sy*factor+page*8U;
+                if (ny<y0 || ny>=y1) continue;
+                uint8_t *native=d->mono+(size_t)(ny/8U)*WIDTH;
+                for (unsigned col=0; col<8U; col++) {
+                    const uint8_t value=(uint8_t)(tile.columns[col] >> (page*8U));
+                    for (unsigned repeat=0; repeat<factor; repeat++) {
+                        const unsigned nx=(sx+col)*factor+repeat;
+                        if (nx>=x0 && nx<x1 && nx<WIDTH) native[nx]=value;
+                    }
+                }
+            }
+            for (unsigned row=0; row<8U; row++) {
+                for (unsigned repeat=0; repeat<factor; repeat++) {
+                    const unsigned ny=(sy+row)*factor+repeat;
+                    if (ny<y0 || ny>=y1) continue;
+                    for (unsigned byte=0; byte<factor; byte++) {
+                        const unsigned nx=sx*factor+byte*8U;
+                        if (nx<x0 || nx>=x1 || nx>=WIDTH) continue;
+                        const uint8_t value=(uint8_t)(tile.rows[row] >> ((factor-1U-byte)*8U));
+                        uint8_t *out=d->gray_pending+binary_offset(nx,ny);
+                        if (*out!=value) {
+                            *out=value;
+                            dirty_include(&dirty,nx,ny,8);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    const esp_err_t err = queue_graphics(d,&dirty);
+    if (err == ESP_OK) d->canvas_x1 = 0;
+    xSemaphoreGive(d->frame_mutex);
+    return err;
+}
+
+static esp_err_t present_binary(solar_os_it8951_t *d)
+{
+    const esp_err_t started = start_binary_scan(d);
+    if (started == ESP_ERR_NO_MEM) return solar_os_it8951_present_sync(d);
+    if (started != ESP_OK) return started;
+    /* Copy the caller's vertical-bit canvas directly into the compact queued
+     * target. Reuse the raster worker instead of keeping three mono snapshots. */
+    xSemaphoreTake(d->frame_mutex,portMAX_DELAY);
+    const dirty_area_t area = d->canvas_x1 ?
+        (dirty_area_t){d->canvas_x0,d->canvas_x1,d->canvas_y0,d->canvas_y1,NULL} :
+        (dirty_area_t){0,WIDTH,0,HEIGHT,NULL};
+    const dirty_area_t dirty = mono_to_gray_area(d,d->mono,&area,d->gray_pending,d->pending_rows);
+    const esp_err_t err = queue_graphics(d,&dirty);
+    if (err == ESP_OK) d->canvas_x1 = 0;
+    xSemaphoreGive(d->frame_mutex);
     return err;
 }
 
@@ -639,6 +959,7 @@ esp_err_t solar_os_it8951_present_sync(solar_os_it8951_t *d)
 esp_err_t solar_os_it8951_present(solar_os_it8951_t *d)
 {
     if (!d || !d->spi || !d->mono) return ESP_ERR_INVALID_STATE;
+    if (d->gray_levels == 2) return present_binary(d);
     if (!d->graphics_scan && __atomic_load_n(&d->scan_submit_ready,__ATOMIC_ACQUIRE) &&
         epd_scan_worker_submit(&d->scan_worker,d->mono) == ESP_OK) return ESP_OK;
     scan_stop(d);
@@ -683,7 +1004,25 @@ static uint8_t display_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg, void *ptr)
     }
     solar_os_it8951_t *d = (void *)((uint8_t *)u8x8 -
         offsetof(solar_os_it8951_t, u8g2) - offsetof(u8g2_t, u8x8));
-    if (message == U8X8_MSG_DISPLAY_DRAW_TILE) return 1;
+    if (message == U8X8_MSG_DISPLAY_DRAW_TILE) {
+        const u8x8_tile_t *tiles = ptr;
+        for (unsigned i = 0; i < arg; i++) {
+            const unsigned x0 = tiles[i].x_pos*8U, y0 = tiles[i].y_pos*8U;
+            unsigned x1 = x0+tiles[i].cnt*8U, y1 = y0+8U;
+            if (x0 >= WIDTH || y0 >= HEIGHT) continue;
+            if (x1 > WIDTH) x1 = WIDTH;
+            if (y1 > HEIGHT) y1 = HEIGHT;
+            if (!d->canvas_x1) {
+                d->canvas_x0=x0; d->canvas_x1=x1; d->canvas_y0=y0; d->canvas_y1=y1;
+            } else {
+                if (x0 < d->canvas_x0) d->canvas_x0=x0;
+                if (x1 > d->canvas_x1) d->canvas_x1=x1;
+                if (y0 < d->canvas_y0) d->canvas_y0=y0;
+                if (y1 > d->canvas_y1) d->canvas_y1=y1;
+            }
+        }
+        return 1;
+    }
     if (message == U8X8_MSG_DISPLAY_REFRESH) return solar_os_it8951_present(d) == ESP_OK;
     if (message == U8X8_MSG_DISPLAY_SET_POWER_SAVE)
         return solar_os_it8951_set_power_save(d, arg != 0) == ESP_OK;
@@ -695,7 +1034,7 @@ static uint8_t display_cb(u8x8_t *u8x8, uint8_t message, uint8_t arg, void *ptr)
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_config_t *cfg)
 {
     if (!d || !cfg || !cfg->spi_bus || !cfg->spi_bus[0] || cfg->rotation > 3 ||
-        cfg->clock_hz < 100000U || cfg->clock_hz > 10000000U || cfg->vcom_mv != 1400)
+        cfg->clock_hz < 100000U || cfg->clock_hz > SPI_TUNING_MAX_KHZ * 1000U || cfg->vcom_mv != 1400)
         return ESP_ERR_INVALID_ARG;
     const int pins[] = {cfg->cs, cfg->reset, cfg->busy, cfg->power, cfg->ite_power};
     for (unsigned i = 0; i < 5; i++) {
@@ -705,6 +1044,9 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     }
     memset(d, 0, sizeof(*d));
     d->config = *cfg;
+    const unsigned startup_clock_hz = cfg->clock_hz < 10000000U ? cfg->clock_hz : 10000000U;
+    d->config.clock_hz = startup_clock_hz;
+    d->spi_read_clock_hz = startup_clock_hz;
     d->gray_levels = 4;
     d->temperature_c = 25;
     /* No caller-owned strings are retained after initialization. */
@@ -719,8 +1061,15 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
     const gpio_config_t busy = {.pin_bit_mask = 1ULL << cfg->busy,
         .mode = GPIO_MODE_INPUT, .pull_up_en = GPIO_PULLUP_ENABLE};
     TRY(gpio_config(&busy));
-    /* Enforce the ED103TC2 profile's 10 MHz ceiling after SDK rounding too. */
-    const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)cfg->clock_hz,
+    /* The controller remains powered while the CPU automatically sleeps,
+     * including between transfers and during waveform waits. Do not let GPIO
+     * isolation float its supplies, reset, chip select or ready input. */
+    for (unsigned i = 0; i < sizeof(pins) / sizeof(pins[0]); i++) {
+        TRY(gpio_sleep_sel_dis((gpio_num_t)pins[i]));
+    }
+    /* Initialize at up to 10 MHz, then use the configured write clock while
+     * retaining the read clock. Clock overrides remain local to this device. */
+    const spi_device_interface_config_t spi_cfg = {.clock_speed_hz = (int)startup_clock_hz,
         .mode = 0, .spics_io_num = -1, .queue_size = 1};
     esp_err_t err = solar_os_bus_spi_add_device(cfg->spi_bus, &spi_cfg, &d->spi);
     if (err != ESP_OK) return err;
@@ -730,6 +1079,7 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
         err = ESP_ERR_NOT_SUPPORTED;
     if (err != ESP_OK) { solar_os_it8951_deinit(d); return err; }
     d->spi_clock_khz = (unsigned)actual_khz;
+    d->spi_read_clock_khz = (unsigned)actual_khz;
     d->mono = solar_os_memory_calloc(1, MONO_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.mono");
     d->gray = solar_os_memory_alloc(GRAY_BYTES, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "it8951.gray");
     solar_os_bus_info_t bus;
@@ -757,6 +1107,7 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *d, const solar_os_it8951_confi
         err = d->last_error;
     }
     if (err == ESP_OK) {
+        d->config.clock_hz = cfg->clock_hz;
         err = scan_start(d,false);
     }
     if (err != ESP_OK) solar_os_it8951_deinit(d);
@@ -783,24 +1134,89 @@ const char *solar_os_it8951_mode(const solar_os_it8951_t *d)
     xSemaphoreTake(state->mutex, portMAX_DELAY);
     const epd_scan_stats_t stats = epd_scan_worker_stats(&state->scan_worker);
     snprintf(state->mode_description, sizeof(state->mode_description),
-        "refresh=%s grayscale=%u spi=%ukHz last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u "
+        "refresh=%s grayscale=%u spi=%ukHz read-spi=%ukHz spi-target=%u/%ukHz "
+        "last=%ums upload=%ums lut=%ums area=%u,%u,%ux%u bpp=%u storage-bpp=%u image-bytes=%u "
         "temp=%dC scan=%s submitted=%lu coalesced=%lu frames=%lu scan-last=%lldus "
-        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u refreshes=%lu",
-        d->full_refresh ? "full" : "auto", d->gray_levels, d->spi_clock_khz, d->last_refresh_ms, d->last_upload_ms,
+        "fw=%s lut-id=%s bytes=%u chunks=%u regions=%u dma-direct=%u refreshes=%lu errors=%lu resets=%lu last-error=0x%x",
+        d->full_refresh ? "full" : "auto", d->gray_levels, d->spi_clock_khz, d->spi_read_clock_khz,
+        d->config.clock_hz / 1000U, d->spi_read_clock_hz / 1000U, d->last_refresh_ms, d->last_upload_ms,
         d->last_lut_ms, d->last_x, d->last_y, d->last_width, d->last_height, d->last_bpp,
+        d->gray_levels == 2 ? 1U : 4U, (unsigned)image_bytes(d->gray_levels),
         (int)d->temperature_c,d->scan_worker.task ? "async" : "sync",
         (unsigned long)stats.submitted,(unsigned long)stats.coalesced,
         (unsigned long)stats.frames,(long long)stats.last_scan_us,
         d->firmware_version,d->waveform_version,
-        d->last_upload_bytes,d->last_chunks,d->last_regions,(unsigned long)d->refreshes);
+        d->last_upload_bytes,d->last_chunks,d->last_regions,d->last_direct_bytes,(unsigned long)d->refreshes,
+        (unsigned long)d->refresh_errors,(unsigned long)d->controller_resets,(unsigned)d->last_error);
     solar_os_epd_append_maintenance(&d->maintenance, state->mode_description, sizeof(state->mode_description));
     xSemaphoreGive(state->mutex);
     return state->mode_description;
 }
 
+static esp_err_t set_gray_levels(solar_os_it8951_t *d, unsigned levels)
+{
+    xSemaphoreTake(d->mutex,portMAX_DELAY);
+    const unsigned previous = d->gray_levels;
+    xSemaphoreGive(d->mutex);
+    if (previous == levels) return ESP_OK;
+    const bool resize = (previous == 2) != (levels == 2);
+    /* Allocate before stopping the worker: failure leaves the accepted target,
+     * original buffers and presentation state usable. */
+    uint8_t *replacement = resize ? solar_os_memory_alloc(image_bytes(levels),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED,"it8951.gray") : NULL;
+    if (resize && !replacement) return ESP_ERR_NO_MEM;
+    scan_join(d);
+    xSemaphoreTake(d->mutex,portMAX_DELAY);
+    const uint8_t *source = d->gray_pending && d->pending_x1 ? d->gray_pending : d->gray;
+    if (resize) {
+        if (levels == 2) {
+            for (unsigned y = 0; y < HEIGHT; y++) {
+                for (unsigned x = 0; x < WIDTH; x += 8U) {
+                    uint8_t packed = 0;
+                    for (unsigned bit = 0; bit < 8; bit++) {
+                        const uint8_t gray = binary_gray(gray_at(source,x+bit,y),x+bit,y);
+                        if (gray) packed |= 0x80U >> bit;
+                    }
+                    replacement[binary_offset(x,y)] = packed;
+                }
+            }
+        } else {
+            for (unsigned y = 0; y < HEIGHT; y++)
+                for (unsigned x = 0; x < WIDTH; x += 2U)
+                    replacement[(size_t)y*(WIDTH/2U)+x/2U] = (uint8_t)(
+                        (image_gray_at(d,source,x,y) << 4) | image_gray_at(d,source,x+1U,y));
+        }
+        solar_os_memory_free(d->gray);
+        d->gray = replacement;
+    } else if (source != d->gray) {
+        memcpy(d->gray,source,GRAY_BYTES);
+    }
+    scan_free_images(d);
+    __atomic_store_n(&d->gray_levels,levels,__ATOMIC_RELEASE);
+    d->row_bpp_valid = false;
+    d->shadow_valid = false;
+    xSemaphoreGive(d->mutex);
+    return ESP_OK;
+}
+
 esp_err_t solar_os_it8951_set_mode(solar_os_it8951_t *d, const char *mode)
 {
     if (!d || !d->spi || !mode) return ESP_ERR_INVALID_ARG;
+    const bool read_clock = !strncmp(mode, "spi-read-khz=", 13);
+    if (read_clock || !strncmp(mode, "spi-khz=", 8)) {
+        const char *value = mode + (read_clock ? 13 : 8);
+        if (*value < '0' || *value > '9') return ESP_ERR_INVALID_ARG;
+        char *end;
+        const unsigned long khz = strtoul(value, &end, 10);
+        if (*end || khz < 100U || khz > SPI_TUNING_MAX_KHZ) return ESP_ERR_INVALID_ARG;
+        /* The worker holds this lock for each complete refresh. Keep its
+         * accepted target and retained image; apply timing on the next transfer. */
+        xSemaphoreTake(d->mutex, portMAX_DELAY);
+        if (read_clock) d->spi_read_clock_hz = (unsigned)khz * 1000U;
+        else d->config.clock_hz = (unsigned)khz * 1000U;
+        xSemaphoreGive(d->mutex);
+        return ESP_OK;
+    }
     if (!strncmp(mode, "cleanup-interval=", 17)) {
         xSemaphoreTake(d->mutex, portMAX_DELAY);
         const esp_err_t err = solar_os_epd_set_maintenance(&d->maintenance, mode);
@@ -808,19 +1224,17 @@ esp_err_t solar_os_it8951_set_mode(solar_os_it8951_t *d, const char *mode)
         return err;
     }
     const bool full = !strcmp(mode, "refresh=full");
-    const unsigned levels = !strcmp(mode,"grayscale=4") ? 4U :
+    const unsigned levels = !strcmp(mode,"grayscale=2") ? 2U : !strcmp(mode,"grayscale=4") ? 4U :
         !strcmp(mode,"grayscale=16") ? 16U : 0U;
     if (!levels && !full && strcmp(mode, "refresh=auto")) return ESP_ERR_INVALID_ARG;
+    if (levels) return set_gray_levels(d,levels);
     xSemaphoreTake(d->mutex, portMAX_DELAY);
-    const bool unchanged = levels ? d->gray_levels == levels : d->full_refresh == full;
+    const bool unchanged = d->full_refresh == full;
     xSemaphoreGive(d->mutex);
     if (unchanged) return ESP_OK;
     scan_stop(d);
     xSemaphoreTake(d->mutex, portMAX_DELAY);
-    if (levels) {
-        if (d->gray_levels != levels) d->shadow_valid = false;
-        d->gray_levels = levels;
-    } else d->full_refresh = full;
+    d->full_refresh = full;
     xSemaphoreGive(d->mutex);
     return ESP_OK;
 }
@@ -840,6 +1254,38 @@ static uint8_t rgb_gray(uint16_t rgb)
     const unsigned g = ((rgb >> 5) & 63U) * 255U / 63U;
     const unsigned b = (rgb & 31U) * 255U / 31U;
     return (uint8_t)(((r * 77U + g * 150U + b * 29U) * 15U + 32640U) / 65280U);
+}
+
+static dirty_area_t compose_index8_binary_rows(solar_os_it8951_t *d,
+    const solar_os_display_raster_t *f, const uint8_t *palette)
+{
+    uint8_t packed[WIDTH/8U];
+    uint8_t *image = d->gray_pending ? d->gray_pending : d->gray;
+    dirty_area_t dirty = {WIDTH,0,HEIGHT,0,d->pending_rows ? d->pending_rows : d->dirty_rows};
+    for (unsigned y = 0; y < f->height; y++) {
+        const unsigned ny = f->y+y, sy = (uint32_t)y*f->source_height/f->height;
+        const uint8_t *row = f->data+(size_t)sy*f->source_stride;
+        const uint8_t mask = (uint8_t)(1U << (ny & 7U));
+        uint8_t *mono = d->mono+(size_t)(ny/8U)*WIDTH+f->x;
+        for (unsigned x = 0; x < f->width; x += 8U) {
+            uint8_t value = 0;
+            for (unsigned bit = 0; bit < 8; bit++) {
+                const unsigned sx = (uint32_t)(x+bit)*f->source_width/f->width;
+                if (binary_gray(palette[row[sx]],f->x+x+bit,ny)) {
+                    value |= 0x80U >> bit;
+                    mono[x+bit] |= mask;
+                } else mono[x+bit] &= (uint8_t)~mask;
+            }
+            packed[x/8U] = value;
+        }
+        for (unsigned byte = 0; byte < f->width/8U; byte++) {
+            uint8_t *out = image+binary_offset(f->x+byte*8U,ny);
+            if (*out == packed[byte]) continue;
+            *out = packed[byte];
+            dirty_include(&dirty,f->x+byte*8U,ny,8);
+        }
+    }
+    return dirty;
 }
 
 /* Pack a source row once, then reuse it for repeated destination rows. The
@@ -960,10 +1406,18 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
         const uint8_t background = indexed ? palette_gray[f->background_index] :
             f->format == SOLAR_OS_DISPLAY_FORMAT_RGB565 ? rgb_gray(f->background_rgb565) :
             ((!!f->background_index != f->palette_inverted) ? 0 : 15);
-        memset(async ? d->gray_pending : d->gray, (background << 4) | background, GRAY_BYTES);
-        memset(d->mono, background >= 8 ? 0xff : 0, MONO_BYTES);
+        fill_image(d,async ? d->gray_pending : d->gray,background);
     }
-    if (f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 && d->u8g2.cb == U8G2_R0 &&
+    if (d->gray_levels == 2 && f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 &&
+        d->u8g2.cb == U8G2_R0 && !(f->x & 7U) && !(f->width & 7U)) {
+        const dirty_area_t changed = compose_index8_binary_rows(d,f,palette_gray);
+        if (changed.x1) {
+            if (changed.x0 < dirty.x0) dirty.x0 = changed.x0;
+            if (changed.x1 > dirty.x1) dirty.x1 = changed.x1;
+            if (changed.y0 < dirty.y0) dirty.y0 = changed.y0;
+            if (changed.y1 > dirty.y1) dirty.y1 = changed.y1;
+        }
+    } else if (d->gray_levels != 2 && f->format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 && d->u8g2.cb == U8G2_R0 &&
         !(f->x & 1U) && !(f->width & 1U)) {
         const dirty_area_t changed = compose_index8_rows(d,f,palette_gray);
         if (changed.x1) {
@@ -994,16 +1448,7 @@ esp_err_t solar_os_it8951_present_frame(solar_os_it8951_t *d,
         }
     }
     if (async) {
-        /* Accumulate all patches until the worker takes the target. Replacing
-         * the notification must never lose an earlier disjoint rectangle. */
-        if (dirty.x1) {
-            if (dirty.x0 < d->pending_x0) d->pending_x0 = dirty.x0;
-            if (dirty.x1 > d->pending_x1) d->pending_x1 = dirty.x1;
-            if (dirty.y0 < d->pending_y0) d->pending_y0 = dirty.y0;
-            if (dirty.y1 > d->pending_y1) d->pending_y1 = dirty.y1;
-        }
-        ++d->frame_generation;
-        err = epd_scan_worker_submit(&d->scan_worker,(const uint8_t *)&d->frame_generation);
+        err = queue_graphics(d,&dirty);
     } else err = finish_refresh(d,false,&dirty);
     xSemaphoreGive(lock);
     return err;

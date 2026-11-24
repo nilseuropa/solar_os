@@ -34,11 +34,9 @@
 #define SYNTH_APP_BRUSH_MAX 16U
 #define SYNTH_APP_DEFAULT_WAVE_STEPS 16U
 #define SYNTH_APP_TWO_PI 6.28318530717958647692f
-#define SYNTH_APP_PIANO_HEIGHT 63
-#define SYNTH_APP_PIANO_BOTTOM_OFFSET 90
-#define SYNTH_APP_FOOTER_HEIGHT 21
 #define SYNTH_APP_FACTORY_PRESET_COUNT 8U
 #define SYNTH_APP_USER_PRESET_COUNT 8U
+#define SYNTH_APP_TOUCH_TARGETS_MAX 24U
 #define SYNTH_APP_PRESET_WAVE_STEPS_MAX 64U
 #define SYNTH_APP_PRESET_MAGIC 0x53595052UL
 #define SYNTH_APP_PRESET_VERSION 1U
@@ -53,8 +51,11 @@ typedef enum {
   SYNTH_TAB_OSCILLATOR2,
   SYNTH_TAB_MODE,
   SYNTH_TAB_PRESET,
+  SYNTH_TAB_SCOPE,
   SYNTH_TAB_COUNT,
 } synth_tab_t;
+
+enum { SYNTH_APP_TAB_BUTTON_COUNT = SYNTH_TAB_COUNT + 1 };
 
 typedef enum {
   SYNTH_BASE_SQUARE = 0,
@@ -128,6 +129,27 @@ typedef enum {
   SYNTH_PARAMETER_COUNT,
 } synth_parameter_t;
 
+typedef enum {
+  SYNTH_TOUCH_NONE = 0,
+  SYNTH_TOUCH_KEYBOARD,
+  SYNTH_TOUCH_PLAY,
+  SYNTH_TOUCH_FILTER,
+  SYNTH_TOUCH_OSCILLATOR2,
+  SYNTH_TOUCH_MODE,
+  SYNTH_TOUCH_PRESET,
+  SYNTH_TOUCH_PRESET_LOAD,
+  SYNTH_TOUCH_PRESET_SAVE,
+  SYNTH_TOUCH_WAVE_GRAPH,
+  SYNTH_TOUCH_WAVE_BASELINE,
+  SYNTH_TOUCH_WAVE_STEPS,
+} synth_touch_kind_t;
+
+typedef struct {
+  solar_os_display_rect_t rect;
+  synth_touch_kind_t kind;
+  unsigned control;
+} synth_touch_target_t;
+
 typedef struct {
   bool active;
   bool midi;
@@ -189,6 +211,16 @@ typedef struct {
   uint32_t last_status_poll_ms;
   bool last_running;
   bool keyboard_visible;
+  int pointer_x;
+  int pointer_y;
+  bool pointer_pressed;
+  solar_os_input_source_t pointer_source;
+  uint8_t pointer_id;
+  int pointer_drag_y;
+  int pointer_note;
+  synth_touch_target_t pointer_target;
+  synth_touch_target_t touch_targets[SYNTH_APP_TOUCH_TARGETS_MAX];
+  size_t touch_target_count;
   bool hold_mode;
   bool headless;
   bool suspended;
@@ -203,6 +235,29 @@ static void *synth_app_state;
 #define synth_app (*(synth_app_state_t *)synth_app_state)
 
 static void synth_release_all(bool stop);
+
+static void synth_add_touch_target(int x, int y, int width, int height,
+                                   synth_touch_kind_t kind, unsigned control) {
+  if (width <= 0 || height <= 0 ||
+      synth_app.touch_target_count >= SYNTH_APP_TOUCH_TARGETS_MAX)
+    return;
+  synth_app.touch_targets[synth_app.touch_target_count++] =
+      (synth_touch_target_t){
+          .rect = {x, y, width, height}, .kind = kind, .control = control};
+}
+
+static bool synth_touch_target_at(int x, int y, synth_touch_target_t *target) {
+  for (size_t i = synth_app.touch_target_count; i > 0; i--) {
+    const synth_touch_target_t *candidate = &synth_app.touch_targets[i - 1U];
+    const solar_os_display_rect_t *rect = &candidate->rect;
+    if (x >= rect->x && x < rect->x + rect->width && y >= rect->y &&
+        y < rect->y + rect->height) {
+      *target = *candidate;
+      return true;
+    }
+  }
+  return false;
+}
 
 static esp_err_t synth_parameter_get(void *user, float *value) {
   if (value == NULL) {
@@ -1581,8 +1636,8 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
 
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   for (size_t i = 0; i < 8; i++) {
-    const int key_x = x + (int)i * white_width;
-    const int key_width = i == 7 ? x + width - key_x : white_width;
+    const int key_x = x + (int)i * width / 8;
+    const int key_width = x + (int)(i + 1U) * width / 8 - key_x;
     if (synth_semitone_held(white_semitones[i])) {
       solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
       solar_os_gfx_fill_rect(gfx, key_x + 1, y + 1, key_width - 1, height - 1);
@@ -1596,7 +1651,7 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
       continue;
     }
     const int black_index = black_after_white[i];
-    const int key_x = x + ((int)i + 1) * white_width - white_width / 4;
+    const int key_x = x + ((int)i + 1) * width / 8 - white_width / 4;
     const int key_width = white_width / 2;
     const int key_height = (height * 3) / 5;
     const bool held = synth_semitone_held(black_semitones[black_index]);
@@ -1618,9 +1673,13 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
   }
 
   solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+  solar_os_gfx_set_font(
+      gfx, height >= 90 && white_width >= 40   ? SOLAR_OS_GFX_FONT_MONO_16
+           : height >= 70 && white_width >= 32 ? SOLAR_OS_GFX_FONT_MONO_14
+                                               : SOLAR_OS_GFX_FONT_MONO_12);
   for (size_t i = 0; i < 8; i++) {
-    const int key_x = x + (int)i * white_width;
-    const int key_width = i == 7 ? x + width - key_x : white_width;
+    const int key_x = x + (int)i * width / 8;
+    const int key_width = x + (int)(i + 1U) * width / 8 - key_x;
     const char *label = white_labels[i];
     const int label_x =
         key_x + (key_width - (int)solar_os_gfx_text_width(gfx, label)) / 2;
@@ -1628,30 +1687,121 @@ static void synth_draw_piano(solar_os_gfx_t *gfx, int x, int y, int width,
   }
 }
 
-static int synth_editor_bottom(int height) {
-  return height - (synth_app.keyboard_visible
-                       ? SYNTH_APP_PIANO_BOTTOM_OFFSET
-                       : SYNTH_APP_FOOTER_HEIGHT);
+static int synth_bottom_height(int height) {
+  const int preferred = height < 220 ? 36 : height / 4;
+  return preferred > 144 ? 144 : preferred;
 }
 
-static int synth_visualizer_extra_height(void) {
-  return synth_app.keyboard_visible
-             ? 0
-             : (SYNTH_APP_PIANO_BOTTOM_OFFSET - SYNTH_APP_FOOTER_HEIGHT) / 2;
+static int synth_editor_bottom(int height) {
+  return height - synth_bottom_height(height) - 12;
 }
 
 static int synth_play_graph_height(int height) {
-  const int preferred = 70 + synth_visualizer_extra_height();
+  const int preferred = (synth_editor_bottom(height) - 35) * 9 / 20;
   const int control_height = 2 * 10 + 30 + 4;
   const int available = synth_editor_bottom(height) - 35 - 8 - control_height;
   return available < preferred ? (available < 44 ? 44 : available) : preferred;
 }
 
-static void synth_draw_keyboard(solar_os_gfx_t *gfx, int width, int height) {
-  if (synth_app.keyboard_visible) {
-    synth_draw_piano(gfx, 6, height - SYNTH_APP_PIANO_BOTTOM_OFFSET, width - 12,
-                     SYNTH_APP_PIANO_HEIGHT);
+static bool synth_tab_button_rect(int width, int height, unsigned tab,
+                                  solar_os_display_rect_t *rect) {
+  if (tab >= SYNTH_APP_TAB_BUTTON_COUNT || width < 240 || height < 200 || rect == NULL) {
+    return false;
   }
+  const int columns = width >= 560 ? SYNTH_APP_TAB_BUTTON_COUNT : 4;
+  const int rows = (SYNTH_APP_TAB_BUTTON_COUNT + columns - 1) / columns;
+  const int row = (int)tab / columns;
+  const int column = (int)tab % columns;
+  const int count = SYNTH_APP_TAB_BUTTON_COUNT - row * columns < columns
+                        ? SYNTH_APP_TAB_BUTTON_COUNT - row * columns
+                        : columns;
+  const int top = height - synth_bottom_height(height) - 6;
+  const int left = 6 + column * (width - 12) / count;
+  const int right = 6 + (column + 1) * (width - 12) / count;
+  const int y = top + row * synth_bottom_height(height) / rows;
+  const int bottom = top + (row + 1) * synth_bottom_height(height) / rows;
+  *rect = (solar_os_display_rect_t){left, y, right - left - 3, bottom - y - 3};
+  /* The last column and row reach the same edges as the piano. */
+  if (column == count - 1)
+    rect->width += 3;
+  if (row == rows - 1)
+    rect->height += 3;
+  return true;
+}
+
+static int synth_tab_at(int width, int height, int x, int y) {
+  for (unsigned tab = 0; tab < SYNTH_APP_TAB_BUTTON_COUNT; tab++) {
+    solar_os_display_rect_t rect;
+    if (synth_tab_button_rect(width, height, tab, &rect) && x >= rect.x &&
+        x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height)
+      return (int)tab;
+  }
+  return -1;
+}
+
+static int synth_piano_note_at(int width, int height, int x, int y) {
+  if (width < 240 || height < 200)
+    return -1;
+  const int span = width - 12;
+  const int top = height - synth_bottom_height(height) - 6;
+  if (x < 6 || x >= width - 6 || y < top || y >= height - 6)
+    return -1;
+  if (y < top + synth_bottom_height(height) * 3 / 5) {
+    static const int8_t black_after[] = {1, 3, -1, 6, 8, 10, -1};
+    for (int i = 0; i < 7; i++) {
+      const int left = 6 + (i + 1) * span / 8 - (span / 8) / 4;
+      if (black_after[i] >= 0 && x >= left && x < left + (span / 8) / 2)
+        return black_after[i];
+    }
+  }
+  static const uint8_t white[] = {0, 2, 4, 5, 7, 9, 11, 12};
+  for (int i = 0; i < 8; i++)
+    if (x < 6 + (i + 1) * span / 8)
+      return white[i];
+  return -1;
+}
+
+static const char *synth_tab_name(synth_tab_t tab) {
+  static const char *const names[] = {"Play",  "Filter",  "Wave", "Osc 2",
+                                      "Glide", "Presets", "Scope"};
+  return tab < SYNTH_TAB_COUNT ? names[tab] : "";
+}
+
+static void synth_draw_bottom(solar_os_gfx_t *gfx, int width, int height) {
+  if (synth_app.keyboard_visible) {
+    synth_draw_piano(gfx, 6, height - synth_bottom_height(height) - 6,
+                     width - 12, synth_bottom_height(height));
+    return;
+  }
+  for (unsigned tab = 0; tab < SYNTH_APP_TAB_BUTTON_COUNT; tab++) {
+    solar_os_display_rect_t rect;
+    if (!synth_tab_button_rect(width, height, tab, &rect))
+      continue;
+    const bool selected = tab < SYNTH_TAB_COUNT && synth_app.tab == tab;
+    solar_os_gfx_set_color(gfx, selected ? SOLAR_OS_GFX_COLOR_BLACK
+                                         : SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_gfx_fill_rect(gfx, rect.x, rect.y, rect.width, rect.height);
+    solar_os_gfx_set_color(gfx, selected ? SOLAR_OS_GFX_COLOR_WHITE
+                                         : SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_rect(gfx, rect.x, rect.y, rect.width, rect.height);
+    solar_os_gfx_set_font(gfx, width >= 400 ? SOLAR_OS_GFX_FONT_BOLD_16
+                                            : SOLAR_OS_GFX_FONT_MONO_12);
+    char label[24];
+    snprintf(label, sizeof(label), "%u %s", (unsigned)tab + 1U,
+             tab == SYNTH_TAB_COUNT ? "Keys" : synth_tab_name((synth_tab_t)tab));
+    if ((int)solar_os_gfx_text_width(gfx, label) > rect.width - 8) {
+      static const char *const short_names[] = {"Play", "Filt", "Wave", "Osc2",
+                                                "Glid", "Pres", "Scope", "Keys"};
+      solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+      snprintf(label, sizeof(label), "%u %s", (unsigned)tab + 1U,
+               short_names[tab]);
+    }
+    solar_os_gfx_text(
+        gfx,
+        rect.x + (rect.width - (int)solar_os_gfx_text_width(gfx, label)) / 2,
+        rect.y + rect.height / 2 + 4, label);
+  }
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
 }
 
 static void synth_draw_header(solar_os_gfx_t *gfx,
@@ -1663,21 +1813,10 @@ static void synth_draw_header(solar_os_gfx_t *gfx,
 
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   const bool compact = width < 380;
-  const char *tabs = "1P 2F 3W 4O 5G 6R";
-  if (synth_app.tab == SYNTH_TAB_PLAY) {
-    tabs = "[1P] 2F 3W 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_FILTER) {
-    tabs = "1P [2F] 3W 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_WAVE) {
-    tabs = "1P 2F [3W] 4O 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_OSCILLATOR2) {
-    tabs = "1P 2F 3W [4O] 5G 6R";
-  } else if (synth_app.tab == SYNTH_TAB_MODE) {
-    tabs = "1P 2F 3W 4O [5G] 6R";
-  } else if (synth_app.tab == SYNTH_TAB_PRESET) {
-    tabs = "1P 2F 3W 4O 5G [6R]";
-  }
-  solar_os_gfx_text(gfx, 62, 17, tabs);
+  char title[24];
+  snprintf(title, sizeof(title), "%u %s", (unsigned)synth_app.tab + 1U,
+           synth_tab_name(synth_app.tab));
+  solar_os_gfx_text(gfx, 62, 17, title);
 
   char header[64];
   const esp_err_t display_error = synth_app.last_error != ESP_OK
@@ -1695,7 +1834,15 @@ static void synth_draw_header(solar_os_gfx_t *gfx,
              (unsigned)status->sample_rate,
              (unsigned)status->render_deadline_misses);
   }
-  solar_os_gfx_text(gfx, compact ? 194 : 202, 17, header);
+  const int header_x = width - 48 - (int)solar_os_gfx_text_width(gfx, header);
+  const bool second_line =
+      header_x < 70 + (int)solar_os_gfx_text_width(gfx, title);
+  solar_os_gfx_text(gfx, second_line ? 6 : header_x, second_line ? 31 : 17,
+                    header);
+  solar_os_gfx_rect(gfx, width - 42, 2, 36, 22);
+  solar_os_gfx_text(gfx, width - 36, 17,
+                    synth_app.keyboard_visible ? "Tabs" : "Keys");
+  synth_add_touch_target(width - 42, 2, 36, 22, SYNTH_TOUCH_KEYBOARD, 0);
 }
 
 static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
@@ -1720,12 +1867,21 @@ static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
   solar_os_gfx_text(gfx, graph_x + 8, graph_y + 17, "WAVETABLE");
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   char graph_status[48];
-  snprintf(graph_status, sizeof(graph_status), "%s b%u [ENTER %u]",
-           synth_baseline_name(synth_app.baseline),
-           (unsigned)synth_app.wave_brush, (unsigned)synth_app.wave_steps);
-  const int status_x = graph_x + graph_width - 8 -
-                       (int)solar_os_gfx_text_width(gfx, graph_status);
-  solar_os_gfx_text(gfx, status_x, graph_y + 17, graph_status);
+  const int base_x = graph_x + graph_width - 162;
+  const int steps_x = graph_x + graph_width - 68;
+  solar_os_gfx_rect(gfx, base_x, graph_y + 4, 90, 21);
+  solar_os_gfx_text(gfx, base_x + 5, graph_y + 17,
+                    synth_baseline_name(synth_app.baseline));
+  snprintf(graph_status, sizeof(graph_status), "%u pts",
+           (unsigned)synth_app.wave_steps);
+  solar_os_gfx_rect(gfx, steps_x, graph_y + 4, 62, 21);
+  solar_os_gfx_text(gfx, steps_x + 5, graph_y + 17, graph_status);
+  synth_add_touch_target(base_x, graph_y + 4, 90, 21, SYNTH_TOUCH_WAVE_BASELINE,
+                         0);
+  synth_add_touch_target(steps_x, graph_y + 4, 62, 21, SYNTH_TOUCH_WAVE_STEPS,
+                         0);
+  synth_add_touch_target(left, top, right - left + 1, bottom - top + 1,
+                         SYNTH_TOUCH_WAVE_GRAPH, 0);
   solar_os_gfx_line(gfx, left, middle, right, middle);
 
   int previous_x = left;
@@ -1761,18 +1917,13 @@ static void synth_draw_wave_editor(solar_os_gfx_t *gfx, int width, int height) {
 
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   char editor_status[64];
-  snprintf(editor_status, sizeof(editor_status),
-           "L/R move U/D draw  %03u/%u %+6d b%u",
+  snprintf(editor_status, sizeof(editor_status), "%03u/%u %+6d b%u",
            (unsigned)synth_app.wave_cursor, (unsigned)synth_app.wave_steps,
            (int)synth_app.wavetable[synth_app.wave_cursor],
            (unsigned)synth_app.wave_brush);
   solar_os_gfx_text(gfx, 6, editor_bottom - 8, editor_status);
 
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    width >= 380
-                        ? "X keys  Enter steps B base R reset M smooth N norm"
-                        : "X keys  Enter steps B base R reset M/N norm");
+  synth_draw_bottom(gfx, width, height);
 }
 
 static void synth_draw_filter_response(solar_os_gfx_t *gfx, int x, int y,
@@ -1837,33 +1988,35 @@ static void synth_format_frequency(char *value, size_t value_size,
 static void synth_draw_filter_editor(solar_os_gfx_t *gfx, int width,
                                      int height) {
   const int graphs_top = 35;
-  const bool compact = height < 280;
-  const int graphs_height =
-      (compact ? 56 : 72) + synth_visualizer_extra_height();
+  const int graphs_height = synth_play_graph_height(height);
   const int gap = 6;
   const int graph_width = (width - 18) / 2;
   synth_draw_filter_response(gfx, 6, graphs_top, graph_width, graphs_height);
+  synth_add_touch_target(6, graphs_top, graph_width, graphs_height,
+                         SYNTH_TOUCH_FILTER, SYNTH_FILTER_CONTROL_CUTOFF);
   synth_draw_envelope(
       gfx, 12 + graph_width, graphs_top, width - graph_width - 18,
       graphs_height, "FILTER ENV", synth_app.config.filter.attack_ms,
       synth_app.config.filter.decay_ms, synth_app.config.filter.sustain_percent,
       synth_app.config.filter.release_ms);
+  for (unsigned i = 0; i < 4; i++) {
+    const int x = 12 + graph_width + (int)i * (width - graph_width - 18) / 4;
+    synth_add_touch_target(x, graphs_top, (width - graph_width - 18) / 4,
+                           graphs_height, SYNTH_TOUCH_FILTER,
+                           SYNTH_FILTER_CONTROL_ATTACK + i);
+  }
 
   const int editor_bottom = synth_editor_bottom(height);
   const int controls_top = graphs_top + graphs_height + gap;
   const int knob_cell = (width - 12) / SYNTH_FILTER_CONTROL_COUNT;
   int knob_radius = knob_cell / 3;
-  const int maximum_radius = synth_app.keyboard_visible
-                                 ? (compact ? 10 : 16)
-                                 : knob_cell / 3;
+  const int maximum_radius = (editor_bottom - controls_top - 32) / 2;
   if (knob_radius > maximum_radius) {
     knob_radius = maximum_radius;
   } else if (knob_radius < 10) {
     knob_radius = 10;
   }
-  const int knob_y = synth_app.keyboard_visible
-                         ? controls_top + knob_radius
-                         : controls_top + (editor_bottom - controls_top - 29) / 2;
+  const int knob_y = controls_top + (editor_bottom - controls_top - 29) / 2;
   const char *const labels[] = {"CUT", "RES", "ENV", "A", "D", "S", "R"};
   const uint32_t values[] = {
       synth_app.config.filter.cutoff_hz,
@@ -1900,12 +2053,11 @@ static void synth_draw_filter_editor(solar_os_gfx_t *gfx, int width,
     synth_draw_knob(gfx, 6 + (int)i * knob_cell + knob_cell / 2, knob_y,
                     knob_radius, labels[i], value, position,
                     synth_app.filter_selected == (synth_filter_control_t)i);
+    synth_add_touch_target(6 + (int)i * knob_cell, controls_top, knob_cell,
+                           editor_bottom - controls_top, SYNTH_TOUCH_FILTER, i);
   }
 
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    "X keys  Arrows select/tune PgUp/Dn octave +/- velocity");
+  synth_draw_bottom(gfx, width, height);
 }
 
 static void synth_draw_oscillator_panel(solar_os_gfx_t *gfx, int x, int y,
@@ -1930,33 +2082,36 @@ static void synth_draw_oscillator2_editor(solar_os_gfx_t *gfx, int width,
                                           int height) {
   const bool compact = height < 280;
   const int graphs_top = 35;
-  const int graphs_height =
-      (compact ? 56 : 70) + synth_visualizer_extra_height();
+  const int graphs_height = synth_play_graph_height(height);
   const int graph_gap = 6;
   const int graph_width = (width - 18) / 2;
   synth_draw_oscillator_panel(gfx, 6, graphs_top, graph_width, graphs_height,
-                              "OSC1", synth_app.config.waveform, false);
+                              "OSC1", synth_app.config.waveform,
+                              synth_app.pointer_target.kind ==
+                                  SYNTH_TOUCH_PLAY);
+  synth_add_touch_target(6, graphs_top, graph_width, graphs_height,
+                         SYNTH_TOUCH_PLAY, SYNTH_CONTROL_WAVE);
   synth_draw_oscillator_panel(
       gfx, 12 + graph_width, graphs_top, width - graph_width - 18,
       graphs_height, "OSC2", synth_app.config.oscillator2.waveform,
-      synth_app.oscillator2_selected == SYNTH_OSCILLATOR2_CONTROL_WAVE);
+      synth_app.pointer_target.kind != SYNTH_TOUCH_PLAY &&
+          synth_app.oscillator2_selected == SYNTH_OSCILLATOR2_CONTROL_WAVE);
+  synth_add_touch_target(12 + graph_width, graphs_top, width - graph_width - 18,
+                         graphs_height, SYNTH_TOUCH_OSCILLATOR2,
+                         SYNTH_OSCILLATOR2_CONTROL_WAVE);
 
   const int editor_bottom = synth_editor_bottom(height);
   const int controls_top = graphs_top + graphs_height + graph_gap;
   const int knob_cell = (width - 12) / SYNTH_OSCILLATOR2_CONTROL_COUNT;
   int knob_radius = knob_cell / 4;
-  const int maximum_radius = synth_app.keyboard_visible
-                                 ? (compact ? 10 : 20)
-                                 : knob_cell / 3;
+  const int maximum_radius = (editor_bottom - controls_top - 32) / 2;
   const int minimum_radius = compact ? 10 : 11;
   if (knob_radius > maximum_radius) {
     knob_radius = maximum_radius;
   } else if (knob_radius < minimum_radius) {
     knob_radius = minimum_radius;
   }
-  const int knob_y = synth_app.keyboard_visible
-                         ? controls_top + knob_radius
-                         : controls_top + (editor_bottom - controls_top - 29) / 2;
+  const int knob_y = controls_top + (editor_bottom - controls_top - 29) / 2;
   const char *const labels[] = {"WAVE", "OCT", "FINE", "MIX"};
   char values[SYNTH_OSCILLATOR2_CONTROL_COUNT][12];
   snprintf(values[SYNTH_OSCILLATOR2_CONTROL_WAVE],
@@ -1989,14 +2144,15 @@ static void synth_draw_oscillator2_editor(solar_os_gfx_t *gfx, int width,
   for (size_t i = 0; i < SYNTH_OSCILLATOR2_CONTROL_COUNT; i++) {
     synth_draw_knob(gfx, 6 + (int)i * knob_cell + knob_cell / 2, knob_y,
                     knob_radius, labels[i], values[i], positions[i],
-                    synth_app.oscillator2_selected ==
-                        (synth_oscillator2_control_t)i);
+                    synth_app.pointer_target.kind != SYNTH_TOUCH_PLAY &&
+                        synth_app.oscillator2_selected ==
+                            (synth_oscillator2_control_t)i);
+    synth_add_touch_target(6 + (int)i * knob_cell, controls_top, knob_cell,
+                           editor_bottom - controls_top,
+                           SYNTH_TOUCH_OSCILLATOR2, i);
   }
 
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    "X keys  Arrows select/tune PgUp/Dn octave +/- velocity");
+  synth_draw_bottom(gfx, width, height);
 }
 
 static void synth_draw_preset_editor(solar_os_gfx_t *gfx, int width,
@@ -2008,14 +2164,8 @@ static void synth_draw_preset_editor(solar_os_gfx_t *gfx, int width,
   const int factory_x = 6;
   const int user_x = factory_x + cell_width + gap;
   const int rows_top = compact ? 50 : 54;
-  int row_height = compact ? 12 : 17;
-  if (!synth_app.keyboard_visible) {
-    const int expanded_row_height =
-        (editor_bottom - rows_top - 22) / SYNTH_APP_FACTORY_PRESET_COUNT;
-    if (expanded_row_height > row_height) {
-      row_height = expanded_row_height;
-    }
-  }
+  const int row_height =
+      (editor_bottom - rows_top - 22) / SYNTH_APP_FACTORY_PRESET_COUNT;
 
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BOLD_12);
   solar_os_gfx_text(gfx, factory_x + 4, rows_top - 5, "FACTORY");
@@ -2023,6 +2173,11 @@ static void synth_draw_preset_editor(solar_os_gfx_t *gfx, int width,
   solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
   for (size_t row = 0; row < SYNTH_APP_FACTORY_PRESET_COUNT; row++) {
     const int y = rows_top + (int)row * row_height;
+    synth_add_touch_target(factory_x, y, cell_width, row_height,
+                           SYNTH_TOUCH_PRESET, row);
+    synth_add_touch_target(user_x, y, cell_width, row_height,
+                           SYNTH_TOUCH_PRESET,
+                           SYNTH_APP_FACTORY_PRESET_COUNT + row);
     char factory_label[24];
     snprintf(factory_label, sizeof(factory_label), "F%u  %s",
              (unsigned)(row + 1U), synth_factory_preset_names[row]);
@@ -2045,16 +2200,26 @@ static void synth_draw_preset_editor(solar_os_gfx_t *gfx, int width,
     solar_os_gfx_text(gfx, user_x + 4, y + row_height - 3, user_label);
   }
 
-  if (!compact || !synth_app.keyboard_visible) {
-    solar_os_gfx_text(gfx, 6, editor_bottom - 8, synth_app.preset_message);
-  }
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    compact && synth_app.keyboard_visible &&
-                            synth_app.preset_message[0] != '\0'
-                        ? synth_app.preset_message
-                        : "X keys  Arrows select  Enter load  V save");
+  char message[40];
+  const int message_chars = (width - 144) / 6;
+  snprintf(message, sizeof(message), "%.*s", message_chars,
+           synth_app.preset_message);
+  solar_os_gfx_text(gfx, 6, editor_bottom - 8, message);
+  solar_os_gfx_rect(gfx, width - 134, editor_bottom - 20, 60, 18);
+  solar_os_gfx_text(gfx, width - 118, editor_bottom - 7, "Load");
+  solar_os_gfx_set_color(gfx, synth_app.preset_selected >=
+                                      SYNTH_APP_FACTORY_PRESET_COUNT
+                                  ? SOLAR_OS_GFX_COLOR_BLACK
+                                  : SOLAR_OS_GFX_COLOR_LIGHT);
+  solar_os_gfx_rect(gfx, width - 70, editor_bottom - 20, 64, 18);
+  solar_os_gfx_text(gfx, width - 54, editor_bottom - 7, "Save");
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+  synth_add_touch_target(width - 134, editor_bottom - 20, 60, 18,
+                         SYNTH_TOUCH_PRESET_LOAD, 0);
+  if (synth_app.preset_selected >= SYNTH_APP_FACTORY_PRESET_COUNT)
+    synth_add_touch_target(width - 70, editor_bottom - 20, 64, 18,
+                           SYNTH_TOUCH_PRESET_SAVE, 0);
+  synth_draw_bottom(gfx, width, height);
 }
 
 static void synth_draw_mode_editor(solar_os_gfx_t *gfx, int width, int height) {
@@ -2065,6 +2230,14 @@ static void synth_draw_mode_editor(solar_os_gfx_t *gfx, int width, int height) {
   const int panel_height = editor_bottom - panel_y - 14;
   const int center_y = panel_y + panel_height / 2;
   const int control_width = panel_width / 4;
+  synth_add_touch_target(panel_x, panel_y, control_width, panel_height,
+                         SYNTH_TOUCH_MODE, SYNTH_MODE_CONTROL_VOICES);
+  synth_add_touch_target(panel_x + control_width, panel_y, control_width,
+                         panel_height, SYNTH_TOUCH_MODE,
+                         SYNTH_MODE_CONTROL_HOLD);
+  synth_add_touch_target(panel_x + 2 * control_width, panel_y,
+                         panel_width - 2 * control_width, panel_height,
+                         SYNTH_TOUCH_MODE, SYNTH_MODE_CONTROL_GLIDE);
 
   solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
   solar_os_gfx_rect(gfx, panel_x, panel_y, panel_width, panel_height);
@@ -2142,10 +2315,7 @@ static void synth_draw_mode_editor(solar_os_gfx_t *gfx, int width, int height) {
                       graph_top);
   }
 
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    "X keys  Left/Right select  Up/Down set  Enter toggle");
+  synth_draw_bottom(gfx, width, height);
 }
 
 static bool synth_use_compact_layout(int width, int height) {
@@ -2154,6 +2324,79 @@ static bool synth_use_compact_layout(int width, int height) {
 
 static bool synth_use_micro_layout(int width, int height) {
   return width < 112 || height < 56;
+}
+
+static void synth_draw_scope_trace(
+    solar_os_gfx_t *gfx, int x, int y, int width, int height,
+    const solar_os_synth_voice_status_t *status) {
+  const int middle = y + height / 2;
+  const int amplitude = height / 2 - 1;
+  const size_t count =
+      status->pcm_sample_count > SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES
+          ? SOLAR_OS_SYNTH_VOICE_SCOPE_SAMPLES
+          : status->pcm_sample_count;
+  if (!status->running || count < 2U || status->pcm_peak == 0U) {
+    solar_os_gfx_line(gfx, x, middle, x + width - 1, middle);
+    return;
+  }
+  const int32_t peak = status->pcm_peak;
+  int previous_x = x, previous_y = middle;
+  for (size_t i = 0; i < count; i++) {
+    int32_t sample = status->pcm_samples[i];
+    if (sample > peak)
+      sample = peak;
+    if (sample < -peak)
+      sample = -peak;
+    const int px = x + (int)(i * (size_t)(width - 1) / (count - 1U));
+    const int py = middle - sample * amplitude / peak;
+    if (i > 0U)
+      solar_os_gfx_line(gfx, previous_x, previous_y, px, py);
+    previous_x = px;
+    previous_y = py;
+  }
+}
+
+static void synth_draw_scope(solar_os_gfx_t *gfx, int width, int height,
+                             const solar_os_synth_voice_status_t *status) {
+  const bool compact = synth_use_compact_layout(width, height);
+  const int x = compact ? 2 : 6;
+  const int y = compact ? 14 : 34;
+  const int bottom = compact ? height - 2 : synth_editor_bottom(height) - 6;
+  solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+  if (compact) {
+    solar_os_gfx_text(gfx, 2, 10, "SCOPE");
+  }
+  solar_os_gfx_rect(gfx, x, y, width - 2 * x, bottom - y);
+  const int left = x + 5;
+  const int right = width - x - 6;
+  const int top = y + (compact ? 4 : 26);
+  const int trace_bottom = bottom - (compact ? 4 : 25);
+  for (int column = 1; column < 4; column++) {
+    const int gx = left + column * (right - left) / 4;
+    for (int gy = top; gy <= trace_bottom; gy += 4) {
+      solar_os_gfx_pixel(gfx, gx, gy);
+    }
+  }
+  solar_os_gfx_line(gfx, left, (top + trace_bottom) / 2, right,
+                    (top + trace_bottom) / 2);
+  synth_draw_scope_trace(gfx, left, top, right - left + 1,
+                         trace_bottom - top + 1, status);
+  if (!compact) {
+    char text[64];
+    snprintf(text, sizeof(text), "PEAK %u   RMS %u", (unsigned)status->pcm_peak,
+             (unsigned)status->pcm_rms);
+    solar_os_gfx_text(gfx, left + 2, y + 17, text);
+    const uint32_t rate = status->sample_rate;
+    const uint32_t duration_us =
+        rate ? (uint32_t)(status->pcm_sample_count * 1000000U / rate) : 0U;
+    snprintf(text, sizeof(text), "%uHz  %u samples  %u.%02ums", (unsigned)rate,
+             (unsigned)status->pcm_sample_count,
+             (unsigned)(duration_us / 1000U),
+             (unsigned)((duration_us % 1000U) / 10U));
+    solar_os_gfx_text(gfx, left + 2, bottom - 8, text);
+    synth_draw_bottom(gfx, width, height);
+  }
 }
 
 static int synth_centered_text_x(solar_os_gfx_t *gfx, int width,
@@ -2403,7 +2646,9 @@ static void synth_draw_compact(solar_os_gfx_t *gfx, int width, int height,
                                  synth_app.compact_parameter, status);
     return;
   }
-  if (synth_app.tab == SYNTH_TAB_WAVE) {
+  if (synth_app.tab == SYNTH_TAB_SCOPE) {
+    synth_draw_scope(gfx, width, height, status);
+  } else if (synth_app.tab == SYNTH_TAB_WAVE) {
     synth_draw_compact_wave_editor(gfx, width, height, status);
   } else if (synth_app.tab == SYNTH_TAB_PRESET) {
     synth_draw_compact_preset(gfx, width, height, status);
@@ -2453,14 +2698,15 @@ static void synth_draw_compact(solar_os_gfx_t *gfx, int width, int height,
 static bool synth_scope_visible(solar_os_context_t *ctx) {
   solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
   if (synth_app.headless || gfx == NULL || synth_app.suspended ||
-      synth_app.tab != SYNTH_TAB_PLAY) {
+      (synth_app.tab != SYNTH_TAB_PLAY && synth_app.tab != SYNTH_TAB_SCOPE)) {
     return false;
   }
   const int width = (int)solar_os_gfx_width(gfx);
   const int height = (int)solar_os_gfx_height(gfx);
   return !synth_use_compact_layout(width, height) ||
          (!synth_app.compact_parameter_valid &&
-          synth_app.selected == SYNTH_CONTROL_WAVE);
+          (synth_app.tab == SYNTH_TAB_SCOPE ||
+           synth_app.selected == SYNTH_CONTROL_WAVE));
 }
 
 static void synth_remember_rendered_status(
@@ -2504,7 +2750,12 @@ static void synth_render_scope(solar_os_context_t *ctx, uint32_t now_ms) {
   solar_os_synth_voice_status_t status;
   solar_os_synth_voice_get_status(&status);
   solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-  if (compact) {
+  if (synth_app.tab == SYNTH_TAB_SCOPE) {
+    const int y = compact ? 0 : 34;
+    const int bottom = compact ? height : synth_editor_bottom(height);
+    solar_os_gfx_fill_rect(gfx, 0, y, width, bottom - y);
+    synth_draw_scope(gfx, width, height, &status);
+  } else if (compact) {
     const bool micro = synth_use_micro_layout(width, height);
     const int graph_y = micro ? 25 : 27;
     const int graph_height = height - graph_y - (micro ? 3 : 15);
@@ -2552,6 +2803,7 @@ static void synth_render(solar_os_context_t *ctx) {
   const int width = (int)solar_os_gfx_width(gfx);
   const int height = (int)solar_os_gfx_height(gfx);
   synth_app.visual_dirty = false;
+  synth_app.touch_target_count = 0;
   solar_os_synth_voice_status_t status;
   solar_os_synth_voice_get_status(&status);
   solar_os_audio_status_t audio_status;
@@ -2566,6 +2818,13 @@ static void synth_render(solar_os_context_t *ctx) {
     return;
   }
   synth_draw_header(gfx, &status);
+
+  if (synth_app.tab == SYNTH_TAB_SCOPE) {
+    synth_draw_scope(gfx, width, height, &status);
+    solar_os_gfx_present(gfx);
+    synth_remember_rendered_status(&status);
+    return;
+  }
 
   if (synth_app.tab == SYNTH_TAB_WAVE) {
     synth_draw_wave_editor(gfx, width, height);
@@ -2615,6 +2874,8 @@ static void synth_draw_play(solar_os_gfx_t *gfx, int width, int height,
   const int wave_width = width / 4;
   const int wave_x = 6;
   const int wave_panel_width = wave_width - 10;
+  synth_add_touch_target(wave_x, graphs_top, wave_panel_width, graphs_height,
+                         SYNTH_TOUCH_PLAY, SYNTH_CONTROL_WAVE);
   solar_os_gfx_rect(gfx, wave_x, graphs_top, wave_panel_width, graphs_height);
   if (synth_app.selected == SYNTH_CONTROL_WAVE) {
     solar_os_gfx_rect(gfx, wave_x + 3, graphs_top + 3, wave_panel_width - 6,
@@ -2635,29 +2896,29 @@ static void synth_draw_play(solar_os_gfx_t *gfx, int width, int height,
       gfx, knob_area_x, graphs_top, width - knob_area_x - 6, graphs_height,
       "ENVELOPE", synth_app.config.attack_ms, synth_app.config.decay_ms,
       synth_app.config.sustain_percent, synth_app.config.release_ms);
+  for (unsigned i = 0; i < 4; i++) {
+    const int x = knob_area_x + (int)i * (width - knob_area_x - 6) / 4;
+    synth_add_touch_target(x, graphs_top, (width - knob_area_x - 6) / 4,
+                           graphs_height, SYNTH_TOUCH_PLAY,
+                           SYNTH_CONTROL_ATTACK + i);
+  }
 
   const int controls_top = graphs_top + graphs_height + 8;
   const int volume_y = controls_top + 7;
-  const int volume_space = editor_bottom - volume_y - (synth_app.keyboard_visible ? 4 : 7);
-  const int volume_height = synth_app.keyboard_visible && volume_space > 48
-                                ? 48 : volume_space;
+  const int volume_height = editor_bottom - volume_y - 4;
   synth_draw_volume_button(gfx, wave_x, volume_y, wave_panel_width, volume_height,
                            synth_app.selected == SYNTH_CONTROL_VOLUME);
+  synth_add_touch_target(wave_x, volume_y, wave_panel_width, volume_height,
+                         SYNTH_TOUCH_PLAY, SYNTH_CONTROL_VOLUME);
 
   const int knob_cell = (width - knob_area_x) / 4;
   int knob_radius = knob_cell / 3;
   int maximum_radius = (editor_bottom - controls_top - 34) / 2;
-  const int preferred_radius = synth_app.keyboard_visible ? 22 : 30;
-  if (maximum_radius > preferred_radius) {
-    maximum_radius = preferred_radius;
-  }
   if (knob_radius > maximum_radius) {
     knob_radius = maximum_radius;
   }
   if (knob_radius < 6) knob_radius = 6;
-  const int knob_y = synth_app.keyboard_visible
-                         ? controls_top + knob_radius + 1
-                         : controls_top + (editor_bottom - controls_top - 29) / 2;
+  const int knob_y = controls_top + (editor_bottom - controls_top - 29) / 2;
   const uint32_t knob_values[] = {
       synth_app.config.attack_ms,
       synth_app.config.decay_ms,
@@ -2683,12 +2944,12 @@ static void synth_draw_play(solar_os_gfx_t *gfx, int width, int height,
                     knob_y, knob_radius, knob_labels[i], value, position,
                     synth_app.selected ==
                         (synth_control_t)(i + SYNTH_CONTROL_ATTACK));
+    synth_add_touch_target(knob_area_x + (int)i * knob_cell, controls_top,
+                           knob_cell, editor_bottom - controls_top,
+                           SYNTH_TOUCH_PLAY, i + SYNTH_CONTROL_ATTACK);
   }
 
-  synth_draw_keyboard(gfx, width, height);
-  solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-  solar_os_gfx_text(gfx, 6, height - 6,
-                    "X keys  Arrows select/tune PgUp/Dn octave +/- velocity");
+  synth_draw_bottom(gfx, width, height);
 }
 
 static void synth_render_changed(solar_os_context_t *ctx, bool changed,
@@ -2806,6 +3067,29 @@ static bool synth_release_held(synth_held_note_t *held) {
 static bool synth_note_off(const solar_os_input_key_event_t *key,
                            int semitone) {
   return synth_release_held(synth_find_held(key, semitone));
+}
+
+static solar_os_input_key_event_t synth_pointer_key(int semitone) {
+  return (solar_os_input_key_event_t){
+      .source = synth_app.pointer_source,
+      .physical_key = (uint16_t)(0x100U + semitone),
+      .usage = synth_note_usages[semitone],
+  };
+}
+
+static bool synth_pointer_release_note(void) {
+  if (synth_app.pointer_note < 0)
+    return false;
+  const int note = synth_app.pointer_note;
+  const solar_os_input_key_event_t key = synth_pointer_key(note);
+  synth_app.pointer_note = -1;
+  return !synth_app.hold_mode && synth_note_off(&key, note);
+}
+
+static void synth_pointer_cancel(void) {
+  (void)synth_pointer_release_note();
+  synth_app.pointer_pressed = false;
+  synth_app.pointer_target.kind = SYNTH_TOUCH_NONE;
 }
 
 static bool synth_toggle_note(const solar_os_input_key_event_t *key,
@@ -2974,6 +3258,9 @@ static void synth_midi_unsubscribe(void) {
 }
 
 static void synth_release_all(bool stop) {
+  synth_app.pointer_note = -1;
+  synth_app.pointer_pressed = false;
+  synth_app.pointer_target.kind = SYNTH_TOUCH_NONE;
   if (stop) {
     (void)solar_os_synth_voice_stop(SYNTH_APP_OWNER);
   } else {
@@ -3579,6 +3866,7 @@ static bool synth_handle_mode_control(uint8_t key) {
 
 static void synth_select_tab(synth_tab_t tab) {
   synth_app.tab = tab;
+  synth_app.pointer_target.kind = SYNTH_TOUCH_NONE;
 }
 
 static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
@@ -3587,15 +3875,23 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
     return true;
   }
   synth_app.compact_parameter_valid = false;
+  if (!synth_app.pointer_pressed)
+    synth_app.pointer_target.kind = SYNTH_TOUCH_NONE;
   if (key == '\t') {
     synth_select_tab((synth_tab_t)((synth_app.tab + 1) % SYNTH_TAB_COUNT));
     return true;
   }
-  if (key >= '1' && key <= '6') {
+  if (key >= '1' && key < '1' + SYNTH_TAB_COUNT) {
     synth_select_tab((synth_tab_t)(key - '1'));
     return true;
   }
+  if (key == '1' + SYNTH_TAB_COUNT) {
+    synth_pointer_cancel();
+    synth_app.keyboard_visible = true;
+    return true;
+  }
   if (key == 'x' || key == 'X') {
+    synth_pointer_cancel();
     synth_app.keyboard_visible = !synth_app.keyboard_visible;
     return true;
   }
@@ -3619,6 +3915,8 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
   case SOLAR_OS_KEY_LEFT:
   case SOLAR_OS_KEY_CTRL_LEFT:
   case SOLAR_OS_KEY_SHIFT_LEFT:
+    if (synth_app.tab == SYNTH_TAB_SCOPE)
+      return false;
     synth_app.selected = synth_app.selected == 0
                              ? SYNTH_CONTROL_COUNT - 1
                              : (synth_control_t)(synth_app.selected - 1);
@@ -3626,17 +3924,23 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
   case SOLAR_OS_KEY_RIGHT:
   case SOLAR_OS_KEY_CTRL_RIGHT:
   case SOLAR_OS_KEY_SHIFT_RIGHT:
+    if (synth_app.tab == SYNTH_TAB_SCOPE)
+      return false;
     synth_app.selected =
         (synth_control_t)((synth_app.selected + 1) % SYNTH_CONTROL_COUNT);
     return true;
   case SOLAR_OS_KEY_UP:
   case SOLAR_OS_KEY_CTRL_UP:
   case SOLAR_OS_KEY_SHIFT_UP:
+    if (synth_app.tab == SYNTH_TAB_SCOPE)
+      return false;
     synth_adjust_selected(1);
     return true;
   case SOLAR_OS_KEY_DOWN:
   case SOLAR_OS_KEY_CTRL_DOWN:
   case SOLAR_OS_KEY_SHIFT_DOWN:
+    if (synth_app.tab == SYNTH_TAB_SCOPE)
+      return false;
     synth_adjust_selected(-1);
     return true;
   case SOLAR_OS_KEY_PAGE_UP:
@@ -3672,11 +3976,222 @@ static bool synth_handle_control(solar_os_context_t *ctx, uint8_t key) {
   }
 }
 
+static bool synth_touch_wave(int x, int y) {
+  const solar_os_display_rect_t *rect = &synth_app.pointer_target.rect;
+  const int right = rect->width - 1, amplitude = (rect->height - 1) / 2;
+  if (right <= 0 || amplitude <= 0)
+    return false;
+  int column = x - rect->x;
+  if (column < 0)
+    column = 0;
+  if (column > right)
+    column = right;
+  size_t index = ((size_t)column * synth_app.wave_steps + right / 2U) / right;
+  if (index >= synth_app.wave_steps)
+    index = synth_app.wave_steps - 1U;
+  int32_t sample = (int32_t)(rect->y + amplitude - y) * 32767 / amplitude;
+  if (sample > 32767)
+    sample = 32767;
+  if (sample < -32767)
+    sample = -32767;
+  const bool changed =
+      synth_app.wave_cursor != index || synth_app.wavetable[index] != sample;
+  if (!changed)
+    return false;
+  synth_app.wave_cursor = index;
+  const int radius = synth_app.wave_brush;
+  for (int offset = -radius; offset <= radius; offset++) {
+    const size_t point =
+        (index + synth_app.wave_steps + offset) % synth_app.wave_steps;
+    const int weight = radius + 1 - (offset < 0 ? -offset : offset);
+    synth_app.wavetable[point] +=
+        (sample - synth_app.wavetable[point]) * weight / (radius + 1);
+  }
+  synth_wavetable_commit();
+  return true;
+}
+
+static bool synth_touch_select(void) {
+  const synth_touch_target_t *target = &synth_app.pointer_target;
+  switch (target->kind) {
+  case SYNTH_TOUCH_KEYBOARD:
+    synth_pointer_cancel();
+    synth_app.keyboard_visible = !synth_app.keyboard_visible;
+    break;
+  case SYNTH_TOUCH_PLAY:
+    synth_app.selected = (synth_control_t)target->control;
+    break;
+  case SYNTH_TOUCH_FILTER:
+    synth_app.filter_selected = (synth_filter_control_t)target->control;
+    break;
+  case SYNTH_TOUCH_OSCILLATOR2:
+    synth_app.oscillator2_selected =
+        (synth_oscillator2_control_t)target->control;
+    break;
+  case SYNTH_TOUCH_MODE:
+    synth_app.mode_selected = (synth_mode_control_t)target->control;
+    if (target->control == SYNTH_MODE_CONTROL_VOICES)
+      synth_adjust_mode_selected(synth_app.performance.mono ? -1 : 1);
+    else if (target->control == SYNTH_MODE_CONTROL_HOLD)
+      (void)synth_set_hold_mode(!synth_app.hold_mode);
+    break;
+  case SYNTH_TOUCH_PRESET:
+    synth_app.preset_selected = target->control;
+    break;
+  case SYNTH_TOUCH_PRESET_LOAD:
+    synth_preset_load_selected();
+    break;
+  case SYNTH_TOUCH_PRESET_SAVE:
+    synth_preset_save_selected();
+    break;
+  case SYNTH_TOUCH_WAVE_GRAPH:
+    synth_wavetable_snapshot();
+    (void)synth_touch_wave(synth_app.pointer_x, synth_app.pointer_y);
+    break;
+  case SYNTH_TOUCH_WAVE_BASELINE:
+    (void)synth_handle_wave_control('b');
+    break;
+  case SYNTH_TOUCH_WAVE_STEPS:
+    synth_wavetable_cycle_steps();
+    break;
+  default:
+    return false;
+  }
+  return true;
+}
+
+static bool synth_touch_adjust(int direction) {
+  const synth_touch_target_t *target = &synth_app.pointer_target;
+  switch (target->kind) {
+  case SYNTH_TOUCH_PLAY:
+    synth_app.selected = (synth_control_t)target->control;
+    synth_adjust_selected(direction);
+    break;
+  case SYNTH_TOUCH_FILTER:
+    synth_app.filter_selected = (synth_filter_control_t)target->control;
+    synth_adjust_filter_selected(direction);
+    break;
+  case SYNTH_TOUCH_OSCILLATOR2:
+    synth_app.oscillator2_selected =
+        (synth_oscillator2_control_t)target->control;
+    synth_adjust_oscillator2_selected(direction);
+    break;
+  case SYNTH_TOUCH_MODE:
+    if (target->control != SYNTH_MODE_CONTROL_GLIDE)
+      return false;
+    synth_app.mode_selected = SYNTH_MODE_CONTROL_GLIDE;
+    synth_adjust_mode_selected(direction);
+    break;
+  default:
+    return false;
+  }
+  return true;
+}
+
+static bool synth_pointer_event(solar_os_context_t *ctx,
+                                const solar_os_input_pointer_event_t *pointer) {
+  solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+  if (synth_app.headless || synth_app.suspended || gfx == NULL)
+    return false;
+  if (synth_app.pointer_pressed &&
+      (pointer->source != synth_app.pointer_source ||
+       pointer->pointer_id != synth_app.pointer_id))
+    return false;
+  const int width = solar_os_gfx_width(gfx), height = solar_os_gfx_height(gfx);
+  if (pointer->mode == SOLAR_OS_INPUT_POINTER_ABSOLUTE) {
+    synth_app.pointer_x = pointer->x;
+    synth_app.pointer_y = pointer->y;
+  } else {
+    synth_app.pointer_x += pointer->delta_x;
+    synth_app.pointer_y += pointer->delta_y;
+    if (synth_app.pointer_x < 0)
+      synth_app.pointer_x = 0;
+    if (synth_app.pointer_y < 0)
+      synth_app.pointer_y = 0;
+    if (synth_app.pointer_x >= width)
+      synth_app.pointer_x = width - 1;
+    if (synth_app.pointer_y >= height)
+      synth_app.pointer_y = height - 1;
+  }
+  bool changed = false, performance = false;
+  if (pointer->action == SOLAR_OS_INPUT_POINTER_RELEASE ||
+      !(pointer->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY)) {
+    if (!synth_app.pointer_pressed)
+      return false;
+    changed = synth_pointer_release_note();
+    synth_app.pointer_pressed = false;
+    synth_render_changed(ctx, changed, changed, synth_now_ms());
+    return true;
+  }
+  if (pointer->action == SOLAR_OS_INPUT_POINTER_PRESS &&
+      !synth_app.pointer_pressed) {
+    synth_pointer_cancel();
+    synth_app.pointer_source = pointer->source;
+    synth_app.pointer_id = pointer->pointer_id;
+    synth_app.pointer_pressed = true;
+    synth_app.pointer_drag_y = synth_app.pointer_y;
+    synth_app.compact_parameter_valid = false;
+    const int tab = synth_app.keyboard_visible
+                        ? -1
+                        : synth_tab_at(width, height, synth_app.pointer_x,
+                                       synth_app.pointer_y);
+    if (tab >= 0) {
+      if (tab == SYNTH_TAB_COUNT) {
+        synth_pointer_cancel();
+        synth_app.keyboard_visible = true;
+      } else {
+        synth_select_tab((synth_tab_t)tab);
+      }
+      changed = true;
+    } else if (synth_touch_target_at(synth_app.pointer_x, synth_app.pointer_y,
+                                     &synth_app.pointer_target)) {
+      changed = synth_touch_select();
+    }
+  }
+  if (!synth_app.pointer_pressed) {
+    synth_render_changed(ctx, changed, false, synth_now_ms());
+    return changed;
+  }
+  if (synth_app.keyboard_visible &&
+      synth_app.pointer_target.kind == SYNTH_TOUCH_NONE) {
+    const int note = synth_piano_note_at(width, height, synth_app.pointer_x,
+                                         synth_app.pointer_y);
+    if (note != synth_app.pointer_note) {
+      changed |= synth_pointer_release_note();
+      if (note >= 0) {
+        synth_app.pointer_note = note;
+        const solar_os_input_key_event_t key = synth_pointer_key(note);
+        changed |= synth_app.hold_mode ? synth_toggle_note(&key, note)
+                                       : synth_note_on(&key, note);
+      }
+      performance = true;
+    }
+  } else if (pointer->action == SOLAR_OS_INPUT_POINTER_MOVE) {
+    if (synth_app.pointer_target.kind == SYNTH_TOUCH_WAVE_GRAPH) {
+      changed |= synth_touch_wave(synth_app.pointer_x, synth_app.pointer_y);
+    } else {
+      const int step = height / 80 > 3 ? height / 80 : 3;
+      int steps = (synth_app.pointer_drag_y - synth_app.pointer_y) / step;
+      if (steps > 32)
+        steps = 32;
+      if (steps < -32)
+        steps = -32;
+      synth_app.pointer_drag_y -= steps * step;
+      for (int i = 0; i < (steps < 0 ? -steps : steps); i++)
+        changed |= synth_touch_adjust(steps > 0 ? 1 : -1);
+    }
+  }
+  synth_render_changed(ctx, changed, performance, synth_now_ms());
+  return changed || synth_app.pointer_pressed;
+}
+
 static esp_err_t synth_start(solar_os_context_t *ctx) {
   const int argc = solar_os_context_argc(ctx);
   const bool headless =
       argc == 2 && strcmp(solar_os_context_argv(ctx, 1), "--headless") == 0;
-  if (argc > 2 || (argc == 2 && !headless)) {
+  const bool tabs =
+      argc == 2 && strcmp(solar_os_context_argv(ctx, 1), "--tabs") == 0;
+  if (argc > 2 || (argc == 2 && !headless && !tabs)) {
     return ESP_ERR_INVALID_ARG;
   }
   if (!headless && solar_os_context_gfx(ctx) == NULL) {
@@ -3694,14 +4209,14 @@ static esp_err_t synth_start(solar_os_context_t *ctx) {
   synth_app.performance = synth_default_performance();
   synth_app.octave = 4;
   synth_app.velocity = SOLAR_OS_SYNTH_VOICE_DEFAULT_VELOCITY;
-  synth_app.keyboard_visible = true;
+  synth_app.keyboard_visible = !tabs;
+  synth_app.pointer_note = -1;
   synth_app.tab = SYNTH_TAB_PLAY;
   synth_app.baseline = SYNTH_BASE_SQUARE;
   synth_app.wave_steps = SYNTH_APP_DEFAULT_WAVE_STEPS;
   synth_app.wave_cursor = synth_app.wave_steps / 4U;
   synth_app.wave_brush = 1U;
-  snprintf(synth_app.preset_message, sizeof(synth_app.preset_message),
-           "Arrows select  Enter load  V save");
+  synth_app.preset_message[0] = '\0';
   synth_preset_scan_slots();
   synth_wavetable_fill(synth_app.baseline);
   solar_os_audio_status_t audio_status;
@@ -3767,6 +4282,10 @@ static bool synth_event(solar_os_context_t *ctx,
                         const solar_os_event_t *event) {
   if (event == NULL) {
     return false;
+  }
+
+  if (event->type == SOLAR_OS_EVENT_POINTER) {
+    return synth_pointer_event(ctx, &event->data.pointer);
   }
 
   if (event->type == SOLAR_OS_EVENT_KEY) {
@@ -3865,7 +4384,8 @@ const solar_os_app_t solar_os_synth_app = {
     .name = "synth",
     .summary = "synthesizer and sound designer",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS |
+             SOLAR_OS_APP_FLAG_POINTER_EVENTS,
     .start = synth_start,
     .suspend = synth_suspend,
     .resume = synth_resume,

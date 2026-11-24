@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_display_surface.h"
+#include "solar_os_display_mono_canvas.h"
 #include "u8g2.h"
 #include "solar_os_epd.h"
 #include "epd_scan_worker.h"
@@ -36,7 +37,7 @@ typedef struct {
     bool row_bpp_valid;
     unsigned transfer_size, gray_levels, shadow_bpp;
     uint32_t image_address;
-    unsigned spi_clock_khz;
+    unsigned spi_clock_khz, spi_read_clock_khz, spi_read_clock_hz;
     char firmware_version[17], waveform_version[17];
     StaticSemaphore_t mutex_storage;
     SemaphoreHandle_t mutex;
@@ -45,21 +46,23 @@ typedef struct {
     esp_err_t last_error;
     bool ready, powered, shadow_valid, full_refresh;
     unsigned updates;
-    uint32_t refreshes;
+    uint32_t refreshes, refresh_errors, controller_resets;
     unsigned last_x, last_y, last_width, last_height, last_bpp;
     unsigned last_upload_ms, last_lut_ms, last_refresh_ms;
     unsigned last_upload_bytes, last_chunks, last_regions;
+    unsigned last_direct_bytes;
     epd_scan_worker_t scan_worker;
     uint32_t scan_submit_ready;
     uint32_t frame_generation;
     unsigned pending_x0, pending_x1, pending_y0, pending_y1;
+    uint16_t canvas_x0, canvas_y0, canvas_x1, canvas_y1;
     bool graphics_scan;
     bool suspended;
     bool mono_shadow_valid;
     bool temperature_valid;
     int16_t temperature_c;
     int64_t temperature_due;
-    char mode_description[512];
+    char mode_description[640];
 } solar_os_it8951_t;
 
 esp_err_t solar_os_it8951_init(solar_os_it8951_t *display,
@@ -67,6 +70,8 @@ esp_err_t solar_os_it8951_init(solar_os_it8951_t *display,
 void solar_os_it8951_deinit(solar_os_it8951_t *display);
 esp_err_t solar_os_it8951_set_power_save(solar_os_it8951_t *display, bool sleep);
 esp_err_t solar_os_it8951_present(solar_os_it8951_t *display);
+esp_err_t solar_os_it8951_present_canvas(solar_os_it8951_t *display,
+    const solar_os_display_mono_canvas_t *canvas);
 /* Flush final overlays synchronously before entering a power state. */
 esp_err_t solar_os_it8951_present_sync(solar_os_it8951_t *display);
 /* Raster and surface data are copied before returning. Newer presentations

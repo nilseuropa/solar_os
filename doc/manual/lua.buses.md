@@ -165,6 +165,10 @@ See [GPIO keyboard matrices](expansion.md#gpio-keyboard-matrices).
 integer `invert`, `pull`, and `filter_ns` configure its inputs.
 See [Encoder counts](encoder.md).
 
+`xpt2046` uses string `spi` and `display` bindings and integer `cs` and optional
+`irq` GPIOs. Optional integer `clock`, `pressure`, `swap_xy`, `invert_x`, and
+`invert_y` configure sampling and raw axes. See [XPT2046 resistive touch](xpt2046.md).
+
 Camera DVP attachments also accept GPIO-number bindings `d0`..`d7`, `siod`,
 `sioc`, `vsync`, `href`, `pclk`, `xclk`, and optional `pwdn`/`reset`. The camera
 driver validates required pins and claims; board-owned cameras cannot be detached.

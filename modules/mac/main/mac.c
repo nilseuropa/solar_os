@@ -9,6 +9,8 @@ const char *solar_os_mac_failure;
 uint8_t solar_os_mac_pram[32];
 bool solar_os_mac_pram_dirty;
 static uint8_t *pixels;
+bool solar_os_mac_packed_video;
+static size_t pixel_bytes;
 static char pram_path[256];
 static char snapshot_path[256];
 
@@ -175,7 +177,7 @@ static void run_guest(uint16_t width, uint16_t height)
         if (now >= next_frame) {
             if (solar_os_mac_render(pixels, width, height) &&
                 (exchanged_frames ? solar_os_mac_app->video_exchange(&pixels) :
-                 solar_os_mac_app->present(pixels, (size_t)width * height)))
+                 solar_os_mac_app->present(pixels, pixel_bytes)))
                 solar_os_mac_fail("display submission failed");
             next_frame = now + 40000U;
         }
@@ -240,6 +242,7 @@ int main(int argc, char **argv)
     solar_os_mac_failure = NULL;
     solar_os_mac_ram = solar_os_mac_rom = pixels = NULL;
     exchanged_frames = false;
+    solar_os_mac_packed_video = false;
     solar_os_mac_paused = false;
     solar_os_mac_pram_dirty = false;
     pram_path[0] = 0;
@@ -275,14 +278,24 @@ int main(int argc, char **argv)
         if (solar_os_mac_floppy_open(arguments.floppy ? disk_path : NULL))
             solar_os_mac_fail("floppy needs a Mac Plus v3 ROM and a writable raw 400/800 KiB image");
         uint16_t palette[256] = { [0] = 0xffff, [1] = 0x0000 };
-        if (solar_os_mac_app->video_open_ex(width, height, palette, 25, 0)) solar_os_mac_fail("display setup failed");
+        int video = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+        if (solar_os_mac_app->struct_size >=
+            offsetof(solar_os_native_foreground_api_v1_t,video_open_mono1) +
+            sizeof(solar_os_mac_app->video_open_mono1) && solar_os_mac_app->video_open_mono1) {
+            video = solar_os_mac_app->video_open_mono1(width,height,25);
+            solar_os_mac_packed_video = video == 0;
+        }
+        if (video == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED)
+            video = solar_os_mac_app->video_open_ex(width,height,palette,25,0);
+        if (video) solar_os_mac_fail("display setup failed");
+        pixel_bytes = solar_os_mac_packed_video ? (size_t)((width+7U)/8U)*height : (size_t)width*height;
         exchanged_frames = solar_os_native_foreground_has_exchange(solar_os_mac_app);
         if (exchanged_frames) {
             size_t bytes;
-            if (solar_os_mac_app->video_acquire(&pixels, &bytes) || bytes != (size_t)width * height)
+            if (solar_os_mac_app->video_acquire(&pixels, &bytes) || bytes != pixel_bytes)
                 solar_os_mac_fail("not enough PSRAM for display frame");
         } else {
-            pixels = solar_os_mac_memory->alloc((size_t)width * height);
+            pixels = solar_os_mac_memory->alloc(pixel_bytes);
             if (!pixels) solar_os_mac_fail("not enough PSRAM for display frame");
         }
         if (solar_os_mac_app->enable_suspend()) solar_os_mac_fail("foreground switching unavailable");

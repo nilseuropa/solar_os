@@ -153,10 +153,13 @@ To run SolarOS on a computer without an ESP32 board:
 
 ```sh
 pio run -e qemu_esp32s3 -t qemu
+pio run -e qemu_esp32s3_mono -t qemu
 pio run -e qemu_esp32s3_rgb -t qemu
 ```
 
-These commands build the firmware and launch the selected virtual board. See
+These commands build the firmware and launch the selected virtual board:
+headless, 300x400 monochrome, or 480x320 color. Graphical windows default to
+2x zoom. See
 [Running SolarOS in QEMU](doc/manual/qemu.md) for host dependencies, serial
 access, shared storage, audio, display input, and networking.
 
