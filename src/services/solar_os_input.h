@@ -407,6 +407,10 @@ esp_err_t solar_os_input_capture_keyboard(const char *name, const void *owner);
 /* Capture guest keys while leaving desktop session shortcuts to SolarOS. */
 esp_err_t solar_os_input_capture_keyboard_with_shortcuts(const char *name, const void *owner);
 void solar_os_input_release_keyboard(const void *owner);
+bool solar_os_input_keyboard_captured_by(const void *owner);
+/* A display focus change revokes session capture immediately. Explicit full
+ * captures, such as a script's raw keyboard claim, keep their ownership. */
+void solar_os_input_release_session_keyboard(void);
 bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event);
 /* Main-loop wake/idle accounting for events queued directly by drivers. */
 /* Captured keyboard presses and pointer samples still count as user activity. */

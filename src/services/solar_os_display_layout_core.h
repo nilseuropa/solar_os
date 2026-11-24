@@ -52,3 +52,15 @@ bool solar_os_display_layout_mono_blit(
     const uint8_t *source,
     uint16_t source_width,
     uint16_t source_height);
+
+/* Copy a canvas region into a packed vertical-byte framebuffer. Padding and
+ * bits outside the destination's visible height are preserved. */
+bool solar_os_display_layout_mono_extract(
+    uint8_t *destination,
+    uint16_t width,
+    uint16_t height,
+    const uint8_t *source,
+    uint16_t source_width,
+    uint16_t source_height,
+    uint16_t source_x,
+    uint16_t source_y);

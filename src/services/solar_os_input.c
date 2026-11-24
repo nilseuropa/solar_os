@@ -2683,6 +2683,28 @@ void solar_os_input_release_keyboard(const void *owner)
     portEXIT_CRITICAL(&input_lock);
 }
 
+bool solar_os_input_keyboard_captured_by(const void *owner)
+{
+    portENTER_CRITICAL(&input_lock);
+    const bool captured = owner != NULL && input_capture_owner == owner;
+    portEXIT_CRITICAL(&input_lock);
+    return captured;
+}
+
+void solar_os_input_release_session_keyboard(void)
+{
+    portENTER_CRITICAL(&input_lock);
+    if (input_capture_session_shortcuts) {
+        input_capture_owner = NULL;
+        input_capture_source = SOLAR_OS_INPUT_SOURCE_INVALID;
+        input_capture_head = input_capture_count = 0;
+        input_capture_reset = false;
+        input_capture_session_shortcuts = false;
+        input_capture_shortcut_keys = 0U;
+    }
+    portEXIT_CRITICAL(&input_lock);
+}
+
 bool solar_os_input_capture_key_event(const solar_os_input_key_event_t *event)
 {
     if (event == NULL) {

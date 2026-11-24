@@ -24,6 +24,7 @@
 #include "solar_os_task.h"
 #include "solar_os_queue.h"
 #include "solar_os_shell.h"
+#include "solar_os_sessions.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -1154,6 +1155,19 @@ static solar_os_native_foreground_key_v1_t foreground_key(const solar_os_input_k
 
 static void foreground_poll_keyboard(foreground_state_t *state)
 {
+    char focus[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+    const bool focused = !solar_os_sessions_input_focus(focus, sizeof(focus)) ||
+        (solar_os_gfx_display_target_name(state->gfx, target, sizeof(target)) &&
+         strcmp(focus, target) == 0);
+    if (state->keyboard_captured &&
+        (!focused || !solar_os_input_keyboard_captured_by(state))) {
+        solar_os_input_release_keyboard(state);
+        state->keyboard_captured = false;
+        xQueueReset(state->keys);
+        atomic_store(&state->input_reset, true);
+    }
+    if (!focused) return;
     if (!state->keyboard_captured) {
         for (size_t i = 0; i < solar_os_input_source_count(); ++i) {
             solar_os_input_source_info_t source;

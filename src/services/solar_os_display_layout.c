@@ -165,31 +165,12 @@ static int compare_names(const void *left, const void *right)
     return strcmp(*left_name, *right_name);
 }
 
-static uint8_t layout_display_cb(u8x8_t *u8x8,
-                                 uint8_t msg,
-                                 uint8_t arg_int,
-                                 void *arg_ptr)
+static bool layout_submit(display_layout_logical_t *logical)
 {
-    (void)arg_int;
-    (void)arg_ptr;
-    display_layout_logical_t *logical =
-        (display_layout_logical_t *)((uint8_t *)u8x8 -
-            offsetof(display_layout_logical_t, u8g2));
-    if (logical == NULL) {
-        return 0U;
-    }
-    if (msg == U8X8_MSG_DISPLAY_SETUP_MEMORY) {
-        u8x8_d_helper_display_setup_memory(u8x8, &logical->display_info);
-        return 1U;
-    }
-    if (msg != U8X8_MSG_DISPLAY_REFRESH) {
-        return 1U;
-    }
-
     solar_os_display_layout_runtime_t *layout = logical->layout;
     if (layout == NULL || layout->mutex == NULL || layout->requested == NULL ||
         xSemaphoreTake(layout->mutex, portMAX_DELAY) != pdTRUE) {
-        return 0U;
+        return false;
     }
     const bool accepted = !layout->stop_requested &&
         solar_os_display_layout_mono_blit(
@@ -203,7 +184,84 @@ static uint8_t layout_display_cb(u8x8_t *u8x8,
     if (accepted) {
         (void)xSemaphoreGive(layout->requested);
     }
-    return accepted ? 1U : 0U;
+    return accepted;
+}
+
+static uint8_t layout_display_cb(u8x8_t *u8x8,
+                                 uint8_t msg,
+                                 uint8_t arg_int,
+                                 void *arg_ptr)
+{
+    (void)arg_int;
+    (void)arg_ptr;
+    display_layout_logical_t *logical =
+        (display_layout_logical_t *)((uint8_t *)u8x8 -
+            offsetof(display_layout_logical_t, u8g2));
+    if (msg == U8X8_MSG_DISPLAY_SETUP_MEMORY) {
+        u8x8_d_helper_display_setup_memory(u8x8, &logical->display_info);
+        return 1U;
+    }
+    return msg != U8X8_MSG_DISPLAY_REFRESH || layout_submit(logical);
+}
+
+static esp_err_t layout_present_frame(
+    void *context, const solar_os_display_raster_t *frame)
+{
+    display_layout_logical_t *logical = context;
+    if (logical == NULL || frame == NULL || frame->data == NULL ||
+        frame->format != SOLAR_OS_DISPLAY_FORMAT_MONO1 ||
+        frame->width == 0U || frame->height == 0U ||
+        frame->source_width != frame->width ||
+        frame->source_height != frame->height ||
+        frame->source_stride < ((size_t)frame->width + 7U) / 8U ||
+        frame->height > SIZE_MAX / frame->source_stride ||
+        frame->data_size < (size_t)frame->height * frame->source_stride ||
+        (uint32_t)frame->x + frame->width > u8g2_GetDisplayWidth(&logical->u8g2) ||
+        (uint32_t)frame->y + frame->height > u8g2_GetDisplayHeight(&logical->u8g2) ||
+        (frame->clear_background && frame->background_index > 1U)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    /* The display service scales MONO1 rasters before calling us. Native
+     * layout buffers use one for white, like the logical text canvas. */
+    const uint8_t inversion = frame->palette_inverted ? 0U : 0xffU;
+    if (frame->clear_background) {
+        memset(logical->buffer,
+            (frame->background_index != 0U) != frame->palette_inverted ? 0x00 : 0xff,
+            logical->buffer_size);
+    }
+    if (logical->u8g2.cb == U8G2_R0) {
+        const size_t stride = ((size_t)logical->region.width + 7U) & ~(size_t)7U;
+        for (unsigned y = 0U; y < frame->height;) {
+            const unsigned dy = frame->y + y, shift = dy & 7U;
+            const unsigned count = frame->height - y < 8U - shift ?
+                frame->height - y : 8U - shift;
+            const uint8_t mask = (uint8_t)(((1U << count) - 1U) << shift);
+            uint8_t *out = logical->buffer + (dy / 8U) * stride + frame->x;
+            const uint8_t *rows[8];
+            for (unsigned row = 0U; row < count; row++)
+                rows[row] = frame->data + (size_t)(y + row) * frame->source_stride;
+            for (unsigned x = 0U; x < frame->width; x++) {
+                unsigned bits = 0U;
+                for (unsigned row = 0U; row < count; row++)
+                    bits |= ((rows[row][x / 8U] >> (x & 7U)) & 1U) << row;
+                out[x] = (out[x] & (uint8_t)~mask) |
+                    (((bits ^ inversion) << shift) & mask);
+            }
+            y += count;
+        }
+    } else {
+        /* u8g2 maps oriented pixels back into the native layout buffer. */
+        for (unsigned y = 0U; y < frame->height; y++) {
+            const uint8_t *row = frame->data + (size_t)y * frame->source_stride;
+            for (unsigned x = 0U; x < frame->width; x++) {
+                u8g2_SetDrawColor(&logical->u8g2,
+                    ((row[x / 8U] >> (x & 7U)) ^ inversion) & 1U);
+                u8g2_DrawPixel(&logical->u8g2, frame->x + x, frame->y + y);
+            }
+        }
+        u8g2_SetDrawColor(&logical->u8g2, 1U);
+    }
+    return layout_submit(logical) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 static esp_err_t layout_present_backing(
@@ -221,6 +279,20 @@ static esp_err_t layout_present_backing(
     }
 
     u8g2_t *u8g2 = target.u8g2;
+    /* The normal unrotated full buffer already uses the layout's packed
+     * format. Avoid redrawing every set pixel through u8g2 on each update.
+     * Rotated and paged canvases retain the coordinate-aware drawing path. */
+    if (u8g2->cb == U8G2_R0 &&
+        u8g2->pixel_buf_width == ((target.width + 7U) & ~7U) &&
+        (size_t)u8g2_GetBufferTileHeight(u8g2) * 8U >= target.height &&
+        solar_os_display_layout_mono_extract(
+            u8g2_GetBufferPtr(u8g2), target.width, target.height,
+            layout->presenting, layout->width, layout->height,
+            backing->region.x, backing->region.y)) {
+        u8g2_SetDrawColor(u8g2, 1U);
+        solar_os_display_present(u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
+        return ESP_OK;
+    }
     u8g2_SetDrawColor(u8g2, 0U);
     u8g2_DrawBox(u8g2, 0U, 0U, target.width, target.height);
     u8g2_SetDrawColor(u8g2, 1U);
@@ -445,6 +517,10 @@ static esp_err_t layout_prepare_logical(
     target.ready = true;
     target.black_is_one = false;
     target.u8g2 = &logical->u8g2;
+    target.frame_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
+    target.preferred_stream_fps = 25U;
+    target.frame_context = logical;
+    target.present_frame = layout_present_frame;
     const esp_err_t err = solar_os_display_register_target(&target);
     if (err == ESP_OK) {
         logical->registered = true;

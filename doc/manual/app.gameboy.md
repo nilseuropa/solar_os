@@ -39,6 +39,8 @@ load /sdcard/gameboy.app.elf /sdcard/roms/game.gb
 
 Video uses a four-shade 160x144 image, scaled to the display. The guest runs at
 its native frame frequency; presentation is bounded to 25 frames per second.
+On a split display, launch Game Boy on the pane's target name, for example
+`session create gameboy right /sdcard/roms/game.gb`. Video fits within that pane.
 Audio uses the shared synth service at 16 kHz stereo when available. Emulation
 continues without audio if the firmware omits synth support or no compatible
 speaker output is available.

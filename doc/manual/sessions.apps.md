@@ -109,7 +109,10 @@ Changing focus does not move or restart an app. On split displays, use
 `Ctrl+Alt+Arrow` to move focus in the split's direction. At an edge, focus stays
 where it is. On independent displays, those shortcuts cycle through targets.
 Either Alt key works, including AltGr. Plain `Ctrl+Arrow` remains available
-to the app.
+to the app. The focus label stays visible while Alt is held and disappears
+when you release it.
+Keyboard input follows the focused pane even while a native app such as Game Boy
+continues running on another pane.
 
 ## Quick reference
 

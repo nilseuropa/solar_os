@@ -2002,9 +2002,14 @@ esp_err_t solar_os_display_set_overlay_active(u8g2_t *u8g2, bool active)
     portENTER_CRITICAL(&display_targets_lock);
     slot = &display_targets[slot_index];
     if (slot->active && slot->generation == generation) {
+        const bool had_overlay = slot->overlay_active || slot->overlay_pending ||
+            slot->overlay_buffer != NULL;
         slot->overlay_active = active;
         slot->overlay_pending = false;
         if (!active) {
+            /* Overlay drawing changes this canvas. Its terminal may belong to
+             * a detached split pane, so invalidate the target's own cache. */
+            if (had_overlay) slot->terminal_epoch++;
             overlay_buffer = slot->overlay_buffer;
             slot->overlay_buffer = NULL;
             slot->overlay_tile_x = 0U;
