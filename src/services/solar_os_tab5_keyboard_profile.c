@@ -37,5 +37,6 @@ void solar_os_tab5_keyboard_map(solar_os_input_keymap_t *map)
         }
     }
     map->keys[0][43].flags = SOLAR_OS_INPUT_KEYMAP_LAYER_TAP;
+    map->keys[0][43].layer = 1U;
     /* Layer selectors are valid only in the base layer. */
 }

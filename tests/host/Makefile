@@ -1018,12 +1018,13 @@ $(KEYBOARD_LAYOUTS_HEADER): $(KEYBOARD_LAYOUT_INPUTS)
 
 inputronic_keyboard_test matrix_keyboard_test: $(KEYMAP_GENERATED_HEADERS)
 
-inputronic_keyboard_test: inputronic_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_os_inputronic_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_lilygo_pager_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_tca8418*) $(wildcard $(ROOT)/src/services/solar_os_matrix_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h inputronic_stubs/driver/*.h)
+inputronic_keyboard_test: inputronic_keyboard_test.c $(wildcard $(ROOT)/src/services/solar_os_inputronic_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_lilygo_pager_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_tca8418*) $(wildcard $(ROOT)/src/services/solar_os_matrix_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard $(ROOT)/src/services/solar_os_backlight*) nvs.h $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h inputronic_stubs/driver/*.h)
 	$(CC) $(CFLAGS) -include compat.h -I$(MANUAL_GENERATED_DIR) -Iinputronic_stubs -Iexpansion_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
 		inputronic_keyboard_test.c $(ROOT)/src/services/solar_os_input_keymap.c \
 		$(ROOT)/src/services/solar_os_input_keymap_mapper.c \
 		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm \
 		$(ROOT)/src/services/solar_os_matrix_keyboard.c \
+		$(ROOT)/src/services/solar_os_backlight.c \
 		$(ROOT)/src/services/solar_os_inputronic_keyboard_profile.c -o $@
 
 matrix_keyboard_test: matrix_keyboard_test.c keymap_memory_stub.c $(wildcard $(ROOT)/src/services/solar_os_matrix_keyboard*) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(wildcard $(ROOT)/src/services/solar_os_inputronic_keyboard_profile*) $(wildcard $(ROOT)/src/services/solar_os_lilygo_pager_keyboard*) $(wildcard inputronic_stubs/*.h inputronic_stubs/freertos/*.h)
@@ -1417,6 +1418,7 @@ $(EXPANSION_PROFILES_HEADER): $(ROOT)/boards/expansion_drivers.toml $(ROOT)/scri
 expansion_tui_test: expansion_tui_test.c $(ROOT)/src/shell/solar_os_shell_expansion_tui.c $(ROOT)/src/services/solar_os_tui_widgets.c $(EXPANSION_PROFILES_HEADER)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections \
 		-Iexpansion_stubs -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/shell -I$(ROOT)/src/apps \
+		-I$(ROOT)/components/u8g2/src/clib \
 		expansion_tui_test.c $(ROOT)/src/services/solar_os_tui_widgets.c -Wl,--gc-sections -o $@
 
 tui_widgets_test: tui_widgets_test.c $(ROOT)/src/services/solar_os_tui_widgets.c $(ROOT)/src/services/solar_os_tui_widgets.h

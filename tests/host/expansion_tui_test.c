@@ -56,6 +56,9 @@ bool solar_os_bus_get_protocol(solar_os_bus_protocol_t protocol, size_t i, solar
 { (void)protocol; (void)i; (void)out; return false; }
 size_t solar_os_stream_count(void) { return 0; }
 bool solar_os_stream_get(size_t i, solar_os_stream_info_t *out) { (void)i; (void)out; return false; }
+size_t solar_os_display_target_count(void) { return 0; }
+bool solar_os_display_get_target(size_t i, solar_os_display_target_t *out)
+{ (void)i; (void)out; return false; }
 bool solar_os_expansion_stream_binding_valid(solar_os_expansion_binding_kind_t kind,
     const solar_os_stream_info_t *stream) { (void)kind; (void)stream; return false; }
 

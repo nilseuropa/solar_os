@@ -44,6 +44,11 @@
   Improved T-Deck Plus startup, documentation catalog loading, and message
   history restoration speed. Fixed numbered list rendering and preservation in
   Writer and Reader, and improved NTP synchronization when packets are lost.
+  Added a third source keymap layer with named layer selectors, `fn` mappings
+  and a `layer` field on `layer_tap` entries. The standard LilyGO T-LoRa-Pager
+  profile is unchanged; an opt-in `keymaps/overrides/lilygo-pager-custom.json`
+  moves symbols to the yellow key and adds a Space-held navigation layer with
+  HJKL arrows, Home/End, Tab, Left Alt, parentheses, pipe, Delete and Escape.
 - **4.18.0** — 2026-11-17 — Added on-device C compilation for ESP32-S3
   boards with PSRAM, including multi-file projects, installed library headers,
   SDK browsing and header export. The compiler is included in the full flavor

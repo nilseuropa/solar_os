@@ -31,8 +31,8 @@ esp_err_t solar_os_input_keymap_validate(const solar_os_input_keymap_t *map)
             (physical - map->first) / map->stride >= map->rows ||
             (physical - map->first) % map->stride >= map->cols)) return ESP_ERR_INVALID_ARG;
     }
-    unsigned layer_keys = 0;
-    for (unsigned layer = 0; layer < 2U; layer++) {
+    unsigned layer_keys[SOLAR_OS_INPUT_KEYMAP_LAYER_MAX - 1U] = {0};
+    for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++) {
         if (mapped(map->keys[layer][0])) return ESP_ERR_INVALID_ARG;
         for (unsigned id = 1; id <= SOLAR_OS_INPUT_KEYMAP_KEY_MAX; id++) {
             const solar_os_input_keymap_key_t key = map->keys[layer][id];
@@ -47,13 +47,16 @@ esp_err_t solar_os_input_keymap_validate(const solar_os_input_keymap_t *map)
                 (key.usage != 0U || key.key != 0U || key.shifted_key != 0U))
                 return ESP_ERR_INVALID_ARG;
             if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) {
-                if (layer != 0U || key.usage >= 0xe0U || key.usage == 0x39U)
+                if (layer != 0U || key.layer >= SOLAR_OS_INPUT_KEYMAP_LAYER_MAX ||
+                    key.usage >= 0xe0U || key.usage == 0x39U)
                     return ESP_ERR_INVALID_ARG;
-                layer_keys++;
-            }
+                layer_keys[key.layer != 0U ? key.layer - 1U : 0U]++;
+            } else if (key.layer != 0U) return ESP_ERR_INVALID_ARG;
         }
     }
-    return layer_keys <= 1U ? ESP_OK : ESP_ERR_INVALID_ARG;
+    for (unsigned i = 0; i < sizeof(layer_keys) / sizeof(layer_keys[0]); i++)
+        if (layer_keys[i] > 1U) return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
 }
 
 void solar_os_input_keymap_release(solar_os_input_keymap_state_t *state)
@@ -75,8 +78,13 @@ bool solar_os_input_keymap_decode(solar_os_input_keymap_state_t *state,
     solar_os_input_keymap_key_t key = state->pressed_keys[id];
     if (pressed) {
         key = map->keys[0][id];
+        /* Only the first held selector is active. Ignore any other selector
+         * completely: it emits nothing, not even a tap on release. */
+        if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP && state->layer_key != 0U)
+            return false;
         if (state->layer_key != 0U && key.flags != SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) {
-            if (mapped(map->keys[1][id])) key = map->keys[1][id];
+            const solar_os_input_keymap_key_t *layer = &map->keys[state->active_layer][id];
+            if (mapped(*layer)) key = *layer;
         }
         if (!mapped(key)) return false;
         if (state->layer_key != 0U && key.flags != SOLAR_OS_INPUT_KEYMAP_LAYER_TAP)
@@ -100,6 +108,7 @@ bool solar_os_input_keymap_decode(solar_os_input_keymap_state_t *state,
     if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) {
         if (pressed) {
             state->layer_key = (uint16_t)id;
+            state->active_layer = key.layer != 0U ? key.layer : 1U;
             state->layer_used = false;
         } else {
             if (!state->layer_used) {
@@ -107,6 +116,7 @@ bool solar_os_input_keymap_decode(solar_os_input_keymap_state_t *state,
                 transition->tap_key = key.key;
             }
             state->layer_key = 0U;
+            state->active_layer = 0U;
             state->layer_used = false;
         }
         return true;

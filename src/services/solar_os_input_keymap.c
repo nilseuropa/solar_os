@@ -207,7 +207,8 @@ unsigned solar_os_input_keymap_press_priority(solar_os_input_keymap_handle_t han
     unsigned priority = 2U;
     if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) priority = 0U;
     else {
-        const solar_os_input_keymap_key_t symbol = p->data->map.keys[1][slot];
+        const solar_os_input_keymap_key_t symbol =
+            p->data->map.keys[p->data->state.active_layer][slot];
         if (p->data->state.layer_key != 0U &&
             (symbol.usage != 0U || symbol.key != 0U || symbol.shifted_key != 0U || symbol.flags != 0U))
             key = symbol;

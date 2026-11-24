@@ -28,7 +28,7 @@ esp_err_t solar_os_matrix_keyboard_default_map(solar_os_matrix_keyboard_map_t *m
     /* Reference wiring, not a layout supplied by the controller. HID usages
      * let the normal SolarOS keyboard layout translate printable keys. */
     solar_os_matrix_keyboard_init_map(map, rows, cols);
-    for (unsigned layer = 0; layer < 2U; layer++)
+    for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++)
         for (unsigned id = 1; id <= map->slot_count; id++)
             if (map->physical[id] != 0U)
                 map->keys[layer][id] = solar_os_tca8418_default_keys[layer][id];

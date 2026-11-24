@@ -71,14 +71,14 @@ static bool parse_layer(const cJSON *array, solar_os_input_keymap_t *map,
     if (!cJSON_IsArray(array) || cJSON_GetArraySize(array) > (int)SOLAR_OS_INPUT_KEYMAP_KEY_MAX) return false;
     bool seen[SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U] = {false};
     static const char *const fields[] = {
-        "row", "col", "usage", "key", "shift_key", "raw", "layer_tap", "alt_block", "physical",
+        "row", "col", "usage", "key", "shift_key", "raw", "layer_tap", "alt_block", "physical", "layer",
     };
     const cJSON *entry;
     cJSON_ArrayForEach(entry, array) {
-        unsigned row = 0, col = 0, physical = 0, usage, key, shift;
+        unsigned row = 0, col = 0, physical = 0, usage, key, shift, target = 0;
         const bool by_physical = cJSON_HasObjectItem(entry, "physical");
         bool raw, layer_tap, alt_block;
-        if (!cJSON_IsObject(entry) || !known_fields(entry, fields, 9U) ||
+        if (!cJSON_IsObject(entry) || !known_fields(entry, fields, 10U) ||
             (by_physical ?
                 (cJSON_HasObjectItem(entry, "row") || cJSON_HasObjectItem(entry, "col") ||
                  !number(cJSON_GetObjectItemCaseSensitive(entry, "physical"), UINT16_MAX, &physical)) :
@@ -91,6 +91,7 @@ static bool parse_layer(const cJSON *array, solar_os_input_keymap_t *map,
             !optional_bool(entry, "raw", &raw) ||
             !optional_bool(entry, "layer_tap", &layer_tap) ||
             !optional_bool(entry, "alt_block", &alt_block) ||
+            !optional_number(entry, "layer", 2U, &target) ||
             (unsigned)raw + (unsigned)layer_tap + (unsigned)alt_block > 1U)
             return false;
         if (!by_physical) physical = map->first + row * map->stride + col;
@@ -102,6 +103,7 @@ static bool parse_layer(const cJSON *array, solar_os_input_keymap_t *map,
             .flags = raw ? SOLAR_OS_INPUT_KEYMAP_RAW :
                      layer_tap ? SOLAR_OS_INPUT_KEYMAP_LAYER_TAP :
                      alt_block ? SOLAR_OS_INPUT_KEYMAP_ALT_BLOCK : 0U,
+            .layer = (uint8_t)target,
         };
     }
     return true;
@@ -115,17 +117,19 @@ esp_err_t solar_os_input_keymap_parse(const char *json,
         return ESP_ERR_INVALID_ARG;
     cJSON *root = cJSON_ParseWithOpts(json, NULL, true);
     if (root == NULL) return ESP_ERR_INVALID_ARG;
-    static const char *const fields[] = {"schema", "keys", "symbols"};
+    static const char *const fields[] = {"schema", "keys", "symbols", "fn"};
     unsigned schema = 0;
     solar_os_input_keymap_t *candidate = solar_os_memory_alloc(sizeof(*candidate),
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "keyboard-map");
     if (candidate == NULL) { cJSON_Delete(root); return ESP_ERR_NO_MEM; }
     *candidate = *base;
-    bool valid = cJSON_IsObject(root) && known_fields(root, fields, 3U) &&
+    bool valid = cJSON_IsObject(root) && known_fields(root, fields, 4U) &&
         number(cJSON_GetObjectItemCaseSensitive(root, "schema"), 1U, &schema) && schema == 1U &&
-        (cJSON_HasObjectItem(root, "keys") || cJSON_HasObjectItem(root, "symbols")) &&
+        (cJSON_HasObjectItem(root, "keys") || cJSON_HasObjectItem(root, "symbols") ||
+         cJSON_HasObjectItem(root, "fn")) &&
         parse_layer(cJSON_GetObjectItemCaseSensitive(root, "keys"), candidate, 0U) &&
         parse_layer(cJSON_GetObjectItemCaseSensitive(root, "symbols"), candidate, 1U) &&
+        parse_layer(cJSON_GetObjectItemCaseSensitive(root, "fn"), candidate, 2U) &&
         solar_os_input_keymap_validate(candidate) == ESP_OK;
     cJSON_Delete(root);
     if (valid) *out = *candidate;

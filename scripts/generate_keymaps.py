@@ -20,7 +20,7 @@ def header(profile, layers) -> str:
              "#pragma once", '#include "solar_os_input_keymap_mapper.h"', "",
              f"#define SOLAR_OS_{stem.upper()}_KEYMAP_ROWS {profile.rows}U",
              f"#define SOLAR_OS_{stem.upper()}_KEYMAP_COLS {profile.cols}U", "",
-             f"static const solar_os_input_keymap_key_t solar_os_{stem}_default_keys[2][{count}] = {{"]
+             f"static const solar_os_input_keymap_key_t solar_os_{stem}_default_keys[SOLAR_OS_INPUT_KEYMAP_LAYER_MAX][{count}] = {{"]
     for entries in layers:
         lines.append("    {")
         for physical in sorted(entries):
@@ -28,8 +28,9 @@ def header(profile, layers) -> str:
             if not entry:
                 continue
             flags = 1 if entry.get("raw") else 2 if entry.get("layer_tap") else 4 if entry.get("alt_block") else 0
+            layer = entry.get("layer", 1) if entry.get("layer_tap") else 0
             lines.append(f"        [{physical}] = {{{entry.get('usage', 0)}, "
-                         f"{entry.get('key', 0)}, {entry.get('shift_key', 0)}, {flags}}},")
+                         f"{entry.get('key', 0)}, {entry.get('shift_key', 0)}, {flags}, {layer}}},")
         lines.append("    },")
     lines += ["};", ""]
     return "\n".join(lines)
