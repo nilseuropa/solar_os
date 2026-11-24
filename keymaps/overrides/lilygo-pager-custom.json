@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "keys": [
+    {
+      "physical": 21,
+      "layer_tap": true
+    },
+    {
+      "physical": 26,
+      "usage": 5
+    },
+    {
+      "physical": 31,
+      "usage": 44,
+      "layer": 2,
+      "layer_tap": true
+    }
+  ],
+  "symbols": [
+    {
+      "physical": 21
+    },
+    {
+      "physical": 26,
+      "key": 33
+    }
+  ],
+  "fn": [
+    {
+      "physical": 1,
+      "usage": 74
+    },
+    {
+      "physical": 3,
+      "usage": 77
+    },
+    {
+      "physical": 8,
+      "key": 40
+    },
+    {
+      "physical": 9,
+      "key": 41
+    },
+    {
+      "physical": 10,
+      "key": 124
+    },
+    {
+      "physical": 11,
+      "usage": 43
+    },
+    {
+      "physical": 16,
+      "usage": 80
+    },
+    {
+      "physical": 17,
+      "usage": 81
+    },
+    {
+      "physical": 18,
+      "usage": 82
+    },
+    {
+      "physical": 19,
+      "usage": 79
+    },
+    {
+      "physical": 20,
+      "key": 27
+    },
+    {
+      "physical": 22,
+      "usage": 226
+    },
+    {
+      "physical": 30,
+      "usage": 76
+    }
+  ]
+}

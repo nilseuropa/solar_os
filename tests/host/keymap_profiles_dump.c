@@ -29,12 +29,12 @@ int main(int argc, char **argv)
     printf("{\"rows\":%u,\"cols\":%u,\"first\":%u,\"stride\":%u,\"keys\":[",
            map.rows, map.cols, map.first, map.stride);
     bool separator = false;
-    for (unsigned layer = 0; layer < 2; layer++) {
+    for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++) {
         for (unsigned slot = 1; slot <= map.slot_count; slot++) {
             if (map.physical[slot] == 0) continue;
             solar_os_input_keymap_key_t key = map.keys[layer][slot];
-            printf("%s[%u,%u,%u,%u,%u,%u]", separator ? "," : "",
-                layer, map.physical[slot], key.usage, key.key, key.shifted_key, key.flags);
+            printf("%s[%u,%u,%u,%u,%u,%u,%u]", separator ? "," : "",
+                layer, map.physical[slot], key.usage, key.key, key.shifted_key, key.flags, key.layer);
             separator = true;
         }
     }
