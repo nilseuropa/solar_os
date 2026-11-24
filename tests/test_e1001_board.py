@@ -1,6 +1,7 @@
 """E1001 hardware contracts: the 7.5-inch monochrome reTerminal."""
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -10,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 from solaros_board_manifest import generate_header, load_board_manifest, load_driver_catalog, required_packages, validate_board
 from tests.test_foreground_presenter import production_functions
+from tests.test_keyboard_layouts import write_keyboard_layouts
 
 
 class E1001BoardTest(unittest.TestCase):
@@ -88,6 +90,75 @@ int main(void) {
         self.assertEqual(defines["SOLAR_OS_BOARD_PIN_BLE_PAIR"], "GPIO_NUM_4")
         self.assertEqual(defines["SOLAR_OS_BOARD_PIN_ESCAPE"], "GPIO_NUM_5")
         self.assertNotIn("SOLAR_OS_BOARD_PIN_APP_EXIT", defines)
+
+    def test_button_holds_pair_or_escape_and_consume_release(self):
+        source = (ROOT / "tests/host/buttons_test.c").read_text().split("int main(void)", 1)[0]
+        source += '#include "solar_os_board.h"\n'
+        source += r'''
+static unsigned pairings, escapes;
+static solar_os_input_source_t key_source;
+static void handle_key_pairing(void) { pairings++; }
+static void handle_key_input(uint8_t key) {
+    assert(key == SOLAR_OS_KEY_ESCAPE); escapes++;
+    assert(solar_os_input_write_char(key_source, (char)key) == ESP_OK);
+}
+'''
+        source += production_functions((ROOT / "src/main.c").read_text(), ("board_button_long_press",))
+        source += r'''
+static void poll_after(unsigned ms) { now_us += ms * 1000ULL; solar_os_buttons_poll(); }
+static void press(int pin) { levels[pin] = 0; poll_after(1); poll_after(25); }
+static void release(int pin) { levels[pin] = 1; poll_after(1); poll_after(25); }
+static void expect_key(uint8_t key) {
+    solar_os_input_key_event_t events[2];
+    assert(solar_os_input_read_events(events, 2) == 2);
+    assert(events[0].key == key && events[0].action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(events[1].key == key && events[1].action == SOLAR_OS_INPUT_KEY_RELEASE);
+}
+int main(void) {
+    assert(solar_os_input_init() == ESP_OK);
+    assert(solar_os_input_key_source_open("key", SOLAR_OS_INPUT_SOURCE_BUTTONS, &key_source) == ESP_OK);
+    levels[4] = 1; levels[5] = 0;
+    solar_os_buttons_set_long_press_handler(board_button_long_press, NULL);
+    assert(solar_os_buttons_init() == ESP_OK);
+    /* A button held through startup must be released before it can act. */
+    poll_after(5000); expect_no_events(); assert(escapes == 0);
+    release(5); expect_no_events();
+    press(4); poll_after(100); release(4); expect_key(SOLAR_OS_KEY_UP);
+    press(4); poll_after(1999); expect_no_events(); assert(pairings == 0);
+    poll_after(1); expect_no_events(); assert(pairings == 1);
+    poll_after(5000); assert(pairings == 1);
+    release(4); expect_no_events();
+    press(5); poll_after(100); release(5); expect_key(SOLAR_OS_KEY_DOWN);
+    press(5); poll_after(1999); expect_no_events(); assert(escapes == 0);
+    poll_after(1); expect_key(SOLAR_OS_KEY_ESCAPE); assert(escapes == 1);
+    poll_after(5000); expect_no_events(); assert(escapes == 1);
+    release(5); expect_no_events();
+    press(5); poll_after(100); release(5); expect_key(SOLAR_OS_KEY_DOWN);
+    assert(!board_button_long_press(3, NULL)); expect_no_events();
+    assert(pairings == 1 && escapes == 1);
+    return 0;
+}
+'''
+        with tempfile.TemporaryDirectory() as tmp:
+            defines = self.board["defines"]
+            names = ("SOLAR_OS_BOARD_BUTTONS", "SOLAR_OS_BOARD_PIN_BLE_PAIR",
+                     "SOLAR_OS_BOARD_PIN_APP_EXIT", "SOLAR_OS_BOARD_PIN_ESCAPE")
+            header = '#pragma once\n#include "solar_os_keys.h"\n#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n'
+            for name in names:
+                if name in defines:
+                    header += f'#define {name} ' + re.sub(r"GPIO_NUM_(\d+)", r"\1", defines[name]) + '\n'
+            Path(tmp, "solar_os_board.h").write_text(header)
+            path, binary = Path(tmp, "buttons.c"), Path(tmp, "buttons")
+            path.write_text(source)
+            write_keyboard_layouts(tmp)
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-include", str(ROOT / "tests/host/compat.h"), "-I", tmp,
+                "-I", str(ROOT / "tests/host/gpio_controller_stubs"), "-I", str(ROOT / "tests/host"),
+                "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"), "-idirafter", str(ROOT / "include"),
+                str(path), *[str(ROOT / "src/services" / name) for name in (
+                    "solar_os_input.c", "solar_os_keys.c", "solar_os_input_composition.c", "solar_os_buttons.c")],
+                "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
 
     def test_connector_layout_is_complete_and_runtime_visible(self):
         layout = self.board["connector"]

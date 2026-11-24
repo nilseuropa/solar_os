@@ -60,9 +60,12 @@ static esp_err_t gdey075t7_initialize(epd_ultrachip_t *d)
 
 static esp_err_t gdey075t7_activate(epd_ultrachip_t *d, bool partial)
 {
-    SEND(0x00, 0x1f);
     SEND(0x50, partial ? 0xa9 : 0x29, 0x07);
-    /* Load the fast waveform for a full refresh; the partial waveform otherwise. */
+    /* The OTP waveform is chosen by temperature. 0xe0 makes the controller use
+     * the value in 0xe5 instead of its sensor: 0x5a selects the fast waveform
+     * for a full refresh, 0x6e the partial one. The setting is fixed, so the
+     * waveform does not follow the real temperature; expect more ghosting in
+     * the cold. */
     SEND(0xe0, 0x02);
     SEND(0xe5, partial ? 0x6e : 0x5a);
     TRY(epd_ultrachip_power_on(d));

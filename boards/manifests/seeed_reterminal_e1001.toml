@@ -288,7 +288,7 @@ role = "PWM buzzer"
 [[pins]]
 gpio = 46
 policy = "free"
-role = "J2 GPIO"
+role = "J2 GPIO / strapping"
 expansion = true
 pwm = true
 [connector]

@@ -99,6 +99,12 @@ static bool has(uint8_t cmd)
     for (unsigned i = 0; i < count; ++i) if (captures[i].command == cmd) return true;
     return false;
 }
+static unsigned times(uint8_t cmd)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; i < count; ++i) n += captures[i].command == cmd;
+    return n;
+}
 static void expect(uint8_t cmd, const uint8_t *data, size_t len)
 {
     capture_t *c = find(cmd, 0);
@@ -180,6 +186,8 @@ static void test_gdey075t7(void)
     expect(0x01, (uint8_t[]){0x07,0x07,0x3f,0x3f}, 4);
     expect(0x06, (uint8_t[]){0x17,0x17,0x28,0x17}, 4);
     expect(0x61, (uint8_t[]){3, 0x20, 1, 0xe0}, 4);
+    expect(0x00, (uint8_t[]){0x1f}, 1);
+    assert(times(0x00) == 1); /* panel setting is sent once, at initialization */
     expect(0xe5, (uint8_t[]){0x5a}, 1);
     assert(!has(0x65) && !has(0x91) && !has(0x90));
     capture_t *new = find(0x13, 0);
@@ -190,6 +198,7 @@ static void test_gdey075t7(void)
     count = 0; frame[0] = 0xff;
     assert(epd_ultrachip_refresh(&d) == ESP_OK);
     expect(0xe5, (uint8_t[]){0x6e}, 1);
+    assert(!has(0x00)); /* not repeated on later refreshes */
     assert(find(0x50, 0)->data[0] == 0xa9);
     expect(0x90, (uint8_t[]){0,0,0x03,0x1f,0,0,0x01,0xdf,0x01}, 9);
     assert(has(0x91) && has(0x92));

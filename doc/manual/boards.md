@@ -1429,6 +1429,9 @@ carry the onboard I2C bus.
 
 GPIO2, GPIO17, GPIO18 and GPIO46 are free GPIO/PWM slots; GPIO2 is also an ADC
 slot. The I2C pins on J2 remain owned by `i2c0`.
+GPIO46 is an ESP32-S3 strapping pin with an internal pull-down: leave it low or
+floating through reset. If it is held high while GPIO0 is low, the chip cannot
+enter download mode.
 The `io` Layout view shows all eight J2 positions in pin order, including 3V3 and GND.
 
 The display uses the panel's OTP waveforms. A full refresh uses the fast
