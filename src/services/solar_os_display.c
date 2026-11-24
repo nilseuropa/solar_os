@@ -179,14 +179,29 @@ static void display_publish_layer_locked(display_target_slot_t *slot)
     }
 }
 
+static void display_prepare_layer_canvas(display_target_slot_t *slot, bool base_changed)
+{
+    u8g2_t *canvas = slot->target.u8g2;
+    uint8_t *composed = solar_os_display_layer_canvas(slot->layer, base_changed);
+    if (slot->scale.factor > 1U) {
+        slot->scale.logical_buffer = composed;
+        canvas->tile_buf_ptr = composed;
+    } else {
+        /* Some drivers refresh their fixed native buffer without copying U8x8
+         * tiles. Keep that buffer in sync with the composed presentation. */
+        memcpy(slot->scale.physical_buffer, composed,
+            (size_t)u8g2_GetBufferTileWidth(canvas) * u8g2_GetBufferTileHeight(canvas) * 8U);
+        canvas->tile_buf_ptr = slot->scale.physical_buffer;
+    }
+}
+
 static void display_draw_layer_locked(display_target_slot_t *slot)
 {
     display_layer_update_colors(slot);
     u8g2_t *canvas = slot->target.u8g2;
     uint8_t *original = canvas->tile_buf_ptr;
     uint8_t *logical = slot->scale.logical_buffer;
-    canvas->tile_buf_ptr = solar_os_display_layer_canvas(slot->layer, false);
-    if (slot->scale.factor > 1U) slot->scale.logical_buffer = canvas->tile_buf_ptr;
+    display_prepare_layer_canvas(slot, false);
     uint8_t x, y, width, height;
     solar_os_display_layer_area(slot->layer, &x, &y, &width, &height);
     u8g2_UpdateDisplayArea(canvas, x, y, width, height);
@@ -2650,8 +2665,7 @@ void solar_os_display_present_regions(u8g2_t *u8g2, solar_os_display_present_mod
     uint8_t *layer_logical = layer_slot ? layer_slot->scale.logical_buffer : NULL;
     if (layer_slot && layer_slot->layer) {
         display_layer_update_colors(layer_slot);
-        u8g2->tile_buf_ptr = solar_os_display_layer_canvas(layer_slot->layer, true);
-        if (layer_slot->scale.factor > 1U) layer_slot->scale.logical_buffer = u8g2->tile_buf_ptr;
+        display_prepare_layer_canvas(layer_slot, true);
     }
     /* Layers can change pixels outside the caller's damage. Their composition
      * retains the full presentation path until layer damage is available. */
