@@ -2,6 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "solar_os_memory.h"
+#include "solar_os_log.h"
+#include "nvs.h"
 #include <string.h>
 
 /* Exercise the actual worker, polling, attach and detach implementation. */
@@ -22,7 +24,7 @@ static uint8_t composition_modifiers;
 static unsigned matrix_configurations;
 static uint8_t fail_write_reg;
 static bool fail_source_open;
-static unsigned pwm_started, pwm_stopped;
+static unsigned pwm_started, pwm_stopped, pwm_blanked;
 static unsigned task_notifications;
 static bool sources_alive[256];
 static char source_names[256][SOLAR_OS_INPUT_SOURCE_NAME_MAX];
@@ -54,9 +56,34 @@ bool solar_os_input_source_find(const char *name, solar_os_input_source_info_t *
 }
 static esp_err_t pwm_start_error, pwm_stop_error;
 
+/* Use the real backlight service with no saved brightness. This fixture
+ * exercises provider registration and cleanup, without changing settings. */
+esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
+{
+    (void)handle;
+    assert(strcmp(name, "backlight") == 0 && mode == NVS_READONLY);
+    return ESP_ERR_NVS_NOT_FOUND;
+}
+esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value)
+{
+    (void)handle; (void)key; (void)value; return ESP_ERR_NVS_NOT_FOUND;
+}
+esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value)
+{
+    (void)handle; (void)key; (void)value; return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t nvs_commit(nvs_handle_t handle) { (void)handle; return ESP_ERR_NOT_SUPPORTED; }
+void nvs_close(nvs_handle_t handle) { (void)handle; }
+const char *esp_err_to_name(esp_err_t err) { (void)err; return "test error"; }
+esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag, const char *fmt, ...)
+{
+    (void)level; (void)tag; (void)fmt; return ESP_OK;
+}
+
 esp_err_t pwm_port_set(gpio_num_t pin, uint32_t frequency, uint8_t percent)
 {
-    assert(pin == 46 && frequency == 5000U && percent == 50U);
+    assert(pin == 46 && frequency == 5000U && (percent == 0U || percent == 50U));
+    if (percent == 0U) { pwm_blanked++; return ESP_OK; }
     pwm_started++;
     return pwm_start_error;
 }
@@ -506,28 +533,39 @@ int main(void)
         {.kind=SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS, .value=0x34},
         {.kind=SOLAR_OS_EXPANSION_BINDING_PWM, .role="backlight", .value=46},
     };
+    solar_os_backlight_status_t lighting;
     pwm_start_error = ESP_FAIL;
     assert(solar_os_lilygo_pager_keyboard_attach("pager", pager_bindings, 3) == ESP_FAIL);
     assert(!pager_devices[0].active && pwm_stopped == pwm_started);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_ERR_NOT_SUPPORTED);
+    assert(lighting.providers == 0 && pwm_blanked == pwm_started);
     pwm_start_error = ESP_OK;
     bus_error = ESP_ERR_NOT_FOUND;
     assert(solar_os_lilygo_pager_keyboard_attach("pager", pager_bindings, 3) == ESP_ERR_NOT_FOUND);
     assert(!pager_devices[0].active && pwm_stopped == pwm_started);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_ERR_NOT_SUPPORTED);
+    assert(lighting.providers == 0 && pwm_blanked == pwm_started);
     bus_error = ESP_OK;
     assert(solar_os_lilygo_pager_keyboard_attach("pager", pager_bindings, 3) == ESP_OK);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_OK);
+    assert(lighting.providers == 1 && lighting.effective_percent == 50U);
     assert(registers[0x1d] == 15 && registers[0x1e] == 255 && registers[0x1f] == 3);
     unsigned prior_stopped = pwm_stopped;
     wait_timeout = true;
     assert(solar_os_lilygo_pager_keyboard_detach("pager") == ESP_ERR_TIMEOUT);
     assert(pwm_stopped == prior_stopped && pager_devices[0].controller_attached);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_OK && lighting.providers == 1);
     wait_timeout = false;
     pwm_stop_error = ESP_FAIL;
     assert(solar_os_lilygo_pager_keyboard_detach("pager") == ESP_FAIL);
     assert(pager_devices[0].active && !pager_devices[0].controller_attached);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_ERR_NOT_SUPPORTED);
     size_t prior_closed = closed;
     pwm_stop_error = ESP_OK;
     assert(solar_os_lilygo_pager_keyboard_detach("pager") == ESP_OK);
     assert(closed == prior_closed && !pager_devices[0].active && opened == closed);
+    assert(solar_os_backlight_get_status(&lighting) == ESP_ERR_NOT_SUPPORTED);
+    assert(lighting.providers == 0 && pwm_blanked == pwm_started);
 
     puts("TCA8418 keyboard lifecycle tests: ok");
     return 0;
