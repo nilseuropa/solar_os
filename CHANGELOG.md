@@ -11,7 +11,10 @@
   tab selector, and a live oscilloscope. Files, FTP and SFTP now use Midnight
   Commander-style filename quick search. Improved split-display speed,
   enabled Game Boy in split panes, and fixed keyboard focus switching and
-  focus labels that remained visible after releasing Alt.
+  focus labels that remained visible after releasing Alt. Added Seeed Studio
+  reTerminal E1001 support with its 7.5-inch monochrome e-paper display,
+  microSD, microphone, buzzer, battery and charger monitoring, RTC, and
+  temperature/humidity sensor.
 - **4.18.3** — 2026-11-23 — Improved Web with an editable address bar,
   Back, Forward, Reload/Stop and Go controls, touch and pointer navigation,
   and `Ctrl++`/`Ctrl+-` text zoom while editing fields. Web can now open without

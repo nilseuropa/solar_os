@@ -146,7 +146,8 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
     if (!have_spi || !have_cs || config->dc_pin < 0 || config->reset_pin < 0 ||
         config->busy_pin < 0 || config->spi_clock_khz < 100 ||
         config->spi_clock_khz > 20000 || rotation_callback(config->rotation) == NULL ||
-        config->panel_variant != EPD_UC8179_PANEL_XTEINK_800X480 ||
+        (config->panel_variant != EPD_UC8179_PANEL_XTEINK_800X480 &&
+         config->panel_variant != EPD_UC8179_PANEL_GDEY075T7) ||
         !solar_os_display_pins_valid(config->cs_pin, config->dc_pin,
             config->reset_pin, config->busy_pin, config->power_pin) ||
         !solar_os_expansion_find_spi_bus(config->spi_bus, NULL, NULL) ||

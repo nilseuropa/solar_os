@@ -176,8 +176,9 @@ ground to a suitable USB host connector. The following target profiles enable
 | `solar_writer` | U5 GPIO19/20 and the I/O board's USB host connector; GPIO18 switches VBUS automatically |
 | `waveshare_esp32_s3_sim7670g_4g`, `waveshare_esp32_s3_sim7670g_4g_epaper` | P3 GPIO19/20, shared with the board's USB mux circuitry |
 
-The reTerminal E1003 uses GPIO19/20 for onboard I2C. Its USB-C connector
-exposes a USB–UART bridge, so native USB host mode is unavailable on this target.
+The reTerminal E1001 and E1003 use GPIO19/20 for onboard I2C. Their USB-C
+connectors expose a USB–UART bridge, so native USB host mode is unavailable on
+these targets.
 
 USB–UART consoles remain available during hosting. On the SIM7670G board,
 set the hardware switches so the native data pair is isolated from the
