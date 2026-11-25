@@ -1,33 +1,113 @@
 /* Included inside the BLE package gate, after common interpreter helpers. */
 static solar_os_ble_session_t solua_ble_session;
+static const solar_os_native_bluetooth_api_v1_t *solua_ble_cached_api;
+static const solar_os_native_ble_keyboard_api_v1_t *solua_ble_keyboard_cached_api;
+/* Bounded snapshots owned by this binding, independent of firmware settings. */
+enum { SOLUA_BLE_SCAN_RESULTS = 32, SOLUA_BLE_SERVICES = 24, SOLUA_BLE_CHARACTERISTICS = 64 };
 
-static int solua_ble_check(lua_State *L, esp_err_t err)
+static const solar_os_native_bluetooth_api_v1_t *solua_ble_api(lua_State *L)
 {
-    if (err == SOLAR_OS_BLE_ERR_CANCELLED) {
-        return luaL_error(L, "BLE operation cancelled");
+    if (!solua_ble_cached_api) {
+        solua_ble_cached_api = solar_os_native_bluetooth_get(
+            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_NATIVE_THROUGH(solar_os_native_bluetooth_api_v1_t, hid_request_with_options));
+        if (!solua_ble_cached_api) luaL_error(L, "Bluetooth service unavailable");
     }
-    if (err == SOLAR_OS_BLE_ERR_CAPACITY) return luaL_error(L, "BLE connection capacity exhausted");
-    return solua_check_esp(L, err);
+    return solua_ble_cached_api;
 }
 
+static const solar_os_ble_call_options_v1_t solua_ble_options = {
+    .struct_size = sizeof(solua_ble_options), .cancelled = solua_should_cancel,
+};
+
+static int solua_ble_check(lua_State *L, int err)
+{
+    if (err == SOLAR_OS_NATIVE_ERROR_CANCELLED) {
+        return luaL_error(L, "BLE operation cancelled");
+    }
+    if (err == SOLAR_OS_NATIVE_ERROR_NO_SPACE) return luaL_error(L, "BLE connection capacity exhausted");
+    return err ? luaL_error(L, "BLE error %d", err) : 0;
+}
+
+static const solar_os_native_ble_keyboard_api_v1_t *solua_ble_keyboard_api(lua_State *L)
+{
+    if (!solua_ble_keyboard_cached_api) {
+        solua_ble_keyboard_cached_api = solar_os_native_ble_keyboard_get(
+            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_keyboard_api_v1_t, parse_addr_type));
+        if (!solua_ble_keyboard_cached_api) luaL_error(L, "Bluetooth keyboard service unavailable");
+    }
+    return solua_ble_keyboard_cached_api;
+}
+
+static int solua_ble_status(lua_State *L)
+{
+    char status[96];
+    solua_ble_keyboard_api(L)->get_status(status, sizeof(status));
+    lua_pushstring(L, status);
+    return 1;
+}
+
+static int solua_ble_connected(lua_State *L)
+{
+    lua_pushboolean(L, solua_ble_keyboard_api(L)->is_connected());
+    return 1;
+}
+
+static int solua_ble_pair(lua_State *L)
+{
+    return solua_ble_check(L, solua_ble_keyboard_api(L)->start_pairing());
+}
+
+static int solua_ble_forget(lua_State *L)
+{
+    return solua_ble_check(L, solua_ble_keyboard_api(L)->forget());
+}
+
+static int solua_ble_layout(lua_State *L)
+{
+    if (lua_gettop(L) == 0 || lua_isnil(L, 1)) {
+        lua_pushstring(L, solua_ble_keyboard_api(L)->layout_name(solua_ble_keyboard_api(L)->layout()));
+        return 1;
+    }
+
+    solar_os_ble_keyboard_layout_t layout;
+    if (!solua_ble_keyboard_api(L)->parse_layout(luaL_checkstring(L, 1), &layout)) {
+        return luaL_error(L, "expected us, de, ua, fr or ro");
+    }
+    return solua_ble_check(L, solua_ble_keyboard_api(L)->set_layout(layout));
+}
+
+static int solua_ble_read(lua_State *L)
+{
+    const uint32_t len = solua_optional_u32(L, 1, 64);
+    if (len == 0 || len > 256) {
+        return luaL_error(L, "expected length 1..256");
+    }
+
+    char buffer[256];
+    const size_t read_len = solua_ble_keyboard_api(L)->read_chars(buffer, len);
+    lua_pushlstring(L, buffer, read_len);
+    return 1;
+}
 static int solua_ble_scan(lua_State *L)
 {
-    solar_os_ble_scan_result_t results[SOLAR_OS_BLE_SCAN_MAX_RESULTS];
+    solar_os_ble_scan_result_t results[SOLUA_BLE_SCAN_RESULTS];
     size_t found = 0;
     if (solua_should_cancel(NULL)) {
-        return solua_ble_check(L, SOLAR_OS_BLE_ERR_CANCELLED);
+        return solua_ble_check(L, SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
-    const esp_err_t err = solar_os_ble_scan(results, SOLAR_OS_BLE_SCAN_MAX_RESULTS, &found);
+    const int err = solua_ble_api(L)->scan(results, SOLUA_BLE_SCAN_RESULTS, &found);
     /* Discovery reports NOT_FOUND when no advertisement matched. */
-    if (err != ESP_ERR_NOT_FOUND || found != 0) {
+    if (err != SOLAR_OS_NATIVE_ERROR_NOT_FOUND || found != 0) {
         solua_ble_check(L, err);
     }
     if (solua_should_cancel(NULL)) {
-        return solua_ble_check(L, SOLAR_OS_BLE_ERR_CANCELLED);
+        return solua_ble_check(L, SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
     lua_newtable(L);
     const int list = lua_gettop(L);
-    for (size_t i = 0; i < found && i < SOLAR_OS_BLE_SCAN_MAX_RESULTS; i++) {
+    for (size_t i = 0; i < found && i < SOLUA_BLE_SCAN_RESULTS; i++) {
         const solar_os_ble_scan_result_t *device = &results[i];
         char address[18];
         snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -51,13 +131,11 @@ static int solua_ble_scan(lua_State *L)
 static solar_os_ble_session_t solua_ble_get(lua_State *L)
 {
     if (solua_should_cancel(NULL)) {
-        solua_ble_check(L, SOLAR_OS_BLE_ERR_CANCELLED);
+        solua_ble_check(L, SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
     if (solua_ble_session == SOLAR_OS_BLE_SESSION_INVALID) {
-        solua_ble_check(L, solar_os_ble_session_create(
+        solua_ble_check(L, solua_ble_api(L)->session_create(
             solua_runner_control != NULL ? "lua.runner" : "lua.app", &solua_ble_session));
-        solua_ble_check(L, solar_os_ble_session_set_cancel_check(
-            solua_ble_session, solua_should_cancel, NULL));
     }
     return solua_ble_session;
 }
@@ -65,9 +143,11 @@ static solar_os_ble_session_t solua_ble_get(lua_State *L)
 static void solua_ble_destroy(void)
 {
     if (solua_ble_session != SOLAR_OS_BLE_SESSION_INVALID) {
-        (void)solar_os_ble_session_close(solua_ble_session);
+        (void)solua_ble_cached_api->session_close(solua_ble_session);
         solua_ble_session = SOLAR_OS_BLE_SESSION_INVALID;
     }
+    solua_ble_cached_api = NULL;
+    solua_ble_keyboard_cached_api = NULL;
 }
 
 static uint32_t solua_ble_timeout(lua_State *L, int index)
@@ -101,7 +181,7 @@ static int solua_ble_gatt_connect(lua_State *L)
     luaL_checktype(L, 1, LUA_TSTRING);
     const char *address = luaL_checklstring(L, 1, &len);
     uint8_t bda[6];
-    if (!solar_os_ble_parse_address(address, len, bda)) {
+    if (!solua_ble_api(L)->parse_address(address, len, bda)) {
         return luaL_error(L, "expected aa:bb:cc:dd:ee:ff");
     }
     const lua_Integer type = luaL_optinteger(L, 2, 0);
@@ -110,26 +190,26 @@ static int solua_ble_gatt_connect(lua_State *L)
     }
     const uint32_t timeout = solua_ble_timeout(L, 3);
     solar_os_ble_peer_t peer;
-    solua_ble_check(L, solar_os_ble_peer_connect(solua_ble_get(L), bda, type, timeout, &peer));
+    solua_ble_check(L, solua_ble_api(L)->peer_connect_with_options(solua_ble_get(L), bda, type, timeout, &peer, &solua_ble_options));
     lua_pushinteger(L, peer);
     return 1;
 }
 
 static int solua_ble_gatt_disconnect(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_peer_disconnect(solua_ble_get(L), solua_ble_peer(L)));
+    return solua_ble_check(L, solua_ble_api(L)->peer_disconnect(solua_ble_get(L), solua_ble_peer(L)));
 }
 
 static int solua_ble_gatt_capacity(lua_State *L)
 {
-    lua_pushinteger(L, solar_os_ble_peer_capacity());
+    lua_pushinteger(L, solua_ble_api(L)->peer_capacity());
     return 1;
 }
 
 static int solua_ble_gatt_status(lua_State *L)
 {
     solar_os_ble_session_info_t info;
-    solua_ble_check(L, solar_os_ble_peer_get_info(solua_ble_get(L), solua_ble_peer(L), &info));
+    solua_ble_check(L, solua_ble_api(L)->peer_get_info(solua_ble_get(L), solua_ble_peer(L), &info));
     char address[18];
     snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
         info.gatt.bda[0], info.gatt.bda[1], info.gatt.bda[2],
@@ -153,12 +233,12 @@ static int solua_ble_gatt_status(lua_State *L)
 
 static int solua_ble_gatt_services(lua_State *L)
 {
-    solar_os_ble_gatt_service_t services[SOLAR_OS_BLE_GATT_MAX_SERVICES];
+    solar_os_ble_gatt_service_t services[SOLUA_BLE_SERVICES];
     size_t count = 0;
-    solua_ble_check(L, solar_os_ble_peer_services(solua_ble_get(L), solua_ble_peer(L), services,
-        SOLAR_OS_BLE_GATT_MAX_SERVICES, &count));
+    solua_ble_check(L, solua_ble_api(L)->peer_services(solua_ble_get(L), solua_ble_peer(L), services,
+        SOLUA_BLE_SERVICES, &count));
     lua_createtable(L, count, 0);
-    for (size_t i = 0; i < count && i < SOLAR_OS_BLE_GATT_MAX_SERVICES; i++) {
+    for (size_t i = 0; i < count && i < SOLUA_BLE_SERVICES; i++) {
         lua_createtable(L, 0, 5);
         solua_set_int(L, -1, "index", i);
         solua_set_str(L, -1, "uuid", services[i].uuid);
@@ -173,15 +253,15 @@ static int solua_ble_gatt_services(lua_State *L)
 static int solua_ble_gatt_characteristics(lua_State *L)
 {
     const lua_Integer index = luaL_checkinteger(L, 2);
-    if (index < 0 || index >= SOLAR_OS_BLE_GATT_MAX_SERVICES) {
+    if (index < 0 || index >= SOLUA_BLE_SERVICES) {
         return luaL_error(L, "service index out of range");
     }
-    solar_os_ble_gatt_characteristic_t chars[SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS];
+    solar_os_ble_gatt_characteristic_t chars[SOLUA_BLE_CHARACTERISTICS];
     size_t count = 0;
-    solua_ble_check(L, solar_os_ble_peer_characteristics(solua_ble_get(L), solua_ble_peer(L), index,
-        chars, SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS, &count));
+    solua_ble_check(L, solua_ble_api(L)->peer_characteristics(solua_ble_get(L), solua_ble_peer(L), index,
+        chars, SOLUA_BLE_CHARACTERISTICS, &count));
     lua_createtable(L, count, 0);
-    for (size_t i = 0; i < count && i < SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS; i++) {
+    for (size_t i = 0; i < count && i < SOLUA_BLE_CHARACTERISTICS; i++) {
         lua_createtable(L, 0, 3);
         solua_set_str(L, -1, "uuid", chars[i].uuid);
         solua_set_int(L, -1, "handle", chars[i].handle);
@@ -197,8 +277,8 @@ static int solua_ble_gatt_read(lua_State *L)
     const uint32_t timeout = solua_ble_timeout(L, 3);
     uint8_t value[SOLAR_OS_BLE_GATT_VALUE_MAX];
     size_t len = 0;
-    solua_ble_check(L, solar_os_ble_peer_read(solua_ble_get(L), solua_ble_peer(L), handle,
-        value, sizeof(value), &len, timeout));
+    solua_ble_check(L, solua_ble_api(L)->peer_read_with_options(solua_ble_get(L), solua_ble_peer(L), handle,
+        value, sizeof(value), &len, timeout, &solua_ble_options));
     lua_pushlstring(L, (const char *)value, len);
     return 1;
 }
@@ -215,8 +295,8 @@ static int solua_ble_gatt_write(lua_State *L)
         response = lua_toboolean(L, 4);
     }
     const uint32_t timeout = solua_ble_timeout(L, 5);
-    return solua_ble_check(L, solar_os_ble_peer_write(solua_ble_get(L), solua_ble_peer(L), handle,
-        (const uint8_t *)value, len, response, timeout));
+    return solua_ble_check(L, solua_ble_api(L)->peer_write_with_options(solua_ble_get(L), solua_ble_peer(L), handle,
+        (const uint8_t *)value, len, response, timeout, &solua_ble_options));
 }
 
 static int solua_ble_gatt_subscribe(lua_State *L)
@@ -228,29 +308,29 @@ static int solua_ble_gatt_subscribe(lua_State *L)
         indication = lua_toboolean(L, 3);
     }
     const uint32_t timeout = solua_ble_timeout(L, 4);
-    return solua_ble_check(L, solar_os_ble_peer_subscribe(solua_ble_get(L), solua_ble_peer(L),
-        handle, indication ? 2 : 1, timeout));
+    return solua_ble_check(L, solua_ble_api(L)->peer_subscribe_with_options(solua_ble_get(L), solua_ble_peer(L),
+        handle, indication ? 2 : 1, timeout, &solua_ble_options));
 }
 
 static int solua_ble_gatt_unsubscribe(lua_State *L)
 {
     const uint16_t handle = solua_ble_handle(L, 2);
     const uint32_t timeout = solua_ble_timeout(L, 3);
-    return solua_ble_check(L, solar_os_ble_peer_subscribe(solua_ble_get(L), solua_ble_peer(L), handle, 0, timeout));
+    return solua_ble_check(L, solua_ble_api(L)->peer_subscribe_with_options(solua_ble_get(L), solua_ble_peer(L), handle, 0, timeout, &solua_ble_options));
 }
 
 static int solua_ble_gatt_configure_queue(lua_State *L)
 {
     const lua_Integer capacity = luaL_checkinteger(L, 2);
     if (capacity <= 0 || (uint64_t)capacity > UINT32_MAX) return luaL_error(L, "invalid queue capacity");
-    return solua_ble_check(L, solar_os_ble_peer_configure_queue(solua_ble_get(L), solua_ble_peer(L), capacity));
+    return solua_ble_check(L, solua_ble_api(L)->peer_configure_queue(solua_ble_get(L), solua_ble_peer(L), capacity));
 }
 
 static int solua_ble_gatt_poll(lua_State *L)
 {
     solar_os_ble_notification_t event;
-    esp_err_t err = solar_os_ble_peer_poll(solua_ble_get(L), solua_ble_peer(L), &event);
-    if (err == ESP_ERR_NOT_FOUND) { lua_pushnil(L); return 1; }
+    int err = solua_ble_api(L)->peer_poll(solua_ble_get(L), solua_ble_peer(L), &event);
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) { lua_pushnil(L); return 1; }
     solua_ble_check(L, err);
     lua_createtable(L, 0, 3);
     solua_set_int(L, -1, "handle", event.handle);
@@ -289,13 +369,13 @@ static int solua_ble_server_create(lua_State *L)
     lua_Integer capacity = luaL_optinteger(L, 2, 16);
     if (capacity <= 0 || (uint64_t)capacity > UINT32_MAX) return luaL_error(L, "invalid queue capacity");
     r.capacity = capacity;
-    return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    return solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
 }
 static int solua_ble_server_service(lua_State *L)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_SERVICE};
     solua_ble_server_text(L, 1, &r);
-    solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
     lua_pushinteger(L, r.id); return 1;
 }
 static int solua_ble_server_characteristic(lua_State *L)
@@ -306,13 +386,13 @@ static int solua_ble_server_characteristic(lua_State *L)
     if (properties < 1 || properties > 0x3e || (properties & ~0x3e)) return luaL_error(L, "invalid properties");
     r.properties = properties;
     if (!lua_isnoneornil(L, 4)) solua_ble_server_value(L, 4, &r);
-    solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
     lua_pushinteger(L, r.id); return 1;
 }
 #define SOLUA_BLE_SERVER_SIMPLE(name, operation) \
     static int solua_ble_server_##name(lua_State *L) { \
         solar_os_ble_server_request_t r = {.op=operation}; \
-        return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r)); \
+        return solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options)); \
     }
 SOLUA_BLE_SERVER_SIMPLE(start, SOLAR_OS_BLE_SERVER_START)
 SOLUA_BLE_SERVER_SIMPLE(stop, SOLAR_OS_BLE_SERVER_STOP)
@@ -321,7 +401,7 @@ SOLUA_BLE_SERVER_SIMPLE(close, SOLAR_OS_BLE_SERVER_CLOSE)
 static int solua_ble_server_status(lua_State *L)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_STATUS};
-    solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
     lua_createtable(L, 0, 9);
     solua_set_bool(L, -1, "registered", r.info.registered);
     solua_set_bool(L, -1, "advertising", r.info.advertising);
@@ -338,8 +418,8 @@ static int solua_ble_server_poll(lua_State *L)
 {
     static const char *types[] = {"connected", "disconnected", "read", "write", "subscribe", "sent"};
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_POLL};
-    esp_err_t err = solar_os_ble_server_request(solua_ble_get(L), &r);
-    if (err == ESP_ERR_NOT_FOUND) { lua_pushnil(L); return 1; }
+    int err = solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options);
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) { lua_pushnil(L); return 1; }
     solua_ble_check(L, err);
     lua_createtable(L, 0, 8);
     solua_set_str(L, -1, "type", types[r.event.type]);
@@ -357,8 +437,8 @@ static int solua_ble_server_peers(lua_State *L)
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_PEER};
     lua_newtable(L);
     for (int i = 1;; i++) {
-        esp_err_t err = solar_os_ble_server_request(solua_ble_get(L), &r);
-        if (err == ESP_ERR_NOT_FOUND) return 1;
+        int err = solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options);
+        if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return 1;
         solua_ble_check(L, err);
         r.peer = r.event.peer;
         lua_createtable(L, 0, 3);
@@ -372,7 +452,7 @@ static int solua_ble_server_set(lua_State *L)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_SET};
     r.id = solua_ble_server_id(L, 1); solua_ble_server_value(L, 2, &r);
-    return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    return solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
 }
 static int solua_ble_server_send(lua_State *L)
 {
@@ -380,12 +460,17 @@ static int solua_ble_server_send(lua_State *L)
     r.peer = solua_ble_server_id(L, 1); r.id = solua_ble_server_id(L, 2);
     solua_ble_server_value(L, 3, &r);
     if (!lua_isnoneornil(L, 4)) { luaL_checktype(L, 4, LUA_TBOOLEAN); r.indicate = lua_toboolean(L, 4); }
-    return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    return solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
 }
 static int solua_ble_server_disconnect(lua_State *L)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_DISCONNECT, .peer=solua_ble_server_id(L, 1)};
-    return solua_ble_check(L, solar_os_ble_server_request(solua_ble_get(L), &r));
+    return solua_ble_check(L, solua_ble_api(L)->server_request_with_options(solua_ble_get(L), &r, &solua_ble_options));
+}
+
+static int solua_ble_hid_request(lua_State *L, solar_os_ble_hid_request_t *request)
+{
+    return solua_ble_api(L)->hid_request_with_options(solua_ble_get(L), request, &solua_ble_options);
 }
 
 static int solua_ble_hid_start(lua_State *L)
@@ -396,19 +481,19 @@ static int solua_ble_hid_start(lua_State *L)
     if (!len || len > 26 || memchr(name, 0, len)) {
         return luaL_error(L, "HID name must be 1..26 bytes");
     }
-    char copied[27];
-    memcpy(copied, name, len);
-    copied[len] = '\0';
     if (!lua_isnoneornil(L, 2)) luaL_checktype(L, 2, LUA_TBOOLEAN);
-    return solua_ble_check(L, lua_toboolean(L, 2)
-        ? solar_os_ble_hid_device_start_managed(solua_ble_get(L), copied)
-        : solar_os_ble_hid_device_start(solua_ble_get(L), copied));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_START,
+        .manual = lua_toboolean(L, 2)};
+    memcpy(r.name, name, len);
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_hosts(lua_State *L)
 {
-    solar_os_ble_hid_host_t hosts[SOLAR_OS_BLE_HID_HOST_MAX]; size_t count;
-    solua_ble_check(L, solar_os_ble_hid_device_hosts(solua_ble_get(L), hosts, SOLAR_OS_BLE_HID_HOST_MAX, &count));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_HOSTS};
+    solua_ble_check(L, solua_ble_hid_request(L, &r));
+    const solar_os_ble_hid_host_t *hosts = r.hosts;
+    const size_t count = r.host_count;
     lua_createtable(L, count, 0);
     for (size_t i=0; i<count; i++) {
         char address[18]; snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -426,49 +511,57 @@ static int solua_ble_hid_host(lua_State *L, bool forget)
 {
     size_t len; uint8_t bda[6]; luaL_checktype(L, 1, LUA_TSTRING);
     const char *address = luaL_checklstring(L, 1, &len);
-    if (!solar_os_ble_parse_address(address, len, bda)) return luaL_error(L, "expected aa:bb:cc:dd:ee:ff");
+    if (!solua_ble_api(L)->parse_address(address, len, bda)) return luaL_error(L, "expected aa:bb:cc:dd:ee:ff");
     lua_Integer type = luaL_optinteger(L, 2, 0);
     if (type < 0 || type > 1) return luaL_error(L, "address type must be 0..1");
-    return solua_ble_check(L, forget ? solar_os_ble_hid_device_forget(solua_ble_get(L), bda, type)
-        : solar_os_ble_hid_device_connect(solua_ble_get(L), bda, type));
+    solar_os_ble_hid_request_t r = {.op = forget ? SOLAR_OS_BLE_HID_OP_FORGET : SOLAR_OS_BLE_HID_OP_CONNECT,
+        .addr_type = type};
+    memcpy(r.bda, bda, sizeof(r.bda));
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 static int solua_ble_hid_connect(lua_State *L) { return solua_ble_hid_host(L, false); }
 static int solua_ble_hid_forget(lua_State *L) { return solua_ble_hid_host(L, true); }
 static int solua_ble_hid_disconnect(lua_State *L)
-{ return solua_ble_check(L, solar_os_ble_hid_device_disconnect(solua_ble_get(L))); }
+{
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_DISCONNECT};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
+}
 
 static int solua_ble_hid_stop(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_device_stop(solua_ble_get(L)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_STOP};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_pair(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_device_pair(solua_ble_get(L)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_PAIR};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_status(lua_State *L)
 {
-    solar_os_ble_hid_info_t info;
-    solua_ble_check(L, solar_os_ble_hid_device_status(solua_ble_get(L), &info));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_STATUS};
+    solua_ble_check(L, solua_ble_hid_request(L, &r));
+    const solar_os_ble_hid_info_t *info = &r.info;
     lua_createtable(L, 0, 17);
-    solua_set_str(L, -1, "host_name", info.host_name);
-    solua_set_bool(L, -1, "manual", info.manual);
-    solua_set_bool(L, -1, "pairing", info.pairing);
-    solua_set_bool(L, -1, "host_selected", info.host_selected);
-    solua_set_bool(L, -1, "registered", info.registered);
-    solua_set_bool(L, -1, "advertising", info.advertising);
-    solua_set_bool(L, -1, "closing", info.closing);
-    solua_set_bool(L, -1, "connected", info.connected);
-    solua_set_bool(L, -1, "encrypted", info.encrypted);
-    solua_set_bool(L, -1, "bonded", info.bonded);
-    solua_set_bool(L, -1, "keyboard_subscribed", info.keyboard_subscribed);
-    solua_set_bool(L, -1, "mouse_subscribed", info.mouse_subscribed);
-    solua_set_bool(L, -1, "gamepad_subscribed", info.gamepad_subscribed);
-    solua_set_int(L, -1, "keyboard_leds", info.keyboard_leds);
-    solua_set_int(L, -1, "event_capacity", info.event_capacity);
-    solua_set_int(L, -1, "event_count", info.event_count);
-    solua_set_int(L, -1, "events_dropped", info.events_dropped);
+    solua_set_str(L, -1, "host_name", info->host_name);
+    solua_set_bool(L, -1, "manual", info->manual);
+    solua_set_bool(L, -1, "pairing", info->pairing);
+    solua_set_bool(L, -1, "host_selected", info->host_selected);
+    solua_set_bool(L, -1, "registered", info->registered);
+    solua_set_bool(L, -1, "advertising", info->advertising);
+    solua_set_bool(L, -1, "closing", info->closing);
+    solua_set_bool(L, -1, "connected", info->connected);
+    solua_set_bool(L, -1, "encrypted", info->encrypted);
+    solua_set_bool(L, -1, "bonded", info->bonded);
+    solua_set_bool(L, -1, "keyboard_subscribed", info->keyboard_subscribed);
+    solua_set_bool(L, -1, "mouse_subscribed", info->mouse_subscribed);
+    solua_set_bool(L, -1, "gamepad_subscribed", info->gamepad_subscribed);
+    solua_set_int(L, -1, "keyboard_leds", info->keyboard_leds);
+    solua_set_int(L, -1, "event_capacity", info->event_capacity);
+    solua_set_int(L, -1, "event_count", info->event_count);
+    solua_set_int(L, -1, "events_dropped", info->events_dropped);
     return 1;
 }
 
@@ -477,21 +570,22 @@ static int solua_ble_hid_poll(lua_State *L)
     static const char *types[] = {
         "connected", "disconnected", "secured", "keyboard-leds", "passkey",
     };
-    solar_os_ble_hid_device_event_t event;
-    const esp_err_t err = solar_os_ble_hid_device_poll(solua_ble_get(L), &event);
-    if (err == ESP_ERR_NOT_FOUND) {
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_POLL};
+    const int err = solua_ble_hid_request(L, &r);
+    const solar_os_ble_hid_device_event_t *event = &r.event;
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) {
         lua_pushnil(L);
         return 1;
     }
     solua_ble_check(L, err);
     lua_createtable(L, 0, 7);
-    solua_set_str(L, -1, "type", types[event.type]);
-    solua_set_int(L, -1, "peer", event.peer);
-    solua_set_int(L, -1, "passkey", event.passkey);
-    solua_set_int(L, -1, "status", event.status);
-    solua_set_bool(L, -1, "encrypted", event.encrypted);
-    solua_set_bool(L, -1, "bonded", event.bonded);
-    solua_set_int(L, -1, "keyboard_leds", event.keyboard_leds);
+    solua_set_str(L, -1, "type", types[event->type]);
+    solua_set_int(L, -1, "peer", event->peer);
+    solua_set_int(L, -1, "passkey", event->passkey);
+    solua_set_int(L, -1, "status", event->status);
+    solua_set_bool(L, -1, "encrypted", event->encrypted);
+    solua_set_bool(L, -1, "bonded", event->bonded);
+    solua_set_int(L, -1, "keyboard_leds", event->keyboard_leds);
     return 1;
 }
 
@@ -513,21 +607,22 @@ static size_t solua_ble_hid_keys(lua_State *L, uint16_t keys[8])
 
 static int solua_ble_hid_keyboard_press(lua_State *L)
 {
-    uint16_t keys[8];
-    return solua_ble_check(L, solar_os_ble_hid_keyboard_press(
-        solua_ble_get(L), keys, solua_ble_hid_keys(L, keys)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS};
+    r.key_count = solua_ble_hid_keys(L, r.keys);
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_keyboard_release(lua_State *L)
 {
-    uint16_t keys[8];
-    return solua_ble_check(L, solar_os_ble_hid_keyboard_release(
-        solua_ble_get(L), keys, solua_ble_hid_keys(L, keys)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE};
+    r.key_count = solua_ble_hid_keys(L, r.keys);
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_keyboard_release_all(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_keyboard_release_all(solua_ble_get(L)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int32_t solua_ble_hid_i32(lua_State *L, int index)
@@ -555,14 +650,16 @@ static bool solua_ble_hid_bool(lua_State *L, int index)
 
 static int solua_ble_hid_mouse_move(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_mouse_move(
-        solua_ble_get(L), solua_ble_hid_i32(L, 1), solua_ble_hid_i32(L, 2)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_MOUSE_MOVE,
+        .x = solua_ble_hid_i32(L, 1), .y = solua_ble_hid_i32(L, 2)};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_mouse_button(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_mouse_button(
-        solua_ble_get(L), solua_ble_hid_u8(L, 1), solua_ble_hid_bool(L, 2)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON,
+        .button = solua_ble_hid_u8(L, 1), .pressed = solua_ble_hid_bool(L, 2)};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_gamepad_axis(lua_State *L)
@@ -575,23 +672,27 @@ static int solua_ble_hid_gamepad_axis(lua_State *L)
     if (value < INT16_MIN || value > INT16_MAX) {
         return luaL_error(L, "expected axis value -32768..32767");
     }
-    return solua_ble_check(L, solar_os_ble_hid_gamepad_axis(
-        solua_ble_get(L), (int)axis, (int16_t)value));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+        .axis = (int)axis, .value = (int16_t)value};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_gamepad_button(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_gamepad_button(
-        solua_ble_get(L), solua_ble_hid_u8(L, 1), solua_ble_hid_bool(L, 2)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
+        .button = solua_ble_hid_u8(L, 1), .pressed = solua_ble_hid_bool(L, 2)};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_gamepad_hat(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_gamepad_hat(
-        solua_ble_get(L), solua_ble_hid_u8(L, 1)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
+        .hat = solua_ble_hid_u8(L, 1)};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }
 
 static int solua_ble_hid_gamepad_send(lua_State *L)
 {
-    return solua_ble_check(L, solar_os_ble_hid_gamepad_send(solua_ble_get(L)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND};
+    return solua_ble_check(L, solua_ble_hid_request(L, &r));
 }

@@ -246,7 +246,7 @@ font_packs_test: font_packs_test.c $(ROOT)/src/services/solar_os_font_packs.c $(
 io_layout_can_test: override CFLAGS += -DSOLAR_OS_PACKAGE_CAN_TWAI=1
 io_layout_test io_layout_can_test: io_layout_test.c $(ROOT)/src/apps/solar_os_io.c $(ROOT)/src/services/solar_os_tui_widgets.c $(ROOT)/src/shell/solar_os_shell_expansion_command.c
 	$(CC) $(CFLAGS) -Wno-unused-variable -Wno-format-truncation \
-		-D_GNU_SOURCE -DSPI2_HOST=1 -DSPI3_HOST=2 \
+		-D_GNU_SOURCE -DSPI2_HOST=1 -DSPI3_HOST=2 -DSOLAR_OS_PACKAGE_SERVICE_EXPANSION=1 \
 		-ffunction-sections -fdata-sections -include compat.h -Iexpansion_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/apps -I$(ROOT)/src/shell -I$(ROOT)/src/services \
 		-I$(ROOT)/components/u8g2/src/clib io_layout_test.c \
@@ -737,7 +737,7 @@ ble_multi_peer_test: ble_multi_peer_test.c ble_test_support.c $(ROOT)/src/servic
 
 ble_nimble_test ble_hid_test ble_server_test ble_coc_test: %: %.c nimble_test_support.c ble_test_support.c \
 		$(ROOT)/src/services/solar_os_ble_nimble.c $(ROOT)/src/services/solar_os_ble_hid.c \
-		$(ROOT)/src/services/solar_os_ble_hid_report_map.c \
+		$(ROOT)/src/services/solar_os_hid_report_descriptor.c \
 		$(ROOT)/src/services/solar_os_ble_nimble_server.inc $(ROOT)/src/services/solar_os_ble_hid_hosts.inc \
 		$(ROOT)/src/services/solar_os_ble_nimble_coc.inc \
 		$(ROOT)/src/services/solar_os_ble_hid_name.inc \
@@ -747,7 +747,7 @@ ble_nimble_test ble_hid_test ble_server_test ble_coc_test: %: %.c nimble_test_su
 		$(wildcard nimble_stubs/*.h)
 	$(CC) $(CFLAGS) -Wno-unused-parameter -D_POSIX_C_SOURCE=200809L -pthread -include compat.h \
 		-Inimble_stubs -Ible_stubs -I. -I$(ROOT)/src/services \
-		$< nimble_test_support.c ble_test_support.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@
+		$< nimble_test_support.c ble_test_support.c $(ROOT)/src/services/solar_os_hid_report_descriptor.c -o $@
 
 
 espdl_workers_test espdl_workers_single_test: espdl_workers_test.cpp $(ROOT)/scripts/espdl/worker_runtime.inc
@@ -804,11 +804,23 @@ media_lua_bindings_test: media_lua_bindings_test.c $(SCRIPT_MEDIA_TEST_SOURCES) 
 
 ble_lua_bindings_test: ble_lua_bindings_test.c ble_service_test.c ble_test_support.c \
 		$(WRITER_DIR)/solar_os_lua_ble.inc $(ROOT)/src/services/solar_os_ble.c \
+		$(ROOT)/src/services/solar_os_native_ble.c $(ROOT)/src/services/solar_os_native_ble_keyboard.c \
+		$(ROOT)/src/services/solar_os_native_ble_stream.c $(ROOT)/src/services/solar_os_ble_stream.c \
+		$(ROOT)/src/services/solar_os_native_tcp_stream.c $(ROOT)/src/services/solar_os_tcp_stream.c \
+		$(ROOT)/src/services/solar_os_port.c $(ROOT)/src/services/solar_os_stream.c \
+		$(WRITER_DIR)/solar_os_lua_ble_stream.inc \
+		$(WRITER_DIR)/solar_os_lua_tcp_stream.inc ../test_tcp_stream.py \
+		script_ble_abi_fixture.h ble_keyboard_abi_backend.h \
 		$(ROOT)/src/services/solar_os_ble.h $(ROOT)/src/services/solar_os_ble_backend.h \
 		ble_stubs/freertos/semphr.h ble_stubs/freertos/task.h $(LUA_TEST_SOURCES)
-	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -pthread -include compat.h \
-		-Ible_stubs -I. -I$(ROOT)/src/services -I$(WRITER_DIR) -I$(LUA_DIR) \
-		ble_lua_bindings_test.c ble_test_support.c $(ROOT)/src/services/solar_os_ble.c \
+	PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.. python3 -c 'from pathlib import Path; from test_tcp_stream import tcp_headers; tcp_headers(Path("generated/tcp_abi"), with_semaphores=False)'
+	$(CC) $(CFLAGS) -D_POSIX_C_SOURCE=200809L -DSOLAR_OS_PACKAGE_SERVICE_BLE=1 -DSOLAR_OS_PACKAGE_SERVICE_BLE_STREAM=1 -DSOLAR_OS_PACKAGE_SERVICE_TCP_STREAM=1 -pthread -include compat.h \
+		-Igenerated/tcp_abi -Ible_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(WRITER_DIR) -I$(LUA_DIR) \
+		ble_lua_bindings_test.c ble_test_support.c $(ROOT)/src/services/solar_os_ble.c $(ROOT)/src/services/solar_os_native_ble.c \
+		$(ROOT)/src/services/solar_os_native_ble_keyboard.c \
+		$(ROOT)/src/services/solar_os_native_ble_stream.c $(ROOT)/src/services/solar_os_ble_stream.c \
+		$(ROOT)/src/services/solar_os_native_tcp_stream.c $(ROOT)/src/services/solar_os_tcp_stream.c \
+		$(ROOT)/src/services/solar_os_port.c $(ROOT)/src/services/solar_os_stream.c \
 		$(LUA_TEST_SOURCES) -lm -o $@
 
 ble_service_test: ble_service_test.c ble_test_support.c $(ROOT)/src/services/solar_os_ble.c \
@@ -985,9 +997,9 @@ board_caps_test: board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c $(
 		-DSOLAR_OS_BOARD_HAS_HUMIDITY=1 -DSOLAR_OS_BOARD_HAS_SIMD=1 \
 		board_caps_test.c $(ROOT)/src/services/solar_os_board_caps.c -o $@
 
-hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h $(ROOT)/src/services/solar_os_ble_hid_report_map.c $(ROOT)/src/services/solar_os_ble_hid_report_map.h
+hid_keyboard_report_test: hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_keyboard_report.h $(ROOT)/src/services/solar_os_hid_report_descriptor.c $(ROOT)/src/services/solar_os_hid_report_descriptor.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
-		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_ble_hid_report_map.c -o $@
+		hid_keyboard_report_test.c $(ROOT)/src/services/solar_os_hid_keyboard_report.c $(ROOT)/src/services/solar_os_hid_report_descriptor.c -o $@
 
 ble_keyboard_scan_policy_test: ble_keyboard_scan_policy_test.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.c $(ROOT)/src/services/solar_os_ble_keyboard_scan_policy.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/services \
@@ -1047,12 +1059,12 @@ qemu_input_test: qemu_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROO
 		qemu_input_test.c $(ROOT)/src/services/solar_os_qemu_input_codec.c \
 		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c -o $@
 
-input_keymap_layout_test: input_keymap_layout_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c
+input_keymap_layout_test: input_keymap_layout_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(wildcard $(ROOT)/src/services/solar_os_input_keymap*) $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_input.h $(ROOT)/src/services/solar_os_input_route.inc $(ROOT)/src/services/solar_os_keys.c $(ROOT)/src/services/solar_os_input_composition.c
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) input_keymap_layout_test.c \
 		$(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c \
 		$(ROOT)/src/services/solar_os_input_keymap.c $(ROOT)/src/services/solar_os_input_keymap_mapper.c \
-		$(ROOT)/src/services/solar_os_input_keymap_json.c $(CJSON_DIR)/cJSON.c -lm -o $@
+		$(ROOT)/src/services/solar_os_input_keymap_json.c $(ROOT)/src/services/solar_os_input_composition.c $(CJSON_DIR)/cJSON.c -lm -o $@
 
 ubx_test: ubx_test.c $(ROOT)/src/drivers/ubx.c $(ROOT)/src/drivers/ubx.h
 	$(CC) $(CFLAGS) -I$(ROOT)/src/drivers \

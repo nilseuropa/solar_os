@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+
 #include "solar_os_shell_commands.h"
 
 #include <inttypes.h>
@@ -157,3 +161,5 @@ void solar_os_shell_cmd_gateway(solar_os_context_t *ctx,
         gateway_commands,
         sizeof(gateway_commands) / sizeof(gateway_commands[0]));
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_GATEWAY */

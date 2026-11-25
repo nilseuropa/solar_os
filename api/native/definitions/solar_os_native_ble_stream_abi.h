@@ -1,0 +1,21 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#include "solar_os_bluetooth_stream_types_v1.h"
+#define SOLAR_OS_NATIVE_BLE_STREAM_SERVICE "stream.ble"
+#define SOLAR_OS_NATIVE_BLE_STREAM_ABI 1U
+
+typedef struct { uint32_t maximum_endpoints, name_bytes; } solar_os_native_ble_stream_limits_v1_t;
+/* Named definitions persist in the core until explicitly removed. Names and
+ * addresses are copied during configuration; no module callbacks are retained.
+ * Open their port/stream through the ordinary byte-I/O tables. Each exclusive
+ * open claim owns a fresh connection, and close retires it. Remove refuses an
+ * active claim. Status snapshots contain only copied values. Name limits
+ * include the terminating NUL. Runtime definitions are not saved across boot. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*limits)(solar_os_native_ble_stream_limits_v1_t *out);
+    int (*listen)(const char *name);
+    int (*connect)(const char *name, const uint8_t address[6], uint8_t address_type);
+    int (*remove)(const char *name);
+    int (*status)(const char *name, solar_os_ble_stream_info_t *info);
+} solar_os_native_ble_stream_api_v1_t;

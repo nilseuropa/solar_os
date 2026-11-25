@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
@@ -81,3 +85,5 @@ void solar_os_shell_cmd_pipeline(solar_os_context_t *ctx, int argc, char **argv)
 done:
     if (error) solar_os_shell_diag_esp(io, "pipeline", error, NULL, NULL);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_PIPELINE */

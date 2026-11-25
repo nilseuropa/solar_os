@@ -23,7 +23,8 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_client_ui.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
 #include "solar_os_storage.h"
@@ -115,7 +116,7 @@ typedef struct {
     solar_os_tui_t tui;
     solar_os_shell_io_t fallback_io;
     solar_os_storage_browser_t *browser;
-    solar_os_cassette_widget_t *cassette;
+    solar_os_cassette_widget_t cassette;
     solar_os_oscilloscope_widget_t *scope;
     solar_os_spectrum_widget_t *spectrum;
     recorder_input_t inputs[RECORDER_INPUT_MAX];
@@ -150,7 +151,9 @@ typedef struct {
     esp_err_t worker_error;
     char filename[RECORDER_FILENAME_MAX];
     char edit_filename[RECORDER_FILENAME_MAX];
-    size_t edit_filename_len;
+    solar_os_ui_input_state_t edit_filename_state;
+    const solar_os_native_ui_api_v1_t *ui_api;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     char directory[SOLAR_OS_STORAGE_PATH_MAX];
     char preferred_input_id[SOLAR_OS_STREAM_ID_MAX];
     char active_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -768,7 +771,7 @@ static esp_err_t recorder_start_worker(recorder_work_t work,
             RECORDER_MONITORING : RECORDER_PLAYING);
     recorder.active_output_id[0] = '\0';
     recorder.active_output_capabilities = 0U;
-    solar_os_cassette_widget_reset(recorder.cassette);
+    recorder.media_ui->cassette_reset(&recorder.cassette);
     solar_os_oscilloscope_widget_reset(recorder.scope);
     solar_os_spectrum_widget_reset(recorder.spectrum);
     recorder_set_message(NULL);
@@ -974,28 +977,32 @@ static void recorder_begin_filename_edit(void)
     if (recorder.task != NULL) return;
     strlcpy(recorder.edit_filename, recorder.filename,
             sizeof(recorder.edit_filename));
-    recorder.edit_filename_len = strlen(recorder.edit_filename);
+    recorder.edit_filename_state = (solar_os_ui_input_state_t){.cursor = strlen(recorder.edit_filename)};
     recorder.editing_filename = true;
     recorder.redraw = true;
 }
 
+static bool recorder_handle_filename_text(const char *text)
+{
+    const size_t length = strlen(text);
+    if (memchr(text, '/', length) || memchr(text, '\\', length)) return false;
+    const bool changed = recorder.ui_api->input_text(recorder.edit_filename, sizeof(recorder.edit_filename),
+        &recorder.edit_filename_state, text, length, SIZE_MAX) == SOLAR_OS_UI_INPUT_CHANGED;
+    if (changed) recorder.redraw = true;
+    return changed;
+}
+
 static bool recorder_handle_filename_key(uint8_t key)
 {
-    if (key == SOLAR_OS_KEY_ESCAPE) {
+    if (key == '/' || key == '\\') return true;
+    const solar_os_ui_input_action_t action = recorder.ui_api->input_key(recorder.edit_filename,
+        sizeof(recorder.edit_filename), &recorder.edit_filename_state, key, SIZE_MAX);
+    if (action == SOLAR_OS_UI_INPUT_CANCEL) {
         recorder.editing_filename = false;
-    } else if (key == '\r' || key == '\n') {
+    } else if (action == SOLAR_OS_UI_INPUT_SUBMIT) {
         strlcpy(recorder.filename, recorder.edit_filename,
                 sizeof(recorder.filename));
         recorder.editing_filename = false;
-    } else if ((key == '\b' || key == 0x7fU ||
-                key == SOLAR_OS_KEY_DELETE) &&
-               recorder.edit_filename_len > 0U) {
-        recorder.edit_filename[--recorder.edit_filename_len] = '\0';
-    } else if (key >= 0x20U && key < 0x7fU && key != '/' && key != '\\' &&
-               recorder.edit_filename_len + 1U <
-                   sizeof(recorder.edit_filename)) {
-        recorder.edit_filename[recorder.edit_filename_len++] = (char)key;
-        recorder.edit_filename[recorder.edit_filename_len] = '\0';
     }
     recorder.redraw = true;
     return true;
@@ -1233,34 +1240,29 @@ static void recorder_render_tui(void)
             "R record  M monitor  Space pause  S stop  P play  Tab setup  Esc exit");
     }
     if (recorder.editing_filename) {
-        char edit[144];
-        snprintf(edit, sizeof(edit), "Filename: %s_", recorder.edit_filename);
         const size_t input_row = solar_os_tui_screen_fullscreen(&recorder.tui) ?
             rows - 1U : rows - 3U;
-        solar_os_tui_fill(&recorder.tui, input_row, 0U, 1U, cols, ' ',
-                          SOLAR_OS_TUI_ATTR_INVERSE);
-        solar_os_tui_addstr(&recorder.tui, input_row, 1U, edit,
-                            SOLAR_OS_TUI_ATTR_INVERSE);
-    }
-    solar_os_tui_set_cursor_visible(&recorder.tui, false);
+        solar_os_tui_draw_input(&recorder.tui, input_row, 1U, cols > 2U ? cols - 2U : 1U,
+            "Filename: ", recorder.edit_filename, &recorder.edit_filename_state, SOLAR_OS_TUI_ATTR_INVERSE);
+    } else solar_os_tui_set_cursor_visible(&recorder.tui, false);
     solar_os_tui_refresh(&recorder.tui);
 }
 
 static void recorder_draw_header(solar_os_gfx_t *gfx, int width)
 {
     static const char *tabs[] = {"[REC] SET", "REC [SET]"};
-    solar_os_media_player_header_draw(gfx, width, "Recorder", tabs[recorder.tab]);
+    recorder.media_ui->player_header_draw(gfx, width, "Recorder", tabs[recorder.tab]);
 }
 
 static void recorder_draw_visualizer(solar_os_gfx_t *gfx,
                                      int width, int height)
 {
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(width, height, false, &layout);
+    recorder.media_ui->player_layout(width, height, false, &layout);
     const int visual_y = layout.view_y, visual_height = layout.view_height;
     if (visual_height < 5) return;
     if (recorder.visualizer == RECORDER_VISUALIZER_CASSETTE && visual_height >= 50 && width >= 90) {
-        solar_os_cassette_widget_draw(recorder.cassette, gfx, 5, visual_y,
+        recorder.media_ui->cassette_draw(&recorder.cassette, gfx, 5, visual_y,
                                       width - 10, visual_height);
     } else if (recorder.visualizer != RECORDER_VISUALIZER_SPECTRUM) {
         solar_os_oscilloscope_widget_draw(recorder.scope, gfx, 5, visual_y,
@@ -1302,7 +1304,7 @@ static void recorder_draw_progress(solar_os_gfx_t *gfx, int width, int height,
     (void)clear_background;
     char status[96];
     recorder_progress_text(width, height, status, sizeof(status));
-    solar_os_media_player_status_draw(gfx, width, height, status);
+    recorder.media_ui->player_status_draw(gfx, width, height, status);
 }
 
 static void recorder_render_record_graphics(solar_os_gfx_t *gfx, int width, int height)
@@ -1316,7 +1318,7 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx, int width, int 
         recorder.operation_state == RECORDER_RECORDING, recorder.operation_state == RECORDER_PLAYING,
         recorder.operation_state == RECORDER_PAUSED,
         recorder.operation_state == RECORDER_IDLE || recorder.operation_state == RECORDER_ERROR};
-    solar_os_media_controls_draw(gfx, width, height,
+    recorder.media_ui->controls_draw(gfx, width, height,
         recorder.active_path[0] ? recorder_basename(recorder.active_path) :
         recorder.filename[0] ? recorder.filename : "Automatic name",
         status, recorder.volume, icons, active, 4);
@@ -1325,7 +1327,7 @@ static void recorder_render_record_graphics(solar_os_gfx_t *gfx, int width, int 
 static void recorder_render_setup_graphics(solar_os_gfx_t *gfx, int width, int height)
 {
     solar_os_media_list_layout_t list;
-    solar_os_media_list_layout(width, height, &list);
+    recorder.media_ui->list_layout(width, height, &list);
     size_t visible = (size_t)list.visible;
     size_t first = visible && recorder.setup_cursor >= visible ? recorder.setup_cursor - visible + 1 : 0;
     for (size_t index = first; index < RECORDER_SETUP_ROWS && index < first + visible; index++) {
@@ -1338,12 +1340,12 @@ static void recorder_render_setup_graphics(solar_os_gfx_t *gfx, int width, int h
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
         }
         solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_media_text_draw(gfx, 4, y + list.baseline, width / 2 - 8, label);
-        solar_os_media_text_draw(gfx, width / 2, y + list.baseline, width / 2 - 4, value);
+        recorder.ui_api->label(gfx, 4, y + list.baseline, width / 2 - 8, label);
+        recorder.ui_api->label(gfx, width / 2, y + list.baseline, width / 2 - 4, value);
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_media_text_draw(gfx, 2, height - 2, width - 4,
+    recorder.ui_api->label(gfx, 2, height - 2, width - 4,
         list.compact ? "Up/Dn select  L/R change" : "Up/Down select  Left/Right change  Enter edit/folder");
 }
 
@@ -1351,7 +1353,7 @@ static void recorder_render_browser_graphics(solar_os_gfx_t *gfx,
                                              int width, int height)
 {
     solar_os_media_list_layout_t list;
-    solar_os_media_list_layout(width, height, &list);
+    recorder.media_ui->list_layout(width, height, &list);
     const int list_y = list.top;
     const size_t visible = (size_t)list.visible;
     const size_t count = solar_os_storage_browser_count(recorder.browser);
@@ -1378,18 +1380,19 @@ static void recorder_render_browser_graphics(solar_os_gfx_t *gfx,
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         }
         solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
-        solar_os_media_text_draw(gfx, 6, y + list.baseline, width - 12, label);
+        recorder.ui_api->label(gfx, 6, y + list.baseline, width - 12, label);
     }
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_media_text_draw(gfx, 3, height - 2, width - 6,
+    recorder.ui_api->label(gfx, 3, height - 2, width - 6,
         list.compact ? "Enter open  D folder  Esc back" : "Enter open/play WAV  D select folder  Esc cancel");
 }
 
 static void recorder_draw_filename_dialog(solar_os_gfx_t *gfx,
                                           int width, int height)
 {
-    solar_os_media_dialog_draw(gfx, width, height, "Recording filename", recorder.edit_filename,
+    recorder.ui_api->dialog(gfx, width, height, "Recording filename", recorder.edit_filename,
+        &recorder.edit_filename_state,
         height < 160 ? "Enter save  Esc back" : "Enter save  Esc cancel  Empty = automatic");
 }
 
@@ -1622,7 +1625,10 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     recorder.volume = status.volume <= 100U ? status.volume : 50U;
     recorder.visualizer = RECORDER_VISUALIZER_CASSETTE;
     const bool settings_loaded = recorder_load_settings();
-    esp_err_t err = recorder_set_initial_path(path_arg);
+    recorder.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(recorder.ui_api->input_text));
+    recorder.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(recorder.media_ui->cassette_draw));
+    esp_err_t err = recorder.ui_api && recorder.media_ui ? recorder_set_initial_path(path_arg) : ESP_ERR_NOT_SUPPORTED;
     if (err != ESP_OK) goto fail_state;
     recorder_refresh_inputs();
     SOLAR_OS_LOGI(TAG, "inputs discovered count=%u selected=%s",
@@ -1660,8 +1666,7 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     if (recorder.mode == RECORDER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&recorder.tui, ctx);
     } else {
-        err = solar_os_cassette_widget_create(&recorder.cassette);
-        if (err == ESP_OK) err = solar_os_oscilloscope_widget_create(
+        err = solar_os_oscilloscope_widget_create(
             RECORDER_SCOPE_SAMPLES, &recorder.scope);
         if (err == ESP_OK) err = solar_os_spectrum_widget_create(
             RECORDER_SPECTRUM_FFT_SIZE, &recorder.spectrum);
@@ -1671,7 +1676,6 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
         }
     }
     if (err != ESP_OK) {
-        solar_os_cassette_widget_destroy(recorder.cassette);
         solar_os_oscilloscope_widget_destroy(recorder.scope);
         solar_os_spectrum_widget_destroy(recorder.spectrum);
         solar_os_storage_browser_destroy(recorder.browser);
@@ -1702,7 +1706,6 @@ static void recorder_stop(solar_os_context_t *ctx)
     }
     if (recorder.mode == RECORDER_MODE_GRAPHICS) {
         recorder_disable_high_refresh();
-        solar_os_cassette_widget_destroy(recorder.cassette);
         solar_os_oscilloscope_widget_destroy(recorder.scope);
         solar_os_spectrum_widget_destroy(recorder.spectrum);
         solar_os_context_set_graphics_active(ctx, false);
@@ -1743,6 +1746,17 @@ static bool recorder_event(solar_os_context_t *ctx,
                            const solar_os_event_t *event)
 {
     if (event == NULL) return false;
+    solar_os_event_t shortcut;
+    if (event->type == SOLAR_OS_EVENT_TEXT) {
+        if (recorder.editing_filename) {
+            if (recorder_handle_filename_text(event->data.text)) recorder_render(ctx);
+            return true;
+        }
+        if ((unsigned char)event->data.text[0] < 0x20U ||
+            (unsigned char)event->data.text[0] >= 0x7fU || event->data.text[1]) return false;
+        shortcut = (solar_os_event_t){.type = SOLAR_OS_EVENT_CHAR, .data.ch = event->data.text[0]};
+        event = &shortcut;
+    }
     if (event->type == SOLAR_OS_EVENT_RESUME) {
         recorder_resume(ctx);
         return true;
@@ -1755,8 +1769,8 @@ static bool recorder_event(solar_os_context_t *ctx,
             recorder.last_input_refresh_ms = event->data.tick_ms;
             recorder_refresh_inputs();
         }
-        solar_os_cassette_widget_update(
-            recorder.cassette,
+        recorder.media_ui->cassette_update(
+            &recorder.cassette,
             recorder.operation_state == RECORDER_RECORDING ||
                 recorder.operation_state == RECORDER_PLAYING,
             recorder.elapsed_ms, 0U, event->data.tick_ms);
@@ -1802,7 +1816,7 @@ const solar_os_app_t solar_os_recorder_app = {
     .name = "recorder",
     .summary = "interactive WAV recorder",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_TEXT_EVENTS,
     .start = recorder_start,
     .suspend = recorder_suspend,
     .resume = recorder_resume,

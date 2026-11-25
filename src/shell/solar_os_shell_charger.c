@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_CHARGER
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -142,3 +146,5 @@ usage:
         "charger enable <on|off> [name] | "
         "charger <input-limit|current|voltage> <value> [name]");
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_CHARGER */

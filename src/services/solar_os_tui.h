@@ -8,20 +8,7 @@
 #include "solar_os.h"
 #include "solar_os_shell_io.h"
 
-typedef enum {
-    SOLAR_OS_TUI_ATTR_NORMAL = 0,
-    SOLAR_OS_TUI_ATTR_BOLD = 1U << 0,
-    SOLAR_OS_TUI_ATTR_INVERSE = 1U << 1,
-    SOLAR_OS_TUI_ATTR_ITALIC = 1U << 2,
-    SOLAR_OS_TUI_ATTR_UNDERLINE = 1U << 3,
-} solar_os_tui_attr_t;
-
-typedef struct {
-    size_t row;
-    size_t col;
-    size_t height;
-    size_t width;
-} solar_os_tui_rect_t;
+#include "solar_os_tui_types_v1.h"
 
 typedef struct solar_os_tui {
     solar_os_shell_io_t *io;

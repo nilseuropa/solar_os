@@ -8,9 +8,13 @@ typedef struct {
   uint32_t timeout_ms; /* Connection and minimum stream command budget; 0 = 5 s. */
   bool compressed; /* Opt in to negotiated lossless LZ4; default is raw/RLE. */
   int format; /* -1 = peripheral preference; otherwise a DLP pixel format. */
+} solar_os_display_link_options_t;
+/* Borrowed by one blocking operation, on its calling task. Neither callback
+ * nor user survives that operation. NULL disables cooperative cancellation. */
+typedef struct {
   bool (*cancelled)(void *);
   void *cancel_user;
-} solar_os_display_link_options_t;
+} solar_os_display_link_call_options_t;
 typedef struct {
   const char *bus;
   int cs, ready, reset;
@@ -23,9 +27,14 @@ esp_err_t solar_os_display_link_create(const solar_os_display_link_config_t *,
  * framebuffer is created. The connection owns the stream until destroyed. */
 esp_err_t solar_os_display_link_open_stream(const char *stream, const char *owner,
     const solar_os_display_link_options_t *, solar_os_display_link_t **);
+esp_err_t solar_os_display_link_open_stream_with_options(const char *stream, const char *owner,
+    const solar_os_display_link_options_t *, const solar_os_display_link_call_options_t *,
+    solar_os_display_link_t **);
 /* Present a complete packed image in the negotiated DLP format. Returns only
  * after presentation completion; retained/delta state belongs to this link. */
 esp_err_t solar_os_display_link_present(solar_os_display_link_t *, const uint8_t *, size_t);
+esp_err_t solar_os_display_link_present_with_options(solar_os_display_link_t *, const uint8_t *, size_t,
+    const solar_os_display_link_call_options_t *);
 unsigned solar_os_display_link_format(const solar_os_display_link_t *);
 void solar_os_display_link_destroy(solar_os_display_link_t *);
 u8g2_t *solar_os_display_link_u8g2(solar_os_display_link_t *);

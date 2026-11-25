@@ -7,13 +7,16 @@
 #include "lua.h"
 #include "lauxlib.h"
 #include "lualib.h"
+#include "script_ble_abi_fixture.h"
 
 static void *solua_runner_control;
 static atomic_bool stopped;
 static bool solua_should_cancel(void *user) { (void)user; return atomic_load(&stopped); }
-static int solua_check_esp(lua_State *L, esp_err_t err)
+static uint32_t solua_optional_u32(lua_State *L, int index, uint32_t fallback)
 {
-    return err == ESP_OK ? 0 : luaL_error(L, "BLE error %d", err);
+    const lua_Integer value=luaL_optinteger(L,index,fallback);
+    if(value<0 || (uint64_t)value>UINT32_MAX)luaL_error(L,"invalid u32");
+    return value;
 }
 static void solua_set_str(lua_State *L, int table, const char *key, const char *value)
 {
@@ -35,6 +38,8 @@ static void solua_set_bool(lua_State *L, int table, const char *key, bool value)
 }
 
 #include "solar_os_lua_ble.inc"
+#include "../../src/apps/solar_os_lua_ble_stream.inc"
+#include "../../src/apps/solar_os_lua_tcp_stream.inc"
 
 static lua_State *new_vm(void)
 {
@@ -56,9 +61,21 @@ static lua_State *new_vm(void)
     luaL_setfuncs(L, methods, 0);
     lua_setglobal(L, "gatt");
     lua_newtable(L);
+    const luaL_Reg keyboard_methods[] = {
+        {"status",solua_ble_status}, {"connected",solua_ble_connected},
+        {"pair",solua_ble_pair}, {"forget",solua_ble_forget},
+        {"layout",solua_ble_layout}, {"read",solua_ble_read}, {NULL,NULL},
+    };
+    luaL_setfuncs(L,keyboard_methods,0);
     lua_pushcfunction(L, solua_ble_scan);
     lua_setfield(L, -2, "scan");
     lua_setglobal(L, "ble");
+    const luaL_Reg streams[] = {{"listen",solua_streams_ble_listen},{"connect",solua_streams_ble_connect},
+        {"remove",solua_streams_ble_remove},{NULL,NULL}};
+    lua_newtable(L);luaL_setfuncs(L,streams,0);lua_setglobal(L,"ble_stream");
+    const luaL_Reg tcp_streams[] = {{"listen",solua_streams_tcp_listen},{"connect",solua_streams_tcp_connect},
+        {"remove",solua_streams_tcp_remove},{NULL,NULL}};
+    lua_newtable(L);luaL_setfuncs(L,tcp_streams,0);lua_setglobal(L,"tcp_stream");
     const luaL_Reg server_methods[] = {
         {"create", solua_ble_server_create}, {"service", solua_ble_server_service},
         {"characteristic", solua_ble_server_characteristic}, {"start", solua_ble_server_start},
@@ -119,6 +136,25 @@ int main(void)
 {
     assert(ble_service_suite() == 0);
     lua_State *L = new_vm();
+    run(L, "tcp_stream.connect('tcp-out','127.0.0.1',9); "
+        "assert(not pcall(tcp_stream.connect,'tcp-out','127.0.0.1',9)); tcp_stream.remove('tcp-out'); "
+        "assert(not pcall(tcp_stream.listen,'bad',0)); assert(not pcall(tcp_stream.listen,'bad',65536)); "
+        "assert(not pcall(tcp_stream.connect,'bad','127.0.0.1',4294967296)); "
+        "assert(not pcall(tcp_stream.connect,'bad'..string.char(0)..'name','127.0.0.1',9)); "
+        "assert(not pcall(tcp_stream.connect,'bad','127.0.0.1'..string.char(0)..'x',9)); "
+        "tcp_stream.connect('vm-tcp','127.0.0.1',9)");
+    run(L,"assert(ble.status()=='connected' and ble.connected()); "
+          "ble.pair(); ble.forget(); assert(ble.layout()=='us'); ble.layout('de'); "
+          "assert(ble.layout()=='de'); assert(ble.read(2)==string.char(0,255)); "
+          "assert(not pcall(ble.layout,'invalid')); assert(not pcall(ble.read,257))");
+    keyboard_backend_result=ESP_ERR_NOT_SUPPORTED;
+    run(L,"local ok,err=pcall(ble.pair); assert(not ok and string.find(err,'BLE error -6',1,true)); "
+          "assert(not pcall(ble.forget))");
+    keyboard_backend_result=ESP_OK;
+    run(L,"ble_stream.listen('lua-link'); assert(not pcall(ble_stream.listen,'lua-link')); "
+          "ble_stream.remove('lua-link'); ble_stream.connect('lua-out','01:02:03:04:05:06',1); "
+          "ble_stream.remove('lua-out'); assert(not pcall(ble_stream.listen,'bad'..string.char(0)..'name')); "
+          "ble_stream.listen('vm-persist')");
     run(L, "devices = ble.scan(); assert(#devices == 1); "
         "d = devices[1]; assert(d.address == '01:02:03:04:05:06'); "
         "assert(d.name == 'Sensor' and d.addr_type == 1 and d.rssi == -73); "
@@ -290,9 +326,38 @@ int main(void)
            "hid.gamepad.hat(8); hid.gamepad.send(); hid.stop()");
     assert(fake_hid_request.op == SOLAR_OS_BLE_HID_OP_STOP && !fake_hid_owner);
     solar_os_ble_session_t server_owner=solua_ble_session;
-    solua_ble_destroy(); assert(!fake_server_owner); lua_close(L);
+    solua_ble_destroy(); solua_ble_stream_cleanup(); solua_tcp_stream_cleanup(); assert(!fake_server_owner); lua_close(L);
+    const solar_os_native_tcp_stream_api_v1_t *tcp = solar_os_native_tcp_stream_get_service("stream.tcp",1,sizeof(*tcp));
+    assert(tcp && !tcp->remove("vm-tcp"));
+    const solar_os_native_ble_stream_api_v1_t *streams=solar_os_native_ble_stream_get_service("stream.ble",1,sizeof(*streams));
+    solar_os_ble_stream_info_t stream_info;
+    assert(streams && !streams->status("vm-persist",&stream_info) && stream_info.listening && !stream_info.claimed);
+    assert(!streams->remove("vm-persist"));
     request=(solar_os_ble_server_request_t){.op=SOLAR_OS_BLE_SERVER_STATUS};
     assert(solar_os_ble_server_request(server_owner,&request)==ESP_ERR_INVALID_STATE);
+    assert(!script_ble_adapter_allocations);
+    const unsigned lookups = script_ble_lookups;
+    L = new_vm();
+    script_ble_available = false;
+    run(L, "local ok,err=pcall(ble.scan); assert(not ok and string.find(err,'unavailable')); "
+           "ok,err=pcall(ble.status); assert(not ok and string.find(err,'unavailable'))");
+    assert(script_ble_lookups == lookups + 2 && !solua_ble_session);
+    script_ble_available = true;
+    run(L, "assert(#ble.scan()==1 and ble.status()=='connected')");
+    assert(script_ble_lookups == lookups + 4);
+    script_ble_available = false;
+    run(L, "assert(#ble.scan()==1); assert(gatt.capacity()==1); assert(ble.connected())");
+    assert(script_ble_lookups == lookups + 4);
+    const unsigned tcp_lookups = script_ble_lookups;
+    run(L, "local ok,err=pcall(tcp_stream.connect,'unavailable','127.0.0.1',9); "
+           "assert(not ok and string.find(err,'unavailable'))");
+    assert(script_ble_lookups == tcp_lookups + 1);
+    script_ble_available = true;
+    run(L, "tcp_stream.connect('cached','127.0.0.1',9)");
+    script_ble_available = false;
+    run(L, "tcp_stream.remove('cached')");
+    assert(script_ble_lookups == tcp_lookups + 2);
+    solua_ble_destroy(); solua_tcp_stream_cleanup(); lua_close(L);
     puts("Lua BLE bindings: real VM, binary I/O, validation, ownership and cleanup OK");
     return 0;
 }

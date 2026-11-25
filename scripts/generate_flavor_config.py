@@ -659,6 +659,8 @@ def generate_cmake(name: str,
                    collect_sources(catalog, groups_enabled, packages_enabled)),
         cmake_list("SOLAR_OS_PACKAGE_REQUIRES",
                    collect_requires(catalog, groups_enabled, packages_enabled)),
+        cmake_list("SOLAR_OS_COMPONENT_BUILD_MANIFESTS", [str(component.build) for component
+                   in selected_components(catalog.components, packages_enabled) if component.build]),
         "",
     ])
     return "\n".join(lines)

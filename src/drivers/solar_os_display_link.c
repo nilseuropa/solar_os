@@ -251,6 +251,11 @@ static uint8_t display_cb(u8x8_t *u, uint8_t msg, uint8_t arg, void *ptr) {
 esp_err_t solar_os_display_link_open_transport(
     const solar_os_display_link_transport_t *io,
     const solar_os_display_link_options_t *options, solar_os_display_link_t **out) {
+  return solar_os_display_link_open_transport_with_options(io, options, NULL, out);
+}
+esp_err_t solar_os_display_link_open_transport_with_options(
+    const solar_os_display_link_transport_t *io, const solar_os_display_link_options_t *options,
+    const solar_os_display_link_call_options_t *call, solar_os_display_link_t **out) {
   if (!io || !out) return ESP_ERR_INVALID_ARG;
   *out = NULL;
   solar_os_display_link_t *d = solar_os_memory_calloc(
@@ -265,6 +270,7 @@ esp_err_t solar_os_display_link_open_transport(
   d->mutex = xSemaphoreCreateMutex();
   esp_err_t e = ESP_ERR_NO_MEM;
   if (!d->mutex) goto fail;
+  if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, call);
   sdlp_host_init(&d->host, &io->protocol);
   d->host.compressed = d->config.compressed;
   d->window = solar_os_memory_calloc(1, sizeof(*d->window),
@@ -290,9 +296,11 @@ esp_err_t solar_os_display_link_open_transport(
   d->row = solar_os_memory_alloc((size_t)w * 2,
       SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "display.link.row");
   if (!d->row) { e = ESP_ERR_NO_MEM; goto fail; }
+  if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, NULL);
   *out = d;
   return ESP_OK;
 fail:
+  if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, NULL);
   solar_os_display_link_destroy(d);
   return e;
 }
@@ -504,10 +512,15 @@ unsigned solar_os_display_link_format(const solar_os_display_link_t *d) {
 }
 esp_err_t solar_os_display_link_present(solar_os_display_link_t *d,
     const uint8_t *pixels, size_t size) {
+  return solar_os_display_link_present_with_options(d, pixels, size, NULL);
+}
+esp_err_t solar_os_display_link_present_with_options(solar_os_display_link_t *d,
+    const uint8_t *pixels, size_t size, const solar_os_display_link_call_options_t *call) {
   if (!d || !pixels) return ESP_ERR_INVALID_ARG;
   xSemaphoreTake(d->mutex, portMAX_DELAY);
-  esp_err_t error = ESP_OK;
-  if (!d->host.configured) {
+  if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, call);
+  esp_err_t error = call && call->cancelled && call->cancelled(call->cancel_user) ? ESP_FAIL : ESP_OK;
+  if (error == ESP_OK && !d->host.configured) {
     error = connect_endpoint(d, false);
     if (error == ESP_OK) d->frame_id = 0;
   }
@@ -520,6 +533,7 @@ esp_err_t solar_os_display_link_present(solar_os_display_link_t *d,
     error = result(r);
     if (r) { d->retained_valid = false; d->host.configured = false; }
   }
+  if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, NULL);
   xSemaphoreGive(d->mutex);
   return error;
 }

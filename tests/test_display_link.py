@@ -36,6 +36,7 @@ class DisplayLinkTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I"+directory, "-I"+str(library / "include"),
                 "-I"+str(ROOT / "src/services"),
+                "-I"+str(ROOT / "include"),
                 str(ROOT / "tests/host/display_link_upload_test.c"),
                 str(library / "src/sdlp.c"), "-o", str(binary),
             ], check=True)

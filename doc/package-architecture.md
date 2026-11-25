@@ -31,6 +31,9 @@ files.
   Flavors select optional apps, jobs, engines and expansion drivers; they cannot
   disable a core service. `flavors/core.toml` selects no additional groups.
   The configurator uses the same core membership and dependency rules.
+- Shell commands and interactive frontends belong to `core_shell`. Each
+  frontend is gated by its service's availability; service packages own the
+  backend implementation independently of the shell.
 - `layouts` restricts a package to physical update layouts. The OTA service is
   available in OTA layouts; single-image layouts remove it and its dependants.
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
@@ -116,6 +119,44 @@ The public `components` service reports the compiled native descriptors. It
 lists module identities, not service tables or attached hardware. Runtime state
 is allocated only when a component's lifecycle starts. Compiled code stays in
 firmware flash; external code occupies executable PSRAM while loaded.
+
+### Shared component builder
+
+SDK-only components declare their build beside their identity in `module.toml`:
+
+```toml
+[build]
+entry = "main"
+sources = ["main/app.c"]
+include_dirs = ["main"]
+archives = []
+defines = { FEATURE_LEVEL = 1 }
+```
+
+Run `python3 scripts/build_native_component.py --manifest path/module.toml
+--output build/component` to produce both a firmware archive and the manifest's
+ELF artifact. `--mode builtin` or `--mode external` selects one output. The
+default compiler targets ESP32-S3; ESP32 archives use the matching Xtensa `--cc`
+and `--mode builtin`. External ELF loading requires ESP32-S3. Building external
+output also requires a host C compiler for the OS ELF
+validator. Sources, local includes and archives must stay within the module
+directory. Archives may supply precompiled dependencies. C and freestanding
+C++ sources are supported; automatic global constructors and destructors need
+an explicit lifecycle and are rejected by this builder.
+
+Both forms use the same compiled source objects, SDK headers, definitions,
+archive dependencies and host import checks. Private definitions are localized;
+only the entry and optional foreground manifest escape the firmware archive.
+The external foreground manifest retains its fixed discovery name. External
+libraries embed their declared SDK headers. The final packaged ELF passes the
+same validator as the OS before outputs are published.
+
+When `[builtin]` and `[build]` are both present, flavor resolution selects the
+archive automatically. CMake and PlatformIO track the manifest, sources, local
+headers, SDK and supplied archives. No firmware configuration header is visible
+to the component, and the archive works without the ELF loader. Specialized
+toolchain builds can continue to supply an archive separately, as the C compiler
+does. The Hello app, job, driver and library manifests show standalone builds.
 
 ## Service boundaries
 

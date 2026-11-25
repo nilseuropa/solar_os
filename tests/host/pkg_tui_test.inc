@@ -6,10 +6,9 @@
 #include <string.h>
 #include "solar_os_module_packages.h"
 #include "solar_os_keys.h"
+#include "solar_os_native_client_ui.h"
 
 typedef struct { int unused; } solar_os_tui_t;
-typedef struct { size_t row, col, height, width; } solar_os_tui_rect_t;
-typedef struct { size_t cursor, top; } solar_os_tui_viewport_t;
 typedef struct { bool finished; } solar_os_context_t;
 typedef struct { int type; struct { unsigned char ch; } data; } solar_os_event_t;
 typedef void *TaskHandle_t;
@@ -26,8 +25,6 @@ typedef int portMUX_TYPE;
 #define SOLAR_OS_TASK_STOP_WAIT_MS 100
 #define SOLAR_OS_EVENT_TICK 1
 #define SOLAR_OS_EVENT_CHAR 2
-#define SOLAR_OS_TUI_ATTR_INVERSE 1
-#define SOLAR_OS_TUI_ATTR_NORMAL 0
 
 static solar_os_module_package_t saved_packages[4];
 static solar_os_module_catalog_t saved = {.packages = saved_packages};

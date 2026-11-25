@@ -23,7 +23,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_http_client.h"
 #include "solar_os_log.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_client_ui.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_memory.h"
 #include "solar_os_shell_io.h"
@@ -155,7 +156,9 @@ typedef struct {
     char edit_name[SOLAR_OS_WEBRADIO_STATION_NAME_MAX];
     char edit_url[SOLAR_OS_WEBRADIO_URL_MAX];
     char dialog_input[WEBRADIO_GUI_INPUT_MAX];
-    size_t dialog_input_len;
+    solar_os_ui_input_state_t dialog_input_state;
+    const solar_os_native_ui_api_v1_t *ui_api;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
 } webradio_app_state_t;
 
 static const char *TAG = "solar_os_webradio";
@@ -505,27 +508,9 @@ static void webradio_render_tui(void)
                             clipped,
                             SOLAR_OS_TUI_ATTR_BOLD);
 
-        const size_t visible_chars = cols > 4U ? cols - 4U : 1U;
-        const size_t input_length = strlen(webradio.dialog_input);
-        const char *visible = input_length > visible_chars ?
-            webradio.dialog_input + input_length - visible_chars :
-            webradio.dialog_input;
-        solar_os_tui_addstr(&webradio.tui,
-                            content_end - 1U,
-                            1U,
-                            "> ",
-                            SOLAR_OS_TUI_ATTR_NORMAL);
-        solar_os_tui_addstr(&webradio.tui,
-                            content_end - 1U,
-                            3U,
-                            visible,
-                            SOLAR_OS_TUI_ATTR_NORMAL);
-        size_t cursor_col = 3U + strlen(visible);
-        if (cursor_col >= cols) {
-            cursor_col = cols - 1U;
-        }
-        solar_os_tui_move(&webradio.tui, content_end - 1U, cursor_col);
-        solar_os_tui_set_cursor_visible(&webradio.tui, true);
+        solar_os_tui_draw_input(&webradio.tui, content_end - 1U, 1U,
+            cols > 2U ? cols - 2U : 1U, "> ", webradio.dialog_input,
+            &webradio.dialog_input_state, SOLAR_OS_TUI_ATTR_NORMAL);
     } else {
         if (webradio.ui_message[0] != '\0') {
             webradio_clip(clipped,
@@ -548,7 +533,7 @@ static void webradio_draw_graphics_header(solar_os_gfx_t *gfx, int width)
 {
     const char *tabs = webradio.tab == WEBRADIO_TAB_PLAYER ?
         "[PLAYER]  CHANNELS" : "PLAYER  [CHANNELS]";
-    solar_os_media_player_header_draw(gfx, width, "WebRadio", tabs);
+    webradio.media_ui->player_header_draw(gfx, width, "WebRadio", tabs);
 }
 
 static void webradio_draw_visualizer(solar_os_gfx_t *gfx,
@@ -556,7 +541,7 @@ static void webradio_draw_visualizer(solar_os_gfx_t *gfx,
                                      int height)
 {
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(width, height, false, &layout);
+    webradio.media_ui->player_layout(width, height, false, &layout);
     const int visualizer_y = layout.view_y, visualizer_height = layout.view_height;
     if (visualizer_height < 8) return;
     if (webradio.visualizer == WEBRADIO_VISUALIZER_SPECTRUM) {
@@ -614,7 +599,7 @@ static void webradio_render_player(solar_os_gfx_t *gfx,
     webradio_progress_text(state, message, status, sizeof(status));
     const bool stopped = state == WEBRADIO_PLAYBACK_IDLE ||
                          state == WEBRADIO_PLAYBACK_ERROR;
-    solar_os_media_player_controls_draw(gfx, width, height,
+    webradio.media_ui->player_controls_draw(gfx, width, height,
         active_name[0] ? active_name : "No channel selected", status, webradio.volume, false,
         stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
         webradio.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
@@ -642,7 +627,8 @@ static void webradio_draw_dialog(solar_os_gfx_t *gfx, int width, int height)
     if (webradio.dialog == WEBRADIO_DIALOG_NONE) {
         return;
     }
-    solar_os_media_dialog_draw(gfx, width, height, webradio_dialog_label(), webradio.dialog_input,
+    webradio.ui_api->dialog(gfx, width, height, webradio_dialog_label(), webradio.dialog_input,
+        &webradio.dialog_input_state,
         height < 160 ? "Enter save/next  Esc back" : "Enter next/save   Esc cancel");
 }
 
@@ -653,7 +639,7 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
                                      const char *active_name)
 {
     solar_os_media_list_layout_t list;
-    solar_os_media_list_layout(width, height, &list);
+    webradio.media_ui->list_layout(width, height, &list);
     const int list_y = list.top;
     const int available = height - list.footer_height - (list.compact ? 0 : 16) - list_y;
     const size_t visible_rows = available > 0 ? (size_t)(available / list.row_height) : 0;
@@ -686,7 +672,7 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
             strcmp(active_name, webradio.stations[index].name) == 0 &&
             state != WEBRADIO_PLAYBACK_IDLE && state != WEBRADIO_PLAYBACK_ERROR;
         solar_os_gfx_text(gfx, 14, row_y + list.baseline, active ? ">" : " ");
-        solar_os_media_text_draw(gfx, list.compact ? 22 : 30, row_y + list.baseline,
+        webradio.ui_api->label(gfx, list.compact ? 22 : 30, row_y + list.baseline,
             width - (list.compact ? 26 : 34), webradio.stations[index].name);
     }
     if (webradio.station_count == 0U) {
@@ -697,13 +683,13 @@ static void webradio_render_channels(solar_os_gfx_t *gfx,
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_set_font(gfx, list.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
     if (list.compact) {
-        solar_os_media_text_draw(gfx, 2, height - 2, width - 4,
+        webradio.ui_api->label(gfx, 2, height - 2, width - 4,
             webradio.ui_message[0] ? webradio.ui_message : "Enter play  A+ E edit Del-");
     } else {
         if (webradio.ui_message[0])
-            solar_os_media_text_draw(gfx, 8, height - list.footer_height - 3,
+            webradio.ui_api->label(gfx, 8, height - list.footer_height - 3,
                 width - 16, webradio.ui_message);
-        solar_os_media_text_draw(gfx, 8, height - 5, width - 16,
+        webradio.ui_api->label(gfx, 8, height - 5, width - 16,
             "A add  E edit  Del remove  Enter select");
     }
     webradio_draw_dialog(gfx, width, height);
@@ -752,7 +738,7 @@ static void webradio_render_visualizer(solar_os_context_t *ctx)
     char message[96], status[96];
     webradio_snapshot_status(&state, message, sizeof(message), NULL, 0U, NULL, NULL, NULL);
     webradio_progress_text(state, message, status, sizeof(status));
-    solar_os_media_player_status_draw(gfx, solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), status);
+    webradio.media_ui->player_status_draw(gfx, solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), status);
     solar_os_gfx_present(gfx);
 }
 
@@ -1386,7 +1372,7 @@ static void webradio_dialog_set_input(const char *value)
     strlcpy(webradio.dialog_input,
             value != NULL ? value : "",
             sizeof(webradio.dialog_input));
-    webradio.dialog_input_len = strlen(webradio.dialog_input);
+    webradio.dialog_input_state = (solar_os_ui_input_state_t){.cursor = strlen(webradio.dialog_input)};
 }
 
 static void webradio_start_add_dialog(void)
@@ -1426,7 +1412,7 @@ static void webradio_cancel_dialog(void)
 {
     webradio.dialog = WEBRADIO_DIALOG_NONE;
     webradio.dialog_input[0] = '\0';
-    webradio.dialog_input_len = 0U;
+    webradio.dialog_input_state = (solar_os_ui_input_state_t){0};
     webradio.redraw = true;
 }
 
@@ -1492,22 +1478,34 @@ static void webradio_finish_dialog(void)
     }
 }
 
+static size_t webradio_dialog_input_capacity(void)
+{
+    return webradio.dialog == WEBRADIO_DIALOG_ADD_NAME || webradio.dialog == WEBRADIO_DIALOG_EDIT_NAME ?
+        SOLAR_OS_WEBRADIO_STATION_NAME_MAX : SOLAR_OS_WEBRADIO_URL_MAX;
+}
+
+static bool webradio_handle_dialog_text(const char *text)
+{
+    const bool changed = webradio.ui_api->input_text(webradio.dialog_input, webradio_dialog_input_capacity(),
+        &webradio.dialog_input_state, text, strlen(text), SIZE_MAX) == SOLAR_OS_UI_INPUT_CHANGED;
+    if (changed) webradio.redraw = true;
+    return changed;
+}
+
 static bool webradio_handle_dialog_key(uint8_t key)
 {
     if (webradio.dialog == WEBRADIO_DIALOG_NONE) {
         return false;
     }
-    const size_t capacity =
-        (webradio.dialog == WEBRADIO_DIALOG_ADD_NAME || webradio.dialog == WEBRADIO_DIALOG_EDIT_NAME) ?
-        SOLAR_OS_WEBRADIO_STATION_NAME_MAX : SOLAR_OS_WEBRADIO_URL_MAX;
-    solar_os_media_input_action_t action = solar_os_media_dialog_input_key(
-        webradio.dialog_input, capacity, &webradio.dialog_input_len, key);
-    if (action == SOLAR_OS_MEDIA_INPUT_CANCEL) {
+    const size_t cursor_before = webradio.dialog_input_state.cursor;
+    solar_os_ui_input_action_t action = webradio.ui_api->input_key(
+        webradio.dialog_input, webradio_dialog_input_capacity(), &webradio.dialog_input_state, key, SIZE_MAX);
+    if (action == SOLAR_OS_UI_INPUT_CANCEL) {
         webradio_cancel_dialog();
         return true;
     }
-    if (action == SOLAR_OS_MEDIA_INPUT_SUBMIT) {
-        if (webradio.dialog_input_len == 0U) {
+    if (action == SOLAR_OS_UI_INPUT_SUBMIT) {
+        if (!webradio.dialog_input[0]) {
             webradio_set_ui_message("Value cannot be empty");
             return true;
         }
@@ -1541,7 +1539,8 @@ static bool webradio_handle_dialog_key(uint8_t key)
         return true;
     }
 
-    if (action == SOLAR_OS_MEDIA_INPUT_CHANGED) webradio.redraw = true;
+    if (action == SOLAR_OS_UI_INPUT_CHANGED || webradio.dialog_input_state.cursor != cursor_before)
+        webradio.redraw = true;
     return true;
 }
 
@@ -1688,6 +1687,11 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
     if (webradio_manage_command(ctx, arg_count, args, &err)) {
         return ESP_OK;
     }
+    webradio.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(webradio.ui_api->input_text));
+    webradio.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(webradio.media_ui->player_button_at));
+    if (!webradio.ui_api || !webradio.media_ui) return ESP_ERR_NOT_SUPPORTED;
     if (arg_count == 1 && solar_os_m3u_path(args[0])) {
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         err = solar_os_storage_resolve_path(args[0], path, sizeof(path));
@@ -1914,6 +1918,17 @@ static bool webradio_event(solar_os_context_t *ctx,
     if (event == NULL) {
         return false;
     }
+    solar_os_event_t shortcut;
+    if (event->type == SOLAR_OS_EVENT_TEXT) {
+        if (webradio.dialog != WEBRADIO_DIALOG_NONE) {
+            if (webradio_handle_dialog_text(event->data.text)) webradio_render(ctx);
+            return true;
+        }
+        if ((unsigned char)event->data.text[0] < 0x20U ||
+            (unsigned char)event->data.text[0] >= 0x7fU || event->data.text[1]) return false;
+        shortcut = (solar_os_event_t){.type = SOLAR_OS_EVENT_CHAR, .data.ch = event->data.text[0]};
+        event = &shortcut;
+    }
     if (event->type == SOLAR_OS_EVENT_POINTER && webradio.mode == WEBRADIO_MODE_GRAPHICS &&
         webradio.tab == WEBRADIO_TAB_PLAYER && webradio.dialog == WEBRADIO_DIALOG_NONE) {
         solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
@@ -1930,7 +1945,7 @@ static bool webradio_event(solar_os_context_t *ctx,
         }
         if (pointer->action != SOLAR_OS_INPUT_POINTER_PRESS ||
             !(pointer->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY)) return false;
-        int button = solar_os_media_player_button_at(width, height, false,
+        int button = webradio.media_ui->player_button_at(width, height, false,
                                                       webradio.pointer_x, webradio.pointer_y);
         if (button < 0) return false;
         if (button == 1) webradio_toggle_playback();
@@ -2067,7 +2082,7 @@ const solar_os_app_t solar_os_webradio_app = {
     .name = "webradio",
     .summary = "streaming internet radio",
     .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_TEXT_EVENTS,
     .start = webradio_start,
     .suspend = webradio_suspend,
     .resume = webradio_resume,

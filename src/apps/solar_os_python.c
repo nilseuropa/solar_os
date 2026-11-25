@@ -53,8 +53,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT
 #include "solar_os_display_link.h"
 #endif
-#include "solar_os_tcp_stream.h"
-#include "solar_os_ble_stream.h"
 #include "solar_os_script_media.h"
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 #include "solar_os_camera.h"
@@ -77,7 +75,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
 #include "solar_os_robot.h"
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_DSP
+#if SOLAR_OS_PACKAGE_SERVICE_DSP || SOLAR_OS_PACKAGE_SERVICE_BLE || SOLAR_OS_PACKAGE_SERVICE_HID || SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
 #include "solar_os_native_client.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
@@ -92,10 +90,6 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-#include "solar_os_ble_keyboard.h"
-#include "solar_os_hid.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
@@ -123,7 +117,6 @@
 #include "solar_os_sc2.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-#include "solar_os_hid.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
@@ -5948,178 +5941,11 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_synth_stop_obj, solaros_synth_stop);
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-static mp_obj_t solaros_ble_status(void)
-{
-    char status[96];
-    solar_os_ble_keyboard_get_status(status, sizeof(status));
-    return mp_obj_new_str_from_cstr(status);
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_status_obj, solaros_ble_status);
-
-static mp_obj_t solaros_ble_connected(void)
-{
-    return mp_obj_new_bool(solar_os_ble_keyboard_is_connected());
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_connected_obj, solaros_ble_connected);
-
-static mp_obj_t solaros_ble_pair(void)
-{
-    python_check_esp(solar_os_ble_keyboard_start_pairing());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_pair_obj, solaros_ble_pair);
-
-static mp_obj_t solaros_ble_forget(void)
-{
-    python_check_esp(solar_os_ble_keyboard_forget());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_forget_obj, solaros_ble_forget);
-
-static mp_obj_t solaros_ble_layout(size_t n_args, const mp_obj_t *args)
-{
-    if (n_args == 0) {
-        return mp_obj_new_str_from_cstr(
-            solar_os_ble_keyboard_layout_name(solar_os_ble_keyboard_layout()));
-    }
-
-    solar_os_ble_keyboard_layout_t layout;
-    if (!solar_os_ble_keyboard_parse_layout(mp_obj_str_get_str(args[0]), &layout)) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected us, de, ua, fr or ro"));
-    }
-    python_check_esp(solar_os_ble_keyboard_set_layout(layout));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_layout_obj, 0, 1, solaros_ble_layout);
-
-static mp_obj_t solaros_ble_read(size_t n_args, const mp_obj_t *args)
-{
-    uint32_t len = python_optional_u32(n_args, args, 0, 64);
-    if (len == 0 || len > 256) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected length 1..256"));
-    }
-
-    char buffer[256];
-    const size_t read_len = solar_os_ble_keyboard_read_chars(buffer, len);
-    return mp_obj_new_bytes((const byte *)buffer, read_len);
-}
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_read_obj, 0, 1, solaros_ble_read);
 #include "solar_os_python_ble.inc"
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-static mp_obj_t solaros_hid_status(void)
-{
-    solar_os_hid_status_t status;
-    solar_os_hid_get_status(&status);
-    mp_obj_t result = mp_obj_new_dict(2);
-    python_dict_store_bool(result, "initialized", status.initialized);
-    python_dict_store_bool(result, "connected", status.connected);
-    return result;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_status_obj, solaros_hid_status);
-
-static size_t python_hid_keys(size_t n_args,
-                              const mp_obj_t *args,
-                              uint16_t *keys,
-                              size_t capacity)
-{
-    if (n_args == 0 || n_args > capacity) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected 1..8 keys"));
-    }
-    for (size_t index = 0; index < n_args; index++) {
-        const mp_int_t value = mp_obj_get_int(args[index]);
-        if (value < 0 || value > UINT16_MAX) {
-            mp_raise_ValueError(MP_ERROR_TEXT("invalid HID key"));
-        }
-        keys[index] = (uint16_t)value;
-    }
-    return n_args;
-}
-
-static mp_obj_t solaros_hid_keyboard_press(size_t n_args, const mp_obj_t *args)
-{
-    uint16_t keys[8];
-    python_check_esp(solar_os_hid_keyboard_press(
-        keys, python_hid_keys(n_args, args, keys, 8)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_hid_keyboard_press_obj,
-                                    1,
-                                    8,
-                                    solaros_hid_keyboard_press);
-
-static mp_obj_t solaros_hid_keyboard_release(size_t n_args, const mp_obj_t *args)
-{
-    uint16_t keys[8];
-    python_check_esp(solar_os_hid_keyboard_release(
-        keys, python_hid_keys(n_args, args, keys, 8)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_hid_keyboard_release_obj,
-                                    1,
-                                    8,
-                                    solaros_hid_keyboard_release);
-
-static mp_obj_t solaros_hid_keyboard_release_all(void)
-{
-    python_check_esp(solar_os_hid_keyboard_release_all());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_keyboard_release_all_obj,
-                          solaros_hid_keyboard_release_all);
-
-static mp_obj_t solaros_hid_mouse_move(mp_obj_t x_obj, mp_obj_t y_obj)
-{
-    python_check_esp(solar_os_hid_mouse_move(python_i32_from_obj(x_obj),
-                                              python_i32_from_obj(y_obj)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_mouse_move_obj, solaros_hid_mouse_move);
-
-static mp_obj_t solaros_hid_mouse_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
-{
-    python_check_esp(solar_os_hid_mouse_button(python_u8_from_obj(button_obj),
-                                                mp_obj_is_true(pressed_obj)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_mouse_button_obj, solaros_hid_mouse_button);
-
-static mp_obj_t solaros_hid_gamepad_axis(mp_obj_t axis_obj, mp_obj_t value_obj)
-{
-    const mp_int_t axis = mp_obj_get_int(axis_obj);
-    const mp_int_t value = mp_obj_get_int(value_obj);
-    if (value < INT16_MIN || value > INT16_MAX) {
-        mp_raise_ValueError(MP_ERROR_TEXT("expected axis value -32768..32767"));
-    }
-    python_check_esp(solar_os_hid_gamepad_axis((solar_os_hid_axis_t)axis,
-                                                (int16_t)value));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_gamepad_axis_obj, solaros_hid_gamepad_axis);
-
-static mp_obj_t solaros_hid_gamepad_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
-{
-    python_check_esp(solar_os_hid_gamepad_button(python_u8_from_obj(button_obj),
-                                                  mp_obj_is_true(pressed_obj)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_2(solaros_hid_gamepad_button_obj, solaros_hid_gamepad_button);
-
-static mp_obj_t solaros_hid_gamepad_hat(mp_obj_t hat_obj)
-{
-    python_check_esp(solar_os_hid_gamepad_hat(
-        (solar_os_hid_hat_t)mp_obj_get_int(hat_obj)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_hid_gamepad_hat_obj, solaros_hid_gamepad_hat);
-
-static mp_obj_t solaros_hid_gamepad_send(void)
-{
-    python_check_esp(solar_os_hid_gamepad_send());
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_0(solaros_hid_gamepad_send_obj, solaros_hid_gamepad_send);
+#include "solar_os_python_hid.inc"
 #endif
 
 static mp_obj_t solaros_clipboard_set(mp_obj_t data_obj)
@@ -8824,6 +8650,12 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     python_ble_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+    python_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+    python_tcp_stream_cleanup();
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();
 #endif
@@ -8850,7 +8682,7 @@ esp_err_t solar_os_python_run(const solar_os_script_run_request_t *request,
 
 cleanup:
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-    solar_os_hid_release_all();
+    python_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
     if (python_runtime_state != NULL) {
@@ -9039,7 +8871,7 @@ static void python_task(void *arg)
     if (python_app.vm_active) {
         solar_os_input_release_keyboard(&python_app);
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-        solar_os_hid_release_all();
+        python_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
         (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);
@@ -9049,6 +8881,12 @@ static void python_task(void *arg)
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
         python_ble_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+        python_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+        python_tcp_stream_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         python_net_destroy();
@@ -9581,13 +9419,19 @@ static void python_stop(solar_os_context_t *ctx)
     (void)solar_os_synth_voice_stop(PYTHON_SYNTH_OWNER);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-    solar_os_hid_release_all();
+    python_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     python_midi_destroy();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     python_ble_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+    python_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+    python_tcp_stream_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     python_net_destroy();

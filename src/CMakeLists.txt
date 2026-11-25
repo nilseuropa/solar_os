@@ -611,6 +611,9 @@ if(SOLAR_OS_PACKAGE_APP_CC)
     solar_os_link_builtin_cc(${COMPONENT_LIB})
 endif()
 
+include("${SOLAR_OS_PROJECT_DIR}/cmake/solar_os_components.cmake")
+solar_os_link_components(${COMPONENT_LIB})
+
 if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)
     # Keep the pinned managed component pristine. Compile a generated copy
     # with lifecycle mutex cleanup and transfer-error checks.

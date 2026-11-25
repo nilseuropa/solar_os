@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+
 #include "solar_os_shell_tui_apps.h"
 #include "solar_os_shell_common.h"
 
@@ -1082,3 +1086,5 @@ esp_err_t solar_os_shell_launch_modem_tui_ex(
                                               NULL,
                                               policy);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_MODEM */

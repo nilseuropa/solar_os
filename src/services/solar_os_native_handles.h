@@ -28,6 +28,15 @@ enum {
     SOLAR_OS_NATIVE_HANDLE_DSP_FIR,
     SOLAR_OS_NATIVE_HANDLE_DSP_DECIMATOR,
     SOLAR_OS_NATIVE_HANDLE_DSP_FFT,
+    SOLAR_OS_NATIVE_HANDLE_EXPR,
+    SOLAR_OS_NATIVE_HANDLE_TUI,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_PRODUCER,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_KEYBOARD_CAPTURE,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_POINTER_CAPTURE,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_OBSERVER,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_FILTER,
+    SOLAR_OS_NATIVE_HANDLE_INPUT_KEYMAP,
+    SOLAR_OS_NATIVE_HANDLE_HID_REPORT,
 };
 typedef int (*solar_os_native_handle_destroy_fn)(void *state);
 int solar_os_native_handle_create(uint32_t kind, void *state,
@@ -37,3 +46,12 @@ void solar_os_native_handle_release(solar_os_native_handle_t id);
 int solar_os_native_handle_close(solar_os_native_handle_t id);
 int solar_os_native_handle_close_kind(solar_os_native_handle_t id, uint32_t kind);
 uint32_t solar_os_native_handle_count(void);
+
+/* Kernel-owned resources. The owner key must outlive every owned handle.
+ * Quiesce creation before close_owner. Cleanup is last-created first and stops
+ * on BUSY/failure, so the lifecycle can retry before freeing borrowed state. */
+int solar_os_native_handle_create_owned(uint32_t kind, void *state,
+    solar_os_native_handle_destroy_fn destroy, const void *owner, solar_os_native_handle_t *out);
+void *solar_os_native_handle_acquire_owned(solar_os_native_handle_t id, uint32_t kind, const void *owner);
+int solar_os_native_handle_close_owned(solar_os_native_handle_t id, uint32_t kind, const void *owner);
+int solar_os_native_handle_close_owner(const void *owner);

@@ -36,6 +36,7 @@ class PhotoTest(unittest.TestCase):
                     str(ROOT / "tests/host/photo_app_test.c"),
                     str(ROOT / "src/services/solar_os_keys.c"),
                     str(ROOT / "src/services/solar_os_media_widgets.c"),
+                    str(ROOT / "src/services/solar_os_gfx_widgets.c"),
                     "-o", str(binary),
                 ], check=True)
                 subprocess.run([str(binary)], check=True, timeout=20)

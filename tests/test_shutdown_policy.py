@@ -21,7 +21,7 @@ def run_c(source, *flags):
         path = Path(directory)
         (path / "test.c").write_text(source)
         subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                        "-I", str(ROOT / "tests/host"), *flags,
+                        "-I", str(ROOT / "tests/host"), "-idirafter", str(ROOT / "include"), *flags,
                         str(path / "test.c"), "-o", str(path / "test")],
                        check=True, capture_output=True, text=True)
         subprocess.run([str(path / "test")], check=True)

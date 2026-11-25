@@ -8,6 +8,7 @@
 #include "solar_os.h"
 #include "solar_os_gfx.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_signal_widgets.h"
 #include "solar_os_rtsp_client.h"
@@ -139,6 +140,8 @@ static int solar_os_task_create_pinned_external(void (*worker)(void *), const ch
 static void resume(solar_os_context_t *ctx) { (void)ctx; }
 static void diagnostics_tick(const solar_os_rtsp_client_status_t *status) { (void)status; }
 solar_os_shell_io_t *solar_os_context_shell_io(solar_os_context_t *ctx) { return ctx->shell_io; }
+static uint16_t port_cols = 80;
+uint16_t solar_os_shell_io_cols(const solar_os_shell_io_t *io) { (void)io; return port_cols; }
 static void solar_os_shell_io_printf(solar_os_shell_io_t *io, const char *format, ...)
 {
     (void)io;
@@ -176,6 +179,7 @@ esp_err_t solar_os_media_playlist_remove(solar_os_media_playlist_t *list, size_t
     saved_count = list->count; return ESP_OK;
 }
 const char *esp_err_to_name(esp_err_t err) { (void)err; return "test error"; }
+#include "gfx_text_metrics_fixture.h"
 #include "rtsp_app_test_code.h"
 
 static void reset(void)
@@ -184,6 +188,8 @@ static void reset(void)
     memset(&state, 0, sizeof(state)); rtsp_state = &state;
     memset(&client, 0, sizeof(client));
     rtsp.client = &client; rtsp.graphical = true;
+    rtsp.ui_api = &fixture_ui_api;
+    rtsp.media_ui = &fixture_media_api;
     snprintf(rtsp.url, sizeof(rtsp.url), "rtsp://192.168.1.238/media");
     client.status = (solar_os_rtsp_client_status_t){.audio = true, .playing = true,
         .audio_playing = true, .sample_rate = 16000, .channels = 1};
@@ -347,9 +353,17 @@ static void playlist_and_pause_test(void)
 
 static void type_text(solar_os_context_t *ctx, const char *text)
 {
-    for (; *text; text++) {
-        solar_os_event_t key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = *text};
-        assert(event(ctx, &key));
+    while (*text) {
+        solar_os_event_t typed = {0};
+        if ((unsigned char)*text < 0x20U) {
+            typed.type = SOLAR_OS_EVENT_CHAR; typed.data.ch = *text++;
+        } else {
+            uint32_t codepoint;
+            const size_t bytes = solar_os_ui_utf8_decode(text, &codepoint);
+            typed.type = SOLAR_OS_EVENT_TEXT;
+            memcpy(typed.data.text, text, bytes); text += bytes;
+        }
+        assert(event(ctx, &typed));
     }
 }
 
@@ -395,6 +409,7 @@ static void port_dialog_cursor_test(void)
 {
     reset(); rtsp.graphical = false; rtsp.dialog = 1; rtsp.playlist_dirty = true;
     strcpy(rtsp.dialog_input, "Camera");
+    rtsp.dialog_input_state.cursor = strlen(rtsp.dialog_input);
     solar_os_context_t ctx = {0};
     track_port_dialog = true; port_cursor_visible = false;
     draw_dialog(&ctx);
@@ -404,6 +419,45 @@ static void port_dialog_cursor_test(void)
     const char *input = strstr(port_dialog_output, "Stream name: Camera");
     assert(help && input && help < input);
     assert(!strcmp(input, "Stream name: Camera\033[K")); /* Cursor remains at input end. */
+    rtsp.dialog_input_state.cursor = 2; rtsp.playlist_dirty = true;
+    track_port_dialog = true;
+    draw_dialog(&ctx);
+    track_port_dialog = false;
+    assert(strstr(port_dialog_output, "Stream name: Camera\033[K\033[4D"));
+    port_cols = 16;
+    rtsp.dialog_input_state.cursor = strlen(rtsp.dialog_input); rtsp.playlist_dirty = true;
+    track_port_dialog = true;
+    draw_dialog(&ctx);
+    track_port_dialog = false;
+    assert(rtsp.dialog_input_state.view == 5 && strstr(port_dialog_output, "Stream name: a\033[K"));
+    port_cols = 80;
+}
+
+static void utf8_dialog_and_password_cursor_test(bool graphical)
+{
+    reset(); rtsp.graphical = graphical; rtsp.dialog = 1;
+    solar_os_gfx_t gfx = {.width=320,.height=240};
+    solar_os_context_t ctx = {.gfx = graphical ? &gfx : NULL};
+    type_text(&ctx, "T\xc3\xb6ne");
+    assert(!strcmp(rtsp.dialog_input, "T\xc3\xb6ne"));
+    solar_os_event_t key = {.type = SOLAR_OS_EVENT_CHAR, .data.ch = SOLAR_OS_KEY_HOME};
+    assert(event(&ctx, &key) && !rtsp.dialog_input_state.cursor);
+    type_text(&ctx, "\xc3\x84");
+    assert(!strcmp(rtsp.dialog_input, "\xc3\x84T\xc3\xb6ne"));
+    key.data.ch = SOLAR_OS_KEY_DELETE;
+    assert(event(&ctx, &key) && !strcmp(rtsp.dialog_input, "\xc3\x84\xc3\xb6ne"));
+    key.data.ch = '\r'; assert(event(&ctx, &key) && rtsp.dialog == 2);
+    type_text(&ctx, "rtsp://user:secret@127.0.0.1/media");
+    rtsp.dialog_input_state.cursor = 16; rtsp.playlist_dirty = true;
+    char masked[SOLAR_OS_RTSP_URL_MAX];
+    const char *displayed = dialog_display_text(masked, sizeof(masked));
+    assert(!strcmp(displayed, "rtsp://user:******@127.0.0.1/media"));
+    assert(strlen(displayed) == strlen(rtsp.dialog_input));
+    track_port_dialog = !graphical;
+    draw_dialog(&ctx);
+    track_port_dialog = false;
+    assert(rtsp.dialog_input_state.cursor == 16 && strstr(rtsp.dialog_input, "secret"));
+    if (!graphical) assert(!strstr(port_dialog_output, "secret") && strstr(port_dialog_output, "******"));
 }
 
 int main(void)
@@ -418,6 +472,8 @@ int main(void)
     empty_launch_and_edit_test(true);
     empty_launch_and_edit_test(false);
     port_dialog_cursor_test();
+    utf8_dialog_and_password_cursor_test(true);
+    utf8_dialog_and_password_cursor_test(false);
     puts("rtsp UI layout and transport tests: ok");
     return 0;
 }

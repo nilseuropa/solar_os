@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_bluetooth_input_types_v1.h"
 #include "solar_os_ble.h"
 #include "solar_os_input.h"
 #include "solar_os_keys.h"
@@ -16,35 +17,11 @@
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_RATE_MAX SOLAR_OS_INPUT_REPEAT_RATE_MAX
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MIN_MS SOLAR_OS_INPUT_REPEAT_DELAY_MIN_MS
 #define SOLAR_OS_BLE_KEYBOARD_REPEAT_DELAY_MAX_MS SOLAR_OS_INPUT_REPEAT_DELAY_MAX_MS
-#define SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS 6U
 #define SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_INTERVAL_MS 30000U
 
-typedef enum {
-    SOLAR_OS_BLE_KEYBOARD_LAYOUT_US,
-    SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE,
-    SOLAR_OS_BLE_KEYBOARD_LAYOUT_UA,
-    SOLAR_OS_BLE_KEYBOARD_LAYOUT_FR,
-    SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO,
-} solar_os_ble_keyboard_layout_t;
 
-typedef enum {
-    SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT,
-    SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED,
-    SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED,
-} solar_os_ble_keyboard_boot_setting_t;
 
-typedef struct {
-    bool connected;
-    uint8_t modifiers;
-    uint8_t keycodes[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];
-    uint8_t chars[SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS];
-} solar_os_ble_keyboard_key_state_t;
 
-typedef enum {
-    SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_UNAVAILABLE,
-    SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_EXIT_SUSPEND,
-    SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_INFORMATION_READ,
-} solar_os_ble_keyboard_keepalive_method_t;
 
 typedef struct {
     solar_os_ble_keyboard_keepalive_method_t method;

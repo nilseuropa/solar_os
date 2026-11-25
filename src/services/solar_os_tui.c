@@ -29,7 +29,6 @@ static bool tui_diff_active(const solar_os_tui_t *tui)
     return tui_valid(tui) &&
         tui->diff_enabled &&
         tui->diff_ready &&
-        solar_os_shell_io_kind(tui->io) == SOLAR_OS_SHELL_IO_KIND_PORT &&
         solar_os_shell_io_is_cursor_addressable(tui->io);
 }
 

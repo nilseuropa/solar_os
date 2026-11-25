@@ -42,14 +42,29 @@ jobs:
         run: >-
           python -m unittest
           test_native_api_contract test_native_run_scopes test_native_runtime_services
-          test_application_scopes test_native_application test_foreground_app_state
+          test_application_scopes test_application_resources test_native_application test_public_application_events test_foreground_app_state
           test_session_display_return test_port_shell_lifecycle test_ssh_session_policy
           test_pkg_upgrade test_module_requirements test_module_catalog test_pkg_tui test_app_discovery_cache
-          test_native_vector test_native_dsp test_script_dsp_bindings
+          test_native_vector test_native_dsp test_script_dsp_bindings test_native_gfx test_display_canvas test_calc_abi test_native_terminal
+          test_native_shell_io test_native_expr test_tui_lifecycle test_script_tui_buffering test_native_tui
+          test_ui_viewport test_ui_input test_media_dialog test_media_transport_ui test_small_display_apps test_rtsp_app
+          test_media_playlist test_media_preferences test_photo test_native_m3u
+          test_native_input test_native_input_producers test_native_input_captures test_native_input_callbacks
+          test_native_input_composition
+          test_native_keymap test_native_input_actions test_input_actions test_script_input_bindings
+          test_input_wake test_input_source_ownership test_input_callback_lifetime
           test_system_api_core test_components test_core_flavor test_flavor_config test_flavor_packages test_compiler_packages
-          test_native_core_api
+          test_native_core_api test_native_component_build
+          test_shell_frontend_ownership
           test_native_fs_api
           test_native_network_api test_native_routing_api test_native_http_api test_native_http_lifecycle test_http_policy
+          test_native_ble_client test_native_bluetooth test_native_bluetooth_options test_ble_callback_lifetime test_script_ble_bindings test_native_ble_keyboard
+          test_ble_discovery test_ble_tui test_tdeck_keyboard test_status_bar_icons
+          test_runtime_boundaries test_power_key test_watcher_board
+          test_native_hid_report test_ble_stream test_hid_service test_native_hid_device test_script_hid_bindings
+          test_native_ble_stream
+          test_native_tcp_stream test_tcp_stream
+          test_dlp_stream_client test_display_link
           test_native_remote_api
           test_native_stream_api
           test_native_controls_api
@@ -100,7 +115,7 @@ jobs:
           NATIVE_ABI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           python modules/experimental/tinycc/build.py
-          python -m unittest test_native_api_contract.NativeApiContractTest.test_public_sdk_compiles_with_the_solaros_c_frontend test_native_api_layout
+          python -m unittest test_native_api_contract.NativeApiContractTest.test_public_sdk_compiles_with_the_solaros_c_frontend test_native_api_layout test_native_component_build test_ui_viewport
           if git cat-file -e "$NATIVE_ABI_BASE:api/native/layout-xtensa.json" 2>/dev/null; then
             git show "$NATIVE_ABI_BASE:api/native/layout-xtensa.json" > "$RUNNER_TEMP/native-layout-base.json"
             python scripts/check_native_layout.py --baseline "$RUNNER_TEMP/native-layout-base.json"

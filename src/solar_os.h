@@ -7,12 +7,14 @@
 #include "esp_err.h"
 #include "solar_os_input.h"
 #include "solar_os_application_types_v1.h"
+#include "solar_os_native_application_events_abi.h"
+#include "solar_os_native_application_lifecycle_abi.h"
 
 #define SOLAR_OS_APP_ARG_MAX 8
 #define SOLAR_OS_APP_ARG_LEN 160
 #define SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX 160
 
-typedef struct solar_os_app solar_os_app_t;
+typedef solar_os_application_lifecycle_api_v1_t solar_os_app_t;
 typedef struct solar_os_job solar_os_job_t;
 typedef struct solar_os_shell_io solar_os_shell_io_t;
 typedef struct solar_os_shell_session solar_os_shell_session_t;
@@ -28,19 +30,8 @@ typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
  * and releases it after stop() or a failed start. File-scope mutable objects
  * are forbidden unless a narrowly reviewed SRAM exception is declared.
  */
-typedef enum {
-    SOLAR_OS_APP_STATE_NONE = 0,
-    SOLAR_OS_APP_STATE_TRANSIENT,
-    SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
-    SOLAR_OS_APP_STATE_EXTERNAL_REQUIRED,
-    SOLAR_OS_APP_STATE_INTERNAL_REQUIRED,
-} solar_os_app_state_storage_t;
-
-
-
+typedef solar_os_application_state_storage_v1_t solar_os_app_state_storage_t;
 #define SOLAR_OS_APP_STATIC_SRAM_EXCEPTION(reason)
-
-
 
 typedef enum {
     SOLAR_OS_SESSION_REQUEST_NONE,
@@ -49,7 +40,7 @@ typedef enum {
     SOLAR_OS_SESSION_REQUEST_CLOSE,
 } solar_os_session_request_type_t;
 
-typedef struct {
+typedef struct solar_os_context {
     solar_os_terminal_t *terminal;
     solar_os_gfx_t *gfx;
     solar_os_shell_io_t *shell_io;
@@ -81,71 +72,16 @@ typedef struct {
     const solar_os_app_t *app;
 } solar_os_context_t;
 
-typedef enum {
-    SOLAR_OS_EVENT_CHAR,
-    SOLAR_OS_EVENT_KEY,
-    SOLAR_OS_EVENT_POINTER,
-    SOLAR_OS_EVENT_AXIS,
-    SOLAR_OS_EVENT_GESTURE,
-    SOLAR_OS_EVENT_TICK,
-    SOLAR_OS_EVENT_RESUME,
-    SOLAR_OS_EVENT_TEXT,
-} solar_os_event_type_t;
-
-/* One NUL-terminated UTF-8 character. */
-#define SOLAR_OS_EVENT_TEXT_MAX 5U
-
-typedef struct {
-    solar_os_event_type_t type;
-    union {
-        char ch;
-        char text[SOLAR_OS_EVENT_TEXT_MAX];
-        solar_os_input_key_event_t key;
-        solar_os_input_pointer_event_t pointer;
-        solar_os_input_axis_event_t axis;
-        solar_os_input_gesture_event_t gesture;
-        uint32_t tick_ms;
-    } data;
-} solar_os_event_t;
-
-struct solar_os_app {
-    const char *name;
-    const char *summary;
-    solar_os_app_class_t app_class;
-    uint32_t flags;
-    esp_err_t (*start)(solar_os_context_t *ctx);
-    void (*suspend)(solar_os_context_t *ctx);
-    void (*resume)(solar_os_context_t *ctx);
-    void (*stop)(solar_os_context_t *ctx);
-    bool (*event)(solar_os_context_t *ctx, const solar_os_event_t *event);
-    void (*title)(solar_os_context_t *ctx, char *buffer, size_t buffer_len);
-    /* Optional lifecycle-managed cold state. state_slot must point to a NULL
-     * file-scope pointer before the first launch. */
-    void **state_slot;
-    size_t state_size;
-    solar_os_app_state_storage_t state_storage;
-    /* Optional guard for asynchronous stop paths. Return true only after no
-     * worker can access the cold state. */
-    bool (*state_release_ready)(void);
-    /* Optional idempotent cleanup for resources referenced by cold state.
-     * Called after state_release_ready and before the state block is freed. */
-    void (*state_release_cleanup)(void);
-    /* Declarative launch admission for an app-owned worker. */
-    uint32_t worker_stack_bytes;
-    bool worker_stack_external;
-    /* Zero selects the 25 ms default; smaller intervals raise runtime cadence. */
-    /* Deadlines are execution-time budgets, not preemptive limits. */
-    uint32_t tick_interval_ms;
-    uint32_t tick_deadline_ms;
-    /* Optional runtime override; zero keeps tick_interval_ms/default policy. */
-    uint32_t (*requested_tick_interval_ms)(void);
-};
+typedef solar_os_application_event_type_v1_t solar_os_event_type_t;
+typedef solar_os_application_event_v1_t solar_os_event_t;
 
 /* All foreground launchers must use these lifecycle functions instead of
  * calling descriptor callbacks directly. */
 esp_err_t solar_os_app_start(const solar_os_app_t *app,
                              solar_os_context_t *ctx);
 void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx);
+/* stop waits for teardown. stop_checked returns false while teardown remains
+ * pending; the caller must retain the context, resources and code for retry. */
 bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ctx);
 bool solar_os_app_event(const solar_os_app_t *app, solar_os_context_t *ctx,
                          const solar_os_event_t *event);

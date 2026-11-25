@@ -3,6 +3,8 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#define SOLAR_OS_TCP_STREAM_MAX 4U
+
 /* Runtime-only raw TCP endpoints exposed as exclusive duplex byte streams.
  * Reads and writes are nonblocking. Release the stream before removing it. */
 esp_err_t solar_os_tcp_stream_listen(const char *name, uint16_t port);

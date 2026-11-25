@@ -29,7 +29,7 @@ class BleStreamTest(unittest.TestCase):
     def test_coc_flow_control_and_retirement(self):
         self.compile_and_run([
             "tests/host/ble_coc_test.c", "tests/host/nimble_test_support.c",
-            "tests/host/ble_test_support.c", "src/services/solar_os_ble_hid_report_map.c",
+            "tests/host/ble_test_support.c", "src/services/solar_os_hid_report_descriptor.c",
         ])
 
     def test_registry_ownership_and_connection_failures(self):

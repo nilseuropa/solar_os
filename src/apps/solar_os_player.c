@@ -17,7 +17,7 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_player_playlist.h"
 #include "solar_os_shell_io.h"
@@ -65,7 +65,8 @@ typedef struct {
     solar_os_tui_t tui;
     solar_os_shell_io_t fallback_io;
     solar_os_storage_browser_t *browser;
-    solar_os_cassette_widget_t *cassette;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
+    solar_os_cassette_widget_t cassette;
     solar_os_oscilloscope_widget_t *scope;
     solar_os_spectrum_widget_t *spectrum;
     size_t cursor;
@@ -357,7 +358,7 @@ static esp_err_t player_play_index_at(size_t index, uint32_t start_ms, bool paus
     player.stop_requested = false;
     player.paused = paused;
     player.seeking = start_ms != 0;
-    solar_os_cassette_widget_reset(player.cassette);
+    player.media_ui->cassette_reset(&player.cassette);
     solar_os_oscilloscope_widget_reset(player.scope);
     solar_os_spectrum_widget_reset(player.spectrum);
     const BaseType_t created = solar_os_task_create_pinned_external(
@@ -556,17 +557,17 @@ static void player_draw_header(solar_os_gfx_t *gfx, int width)
 {
     const char *tabs = player.tab == PLAYER_TAB_PLAY ?
         "[PLAY]  PLAYLIST" : "PLAY  [PLAYLIST]";
-    solar_os_media_player_header_draw(gfx, width, "Player", tabs);
+    player.media_ui->player_header_draw(gfx, width, "Player", tabs);
 }
 
 static void player_draw_visualizer(solar_os_gfx_t *gfx, int width, int height)
 {
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(width, height, true, &layout);
+    player.media_ui->player_layout(width, height, true, &layout);
     const int visual_y = layout.view_y, visual_height = layout.view_height;
     if (visual_height < 5) return;
     if (player.visualizer == PLAYER_VISUALIZER_CASSETTE && visual_height >= 50 && layout.view_width >= 80) {
-        solar_os_cassette_widget_draw(player.cassette, gfx, layout.view_x, visual_y,
+        player.media_ui->cassette_draw(&player.cassette, gfx, layout.view_x, visual_y,
                                       layout.view_width, visual_height);
     } else if (player.visualizer != PLAYER_VISUALIZER_SPECTRUM) {
         solar_os_oscilloscope_widget_draw(player.scope, gfx, layout.view_x, visual_y,
@@ -602,7 +603,7 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     player_draw_visualizer(gfx, width, height);
     char status[96];
     player_progress_text(status, sizeof(status));
-    solar_os_media_player_controls_draw(gfx, width, height,
+    player.media_ui->player_controls_draw(gfx, width, height,
         player.active_title[0] ? player.active_title :
         player.active_path[0] ? player_basename(player.active_path) : "No track selected",
         status, player.volume, true,
@@ -619,12 +620,12 @@ static bool player_playlist_entry(size_t index, solar_os_m3u_entry_t *entry, voi
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
     if (!player.browsing) {
-        solar_os_media_playlist_draw(gfx, width, height, player.track_count, player.cursor,
+        player.media_ui->playlist_draw(gfx, width, height, player.track_count, player.cursor,
             player.task ? player.active_index : SIZE_MAX, &player.top,
             player_playlist_entry, NULL, "A add  Del remove  Enter play");
         return;
     }
-    solar_os_media_playlist_draw(gfx, width, height,
+    player.media_ui->playlist_draw(gfx, width, height,
         solar_os_storage_browser_count(player.browser), solar_os_storage_browser_cursor(player.browser),
         SIZE_MAX, &player.top, solar_os_storage_browser_media_entry, player.browser,
         "Enter open/add  Esc cancel");
@@ -665,7 +666,7 @@ static void player_render_dynamic(solar_os_context_t *ctx)
     player_draw_visualizer(gfx, width, height);
     char status[96];
     player_progress_text(status, sizeof(status));
-    solar_os_media_player_status_draw(gfx, width, height, status);
+    player.media_ui->player_status_draw(gfx, width, height, status);
     solar_os_gfx_present(gfx);
 }
 
@@ -779,6 +780,9 @@ static bool player_handle_key(solar_os_context_t *ctx, uint8_t key)
 static esp_err_t player_start(solar_os_context_t *ctx)
 {
     memset(&player, 0, sizeof(player));
+    player.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(player.media_ui->cassette_draw));
+    if (!player.media_ui) return ESP_ERR_NOT_SUPPORTED;
     const int argc = solar_os_context_argc(ctx);
     bool force_tui = false;
     const char *path_arg = NULL;
@@ -807,7 +811,6 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     if (err != ESP_OK) goto fail_preferences;
     err = solar_os_storage_browser_create(player_audio_file, NULL, &player.browser);
     if (err != ESP_OK) {
-        solar_os_cassette_widget_destroy(player.cassette);
         solar_os_oscilloscope_widget_destroy(player.scope);
         solar_os_spectrum_widget_destroy(player.spectrum);
         solar_os_storage_browser_destroy(player.browser);
@@ -818,8 +821,7 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     if (player.mode == PLAYER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&player.tui, ctx);
     } else {
-        err = solar_os_cassette_widget_create(&player.cassette);
-        if (err == ESP_OK) err = solar_os_oscilloscope_widget_create(
+        err = solar_os_oscilloscope_widget_create(
             PLAYER_SCOPE_SAMPLES, &player.scope);
         if (err == ESP_OK) err = solar_os_spectrum_widget_create(
             PLAYER_SPECTRUM_FFT_SIZE, &player.spectrum);
@@ -868,7 +870,6 @@ static void player_stop(solar_os_context_t *ctx)
     player.preferences = NULL;
     if (player.mode == PLAYER_MODE_GRAPHICS) {
         player_disable_high_refresh();
-        solar_os_cassette_widget_destroy(player.cassette);
         solar_os_oscilloscope_widget_destroy(player.scope);
         solar_os_spectrum_widget_destroy(player.spectrum);
         solar_os_context_set_graphics_active(ctx, false);
@@ -920,7 +921,7 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         if (pointer->action == SOLAR_OS_INPUT_POINTER_PRESS &&
             (pointer->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY)) {
-            int button = solar_os_media_player_button_at(width, height, true,
+            int button = player.media_ui->player_button_at(width, height, true,
                                                           player.pointer_x, player.pointer_y);
             if (button >= 0) {
                 if (button == 0 || button == 4) player_play_offset(button == 0 ? -1 : 1);
@@ -941,7 +942,7 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         player_reap_finished();
         player_refresh_playlist();
         const bool playing = player.task != NULL && !player.paused;
-        solar_os_cassette_widget_update(player.cassette, playing,
+        player.media_ui->cassette_update(&player.cassette, playing,
             player.elapsed_ms, player.total_ms, event->data.tick_ms);
         const bool refresh_due = playing &&
             event->data.tick_ms - player.last_visualizer_ms >= PLAYER_REFRESH_MS;

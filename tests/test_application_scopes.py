@@ -16,6 +16,6 @@ class ApplicationScopesTest(unittest.TestCase):
                 '-include', str(ROOT / 'tests/host/compat.h'), '-I', str(ROOT / 'tests/host'),
                 '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
                 '-I', str(ROOT / 'src/shell'), '-I', str(ROOT / 'components/u8g2/src/clib'),
-                str(ROOT / 'tests/host/application_scopes_test.c'), str(ROOT / 'src/solar_os.c'),
+                str(ROOT / 'tests/host/application_scopes_test.c'), str(ROOT / 'src/solar_os.c'), str(ROOT / 'src/services/solar_os_native_handles.c'),
                 '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)

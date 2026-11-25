@@ -1,6 +1,66 @@
 # Public service identity and provider wiring. C declarations live in definitions/.
 
 [[service]]
+id = "ui"
+name = "ui"
+abi = 1
+header = "solar_os_native_ui_abi.h"
+type = "solar_os_native_ui_api_v1_t"
+scoped = false
+provider = "ui"
+table = "ui_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_ui_get_service"
+
+[[service]]
+id = "tcp_stream"
+name = "stream.tcp"
+abi = 1
+header = "solar_os_native_tcp_stream_abi.h"
+type = "solar_os_native_tcp_stream_api_v1_t"
+scoped = false
+provider = "tcp_stream"
+table = "tcp_stream_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_tcp_stream_get_service"
+
+[[service]]
+id = "keymap"
+name = "input.keymap"
+abi = 1
+header = "solar_os_native_keymap_abi.h"
+type = "solar_os_native_keymap_api_v1_t"
+scoped = false
+provider = "keymap"
+table = "keymap_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_INPUT_KEYMAP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_keymap_get_service"
+
+[[service]]
+id = "gfx"
+name = "gfx"
+abi = 1
+header = "solar_os_native_gfx_abi.h"
+type = "solar_os_native_gfx_api_v1_t"
+scoped = false
+provider = "gfx"
+table = "gfx_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_gfx_get_service"
+
+[[service]]
 id = "application"
 name = "application"
 abi = 1
@@ -132,7 +192,7 @@ abi = 1
 header = "solar_os_native_ble_abi.h"
 type = "solar_os_native_ble_client_api_v1_t"
 scoped = false
-provider = "root_late"
+provider = "ble"
 table = "native_ble_client_v1"
 gate = "SOLAR_OS_PACKAGE_SERVICE_BLE"
 
@@ -704,3 +764,198 @@ gate = "SOLAR_OS_PACKAGE_SERVICE_DSP"
 [[provider]]
 parent = "root"
 getter = "solar_os_native_dsp_get_service"
+
+[[service]]
+id = "terminal"
+name = "terminal"
+abi = 1
+header = "solar_os_native_terminal_abi.h"
+type = "solar_os_native_terminal_api_v1_t"
+scoped = false
+provider = "terminal"
+table = "terminal_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_terminal_get_service"
+
+[[service]]
+id = "shell_io"
+name = "shell_io"
+abi = 1
+header = "solar_os_native_shell_io_abi.h"
+type = "solar_os_native_shell_io_api_v1_t"
+scoped = true
+provider = "shell_io"
+table = "shell_io_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_shell_io_get_service"
+
+[[service]]
+id = "expr"
+name = "expr"
+abi = 1
+header = "solar_os_native_expr_abi.h"
+type = "solar_os_native_expr_api_v1_t"
+scoped = false
+provider = "expr"
+table = "expr_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_EXPR"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_expr_get_service"
+
+[[service]]
+id = "tui"
+name = "tui"
+abi = 1
+header = "solar_os_native_tui_abi.h"
+type = "solar_os_native_tui_api_v1_t"
+scoped = true
+provider = "tui"
+table = "tui_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_tui_get_service"
+
+[[service]]
+id = "input"
+name = "input"
+abi = 1
+header = "solar_os_native_input_abi.h"
+type = "solar_os_native_input_api_v1_t"
+scoped = false
+provider = "input"
+table = "input_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_input_get_service"
+
+[[service]]
+id = "input_actions"
+name = "input.actions"
+abi = 1
+header = "solar_os_native_input_actions_abi.h"
+type = "solar_os_native_input_actions_api_v1_t"
+scoped = false
+provider = "input_actions"
+table = "input_actions_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_input_actions_get_service"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_ble_get_service"
+
+[[service]]
+id = "bluetooth"
+name = "ble"
+abi = 1
+header = "solar_os_native_bluetooth_abi.h"
+type = "solar_os_native_bluetooth_api_v1_t"
+scoped = false
+provider = "ble"
+table = "bluetooth_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BLE"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_ble_keyboard_get_service"
+
+[[service]]
+id = "ble_keyboard"
+name = "ble.keyboard"
+abi = 1
+header = "solar_os_native_ble_keyboard_abi.h"
+type = "solar_os_native_ble_keyboard_api_v1_t"
+scoped = false
+provider = "ble_keyboard"
+table = "ble_keyboard_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BLE"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_hid_report_get_service"
+
+[[service]]
+id = "hid_report"
+name = "hid.report"
+abi = 1
+header = "solar_os_native_hid_report_abi.h"
+type = "solar_os_native_hid_report_api_v1_t"
+scoped = false
+provider = "hid_report"
+table = "hid_report_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_hid_device_get_service"
+
+[[service]]
+id = "hid_device"
+name = "hid.device"
+abi = 1
+header = "solar_os_native_hid_device_abi.h"
+type = "solar_os_native_hid_device_api_v1_t"
+scoped = false
+provider = "hid_device"
+table = "hid_device_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_HID"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_ble_stream_get_service"
+
+[[service]]
+id = "ble_stream"
+name = "stream.ble"
+abi = 1
+header = "solar_os_native_ble_stream_abi.h"
+type = "solar_os_native_ble_stream_api_v1_t"
+scoped = false
+provider = "ble_stream"
+table = "ble_stream_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_media_widgets_get_service"
+
+[[service]]
+id = "media_widgets"
+name = "ui.media"
+abi = 1
+header = "solar_os_native_media_widgets_abi.h"
+type = "solar_os_native_media_widgets_api_v1_t"
+scoped = false
+provider = "media_widgets"
+table = "media_widgets_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MEDIA_WIDGETS"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_m3u_get_service"
+
+[[service]]
+id = "m3u"
+name = "media.m3u"
+abi = 1
+header = "solar_os_native_m3u_abi.h"
+type = "solar_os_native_m3u_api_v1_t"
+scoped = false
+provider = "m3u"
+table = "m3u_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_M3U"

@@ -30,7 +30,7 @@ class RtspAppTest(unittest.TestCase):
         widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
         helpers = (
             widgets[widgets.index("void solar_os_media_player_layout"):
-                    widgets.index("esp_err_t solar_os_cassette_widget_create")]
+                    widgets.index("void solar_os_cassette_widget_reset")]
             + widgets[widgets.index("void solar_os_media_playlist_draw"):
                       widgets.index("static void media_transport_triangle")]
             + helpers
@@ -51,7 +51,7 @@ class RtspAppTest(unittest.TestCase):
                 str(ROOT / "src/services/solar_os_rtsp.c"),
                 str(ROOT / "src/services/solar_os_rtp.c"),
                 str(ROOT / "src/services/solar_os_media.c"),
-                str(ROOT / "src/services/solar_os_media_dialog.c"),
+                str(ROOT / "src/services/solar_os_gfx_widgets.c"),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)
@@ -85,7 +85,7 @@ class RtspAppTest(unittest.TestCase):
         self.assertIn("solar_os_oscilloscope_widget_draw", APP)
         self.assertIn("solar_os_oscilloscope_widget_submit_s16", APP)
         self.assertIn("solar_os_gfx_blit_raster", APP)
-        self.assertIn("solar_os_media_player_controls_draw", APP)
+        self.assertIn("media_ui->player_controls_draw", APP)
         self.assertIn(".video = rtsp.graphical && !rtsp.audio_only", APP)
         self.assertIn(".samples = audio_samples", CLIENT)
 
@@ -138,8 +138,8 @@ class RtspAppTest(unittest.TestCase):
 
     def test_common_player_fullscreen_volume_and_frame_overlay(self):
         self.assertIn("if (chrome && !rtsp.fullscreen) draw_controls", APP)
-        self.assertIn("solar_os_media_player_header_draw", APP)
-        self.assertIn("solar_os_media_player_controls_draw", APP)
+        self.assertIn("media_ui->player_header_draw", APP)
+        self.assertIn("media_ui->player_controls_draw", APP)
         self.assertIn("h - RTSP_HEADER_HEIGHT - RTSP_CONTROLS_HEIGHT", APP)
         self.assertIn("rtsp.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP", APP)
         self.assertNotIn("RTSP_HELP_HEIGHT", APP)

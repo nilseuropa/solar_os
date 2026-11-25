@@ -2,6 +2,94 @@
 #pragma once
 /* Included through solar_os_native_client.h. */
 
+SOLAR_OS_NATIVE_DECLARE_GET(ui, "ui", solar_os_native_ui_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(ui, solar_os_native_ui_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(label) \
+    M(centered_label) \
+    M(input) \
+    M(dialog) \
+    M(input_key) \
+    M(input_text) \
+    M(viewport_reconcile) \
+    M(viewport_key)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(keymap, "input.keymap", solar_os_native_keymap_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(keymap, solar_os_native_keymap_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(info) \
+    M(get) \
+    M(set) \
+    M(reset) \
+    M(load) \
+    M(find_slot) \
+    M(validate) \
+    M(release) \
+    M(decode) \
+    M(parse) \
+    M(provider_open) \
+    M(provider_activate) \
+    M(provider_process) \
+    M(provider_press_priority) \
+    M(provider_release_all) \
+    M(provider_close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(gfx, "gfx", solar_os_native_gfx_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(gfx, solar_os_native_gfx_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(width) \
+    M(height) \
+    M(dimensions) \
+    M(canvas_bounds) \
+    M(panel_bounds) \
+    M(format) \
+    M(palette_inverted) \
+    M(display_target_name) \
+    M(gray) \
+    M(rgb) \
+    M(color_is_valid) \
+    M(set_color) \
+    M(color) \
+    M(set_font) \
+    M(font) \
+    M(text_width) \
+    M(set_line_style) \
+    M(line_style) \
+    M(clear) \
+    M(pixel) \
+    M(line) \
+    M(rect) \
+    M(fill_rect) \
+    M(fill_polygon) \
+    M(circle) \
+    M(fill_circle) \
+    M(text) \
+    M(icon_from_name) \
+    M(icon) \
+    M(bitmap) \
+    M(bitmap_2bpp) \
+    M(bitmap_2bpp_scaled) \
+    M(blit_raster) \
+    M(present_mono_xbm) \
+    M(present_frame) \
+    M(present_frame_at) \
+    M(supports_frame_format) \
+    M(needs_present) \
+    M(present) \
+    M(text_advance) \
+    M(text_fit) \
+    M(text_span) \
+    M(text_tail)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
 SOLAR_OS_NATIVE_DECLARE_GET(foreground, "foreground", solar_os_native_foreground_api_v1_t, 1U)
 #define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(foreground, solar_os_native_foreground_api_v1_t, 1U, method)
 #define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
@@ -85,6 +173,310 @@ SOLAR_OS_NATIVE_DECLARE_GET(vector, "vector", solar_os_native_vector_api_v1_t, 1
     M(expand_1bpp_to_rgb565_be) \
     M(rgba_to_gray_scaled) \
     M(rgba_to_rgb_scaled)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(terminal, "terminal", solar_os_native_terminal_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(terminal, solar_os_native_terminal_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(clear) \
+    M(newline) \
+    M(backspace) \
+    M(put_printable) \
+    M(put_codepoint) \
+    M(put_char) \
+    M(put_utf8_byte) \
+    M(write_utf8) \
+    M(utf8_reset) \
+    M(write) \
+    M(writeln) \
+    M(printf) \
+    M(set_bold) \
+    M(bold) \
+    M(set_italic) \
+    M(italic) \
+    M(set_underline) \
+    M(underline) \
+    M(set_inverse) \
+    M(inverse) \
+    M(write_bold) \
+    M(writeln_bold) \
+    M(printf_bold) \
+    M(set_status_bar) \
+    M(get_status_bar) \
+    M(status_bar_preference_visible) \
+    M(set_status_bar_preference) \
+    M(status_bar_visible) \
+    M(set_status_bar_visible) \
+    M(set_status_bar_visible_transient) \
+    M(set_footer) \
+    M(set_black_is_one) \
+    M(palette_preference_inverted) \
+    M(set_palette_preference) \
+    M(palette_inverted) \
+    M(set_palette_inverted) \
+    M(set_palette_inverted_transient) \
+    M(cursor_row) \
+    M(cursor_col) \
+    M(rows) \
+    M(cols) \
+    M(set_cursor) \
+    M(set_cursor_visible) \
+    M(cursor_visible) \
+    M(get_cursor_preference) \
+    M(set_cursor_preference) \
+    M(cursor_shape_name) \
+    M(parse_cursor_shape) \
+    M(clear_primitives) \
+    M(add_vrule) \
+    M(clear_line_from) \
+    M(page_up) \
+    M(page_down) \
+    M(scroll_to_live) \
+    M(is_scrolled_back) \
+    M(orientation) \
+    M(set_orientation) \
+    M(set_orientation_transient) \
+    M(font) \
+    M(set_font) \
+    M(set_font_transient) \
+    M(font_name) \
+    M(parse_font) \
+    M(text_size) \
+    M(set_text_size) \
+    M(set_text_size_transient) \
+    M(text_size_name) \
+    M(parse_text_size) \
+    M(get_profile) \
+    M(apply_profile_transient) \
+    M(needs_draw) \
+    M(invalidate_render) \
+    M(draw)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(shell_io, "shell_io", solar_os_native_shell_io_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(shell_io, solar_os_native_shell_io_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(current) \
+    M(set_dimensions) \
+    M(kind) \
+    M(terminal) \
+    M(terminal_profile_name) \
+    M(parse_terminal_profile) \
+    M(set_terminal_profile) \
+    M(terminal_profile) \
+    M(charset_name) \
+    M(parse_charset) \
+    M(set_charset) \
+    M(charset) \
+    M(is_cursor_addressable) \
+    M(app_exit_key) \
+    M(write) \
+    M(write_len) \
+    M(write_raw) \
+    M(writeln) \
+    M(printf) \
+    M(vprintf) \
+    M(table_write) \
+    M(table_writeln) \
+    M(table_printf) \
+    M(table_printf_bold) \
+    M(table_write_bold) \
+    M(table_put_char) \
+    M(set_bold) \
+    M(set_italic) \
+    M(set_underline) \
+    M(set_inverse) \
+    M(write_bold) \
+    M(printf_bold) \
+    M(clear) \
+    M(newline) \
+    M(put_char) \
+    M(put_utf8_byte) \
+    M(cols) \
+    M(rows) \
+    M(cursor_row) \
+    M(cursor_col) \
+    M(set_cursor) \
+    M(set_cursor_visible) \
+    M(cursor_visible) \
+    M(screen_generation) \
+    M(clear_line_from) \
+    M(redraw_line) \
+    M(set_footer) \
+    M(clear_footer) \
+    M(flush) \
+    M(vprintf_bold) \
+    M(table_vprintf) \
+    M(table_vprintf_bold)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(tui, "tui", solar_os_native_tui_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(tui, solar_os_native_tui_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(begin) \
+    M(attach_session) \
+    M(end) \
+    M(enable_diff) \
+    M(rows) \
+    M(cols) \
+    M(clear) \
+    M(refresh) \
+    M(move) \
+    M(set_cursor_visible) \
+    M(write) \
+    M(addstr) \
+    M(putch) \
+    M(hline) \
+    M(vline) \
+    M(vrule) \
+    M(box) \
+    M(fill) \
+    M(text_popup) \
+    M(progress_bar) \
+    M(draw_form) \
+    M(screen_begin) \
+    M(screen_should_fullscreen) \
+    M(screen_fullscreen) \
+    M(screen_bottom_rows) \
+    M(screen_content_rows) \
+    M(screen_content_end) \
+    M(screen_key) \
+    M(screen_layout) \
+    M(layout_compute) \
+    M(layout_compute_fullscreen) \
+    M(write_cell) \
+    M(draw_title) \
+    M(draw_help) \
+    M(draw_footer) \
+    M(draw_tab) \
+    M(draw_too_small) \
+    M(viewport_reconcile) \
+    M(viewport_key) \
+    M(input_key) \
+    M(draw_input) \
+    M(draw_input_ex) \
+    M(input_text)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(input, "input", solar_os_native_input_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(input, solar_os_native_input_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(keyboard_count) \
+    M(source_count) \
+    M(source_get) \
+    M(source_get_info) \
+    M(source_find) \
+    M(source_get_diagnostics) \
+    M(source_class_name) \
+    M(pointer_mode_name) \
+    M(pointer_action_name) \
+    M(axis_name) \
+    M(gesture_name) \
+    M(gesture_direction_name) \
+    M(parse_gesture) \
+    M(parse_gesture_direction) \
+    M(pointer_is_captured) \
+    M(pointer_apply_display_transform) \
+    M(pointer_apply_orientation) \
+    M(pointer_calibration_get) \
+    M(pointer_calibration_set) \
+    M(pointer_calibration_reset) \
+    M(get_pressed) \
+    M(key_press_generation) \
+    M(keyboard_layout) \
+    M(set_keyboard_layout) \
+    M(set_keyboard_layout_list) \
+    M(keyboard_layout_list) \
+    M(keyboard_layout_name) \
+    M(parse_keyboard_layout) \
+    M(parse_key_chord) \
+    M(translate_hid_usage) \
+    M(translate_char_key) \
+    M(key_text) \
+    M(resolve_layout_key) \
+    M(translate_hid_usage_byte) \
+    M(compose_feed) \
+    M(get_repeat) \
+    M(set_repeat) \
+    M(producer_open) \
+    M(producer_info) \
+    M(producer_ready) \
+    M(producer_release_all) \
+    M(producer_write_key) \
+    M(producer_set_key) \
+    M(producer_write_key_tap) \
+    M(producer_write_char) \
+    M(producer_write_pointer) \
+    M(producer_write_pointer_sample) \
+    M(producer_write_axis) \
+    M(producer_write_gesture) \
+    M(producer_gestures) \
+    M(producer_calibration_default) \
+    M(producer_read_chars) \
+    M(producer_close) \
+    M(keyboard_open) \
+    M(keyboard_claimed) \
+    M(keyboard_read) \
+    M(keyboard_close) \
+    M(pointer_open) \
+    M(pointer_read) \
+    M(pointer_close) \
+    M(observer_open) \
+    M(observer_close) \
+    M(filter_open) \
+    M(filter_close) \
+    M(key_name) \
+    M(parse_key) \
+    M(composition_modifiers) \
+    M(composition_apply) \
+    M(composition_apply_with_modifiers) \
+    M(producer_modifiers)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(input_actions, "input.actions", solar_os_native_input_actions_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(input_actions, solar_os_native_input_actions_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(start) \
+    M(stop) \
+    M(running) \
+    M(worker_active) \
+    M(bind) \
+    M(count) \
+    M(get) \
+    M(unbind) \
+    M(clear) \
+    M(emit_key) \
+    M(matches)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(media_widgets, "ui.media", solar_os_native_media_widgets_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(media_widgets, solar_os_native_media_widgets_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(transport_button_draw) \
+    M(list_layout) \
+    M(playlist_draw) \
+    M(player_layout) \
+    M(player_header_draw) \
+    M(player_status_draw) \
+    M(player_controls_draw) \
+    M(controls_draw) \
+    M(player_button_at) \
+    M(cassette_reset) \
+    M(cassette_update) \
+    M(cassette_draw)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

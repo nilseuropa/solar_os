@@ -69,13 +69,15 @@ connections and wakes waiting callers with `SOLAR_OS_BLE_ERR_CANCELLED`.
 Cancellation cannot undo a write already transmitted. Closing a session has
 the same cancellation behavior and also invalidates the handle.
 
-`solar_os_ble_session_set_cancel_check()` installs an optional cooperative
-cancellation check while the session is idle. A waiting connect/read/write
-caller runs it outside service locks at intervals of at most 50 ms (subject to
-task scheduling). The check must not block or raise interpreter exceptions.
-The context must remain valid until the operation returns. A true result uses
-the same cancellation/retirement path as explicit cancellation. Sessions without
-a check retain the normal blocking wait. Reused slots clear the old check.
+The `*_with_options()` methods accept an optional per-call cancellation
+predicate and context. The caller runs it before submission and while waiting,
+outside the metadata lock, at intervals of at most 50 ms (subject to scheduling).
+The check must return normally without blocking, interpreter exceptions, or
+nested BLE operations. Keep its code and context valid until the call returns;
+neither pointer is retained in a session or inherited by another peer. A true
+result uses the same cancellation/retirement path as explicit cancellation.
+Calls without a predicate retain the normal blocking wait. Independent peers
+can use independent predicates and contexts.
 
 A connect/read/write timeout retires the connection and returns
 `ESP_ERR_TIMEOUT`. A new operation cannot reuse the connection while an old

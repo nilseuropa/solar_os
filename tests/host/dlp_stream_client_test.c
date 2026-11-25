@@ -94,10 +94,17 @@ static esp_err_t write_port(void *ctx, const uint8_t *data, size_t size, size_t 
     return ESP_OK;
 }
 static bool should_cancel(void *ctx) { (void)ctx; return cancel || (cancel_at && clock_us >= cancel_at); }
+typedef struct { unsigned calls; bool cancel; } borrowed_callback_t;
+static bool borrowed_cancel(void *ctx) {
+    borrowed_callback_t *state = ctx;
+    state->calls++;
+    return state->cancel;
+}
 static const char *TAG = "dlp-host";
 #include "dlp_client_core.inc"
 
 int main(void) {
+    const solar_os_display_link_call_options_t call = {.cancelled = should_cancel};
     sdlp_info_t info = {.width = 13, .height = 13, .formats = 1,
         .preferred_format = SDLP_MONO1, .max_rect_bytes = 26, .command_ms = 1000,
         .present_ms = 1000, .capabilities = SDLP_RLE | SDLP_SYNC | SDLP_PRESERVE_CONTENT};
@@ -110,13 +117,12 @@ int main(void) {
     for (unsigned mode = 0; mode < 3; mode++) {
         legacy_only = mode == 1; fail_cache = mode == 2;
         solar_os_display_link_t *link = NULL, *busy = NULL;
-        solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100,
-            .cancelled = should_cancel};
-        assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
+        solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100};
+        assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) == ESP_OK);
         assert(link && !link->mono && !link->pixels);
         assert(solar_os_display_link_info(link)->width == 13);
         assert(solar_os_display_link_format(link) == SDLP_MONO1);
-        assert(solar_os_display_link_open_stream("test0", "busy", &options, &busy) == ESP_ERR_INVALID_STATE);
+        assert(solar_os_display_link_open_stream_with_options("test0", "busy", &options, &call, &busy) == ESP_ERR_INVALID_STATE);
         assert(!busy);
         uint8_t pixels[26] = {0};
         unsigned before = presented;
@@ -137,12 +143,11 @@ int main(void) {
     }
     legacy_only = fail_cache = false;
     solar_os_display_link_t *link = NULL;
-    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100,
-        .cancelled = should_cancel};
+    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100};
     options.timeout_ms = 500;
     transient_reads = transient_writes = 1;
     unsigned before_opens = opens;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) == ESP_OK);
     assert(opens == before_opens + 3 && !transient_reads && !transient_writes);
     assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
     solar_os_display_link_destroy(link);
@@ -153,29 +158,51 @@ int main(void) {
      * and release ownership just like an explicit transport failure. */
     silent_peer = true;
     uint64_t started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started <= 120000);
     silent_peer = false;
     fail_write = true;
     started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started <= 120000);
     options.timeout_ms = 500;
     cancel_at = clock_us + 25000;
     started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started < 100000);
     cancel_at = 0; fail_write = false; options.timeout_ms = 100;
     cancel = true;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes);
     cancel = false;
     assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
     cancel = true;
-    assert(solar_os_display_link_present(link, shown, sizeof(shown)) != ESP_OK);
+    assert(solar_os_display_link_present_with_options(link, shown, sizeof(shown), &call) != ESP_OK);
     solar_os_display_link_destroy(link);
     assert(!allocations && opens == closes);
     cancel = false;
+    borrowed_callback_t *borrowed = calloc(1, sizeof(*borrowed));
+    solar_os_display_link_call_options_t *borrowed_call = malloc(sizeof(*borrowed_call));
+    assert(borrowed && borrowed_call);
+    *borrowed_call = (solar_os_display_link_call_options_t){.cancelled = borrowed_cancel, .cancel_user = borrowed};
+    assert(solar_os_display_link_open_stream_with_options("test0", "borrowed", &options, borrowed_call, &link) == ESP_OK);
+    assert(borrowed->calls);
+    free(borrowed_call); free(borrowed);
+    /* Exercise the transport's real predicate after both borrowed records
+     * expire. ASan catches any retained function/context reference. */
+    assert(!link->io.protocol.cancelled(link->io.protocol.ctx));
+    assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
+    borrowed = calloc(1, sizeof(*borrowed));
+    borrowed_call = malloc(sizeof(*borrowed_call));
+    assert(borrowed && borrowed_call);
+    *borrowed_call = (solar_os_display_link_call_options_t){.cancelled = borrowed_cancel, .cancel_user = borrowed};
+    assert(solar_os_display_link_present_with_options(link, shown, sizeof(shown), borrowed_call) == ESP_OK);
+    assert(borrowed->calls);
+    free(borrowed_call); free(borrowed);
+    assert(!link->io.protocol.cancelled(link->io.protocol.ctx));
+    assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
+    solar_os_display_link_destroy(link);
+    assert(!allocations && opens == closes);
     graphics = true;
     for (unsigned mode = 0; mode < 3; mode++) {
         assert(solar_os_display_link_open_stream("test0", "graphics", &options, &link) == ESP_OK);

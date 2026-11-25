@@ -15,7 +15,6 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx, solar_os_gfx_color_t color) { asser
 void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t color) { assert(gfx); (void)color; }
 void solar_os_splash_draw_reboot(solar_os_gfx_t *gfx, const char *status) { assert(gfx && status); }
 void esp_restart(void) { ++restarts; }
-void vTaskDelay(TickType_t ticks) { (void)ticks; }
 void solar_os_shell_io_init_terminal(solar_os_shell_io_t *io, solar_os_terminal_t *terminal)
 { memset(io, 0, sizeof(*io)); io->terminal = terminal; }
 esp_err_t solar_os_shell_io_write_len(solar_os_shell_io_t *io, const char *text, size_t length)

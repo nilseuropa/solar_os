@@ -14,8 +14,10 @@ class DlpStreamClientTest(unittest.TestCase):
         state = re.search(r"struct solar_os_display_link \{.*?\n\};", source, re.S).group()
         core = state + "\n" + production_functions(source, (
             "result", "now_us", "connect_endpoint", "solar_os_display_link_open_transport",
+            "solar_os_display_link_open_transport_with_options",
             "solar_os_display_link_destroy", "solar_os_display_link_info",
             "solar_os_display_link_format", "solar_os_display_link_present",
+            "solar_os_display_link_present_with_options",
             "ensure_graphics", "solar_os_display_link_u8g2"))
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)

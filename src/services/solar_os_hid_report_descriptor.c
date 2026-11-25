@@ -1,4 +1,4 @@
-#include "solar_os_ble_hid_report_map.h"
+#include "solar_os_hid_report_descriptor.h"
 #include <string.h>
 
 static bool parse_map(const uint8_t *data, size_t len, bool ids[256],
@@ -16,7 +16,7 @@ static bool parse_map(const uint8_t *data, size_t len, bool ids[256],
     if (ids) memset(ids, 0, 256 * sizeof(*ids));
     while (offset < len) {
         uint8_t prefix = data[offset++];
-        if (prefix == 0xfe) return false; /* Long items are not used by HOGP keyboards. */
+        if (prefix == 0xfe) return false; /* Long items are unsupported by this keyboard parser. */
         size_t n = prefix & 3;
         if (n == 3) n = 4;
         if (n > len - offset) return false;
@@ -68,8 +68,9 @@ static bool parse_map(const uint8_t *data, size_t len, bool ids[256],
                 if (collections[depth - 1] && ids) ids[global.id] = true;
                 if (layout && global.id == report_id) {
                     const uint64_t bits = (uint64_t)global.size * global.count;
-                    /* Notifications are bounded to 64 bytes by the HID client. */
-                    if (bits > 512U || input_bits + bits > 512U) return false;
+                    /* Supported descriptor layouts contain at most 64 bytes. */
+                    if (bits > SOLAR_OS_HID_DESCRIPTOR_REPORT_BYTES_MAX * 8U ||
+                        input_bits + bits > SOLAR_OS_HID_DESCRIPTOR_REPORT_BYTES_MAX * 8U) return false;
                     if (collections[depth - 1] && global.page == 7 && !(value & 1U)) {
                         if ((value & 2U) && global.size == 1 && global.count == 8 &&
                             usage_min == 0xe0 && usage_max == 0xe7 && !(input_bits % 8U)) {
@@ -106,12 +107,12 @@ static bool parse_map(const uint8_t *data, size_t len, bool ids[256],
     return true;
 }
 
-bool solar_os_ble_hid_report_map(const uint8_t *data, size_t len, bool ids[256])
+bool solar_os_hid_report_descriptor_keyboard_map(const uint8_t *data, size_t len, bool ids[256])
 {
     return ids && parse_map(data, len, ids, 0, NULL);
 }
 
-bool solar_os_ble_hid_report_layout(const uint8_t *data, size_t len,
+bool solar_os_hid_report_descriptor_keyboard_layout(const uint8_t *data, size_t len,
     uint8_t report_id, solar_os_hid_keyboard_report_layout_t *layout)
 {
     if (!layout) return false;

@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -86,3 +90,5 @@ void solar_os_shell_cmd_nfc(solar_os_context_t *ctx, int argc, char **argv)
                              " atqa=%02X%02X sak=%02X\r\n",
                              tag.atqa[0], tag.atqa[1], tag.sak);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_NFC */

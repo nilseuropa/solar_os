@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_IRC
+
 #include "solar_os_shell_commands.h"
 #include <inttypes.h>
 #include <stdlib.h>
@@ -111,3 +115,5 @@ done:
     }
     solar_os_shell_io_printf(io, "irc: %s\n", error == ESP_OK ? "ok" : solar_os_shell_error_text(error));
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_IRC */

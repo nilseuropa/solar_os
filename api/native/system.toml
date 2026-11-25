@@ -7,6 +7,470 @@ extra_headers = ["src/shell/solar_os_shell_io.h", "src/services/solar_os_module_
 
 # These public operation(s) provide the named OS capability.
 [operation]
+solar_os_m3u_path = ["m3u.path"]
+solar_os_m3u_read = ["m3u.read"]
+solar_os_m3u_write = ["m3u.write"]
+solar_os_media_transport_button_draw = ["media_widgets.transport_button_draw"]
+solar_os_media_list_layout = ["media_widgets.list_layout"]
+solar_os_media_playlist_draw = ["media_widgets.playlist_draw"]
+solar_os_media_player_layout = ["media_widgets.player_layout"]
+solar_os_media_player_header_draw = ["media_widgets.player_header_draw"]
+solar_os_media_player_status_draw = ["media_widgets.player_status_draw"]
+solar_os_media_player_controls_draw = ["media_widgets.player_controls_draw"]
+solar_os_media_controls_draw = ["media_widgets.controls_draw"]
+solar_os_media_player_button_at = ["media_widgets.player_button_at"]
+solar_os_cassette_widget_reset = ["media_widgets.cassette_reset"]
+solar_os_cassette_widget_update = ["media_widgets.cassette_update"]
+solar_os_cassette_widget_draw = ["media_widgets.cassette_draw"]
+solar_os_gfx_label = ["ui.label"]
+solar_os_gfx_centered_label = ["ui.centered_label"]
+solar_os_gfx_input = ["ui.input"]
+solar_os_gfx_dialog = ["ui.dialog"]
+solar_os_media_text_draw = ["ui.label"]
+solar_os_media_dialog_draw = ["ui.dialog"]
+solar_os_tcp_stream_listen = ["tcp_stream.listen"]
+solar_os_tcp_stream_connect = ["tcp_stream.connect"]
+solar_os_tcp_stream_remove = ["tcp_stream.remove"]
+solar_os_ble_stream_listen = ["ble_stream.listen"]
+solar_os_ble_stream_connect = ["ble_stream.connect"]
+solar_os_ble_stream_remove = ["ble_stream.remove"]
+solar_os_ble_stream_status = ["ble_stream.status"]
+solar_os_hid_init = ["hid_device.init"]
+solar_os_hid_get_status = ["hid_device.get_status"]
+solar_os_hid_keyboard_press = ["hid_device.keyboard_press"]
+solar_os_hid_keyboard_release = ["hid_device.keyboard_release"]
+solar_os_hid_keyboard_release_all = ["hid_device.keyboard_release_all"]
+solar_os_hid_mouse_move = ["hid_device.mouse_move"]
+solar_os_hid_mouse_button = ["hid_device.mouse_button"]
+solar_os_hid_gamepad_axis = ["hid_device.gamepad_axis"]
+solar_os_hid_gamepad_button = ["hid_device.gamepad_button"]
+solar_os_hid_gamepad_hat = ["hid_device.gamepad_hat"]
+solar_os_hid_gamepad_send = ["hid_device.gamepad_send"]
+solar_os_hid_release_all = ["hid_device.release_all"]
+solar_os_ble_hid_get_keepalive_status = ["ble_keyboard.get_keepalive_status"]
+solar_os_hid_keyboard_report_reset = ["hid_report.reset"]
+solar_os_hid_keyboard_report_update = ["hid_report.update"]
+solar_os_hid_keyboard_report_update_with_layout = ["hid_report.update_with_layout"]
+solar_os_hid_keyboard_report_has_new_press = ["hid_report.has_new_press"]
+solar_os_hid_report_descriptor_keyboard_map = ["hid_report.descriptor_map"]
+solar_os_hid_report_descriptor_keyboard_layout = ["hid_report.descriptor_layout"]
+solar_os_ble_keyboard_init = ["bluetooth.init"]
+solar_os_ble_keyboard_enabled_for_current_boot = ["ble_keyboard.enabled_for_current_boot"]
+solar_os_ble_keyboard_enabled_for_next_boot = ["ble_keyboard.enabled_for_next_boot"]
+solar_os_ble_keyboard_board_default_enabled = ["ble_keyboard.board_default_enabled"]
+solar_os_ble_keyboard_boot_setting = ["ble_keyboard.boot_setting"]
+solar_os_ble_keyboard_boot_setting_name = ["ble_keyboard.boot_setting_name"]
+solar_os_ble_keyboard_parse_boot_setting = ["ble_keyboard.parse_boot_setting"]
+solar_os_ble_keyboard_set_boot_setting = ["ble_keyboard.set_boot_setting"]
+solar_os_ble_keyboard_set_enabled_for_next_boot = ["ble_keyboard.set_enabled_for_next_boot"]
+solar_os_ble_keyboard_start_pairing = ["ble_keyboard.start_pairing"]
+solar_os_ble_keyboard_scan = ["bluetooth.scan"]
+solar_os_ble_keyboard_forget = ["ble_keyboard.forget"]
+solar_os_ble_keyboard_is_connected = ["ble_keyboard.is_connected"]
+solar_os_ble_keyboard_is_scanning = ["ble_keyboard.is_scanning"]
+solar_os_ble_keyboard_is_pairing = ["ble_keyboard.is_pairing"]
+solar_os_ble_keyboard_keepalive_enabled = ["ble_keyboard.keepalive_enabled"]
+solar_os_ble_keyboard_set_keepalive_enabled = ["ble_keyboard.set_keepalive_enabled"]
+solar_os_ble_keyboard_get_keepalive_status = ["ble_keyboard.get_keepalive_status"]
+solar_os_ble_keyboard_keepalive_method_name = ["ble_keyboard.keepalive_method_name"]
+solar_os_ble_keyboard_wake_generation = ["ble_keyboard.wake_generation"]
+solar_os_ble_keyboard_remembered_count = ["ble_keyboard.remembered_count"]
+solar_os_ble_keyboard_get_status = ["ble_keyboard.get_status"]
+solar_os_ble_keyboard_read_chars = ["ble_keyboard.read_chars"]
+solar_os_ble_keyboard_get_key_state = ["ble_keyboard.get_key_state"]
+solar_os_ble_keyboard_get_repeat = ["ble_keyboard.get_repeat"]
+solar_os_ble_keyboard_set_repeat = ["ble_keyboard.set_repeat"]
+solar_os_ble_keyboard_layout = ["ble_keyboard.layout"]
+solar_os_ble_keyboard_set_layout = ["ble_keyboard.set_layout"]
+solar_os_ble_keyboard_layout_name = ["ble_keyboard.layout_name"]
+solar_os_ble_keyboard_parse_layout = ["ble_keyboard.parse_layout"]
+solar_os_ble_keyboard_addr_type_name = ["ble_keyboard.addr_type_name"]
+solar_os_ble_keyboard_parse_addr_type = ["ble_keyboard.parse_addr_type"]
+solar_os_ble_session_connect_with_options = ["bluetooth.session_connect_with_options"]
+solar_os_ble_session_pair_with_options = ["bluetooth.session_pair_with_options"]
+solar_os_ble_session_read_with_options = ["bluetooth.session_read_with_options"]
+solar_os_ble_session_write_with_options = ["bluetooth.session_write_with_options"]
+solar_os_ble_peer_connect_with_options = ["bluetooth.peer_connect_with_options"]
+solar_os_ble_peer_pair_with_options = ["bluetooth.peer_pair_with_options"]
+solar_os_ble_peer_read_with_options = ["bluetooth.peer_read_with_options"]
+solar_os_ble_peer_write_with_options = ["bluetooth.peer_write_with_options"]
+solar_os_ble_peer_subscribe_with_options = ["bluetooth.peer_subscribe_with_options"]
+solar_os_ble_server_request_with_options = ["bluetooth.server_request_with_options"]
+solar_os_ble_hid_request_with_options = ["bluetooth.hid_request_with_options"]
+solar_os_ble_gatt_write = ["bluetooth.gatt_write"]
+solar_os_ble_gatt_read = ["bluetooth.gatt_read"]
+solar_os_ble_gatt_characteristics = ["bluetooth.gatt_characteristics"]
+solar_os_ble_gatt_services = ["bluetooth.gatt_services"]
+solar_os_ble_gatt_get_status = ["bluetooth.gatt_get_status"]
+solar_os_ble_gatt_disconnect = ["bluetooth.gatt_disconnect"]
+solar_os_ble_gatt_pair = ["bluetooth.gatt_pair"]
+solar_os_ble_gatt_connect = ["bluetooth.gatt_connect"]
+solar_os_ble_session_write = ["bluetooth.session_write"]
+solar_os_ble_session_read = ["bluetooth.session_read"]
+solar_os_ble_session_characteristics = ["bluetooth.session_characteristics"]
+solar_os_ble_session_services = ["bluetooth.session_services"]
+solar_os_ble_session_pair = ["bluetooth.session_pair"]
+solar_os_ble_session_connect = ["bluetooth.session_connect"]
+solar_os_ble_session_get_info = ["bluetooth.session_get_info"]
+solar_os_ble_parse_address = ["bluetooth.parse_address"]
+solar_os_ble_server_request = ["bluetooth.server_request"]
+solar_os_ble_hid_gamepad_send = ["bluetooth.hid_gamepad_send"]
+solar_os_ble_hid_gamepad_hat = ["bluetooth.hid_gamepad_hat"]
+solar_os_ble_hid_gamepad_button = ["bluetooth.hid_gamepad_button"]
+solar_os_ble_hid_gamepad_axis = ["bluetooth.hid_gamepad_axis"]
+solar_os_ble_hid_mouse_button = ["bluetooth.hid_mouse_button"]
+solar_os_ble_hid_mouse_move = ["bluetooth.hid_mouse_move"]
+solar_os_ble_hid_keyboard_release_all = ["bluetooth.hid_keyboard_release_all"]
+solar_os_ble_hid_keyboard_release = ["bluetooth.hid_keyboard_release"]
+solar_os_ble_hid_keyboard_press = ["bluetooth.hid_keyboard_press"]
+solar_os_ble_hid_device_poll = ["bluetooth.hid_device_poll"]
+solar_os_ble_hid_device_status = ["bluetooth.hid_device_status"]
+solar_os_ble_hid_device_stop = ["bluetooth.hid_device_stop"]
+solar_os_ble_hid_device_pair = ["bluetooth.hid_device_pair"]
+solar_os_ble_hid_device_disconnect = ["bluetooth.hid_device_disconnect"]
+solar_os_ble_hid_device_forget = ["bluetooth.hid_device_forget"]
+solar_os_ble_hid_device_connect = ["bluetooth.hid_device_connect"]
+solar_os_ble_hid_device_hosts = ["bluetooth.hid_device_hosts"]
+solar_os_ble_hid_device_start_managed = ["bluetooth.hid_device_start_managed"]
+solar_os_ble_hid_device_start = ["bluetooth.hid_device_start"]
+solar_os_ble_init = ["ble_client.init", "bluetooth.init"]
+solar_os_ble_scan = ["ble_client.scan", "bluetooth.scan"]
+solar_os_ble_session_create = ["ble_client.session_create", "bluetooth.session_create"]
+solar_os_ble_session_cancel = ["ble_client.session_cancel", "bluetooth.session_cancel"]
+solar_os_ble_session_close = ["ble_client.session_close", "bluetooth.session_close"]
+solar_os_ble_peer_capacity = ["ble_client.peer_capacity", "bluetooth.peer_capacity"]
+solar_os_ble_peer_connect = ["ble_client.peer_connect", "bluetooth.peer_connect"]
+solar_os_ble_peer_disconnect = ["ble_client.peer_disconnect", "bluetooth.peer_disconnect"]
+solar_os_ble_peer_pair = ["ble_client.peer_pair", "bluetooth.peer_pair"]
+solar_os_ble_peer_get_info = ["ble_client.peer_get_info", "bluetooth.peer_get_info"]
+solar_os_ble_peer_services = ["ble_client.peer_services", "bluetooth.peer_services"]
+solar_os_ble_peer_characteristics = ["ble_client.peer_characteristics", "bluetooth.peer_characteristics"]
+solar_os_ble_peer_configure_queue = ["ble_client.peer_configure_queue", "bluetooth.peer_configure_queue"]
+solar_os_ble_peer_subscribe = ["ble_client.peer_subscribe", "bluetooth.peer_subscribe"]
+solar_os_ble_peer_poll = ["ble_client.peer_poll", "bluetooth.peer_poll"]
+solar_os_ble_peer_read = ["ble_client.peer_read", "bluetooth.peer_read"]
+solar_os_ble_peer_write = ["ble_client.peer_write", "bluetooth.peer_write"]
+solar_os_key_name = ["input.key_name"]
+solar_os_key_parse = ["input.parse_key"]
+solar_os_input_composition_set_modifiers = ["input.producer_modifiers"]
+solar_os_input_composition_modifiers = ["input.composition_modifiers"]
+solar_os_input_composition_apply = ["input.composition_apply"]
+solar_os_input_composition_apply_with_modifiers = ["input.composition_apply_with_modifiers"]
+solar_os_input_actions_start = ["input_actions.start"]
+solar_os_input_actions_stop = ["input_actions.stop"]
+solar_os_input_actions_running = ["input_actions.running"]
+solar_os_input_actions_worker_active = ["input_actions.worker_active"]
+solar_os_input_actions_bind = ["input_actions.bind"]
+solar_os_input_actions_count = ["input_actions.count"]
+solar_os_input_actions_get = ["input_actions.get"]
+solar_os_input_actions_unbind = ["input_actions.unbind"]
+solar_os_input_actions_clear = ["input_actions.clear"]
+solar_os_input_actions_emit_key = ["input_actions.emit_key"]
+solar_os_input_action_matches = ["input_actions.matches"]
+solar_os_input_keymap_info = ["keymap.info"]
+solar_os_input_keymap_get = ["keymap.get"]
+solar_os_input_keymap_set = ["keymap.set"]
+solar_os_input_keymap_reset = ["keymap.reset"]
+solar_os_input_keymap_load = ["keymap.load"]
+solar_os_input_keymap_find_slot = ["keymap.find_slot"]
+solar_os_input_keymap_validate = ["keymap.validate"]
+solar_os_input_keymap_release = ["keymap.release"]
+solar_os_input_keymap_decode = ["keymap.decode"]
+solar_os_input_keymap_parse = ["keymap.parse"]
+solar_os_input_keymap_register = ["keymap.provider_open"]
+solar_os_input_keymap_activate = ["keymap.provider_activate"]
+solar_os_input_keymap_process = ["keymap.provider_process"]
+solar_os_input_keymap_press_priority = ["keymap.provider_press_priority"]
+solar_os_input_keymap_release_all = ["keymap.provider_release_all"]
+solar_os_input_keymap_unregister = ["keymap.provider_close"]
+solar_os_input_keymap_try_unregister = ["keymap.provider_close"]
+solar_os_input_gesture_observer_register = ["input.observer_open"]
+solar_os_input_gesture_observer_unregister = ["input.observer_close"]
+solar_os_input_gesture_observer_try_unregister = ["input.observer_close"]
+solar_os_input_pointer_filter_register = ["input.filter_open"]
+solar_os_input_pointer_filter_unregister = ["input.filter_close"]
+solar_os_input_pointer_filter_try_unregister = ["input.filter_close"]
+solar_os_input_capture_keyboard = ["input.keyboard_open"]
+solar_os_input_capture_keyboard_with_shortcuts = ["input.keyboard_open"]
+solar_os_input_release_keyboard = ["input.keyboard_close"]
+solar_os_input_keyboard_captured_by = ["input.keyboard_claimed"]
+solar_os_input_read_captured_key = ["input.keyboard_read"]
+solar_os_input_capture_pointer = ["input.pointer_open"]
+solar_os_input_release_pointer = ["input.pointer_close"]
+solar_os_input_read_captured_pointer = ["input.pointer_read"]
+solar_os_input_source_open_typed = ["input.producer_open"]
+solar_os_input_source_open = ["input.producer_open"]
+solar_os_input_key_source_open = ["input.producer_open"]
+solar_os_input_pointer_source_open = ["input.producer_open"]
+solar_os_input_touch_source_open = ["input.producer_open"]
+solar_os_input_mouse_source_open = ["input.producer_open"]
+solar_os_input_joystick_source_open = ["input.producer_open"]
+solar_os_input_keyboard_source_open = ["input.producer_open"]
+solar_os_input_source_create = ["input.producer_open"]
+solar_os_input_source_set_ready = ["input.producer_ready"]
+solar_os_input_source_release_all = ["input.producer_release_all"]
+solar_os_input_write_key = ["input.producer_write_key"]
+solar_os_input_set_key = ["input.producer_set_key"]
+solar_os_input_write_key_tap = ["input.producer_write_key_tap"]
+solar_os_input_write_char = ["input.producer_write_char"]
+solar_os_input_write_pointer = ["input.producer_write_pointer"]
+solar_os_input_write_pointer_sample = ["input.producer_write_pointer_sample"]
+solar_os_input_write_axis = ["input.producer_write_axis"]
+solar_os_input_write_gesture = ["input.producer_write_gesture"]
+solar_os_input_source_set_gestures = ["input.producer_gestures"]
+solar_os_input_pointer_calibration_default = ["input.producer_calibration_default"]
+solar_os_input_read_source_chars = ["input.producer_read_chars"]
+solar_os_input_source_close = ["input.producer_close"]
+solar_os_input_keyboard_source_set_ready = ["input.producer_ready"]
+solar_os_input_keyboard_count = ["input.keyboard_count"]
+solar_os_input_source_count = ["input.source_count"]
+solar_os_input_source_get = ["input.source_get"]
+solar_os_input_source_get_info = ["input.source_get_info"]
+solar_os_input_source_find = ["input.source_find"]
+solar_os_input_source_get_diagnostics = ["input.source_get_diagnostics"]
+solar_os_input_source_class_name = ["input.source_class_name"]
+solar_os_input_pointer_mode_name = ["input.pointer_mode_name"]
+solar_os_input_pointer_action_name = ["input.pointer_action_name"]
+solar_os_input_axis_name = ["input.axis_name"]
+solar_os_input_gesture_name = ["input.gesture_name"]
+solar_os_input_gesture_direction_name = ["input.gesture_direction_name"]
+solar_os_input_parse_gesture = ["input.parse_gesture"]
+solar_os_input_parse_gesture_direction = ["input.parse_gesture_direction"]
+solar_os_input_pointer_is_captured = ["input.pointer_is_captured"]
+solar_os_input_pointer_apply_display_transform = ["input.pointer_apply_display_transform"]
+solar_os_input_pointer_apply_orientation = ["input.pointer_apply_orientation"]
+solar_os_input_pointer_calibration_get = ["input.pointer_calibration_get"]
+solar_os_input_pointer_calibration_set = ["input.pointer_calibration_set"]
+solar_os_input_pointer_calibration_reset = ["input.pointer_calibration_reset"]
+solar_os_input_get_pressed = ["input.get_pressed"]
+solar_os_input_key_press_generation = ["input.key_press_generation"]
+solar_os_input_keyboard_layout = ["input.keyboard_layout"]
+solar_os_input_set_keyboard_layout = ["input.set_keyboard_layout"]
+solar_os_input_set_keyboard_layout_list = ["input.set_keyboard_layout_list"]
+solar_os_input_keyboard_layout_list = ["input.keyboard_layout_list"]
+solar_os_input_keyboard_layout_name = ["input.keyboard_layout_name"]
+solar_os_input_parse_keyboard_layout = ["input.parse_keyboard_layout"]
+solar_os_input_parse_key_chord = ["input.parse_key_chord"]
+solar_os_input_translate_hid_usage = ["input.translate_hid_usage"]
+solar_os_input_translate_char_key = ["input.translate_char_key"]
+solar_os_input_key_text = ["input.key_text"]
+solar_os_input_resolve_layout_key = ["input.resolve_layout_key"]
+solar_os_input_translate_hid_usage_byte = ["input.translate_hid_usage_byte"]
+solar_os_input_compose_feed = ["input.compose_feed"]
+solar_os_input_get_repeat = ["input.get_repeat"]
+solar_os_input_set_repeat = ["input.set_repeat"]
+solar_os_tui_begin = ["tui.begin"]
+solar_os_tui_attach_session = ["tui.attach_session"]
+solar_os_tui_end = ["tui.end"]
+solar_os_tui_enable_diff = ["tui.enable_diff"]
+solar_os_tui_rows = ["tui.rows"]
+solar_os_tui_cols = ["tui.cols"]
+solar_os_tui_clear = ["tui.clear"]
+solar_os_tui_refresh = ["tui.refresh"]
+solar_os_tui_move = ["tui.move"]
+solar_os_tui_set_cursor_visible = ["tui.set_cursor_visible"]
+solar_os_tui_write = ["tui.write"]
+solar_os_tui_addstr = ["tui.addstr"]
+solar_os_tui_putch = ["tui.putch"]
+solar_os_tui_hline = ["tui.hline"]
+solar_os_tui_vline = ["tui.vline"]
+solar_os_tui_vrule = ["tui.vrule"]
+solar_os_tui_box = ["tui.box"]
+solar_os_tui_fill = ["tui.fill"]
+solar_os_tui_text_popup = ["tui.text_popup"]
+solar_os_tui_progress_bar = ["tui.progress_bar"]
+solar_os_tui_draw_form = ["tui.draw_form"]
+solar_os_tui_screen_begin = ["tui.screen_begin"]
+solar_os_tui_screen_should_fullscreen = ["tui.screen_should_fullscreen"]
+solar_os_tui_screen_fullscreen = ["tui.screen_fullscreen"]
+solar_os_tui_screen_bottom_rows = ["tui.screen_bottom_rows"]
+solar_os_tui_screen_content_rows = ["tui.screen_content_rows"]
+solar_os_tui_screen_content_end = ["tui.screen_content_end"]
+solar_os_tui_screen_key = ["tui.screen_key"]
+solar_os_tui_screen_layout = ["tui.screen_layout"]
+solar_os_tui_layout_compute = ["tui.layout_compute"]
+solar_os_tui_layout_compute_fullscreen = ["tui.layout_compute_fullscreen"]
+solar_os_tui_write_cell = ["tui.write_cell"]
+solar_os_tui_draw_title = ["tui.draw_title"]
+solar_os_tui_draw_help = ["tui.draw_help"]
+solar_os_tui_draw_footer = ["tui.draw_footer"]
+solar_os_tui_draw_tab = ["tui.draw_tab"]
+solar_os_tui_draw_too_small = ["tui.draw_too_small"]
+solar_os_tui_viewport_reconcile = ["tui.viewport_reconcile", "ui.viewport_reconcile"]
+solar_os_tui_viewport_key = ["tui.viewport_key", "ui.viewport_key"]
+solar_os_tui_input_key = ["tui.input_key", "ui.input_key"]
+solar_os_tui_input_text = ["tui.input_text", "ui.input_text"]
+solar_os_tui_draw_input = ["tui.draw_input"]
+solar_os_tui_draw_input_ex = ["tui.draw_input_ex"]
+solar_os_expr_compile = ["expr.compile"]
+solar_os_expr_evaluate = ["expr.evaluate"]
+solar_os_shell_io_set_dimensions = ["shell_io.set_dimensions"]
+solar_os_shell_io_kind = ["shell_io.kind"]
+solar_os_shell_io_terminal = ["shell_io.terminal"]
+solar_os_shell_terminal_profile_name = ["shell_io.terminal_profile_name"]
+solar_os_shell_parse_terminal_profile = ["shell_io.parse_terminal_profile"]
+solar_os_shell_io_set_terminal_profile = ["shell_io.set_terminal_profile"]
+solar_os_shell_io_terminal_profile = ["shell_io.terminal_profile"]
+solar_os_shell_charset_name = ["shell_io.charset_name"]
+solar_os_shell_parse_charset = ["shell_io.parse_charset"]
+solar_os_shell_io_set_charset = ["shell_io.set_charset"]
+solar_os_shell_io_charset = ["shell_io.charset"]
+solar_os_shell_io_is_cursor_addressable = ["shell_io.is_cursor_addressable"]
+solar_os_shell_io_app_exit_key = ["shell_io.app_exit_key"]
+solar_os_shell_io_write = ["shell_io.write"]
+solar_os_shell_io_write_len = ["shell_io.write_len"]
+solar_os_shell_io_write_raw = ["shell_io.write_raw"]
+solar_os_shell_io_writeln = ["shell_io.writeln"]
+solar_os_shell_io_printf = ["shell_io.printf"]
+solar_os_shell_io_vprintf = ["shell_io.vprintf"]
+solar_os_shell_io_table_write = ["shell_io.table_write"]
+solar_os_shell_io_table_writeln = ["shell_io.table_writeln"]
+solar_os_shell_io_table_printf = ["shell_io.table_printf"]
+solar_os_shell_io_table_printf_bold = ["shell_io.table_printf_bold"]
+solar_os_shell_io_table_write_bold = ["shell_io.table_write_bold"]
+solar_os_shell_io_table_put_char = ["shell_io.table_put_char"]
+solar_os_shell_io_set_bold = ["shell_io.set_bold"]
+solar_os_shell_io_set_italic = ["shell_io.set_italic"]
+solar_os_shell_io_set_underline = ["shell_io.set_underline"]
+solar_os_shell_io_set_inverse = ["shell_io.set_inverse"]
+solar_os_shell_io_write_bold = ["shell_io.write_bold"]
+solar_os_shell_io_printf_bold = ["shell_io.printf_bold"]
+solar_os_shell_io_clear = ["shell_io.clear"]
+solar_os_shell_io_newline = ["shell_io.newline"]
+solar_os_shell_io_put_char = ["shell_io.put_char"]
+solar_os_shell_io_put_utf8_byte = ["shell_io.put_utf8_byte"]
+solar_os_shell_io_cols = ["shell_io.cols"]
+solar_os_shell_io_rows = ["shell_io.rows"]
+solar_os_shell_io_cursor_row = ["shell_io.cursor_row"]
+solar_os_shell_io_cursor_col = ["shell_io.cursor_col"]
+solar_os_shell_io_set_cursor = ["shell_io.set_cursor"]
+solar_os_shell_io_set_cursor_visible = ["shell_io.set_cursor_visible"]
+solar_os_shell_io_cursor_visible = ["shell_io.cursor_visible"]
+solar_os_shell_io_screen_generation = ["shell_io.screen_generation"]
+solar_os_shell_io_clear_line_from = ["shell_io.clear_line_from"]
+solar_os_shell_io_redraw_line = ["shell_io.redraw_line"]
+solar_os_shell_io_set_footer = ["shell_io.set_footer"]
+solar_os_shell_io_clear_footer = ["shell_io.clear_footer"]
+solar_os_shell_io_flush = ["shell_io.flush"]
+solar_os_shell_io_vprintf_bold = ["shell_io.vprintf_bold"]
+solar_os_shell_io_table_vprintf = ["shell_io.table_vprintf"]
+solar_os_shell_io_table_vprintf_bold = ["shell_io.table_vprintf_bold"]
+solar_os_terminal_clear = ["terminal.clear"]
+solar_os_terminal_newline = ["terminal.newline"]
+solar_os_terminal_backspace = ["terminal.backspace"]
+solar_os_terminal_put_printable = ["terminal.put_printable"]
+solar_os_terminal_put_codepoint = ["terminal.put_codepoint"]
+solar_os_terminal_put_char = ["terminal.put_char"]
+solar_os_terminal_put_utf8_byte = ["terminal.put_utf8_byte"]
+solar_os_terminal_write_utf8 = ["terminal.write_utf8"]
+solar_os_terminal_utf8_reset = ["terminal.utf8_reset"]
+solar_os_terminal_write = ["terminal.write"]
+solar_os_terminal_writeln = ["terminal.writeln"]
+solar_os_terminal_printf = ["terminal.printf"]
+solar_os_terminal_set_bold = ["terminal.set_bold"]
+solar_os_terminal_bold = ["terminal.bold"]
+solar_os_terminal_set_italic = ["terminal.set_italic"]
+solar_os_terminal_italic = ["terminal.italic"]
+solar_os_terminal_set_underline = ["terminal.set_underline"]
+solar_os_terminal_underline = ["terminal.underline"]
+solar_os_terminal_set_inverse = ["terminal.set_inverse"]
+solar_os_terminal_inverse = ["terminal.inverse"]
+solar_os_terminal_write_bold = ["terminal.write_bold"]
+solar_os_terminal_writeln_bold = ["terminal.writeln_bold"]
+solar_os_terminal_printf_bold = ["terminal.printf_bold"]
+solar_os_terminal_set_status_bar = ["terminal.set_status_bar"]
+solar_os_terminal_get_status_bar = ["terminal.get_status_bar"]
+solar_os_terminal_status_bar_preference_visible = ["terminal.status_bar_preference_visible"]
+solar_os_terminal_set_status_bar_preference = ["terminal.set_status_bar_preference"]
+solar_os_terminal_status_bar_visible = ["terminal.status_bar_visible"]
+solar_os_terminal_set_status_bar_visible = ["terminal.set_status_bar_visible"]
+solar_os_terminal_set_status_bar_visible_transient = ["terminal.set_status_bar_visible_transient"]
+solar_os_terminal_set_footer = ["terminal.set_footer"]
+solar_os_terminal_set_black_is_one = ["terminal.set_black_is_one"]
+solar_os_terminal_palette_preference_inverted = ["terminal.palette_preference_inverted"]
+solar_os_terminal_set_palette_preference = ["terminal.set_palette_preference"]
+solar_os_terminal_palette_inverted = ["terminal.palette_inverted"]
+solar_os_terminal_set_palette_inverted = ["terminal.set_palette_inverted"]
+solar_os_terminal_set_palette_inverted_transient = ["terminal.set_palette_inverted_transient"]
+solar_os_terminal_cursor_row = ["terminal.cursor_row"]
+solar_os_terminal_cursor_col = ["terminal.cursor_col"]
+solar_os_terminal_rows = ["terminal.rows"]
+solar_os_terminal_cols = ["terminal.cols"]
+solar_os_terminal_set_cursor = ["terminal.set_cursor"]
+solar_os_terminal_set_cursor_visible = ["terminal.set_cursor_visible"]
+solar_os_terminal_cursor_visible = ["terminal.cursor_visible"]
+solar_os_terminal_get_cursor_preference = ["terminal.get_cursor_preference"]
+solar_os_terminal_set_cursor_preference = ["terminal.set_cursor_preference"]
+solar_os_terminal_cursor_shape_name = ["terminal.cursor_shape_name"]
+solar_os_terminal_parse_cursor_shape = ["terminal.parse_cursor_shape"]
+solar_os_terminal_clear_primitives = ["terminal.clear_primitives"]
+solar_os_terminal_add_vrule = ["terminal.add_vrule"]
+solar_os_terminal_clear_line_from = ["terminal.clear_line_from"]
+solar_os_terminal_page_up = ["terminal.page_up"]
+solar_os_terminal_page_down = ["terminal.page_down"]
+solar_os_terminal_scroll_to_live = ["terminal.scroll_to_live"]
+solar_os_terminal_is_scrolled_back = ["terminal.is_scrolled_back"]
+solar_os_terminal_orientation = ["terminal.orientation"]
+solar_os_terminal_set_orientation = ["terminal.set_orientation"]
+solar_os_terminal_set_orientation_transient = ["terminal.set_orientation_transient"]
+solar_os_terminal_font = ["terminal.font"]
+solar_os_terminal_set_font = ["terminal.set_font"]
+solar_os_terminal_set_font_transient = ["terminal.set_font_transient"]
+solar_os_terminal_font_name = ["terminal.font_name"]
+solar_os_terminal_parse_font = ["terminal.parse_font"]
+solar_os_terminal_text_size = ["terminal.text_size"]
+solar_os_terminal_set_text_size = ["terminal.set_text_size"]
+solar_os_terminal_set_text_size_transient = ["terminal.set_text_size_transient"]
+solar_os_terminal_text_size_name = ["terminal.text_size_name"]
+solar_os_terminal_parse_text_size = ["terminal.parse_text_size"]
+solar_os_terminal_get_profile = ["terminal.get_profile"]
+solar_os_terminal_apply_profile_transient = ["terminal.apply_profile_transient"]
+solar_os_terminal_needs_draw = ["terminal.needs_draw"]
+solar_os_terminal_invalidate_render = ["terminal.invalidate_render"]
+solar_os_terminal_draw = ["terminal.draw"]
+solar_os_gfx_width = ["gfx.width"]
+solar_os_gfx_height = ["gfx.height"]
+solar_os_gfx_dimensions = ["gfx.dimensions"]
+solar_os_gfx_canvas_bounds = ["gfx.canvas_bounds"]
+solar_os_gfx_panel_bounds = ["gfx.panel_bounds"]
+solar_os_gfx_format = ["gfx.format"]
+solar_os_gfx_palette_inverted = ["gfx.palette_inverted"]
+solar_os_gfx_display_target_name = ["gfx.display_target_name"]
+solar_os_gfx_gray = ["gfx.gray"]
+solar_os_gfx_rgb = ["gfx.rgb"]
+solar_os_gfx_color_is_valid = ["gfx.color_is_valid"]
+solar_os_gfx_set_color = ["gfx.set_color"]
+solar_os_gfx_color = ["gfx.color"]
+solar_os_gfx_set_font = ["gfx.set_font"]
+solar_os_gfx_font = ["gfx.font"]
+solar_os_gfx_text_width = ["gfx.text_width"]
+solar_os_gfx_text_advance = ["gfx.text_advance"]
+solar_os_gfx_text_fit = ["gfx.text_fit"]
+solar_os_gfx_text_span = ["gfx.text_span"]
+solar_os_gfx_text_tail = ["gfx.text_tail"]
+solar_os_gfx_set_line_style = ["gfx.set_line_style"]
+solar_os_gfx_line_style = ["gfx.line_style"]
+solar_os_gfx_clear = ["gfx.clear"]
+solar_os_gfx_pixel = ["gfx.pixel"]
+solar_os_gfx_line = ["gfx.line"]
+solar_os_gfx_rect = ["gfx.rect"]
+solar_os_gfx_fill_rect = ["gfx.fill_rect"]
+solar_os_gfx_fill_polygon = ["gfx.fill_polygon"]
+solar_os_gfx_circle = ["gfx.circle"]
+solar_os_gfx_fill_circle = ["gfx.fill_circle"]
+solar_os_gfx_text = ["gfx.text"]
+solar_os_gfx_icon_from_name = ["gfx.icon_from_name"]
+solar_os_gfx_icon = ["gfx.icon"]
+solar_os_gfx_bitmap = ["gfx.bitmap"]
+solar_os_gfx_bitmap_2bpp = ["gfx.bitmap_2bpp"]
+solar_os_gfx_bitmap_2bpp_scaled = ["gfx.bitmap_2bpp_scaled"]
+solar_os_gfx_blit_raster = ["gfx.blit_raster"]
+solar_os_gfx_present_mono_xbm = ["gfx.present_mono_xbm"]
+solar_os_gfx_present_frame = ["gfx.present_frame"]
+solar_os_gfx_present_frame_at = ["gfx.present_frame_at"]
+solar_os_gfx_supports_frame_format = ["gfx.supports_frame_format"]
+solar_os_gfx_needs_present = ["gfx.needs_present"]
+solar_os_gfx_present = ["gfx.present"]
 solar_os_context_terminal = ["application.terminal"]
 solar_os_context_gfx = ["application.gfx"]
 solar_os_context_app_class = ["application.app_class"]
@@ -265,6 +729,16 @@ solar_os_bus_count_protocol = ["bus.count"]
 solar_os_bus_get = ["bus.info"]
 solar_os_bus_get_protocol = ["bus.info"]
 solar_os_bus_find = ["bus.find"]
+solar_os_i2c_init = ["bus.find", "bus.runtime_available", "bus.acquire", "bus.close"]
+solar_os_i2c_get_speed_hz = ["bus.find"]
+solar_os_i2c_get_sda_pin = ["bus.find"]
+solar_os_i2c_get_scl_pin = ["bus.find"]
+solar_os_i2c_bus_probe = ["bus.acquire", "bus.i2c_probe", "bus.close"]
+solar_os_i2c_bus_read_reg = ["bus.acquire", "bus.i2c_read_reg", "bus.close"]
+solar_os_i2c_bus_write_reg = ["bus.acquire", "bus.i2c_write_reg", "bus.close"]
+solar_os_i2c_probe = ["bus.acquire", "bus.i2c_probe", "bus.close"]
+solar_os_i2c_read_reg = ["bus.acquire", "bus.i2c_read_reg", "bus.close"]
+solar_os_i2c_write_reg = ["bus.acquire", "bus.i2c_write_reg", "bus.close"]
 solar_os_bus_acquire = ["bus.acquire"]
 solar_os_bus_release = ["bus.close"]
 solar_os_bus_i2c_set_speed = ["bus.i2c_speed"]
@@ -566,3 +1040,261 @@ solar_os_http_origin_parse = ["http.origin_parse"]
 solar_os_http_same_origin = ["http.same_origin"]
 solar_os_http_redirect_status = ["http.redirect_status"]
 solar_os_http_redirect_url = ["http.redirect_url"]
+
+# Explicitly reviewed core routing hooks, not application ABI operations.
+
+[internal.solar_os_input_init]
+reason = "Core boot initializes global routing queues and registries before producers or applications run."
+review = "a17f29c613672cd4b1fac853a9c95a12eb4def2c6707ab46b3ec773e4034027d"
+
+[internal.solar_os_input_set_wake_callback]
+reason = "Core boot installs the runtime-lifetime wake signal for its event consumer; applications publish through producer handles."
+review = "17e63c7e10ed2abe87c6a1759d120746ecc04635f758e0af3693405bbad3232b"
+
+[internal.solar_os_input_set_display_orientation_resolver]
+reason = "Core boot connects the display manager to touch routing; applications use coordinate transforms and display services."
+review = "61b3e50f9a4a4cb07d64a4dcd673a69274bbdd81aa09d056ac6900fbef6648b3"
+
+[internal.solar_os_input_set_display_size_resolver]
+reason = "Core boot connects native display bounds to touch recognition; application producers submit samples without replacing this resolver."
+review = "c9f5b45ca8dd593240946f1f178b0ecced04c47fea66917aa6900c72f25a9f87"
+
+[internal.solar_os_input_poll]
+reason = "The central runtime pump advances timed input recognition once for all sources; applications receive routed events or captures."
+review = "c970e83c739b1850eb78630d57aeffffdb21c14091041f4998fcc2acbe512632"
+
+[internal.solar_os_input_pointer_filter_event]
+reason = "The central runtime pump applies the registered filter after orientation; applications register filters rather than replaying this stage."
+review = "0e361e8c3c20020006175353012cf7842ad5f1fcc013b2be93fa8786d2725f8b"
+
+[internal.solar_os_input_read_events]
+reason = "The central runtime pump drains the global key queue for session routing; application keyboard captures have their own owned read operation."
+review = "cd7b35a095de2db165c619f45808ceecae1ce31752754225a4c2e6e89a2c5ca8"
+
+[internal.solar_os_input_read_pointer_events]
+reason = "The central runtime pump drains the global pointer queue for display routing; applications receive routed events or use pointer captures."
+review = "53a728416b8788158fd7007792f00c65ad60f59ec399d8369e6f49d330a5a910"
+
+[internal.solar_os_input_read_axis_events]
+reason = "The central runtime pump drains the global axis queue for session routing; applications receive routed axis events."
+review = "4d2eb249568dc76301234077a4ae4d9d65498509aef572051a8c02f6b9916f5a"
+
+[internal.solar_os_input_read_gesture_events]
+reason = "The central runtime pump drains the global gesture queue for session routing; application observers receive their own deliveries."
+review = "ecf240d1722a5e7fd03bc41b249135ad47e866ef348fb83a3463ce4ef72158f0"
+
+[internal.solar_os_input_release_session_keyboard]
+reason = "The session manager revokes shortcut-preserving keyboard capture on focus changes; applications release only their own capture handles."
+review = "89ba65f7edb90e501e8fba99884673c156b951a398eb72895e194624cb07da24"
+
+[internal.solar_os_input_capture_key_event]
+reason = "The central runtime input dispatcher routes keys to an exclusive capture before desktop shortcuts; applications read their capture handle."
+review = "efeab93734ef981f0781aef16f65efc616ee3dff8e0c4f043c69d8fec0ad908b"
+
+[internal.solar_os_input_take_captured_activity]
+reason = "The central runtime pump consumes the activity flag for wake and idle accounting; application queries must not clear global activity."
+review = "2d7df48a9a14d9029025f90dacb0ffe77381a8658af18832fc779c0e6f5be6d8"
+
+[internal.solar_os_input_actions_init]
+reason = "Core boot and the core listener start path initialize global action state; applications configure rules and start the listener through the actions table."
+review = "06152039584d7c4bae61e2e1d16c841802c4b2a737adcb3da0889caae81495d8"
+
+[internal.solar_os_input_actions_set_runner]
+reason = "Core boot installs its runtime-lifetime shell command executor; application bindings copy command strings without replacing that executor."
+review = "350294a4e68bda4b49684067b6cbbe10cbfcae0669686cdd68d932911368cfa1"
+
+[internal.solar_os_ble_prepare_sleep]
+reason = "The core Bluetooth/keyboard power adapter coordinates transport teardown with the system sleep transition; applications request sleep through the power service."
+review = "2c7d8641bb4752c045d8a815b24a8119b0fdf6d8bb968864a8ae21bd5c4d6dd2"
+
+[internal.solar_os_ble_sleep_prepare_ready]
+reason = "The core power adapter checks transport readiness during system sleep admission; applications use the coordinated power service."
+review = "062c1fc82d67ad9d5f61abb9cba431baac29b12fe2c2f98c4f6be43411bf5c80"
+
+[internal.solar_os_ble_resume]
+reason = "The core power adapter resumes Bluetooth after the system wake transition; applications do not resume one transport independently of system power state."
+review = "9010539277cb8ab892aa3c7700114c8c0e6405b7761482b8d5776f76be1b8b9c"
+
+[internal.solar_os_ble_keyboard_apply_boot_policy]
+reason = "The core boot and transport lifecycle applies board policy before starting or releasing the shared Bluetooth host; applications change the next-boot setting instead."
+review = "acde67913248fe07dab0e09b3368a65f0fe709f2074067e3e069d1a7cb861a04"
+
+[internal.solar_os_ble_keyboard_prepare_sleep]
+reason = "The core power adapter coordinates keyboard and shared transport teardown during system sleep admission; applications request sleep through the power service."
+review = "ee9ac23344d415b82bf6b39b9c8158d083bf113a1a1bda8cbf61fd9bdccfba0d"
+
+[internal.solar_os_ble_keyboard_sleep_prepare_ready]
+reason = "The core power adapter polls keyboard transport retirement while admitting system sleep; applications use coordinated system power transitions."
+review = "af3d3536e46bd51719c648895f72cd12291154895fbb049b46f7084efcf73ddd"
+
+[internal.solar_os_ble_keyboard_resume]
+reason = "The core power adapter resumes the shared keyboard transport after system wake, rather than applications independently resuming one device."
+review = "27adcdf85b34443277c2504d115b7fdadf3d30792f89788809158fdeeaa811dc"
+
+[internal.solar_os_ble_keyboard_poll]
+reason = "The core main loop schedules the permanent keyboard keepalive worker; applications configure keepalive and read its status without driving its scheduler."
+review = "a76058400b05746fdcfc28cdf61078e1fa8440fa6b102f81fe4ca002dd1e4e4d"
+
+[internal.solar_os_ble_keyboard_client_acquire]
+reason = "The central transport and byte-stream backend arbitrate controller capacity against the permanent keyboard reconnect scanner; application peers use owned Bluetooth sessions."
+review = "8e210a9485b833e787777c5e9591f96cfa1f380792cda7a4dc113bdff2337b18"
+
+[internal.solar_os_ble_keyboard_client_release]
+reason = "The central transport and byte-stream backend release their keyboard scanner arbitration after transport retirement; applications close their owned sessions or streams."
+review = "cd559bc0a6385b660bb1c75f206bcf589f610c15e567d203449c6785137e6105"
+
+[internal.solar_os_ble_nimble_address]
+reason = "The core transport converts public display-order address bytes into its private NimBLE address object; applications pass canonical byte arrays to Bluetooth operations."
+review = "834d6fed8069f5bee3c21e70400b865a92efbefe663fa35de4fbfa0377771fea"
+
+[internal.solar_os_ble_nimble_display_address]
+reason = "The core transport converts a private NimBLE address object into copied public address bytes before publishing results; no host-stack objects cross the ABI."
+review = "704dff263b37ea97968c619cec2479ae7bd2eadda4b26b1ae65723cb0b1182ab"
+
+[internal.solar_os_ble_nimble_error]
+reason = "The transport translates private NimBLE status codes to core errors; public Bluetooth operations already return normalized system ABI results."
+review = "b385f1d9ef7c1dae74c2cd25543206177992414a0aee9de3833404e3b133fcdb"
+
+[internal.solar_os_ble_nimble_security]
+reason = "The permanent core host handles private GAP security events and bonding state; applications request pairing through owned Bluetooth sessions or keyboard controls."
+review = "e9f4575ec67532e515868d6683a20d259326265f165c5aeee1c3157e3172a97e"
+
+[internal.solar_os_ble_nimble_security_passkey]
+reason = "The core host consumes GAP security events and extracts passkeys before publishing copied events; application modules do not install host event callbacks."
+review = "d95ad14b7d25d0d1034fcc68f25736da2a176a911cdd325bc41468db2f77b1a2"
+
+[internal.solar_os_ble_nimble_store_status]
+reason = "The core NimBLE bond-store callback processes private SDK store events and owns bonding persistence; applications use pairing and forget controls."
+review = "3f6a79db7409bca645bf0e7d3f9fb2fabf87f25e6e770026fdf6cfdf45f19403"
+
+[internal.solar_os_ble_nimble_keyboard_bond_remembered]
+reason = "The core host checks its bond store while admitting the permanent keyboard connection; discovery publishes copied remembered flags without exposing SDK addresses or the store."
+review = "4ff01687014f5cd7522e0bfebe13a14ead8bbeeb21fab8e3e2ff55c75fd309af"
+
+[internal.solar_os_ble_nimble_client_idle]
+reason = "The core host checks transport retirement during coordinated shutdown and controller arbitration; applications observe owned peer status and close their sessions."
+review = "0046e01da328614d55d410d4eb92580855b74a98b53c4a9d1e2f33d001d72bb2"
+
+[internal.solar_os_ble_nimble_host_stopped]
+reason = "The host lifecycle notifies the core transport of final controller shutdown so private links can retire; applications cannot stop the shared host independently."
+review = "d7e531866df6ffe938b10fc3bd077197251770318d42b361595baf1875e49dc6"
+
+[internal.solar_os_ble_nimble_set_hostname]
+reason = "The host lifecycle restores the core GAP name at startup and after releasing an application peripheral lease; applications name their owned peripheral requests instead."
+review = "d72e36098682511799b78f3335a27d004acc93da07b1d87c623c586744ebeb61"
+
+[internal.solar_os_ble_nimble_hid_prepare]
+reason = "The permanent host registers its HOGP attributes before starting NimBLE; applications use owned generic servers or HID peripheral requests, without editing the shared attribute table."
+review = "4d4741a4c432542edf83dac18d5d8252c49ed29fb600ecf2685449a0f584a66d"
+
+[internal.solar_os_ble_hid_init]
+reason = "The core keyboard policy installs its permanent callback into the private HID central transport; applications use canonical input events and Bluetooth keyboard controls."
+review = "9b04b4bfd069ab4684372c48348f2a26a0d36d024f64b90a5d7827a92ea940dd"
+
+[internal.solar_os_ble_hid_deinit]
+reason = "The core keyboard and host lifecycle retire the permanent central transport; application modules do not deinitialize the shared OS keyboard service."
+review = "b993f20b8010474634aad6a7b738ad94858c67425c4a9b334bec800549233e71"
+
+[internal.solar_os_ble_hid_open]
+reason = "The keyboard reconnect policy opens its OS-owned central device and retains a private mutable SDK transport object; applications open generation-checked Bluetooth peers instead."
+review = "8f021cbdc3e20ee1275369704165d51763b791b2af65e0a775434e5f5ef5f7f0"
+
+[internal.solar_os_ble_hid_close]
+reason = "The keyboard policy closes its private central device during reconnect and system power transitions; application peers use their owned session/peer lifecycle."
+review = "611467b3d693a226816bfb6b7732cd2f2ae8f55ee80695fcb72bf7b129a985c0"
+
+[internal.solar_os_ble_hid_keepalive]
+reason = "The core keyboard scheduler submits keepalive against the OS-owned central device; applications configure keepalive and query its normalized public status."
+review = "adf3eea18bc33fb42d059c60a460a78f14081799c3816dd5f1f52714bdfbcf69"
+
+[internal.solar_os_ble_hid_cancel_open]
+reason = "The core keyboard transport cancels its own pending central open while retiring the host or changing keyboard policy; applications cancel owned sessions."
+review = "62876513b1abc6096317db6dce6c5e455ad34c965c8032d95dd4fee7a526fcce"
+
+[internal.solar_os_ble_hid_suspend]
+reason = "The coordinated core power transition suspends the permanent keyboard central transport; application sleep requests use the power service."
+review = "313b94960db2506fc34267ed15a2b7789cb18f0f5cdaebacb2097b2d653ea8e9"
+
+[internal.solar_os_ble_hid_idle]
+reason = "The keyboard and host lifecycle poll private central retirement before reusing controller state; application modules do not manipulate this transport slot."
+review = "20d1e86dd1b4d52acb7c4f40fbbc7c6d9aea9c738ede08167eab4a8e4a2148e5"
+
+[internal.solar_os_ble_hid_address]
+reason = "The core keyboard policy reads an address borrowed from its private mutable central device during reconnect and bonding; application discovery and peer records contain copied canonical addresses."
+review = "8d07b148880bc448b42b79e2b4df1875183b930deee6f61bcff654fd570486aa"
+
+[internal.solar_os_ble_keyboard_scan_name_is_keyboard_like]
+reason = "The permanent keyboard reconnect scanner applies its own name heuristic; public discovery already reports the resulting keyboard-like flag for each copied advertisement."
+review = "88a46176a0de2897f10e09b8d4308886d26c5bfc79616a3a7f8e9c534d319374"
+
+[internal.solar_os_ble_keyboard_scan_reconnect_bda_matches]
+reason = "The core reconnect scanner matches advertisements against its saved keyboard identity; application discovery and peer connection do not drive the OS reconnect policy."
+review = "66a18f4ff1252fbaaad94d5317963c98178e810fbd0aea0e4a4375b830d7a0cb"
+
+[internal.solar_os_ble_keyboard_scan_reconnect_event_is_connectable]
+reason = "The core reconnect scanner interprets advertising event types before attempting the permanent keyboard connection; applications use canonical discovery and owned peer operations."
+review = "7e71d812459b038f5f750c136b7a098906444d848246f92b193003d1df471fb5"
+
+[internal.solar_os_ble_keyboard_scan_candidate_should_replace]
+reason = "The core reconnect scanner ranks candidates while preserving its selected keyboard; applications may independently choose from the public discovery records."
+review = "c5d5614b70555e205bf0e62fb1159efc3e84d252eef8ef9b87a345bb6510c790"
+
+[internal.solar_os_board_boot_init]
+reason = "Only main calls this board bootstrap to set reserved startup GPIO levels and register the permanent power-off hook. Runtime power and resource controls use their own service interfaces."
+review = "f7bd728b175cb37a32c4c651313820343345adcb0232e6a34c5c1b2ed0b6b9d7"
+
+[internal.solar_os_board_boot_start_jobs]
+reason = "Only main invokes this board startup policy to launch its configured default console and pointer-arrows job. Runtime session and job management do not rerun the board bootstrap."
+review = "aaf78e78aa973ff924e8904c5f84a524b59fb039ade2afd5b369fcdee058b0fd"
+
+[internal.solar_os_boot_services_init]
+reason = "Only main runs this ordered initialization of permanent Core services before application startup. It is the kernel boot orchestrator, not a runtime service operation."
+review = "1a7389def98a608c00c1fce08e12d147b7deefa921e354e84aca4b2af1e79be9"
+
+[internal.solar_os_app_start]
+reason = "The Core launcher validates the descriptor, allocates cold state and invokes start under its application scope. Applications supply the canonical lifecycle callback table and request launches through the application service."
+review = "fe8468541290415138e4354c7be566a683f5ef7e942a8976ffa466f04ccaf84e"
+
+[internal.solar_os_app_stop]
+reason = "The Core launcher waits for stop and owned-resource teardown before releasing its context. Applications provide stop callbacks; they do not directly run kernel teardown on a raw context."
+review = "728e52896711b131b6d20587d6b6f50191f19ff77093d66fc9fe427adf9fc355"
+
+[internal.solar_os_app_stop_checked]
+reason = "Session hosts use this kernel teardown guard to retain context and code while workers or owned resources remain busy. Public applications provide lifecycle callbacks and request session closure."
+review = "6feaad9e6f59fb3d080c4155956181fb574475dc9de4644c83421ae570289adc"
+
+[internal.solar_os_app_event]
+reason = "The session host dispatches a canonical event while installing and restoring the receiving application scope. Packages implement the event callback rather than invoking this raw-context dispatcher."
+review = "a7ee9154c90ab89dd2e2dc4a3812cdd8d0ed59c2a23bd347d919912eba3fba2c"
+
+[internal.solar_os_app_suspend]
+reason = "The session host dispatches suspension under the retained application scope. Applications supply the suspend callback and use the application service for suspension requests."
+review = "63aa289d88ee011be96a6198059b68af79c3e5e1876c9b5ed01909805055a415"
+
+[internal.solar_os_app_resume]
+reason = "The session host dispatches resume under the retained application scope. Applications supply the resume callback; raw host contexts and focus restoration stay in Core."
+review = "e6747be0c1024351b15873c9bd2ad46dcb3bff3dfa0efa56cf719938837338ee"
+
+[internal.solar_os_app_title]
+reason = "The session host dispatches the title callback with a borrowed output buffer under the application scope. Packages supply that callback through the canonical lifecycle table."
+review = "2b63a2fc78fd02510c8a1c19faf89410324832505c51ce876cc72e6b8b3b0355"
+
+[internal.solar_os_app_tick_interval_ms]
+reason = "The Core scheduler applies default cadence and invokes the descriptor interval query in a read-only state scope. Applications declare their interval/query in the canonical lifecycle table."
+review = "9cb69784f96d61a41eb352821f43c167c1267ab1c133d79e94c07efe535d9e5c"
+
+[internal.solar_os_application_scope_enter]
+reason = "Only trusted kernel dispatchers and ABI adapters install task-local application identity around callbacks. Packages cannot substitute raw host contexts; state and rendering access use the application service."
+review = "e6f2dba1c78a4a1e0109916f7539309e0cdfa43e3cd4e4aab1a8158338af07ce"
+
+[internal.solar_os_application_scope_leave]
+reason = "Kernel dispatchers restore the previous task-local identity after nested callbacks. Scope restoration is host machinery, not an application service operation."
+review = "33d609d009c330ea0b9e27883d4ddc62ef1cb098e39d6621269a54ef316f604f"
+
+[internal.solar_os_application_context]
+reason = "ABI adapters borrow the kernel context installed by the lifecycle dispatcher. Its layout remains private; package callbacks receive an opaque context and use the application service for operations."
+review = "fde0d688acc8ee73127196b57d512502f306e071009c32c3bb75abf7b638202c"
+
+[internal.solar_os_application_descriptor]
+reason = "ABI adapters read the current Core descriptor for scoped properties and resource ownership. Packages use application service properties and supply their own canonical callback table."
+review = "3a57e37aaa9db2b21ea25057dacad22ac7d47f30dd814dd4aea61a1d75302fa9"

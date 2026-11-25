@@ -9,7 +9,7 @@
 typedef struct {
   solar_os_stream_handle_t handle;
   char name[SOLAR_OS_STREAM_ID_MAX], owner[SOLAR_OS_STREAM_OWNER_MAX];
-  solar_os_display_link_options_t options;
+  const solar_os_display_link_call_options_t *call;
   sdlp_stream_t parser;
   /* Transport callbacks are serialized by the link owner. Keep protocol
    * scratch with that owner rather than nesting it on the display shell stack. */
@@ -26,7 +26,10 @@ static void sleep_us(void *ctx, uint32_t us) {
   vTaskDelay(ticks ? ticks : 1);
 }
 static bool owner_cancelled(stream_transport_t *s) {
-  return s->options.cancelled && s->options.cancelled(s->options.cancel_user);
+  return s->call && s->call->cancelled && s->call->cancelled(s->call->cancel_user);
+}
+static void set_call_options(void *ctx, const solar_os_display_link_call_options_t *call) {
+  ((stream_transport_t *)ctx)->call = call;
 }
 static bool cancelled(void *ctx) {
   stream_transport_t *s = ctx;
@@ -128,6 +131,11 @@ static int request(void *ctx, const uint8_t tx[SDLP_CELL_SIZE],
 
 esp_err_t solar_os_display_link_open_stream(const char *name, const char *owner,
     const solar_os_display_link_options_t *options, solar_os_display_link_t **out) {
+  return solar_os_display_link_open_stream_with_options(name, owner, options, NULL, out);
+}
+esp_err_t solar_os_display_link_open_stream_with_options(const char *name, const char *owner,
+    const solar_os_display_link_options_t *options, const solar_os_display_link_call_options_t *call,
+    solar_os_display_link_t **out) {
   if (!out) return ESP_ERR_INVALID_ARG;
   *out = NULL;
   if (!name || !*name || strlen(name) >= SOLAR_OS_STREAM_ID_MAX ||
@@ -144,11 +152,10 @@ esp_err_t solar_os_display_link_open_stream(const char *name, const char *owner,
   if (!s) return ESP_ERR_NO_MEM;
   s->handle = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
   strlcpy(s->name, name, sizeof(s->name)); strlcpy(s->owner, owner, sizeof(s->owner));
-  s->options = options ? *options : (solar_os_display_link_options_t){.format = -1};
-  if (!s->options.timeout_ms) s->options.timeout_ms = 5000;
+  uint32_t timeout_ms = options && options->timeout_ms ? options->timeout_ms : 5000;
   solar_os_display_link_transport_t io = {
     .protocol = {.ctx = s, .now_us = now_us, .sleep_us = sleep_us, .request = request,
-      .push = push, .cancelled = cancelled, .minimum_timeout_ms = s->options.timeout_ms},
-    .prepare = prepare, .destroy = destroy};
-  return solar_os_display_link_open_transport(&io, &s->options, out);
+      .push = push, .cancelled = cancelled, .minimum_timeout_ms = timeout_ms},
+    .prepare = prepare, .destroy = destroy, .set_call_options = set_call_options};
+  return solar_os_display_link_open_transport_with_options(&io, options, call, out);
 }

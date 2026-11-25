@@ -15,8 +15,6 @@
 #include "solar_os_port.h"
 #include "solar_os_wifi.h"
 
-#define TCP_STREAM_MAX 4
-
 typedef struct {
     char name[SOLAR_OS_PORT_NAME_MAX];
     char latency_owner[SOLAR_OS_PORT_OWNER_MAX];
@@ -25,7 +23,7 @@ typedef struct {
     struct sockaddr_in remote;
 } tcp_stream_t;
 
-static tcp_stream_t endpoints[TCP_STREAM_MAX];
+static tcp_stream_t endpoints[SOLAR_OS_TCP_STREAM_MAX];
 static StaticSemaphore_t mutex_storage;
 static SemaphoreHandle_t mutex;
 static portMUX_TYPE init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -201,7 +199,7 @@ esp_err_t solar_os_tcp_stream_listen(const char *name, uint16_t port)
         return ESP_ERR_INVALID_ARG;
     lock();
     tcp_stream_t *s = NULL;
-    for (size_t i = 0; i < TCP_STREAM_MAX; i++) {
+    for (size_t i = 0; i < SOLAR_OS_TCP_STREAM_MAX; i++) {
         if (!strcmp(endpoints[i].name, name)) { unlock(); return ESP_ERR_INVALID_STATE; }
         if (!endpoints[i].name[0] && !s) s = &endpoints[i];
     }
@@ -237,7 +235,7 @@ esp_err_t solar_os_tcp_stream_remove(const char *name)
     if (!name || !*name) return ESP_ERR_INVALID_ARG;
     lock();
     esp_err_t err = ESP_ERR_NOT_FOUND;
-    for (size_t i = 0; i < TCP_STREAM_MAX; i++) {
+    for (size_t i = 0; i < SOLAR_OS_TCP_STREAM_MAX; i++) {
         tcp_stream_t *s = &endpoints[i];
         if (strcmp(s->name, name)) continue;
         err = solar_os_port_unregister(name);
@@ -263,7 +261,7 @@ esp_err_t solar_os_tcp_stream_connect(const char *name, const char *host, uint16
     remote.sin_port = htons(port);
     lock();
     tcp_stream_t *s = NULL;
-    for (size_t i = 0; i < TCP_STREAM_MAX; i++) {
+    for (size_t i = 0; i < SOLAR_OS_TCP_STREAM_MAX; i++) {
         if (!strcmp(endpoints[i].name, name)) { unlock(); return ESP_ERR_INVALID_STATE; }
         if (!endpoints[i].name[0] && !s) s = &endpoints[i];
     }

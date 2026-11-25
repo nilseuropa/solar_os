@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_BLE
+
 #include "solar_os_shell_tui_apps.h"
 
 #include <ctype.h>
@@ -1281,3 +1285,5 @@ esp_err_t solar_os_shell_launch_ble_tui(solar_os_context_t *ctx)
 {
     return solar_os_context_request_launch(ctx, &ble_tui_app, 0, NULL);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_BLE */

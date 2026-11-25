@@ -139,15 +139,17 @@ static solar_os_port_handle_t port_stream_handle(
     };
 }
 
-static void port_stream_close(void *user, solar_os_stream_handle_t *handle)
+static esp_err_t port_stream_close(void *user, solar_os_stream_handle_t *handle)
 {
     (void)user;
     solar_os_port_handle_t port = port_stream_handle(handle);
     if (solar_os_port_handle_valid(&port)) {
-        (void)solar_os_port_release(&port);
+        const esp_err_t error = solar_os_port_release(&port);
+        if (error != ESP_OK) return error;
     }
     handle->private_data[0] = 0U;
     handle->private_data[1] = 0U;
+    return ESP_OK;
 }
 
 static esp_err_t port_stream_read(void *user,
@@ -239,7 +241,7 @@ esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver)
             .sharing = SOLAR_OS_STREAM_SHARING_EXCLUSIVE,
         },
         .open = port_stream_open,
-        .close = port_stream_close,
+        .close_checked = port_stream_close,
         .read = (driver->capabilities & SOLAR_OS_PORT_CAP_READ) != 0U ?
             port_stream_read : NULL,
         .write = (driver->capabilities & SOLAR_OS_PORT_CAP_WRITE) != 0U ?

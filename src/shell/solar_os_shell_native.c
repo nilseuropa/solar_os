@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+
 #include "solar_os_shell_commands.h"
 
 #include "solar_os_native.h"
@@ -219,3 +223,5 @@ bool solar_os_shell_try_native_module(solar_os_context_t *ctx,
                            NULL);
     return true;
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES */

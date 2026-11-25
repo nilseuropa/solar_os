@@ -15,9 +15,6 @@ void *solar_os_memory_alloc(size_t size, solar_os_memory_class_t cls, const char
 
 TickType_t xTaskGetTickCount(void) { return (TickType_t)(now_us / 1000); }
 void vTaskDelay(TickType_t ticks) { now_us += (int64_t)ticks * 1000; }
-void solar_os_input_composition_set_modifiers(solar_os_input_source_t source, uint8_t mods)
-{ assert(source != SOLAR_OS_INPUT_SOURCE_INVALID); (void)mods; }
-uint8_t solar_os_input_composition_apply(uint8_t key) { return key; }
 esp_err_t solar_os_storage_read_file(const char *path, void *data, size_t len, size_t *read_len)
 { (void)path; (void)data; (void)len; (void)read_len; return ESP_ERR_NOT_SUPPORTED; }
 

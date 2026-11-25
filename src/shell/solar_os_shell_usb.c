@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_board_caps.h"
@@ -203,3 +207,5 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
         }
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_USB_HOST */

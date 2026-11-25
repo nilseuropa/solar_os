@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+
 #include "solar_os_shell_expansion_internal.h"
 
 #include <ctype.h>
@@ -329,3 +333,5 @@ esp_err_t solar_os_shell_expansion_export_manifest(
     }
     return err;
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_EXPANSION */

@@ -165,6 +165,7 @@ void solar_os_gfx_clear(solar_os_gfx_t *gfx,solar_os_gfx_color_t c) { (void)gfx;
 void solar_os_gfx_set_font(solar_os_gfx_t *gfx,solar_os_gfx_font_t f) { (void)gfx;font=f; }
 void solar_os_gfx_set_color(solar_os_gfx_t *gfx,solar_os_gfx_color_t c) { (void)gfx;color=c; }
 size_t solar_os_gfx_text_width(solar_os_gfx_t *gfx,const char *s) { (void)gfx;return strlen(s)*5; }
+#include "gfx_text_metrics_fixture.h"
 void solar_os_gfx_text(solar_os_gfx_t *gfx,int x,int y,const char *text)
 {
     (void)gfx;if(strstr(text,"z: capture")) literal_key_hint=true;
@@ -241,7 +242,13 @@ int main(void) {
     const char *sizes[]={"photo","--size"};candidate_count=0;solar_os_photo_complete(sizes,2,emit,NULL);assert(offered("240x240"));
     char path[200];snprintf(path,sizeof(path),"%s/photo-000001.jpg",directory);
     FILE *f=fopen(path,"wb");assert(f);fputs("existing",f);fclose(f);
-    assert(start(&ctx)==ESP_OK);await_preview(&ctx);assert(direct_frames && photo.key==SOLAR_OS_KEY_ENTER);
+    fixture_media_unavailable=true;
+    assert(start(&ctx)==ESP_ERR_NOT_SUPPORTED && !photo.mutex && !photo.worker);
+    fixture_media_unavailable=false;
+    assert(start(&ctx)==ESP_OK);
+    const unsigned media_queries=fixture_media_queries, ui_queries=fixture_ui_queries;
+    await_preview(&ctx);assert(direct_frames && photo.key==SOLAR_OS_KEY_ENTER);
+    assert(fixture_media_queries==media_queries && fixture_ui_queries==ui_queries);
     assert(headers && shutters && (solar_os_photo_app.flags & SOLAR_OS_APP_FLAG_POINTER_EVENTS));
     solar_os_media_player_layout_t ui;
     solar_os_media_player_layout(canvas_width,canvas_height,false,&ui);

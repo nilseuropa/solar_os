@@ -283,3 +283,38 @@ SOLAR_OS_NATIVE_DECLARE_GET(haptic, "haptic", solar_os_native_haptic_api_v1_t, 1
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(hid_report, "hid.report", solar_os_native_hid_report_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(hid_report, solar_os_native_hid_report_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(create) \
+    M(close) \
+    M(reset) \
+    M(update) \
+    M(update_with_layout) \
+    M(has_new_press) \
+    M(descriptor_map) \
+    M(descriptor_layout)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(hid_device, "hid.device", solar_os_native_hid_device_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(hid_device, solar_os_native_hid_device_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(init) \
+    M(get_status) \
+    M(keyboard_press) \
+    M(keyboard_release) \
+    M(keyboard_release_all) \
+    M(mouse_move) \
+    M(mouse_button) \
+    M(gamepad_axis) \
+    M(gamepad_button) \
+    M(gamepad_hat) \
+    M(gamepad_send) \
+    M(release_all)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD

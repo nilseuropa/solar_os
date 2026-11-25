@@ -1,4 +1,6 @@
 #include "solar_os_media_widgets.h"
+#include "solar_os_native_ui_abi.h"
+#include "solar_os_native_media_widgets_abi.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -11,6 +13,15 @@
 #define SOLAR_OS_WEBRADIO_STATION_NAME_MAX 64
 static solar_os_gfx_color_t current_color;
 static unsigned selected_texts;
+static size_t viewport_requests, viewport_last;
+static bool viewport_entry(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    assert(index < *(size_t *)user);
+    viewport_requests++; viewport_last = index;
+    memset(entry, 0, sizeof(*entry));
+    strcpy(entry->title, "Entry");
+    return true;
+}
 static bool track_dialog;
 static unsigned draw_sequence, cursor_sequence, dialog_text_count;
 static struct { int x, y, w, h; solar_os_gfx_color_t color; } dialog_window, dialog_cursor;
@@ -159,7 +170,9 @@ static bool solar_os_player_playlist_get(size_t i, solar_os_m3u_entry_t *t) {
 }
 static struct {
     int tab, visualizer;
-    void *cassette, *scope, *spectrum, *task, *browser;
+    solar_os_cassette_widget_t cassette;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
+    void *scope, *spectrum, *task, *browser;
     char active_path[192];
     char active_title[SOLAR_OS_M3U_TITLE_MAX];
     bool paused, browsing;
@@ -168,12 +181,16 @@ static struct {
 } player;
 static struct {
     int visualizer, tab, operation_state;
-    void *cassette, *scope, *spectrum, *browser;
+    solar_os_cassette_widget_t cassette;
+    void *scope, *spectrum, *browser;
     uint8_t volume, channels, bits_per_sample;
     uint32_t sample_rate, elapsed_ms;
     bool monitor_enabled;
     size_t setup_cursor, browser_top;
     char active_path[192], filename[65], edit_filename[65];
+    solar_os_ui_input_state_t edit_filename_state;
+    const solar_os_native_ui_api_v1_t *ui_api;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
 } recorder;
 static struct {
     int tab, visualizer, dialog;
@@ -182,6 +199,9 @@ static struct {
     bool paused;
     size_t cursor, top, station_count;
     char dialog_input[256], ui_message[96];
+    solar_os_ui_input_state_t dialog_input_state;
+    const solar_os_native_ui_api_v1_t *ui_api;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     struct {
         char name[64];
     } stations[10];
@@ -224,7 +244,10 @@ typedef struct {
     int32_t viewport_x, viewport_y;
     solar_os_display_rect_t panel;
     bool fullscreen;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
 } mpeg_player_t;
+#define SOLAR_TEST_MEDIA_CASSETTE_DRAW solar_os_cassette_widget_draw
+#include "gfx_text_metrics_fixture.h"
 #include "media_app_views.inc"
 
 static void dialog_cursor_test(solar_os_gfx_t *gfx, const char *input, int app)
@@ -236,9 +259,13 @@ static void dialog_cursor_test(solar_os_gfx_t *gfx, const char *input, int app)
     if (app == 1) {
         webradio.dialog = WEBRADIO_DIALOG_ADD_NAME;
         strcpy(webradio.dialog_input, input);
+        webradio.ui_api = &fixture_ui_api;
+        webradio.dialog_input_state.cursor = strlen(input);
         webradio_draw_dialog(gfx, gfx->width, gfx->height);
     } else if (app == 2) {
         strcpy(recorder.edit_filename, input);
+        recorder.ui_api = &fixture_ui_api;
+        recorder.edit_filename_state.cursor = strlen(input);
         recorder_draw_filename_dialog(gfx, gfx->width, gfx->height);
     } else solar_os_media_dialog_draw(gfx, gfx->width, gfx->height, "Stream URL", input, "Enter save  Esc cancel");
     track_dialog = false;
@@ -259,6 +286,24 @@ static void dialog_cursor_test(solar_os_gfx_t *gfx, const char *input, int app)
 }
 
 int main(void) {
+    solar_os_gfx_t viewport_screen = {.width = 240, .height = 240};
+    solar_os_media_list_layout_t list_layout;
+    solar_os_media_list_layout(240, 240, &list_layout);
+    assert(list_layout.visible > 0 && list_layout.visible < 12);
+    size_t count = 12, top = SIZE_MAX;
+    solar_os_media_playlist_draw(&viewport_screen, 240, 240, count, SIZE_MAX,
+        SIZE_MAX, &top, viewport_entry, &count, "List");
+    assert(top == count - (size_t)list_layout.visible);
+    assert(viewport_requests == (size_t)list_layout.visible && viewport_last == count - 1);
+    count = SIZE_MAX; top = SIZE_MAX; viewport_requests = 0;
+    solar_os_media_playlist_draw(&viewport_screen, 240, 240, count, count - 1,
+        SIZE_MAX, &top, viewport_entry, &count, "List");
+    assert(top == count - (size_t)list_layout.visible);
+    assert(viewport_requests == (size_t)list_layout.visible && viewport_last == count - 1);
+    count = 0; top = SIZE_MAX; viewport_requests = 0;
+    solar_os_media_playlist_draw(&viewport_screen, 240, 240, count, SIZE_MAX,
+        SIZE_MAX, &top, viewport_entry, &count, "List");
+    assert(!top && !viewport_requests);
     const int screens[][2] = {{240, 64},  {128, 64},  {240, 135},
                               {240, 240}, {384, 168}, {400, 300}};
     for (unsigned screen = 0; screen < sizeof(screens) / sizeof(*screens);
@@ -272,6 +317,7 @@ int main(void) {
         for (size_t i = 0; i < sizeof(inputs) / sizeof(inputs[0]); i++) dialog_cursor_test(&g, inputs[i], 0);
         dialog_cursor_test(&g, "Station", 1);
         dialog_cursor_test(&g, "voice.wav", 2);
+        player.media_ui = recorder.media_ui = webradio.media_ui = &fixture_media_api;
         player.volume = recorder.volume = webradio.volume = 50;
         player.track_count = 10;
         recorder.sample_rate = 48000;
@@ -325,11 +371,13 @@ int main(void) {
         }
         memset(webradio.dialog_input, 'x', 255);
         webradio.dialog_input[255] = 0;
+        webradio.ui_api = &fixture_ui_api;
+        webradio.dialog_input_state.cursor = 255;
         for (int dialog = 1; dialog <= 4; dialog++) {
             webradio.dialog = dialog;
             webradio_draw_dialog(&g, w, h);
         }
-        mpeg_player_t p = {.screen_width = w, .screen_height = h, .panel={0,0,w,h}};
+        mpeg_player_t p = {.screen_width = w, .screen_height = h, .panel={0,0,w,h}, .media_ui=&fixture_media_api};
         viewport(&p);
         assert(p.viewport_width > 0 && p.viewport_height > 0 &&
                p.viewport_y + p.viewport_height < (uint32_t)h);
@@ -338,7 +386,7 @@ int main(void) {
         assert(p.viewport_width == (uint32_t)w &&
                p.viewport_height == (uint32_t)h && !p.viewport_y);
     }
-    mpeg_player_t circular = {.screen_width=291,.screen_height=291,.panel={-60,-60,412,412}};
+    mpeg_player_t circular = {.screen_width=291,.screen_height=291,.panel={-60,-60,412,412}, .media_ui=&fixture_media_api};
     viewport(&circular);
     assert(circular.viewport_x>=0 && circular.viewport_width<=291 && circular.viewport_height<291);
     const uint32_t normal_width=circular.viewport_width, normal_height=circular.viewport_height;

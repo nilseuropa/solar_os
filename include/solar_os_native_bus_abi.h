@@ -3,6 +3,7 @@
 #include "solar_os_native_service_abi.h"
 #define SOLAR_OS_NATIVE_BUS_SERVICE "bus"
 #define SOLAR_OS_NATIVE_BUS_ABI 1U
+#define SOLAR_OS_NATIVE_BUS_DEFAULT_I2C "i2c0"
 #define SOLAR_OS_NATIVE_BUS_I2C 0U
 #define SOLAR_OS_NATIVE_BUS_SPI 1U
 #define SOLAR_OS_NATIVE_BUS_UART 2U

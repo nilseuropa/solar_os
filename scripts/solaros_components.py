@@ -20,6 +20,7 @@ class BuiltinComponent:
     entry: str
     dependencies: tuple[tuple[str, str], ...]
     manifest: str | None = None
+    build: Path | None = None
 
 
 def load_builtin_components(root: Path, packages) -> tuple[BuiltinComponent, ...]:
@@ -72,8 +73,12 @@ def load_builtin_components(root: Path, packages) -> tuple[BuiltinComponent, ...
             if dependency["id"] in {entry[0] for entry in dependencies}:
                 raise ValueError(f"{path}: duplicate component dependency")
             dependencies.append((dependency["id"], dependency["version"]))
+        if 'build' in data:
+            from build_native_component import load_spec
+            load_spec(path)
         components.append(BuiltinComponent(data["id"], data["type"], data["name"], data["version"],
-            data["lifecycle_abi"], builtin["package"], builtin["entry"], tuple(dependencies), manifest))
+            data["lifecycle_abi"], builtin["package"], builtin["entry"], tuple(dependencies), manifest,
+            path.resolve() if 'build' in data else None))
     return tuple(components)
 
 

@@ -1,34 +1,121 @@
 /* Included inside the BLE package gate, after common interpreter helpers. */
 static solar_os_ble_session_t python_ble_session;
+static const solar_os_native_bluetooth_api_v1_t *python_ble_cached_api;
+static const solar_os_native_ble_keyboard_api_v1_t *python_ble_keyboard_cached_api;
+/* Bounded snapshots owned by this binding, independent of firmware settings. */
+enum { PYTHON_BLE_SCAN_RESULTS = 32, PYTHON_BLE_SERVICES = 24, PYTHON_BLE_CHARACTERISTICS = 64 };
 
-static void python_ble_check(esp_err_t err)
+static const solar_os_native_bluetooth_api_v1_t *python_ble_api(void)
 {
-    if (err == SOLAR_OS_BLE_ERR_CANCELLED) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("BLE operation cancelled"));
+    if (!python_ble_cached_api) {
+        python_ble_cached_api = solar_os_native_bluetooth_get(
+            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_NATIVE_THROUGH(solar_os_native_bluetooth_api_v1_t, hid_request_with_options));
+        if (!python_ble_cached_api)
+            mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Bluetooth service unavailable"));
     }
-    if (err == SOLAR_OS_BLE_ERR_CAPACITY) {
-        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("BLE connection capacity exhausted"));
-    }
-    python_check_esp(err);
+    return python_ble_cached_api;
 }
 
+static const solar_os_ble_call_options_v1_t python_ble_options = {
+    .struct_size = sizeof(python_ble_options), .cancelled = python_should_cancel,
+};
+
+static void python_ble_check(int err)
+{
+    if (err == SOLAR_OS_NATIVE_ERROR_CANCELLED) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("BLE operation cancelled"));
+    }
+    if (err == SOLAR_OS_NATIVE_ERROR_NO_SPACE) {
+        mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("BLE connection capacity exhausted"));
+    }
+    if (err) mp_raise_msg_varg(&mp_type_OSError, MP_ERROR_TEXT("BLE error %d"), err);
+}
+
+static const solar_os_native_ble_keyboard_api_v1_t *python_ble_keyboard_api(void)
+{
+    if (!python_ble_keyboard_cached_api) {
+        python_ble_keyboard_cached_api = solar_os_native_ble_keyboard_get(
+            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_keyboard_api_v1_t, parse_addr_type));
+        if (!python_ble_keyboard_cached_api) mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Bluetooth keyboard service unavailable"));
+    }
+    return python_ble_keyboard_cached_api;
+}
+
+static mp_obj_t solaros_ble_status(void)
+{
+    char status[96];
+    python_ble_keyboard_api()->get_status(status, sizeof(status));
+    return mp_obj_new_str_from_cstr(status);
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_status_obj, solaros_ble_status);
+
+static mp_obj_t solaros_ble_connected(void)
+{
+    return mp_obj_new_bool(python_ble_keyboard_api()->is_connected());
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_connected_obj, solaros_ble_connected);
+
+static mp_obj_t solaros_ble_pair(void)
+{
+    python_ble_check(python_ble_keyboard_api()->start_pairing());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_pair_obj, solaros_ble_pair);
+
+static mp_obj_t solaros_ble_forget(void)
+{
+    python_ble_check(python_ble_keyboard_api()->forget());
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_forget_obj, solaros_ble_forget);
+
+static mp_obj_t solaros_ble_layout(size_t n_args, const mp_obj_t *args)
+{
+    if (n_args == 0) {
+        return mp_obj_new_str_from_cstr(
+            python_ble_keyboard_api()->layout_name(python_ble_keyboard_api()->layout()));
+    }
+
+    solar_os_ble_keyboard_layout_t layout;
+    if (!python_ble_keyboard_api()->parse_layout(mp_obj_str_get_str(args[0]), &layout)) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected us, de, ua, fr or ro"));
+    }
+    python_ble_check(python_ble_keyboard_api()->set_layout(layout));
+    return mp_const_none;
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_layout_obj, 0, 1, solaros_ble_layout);
+
+static mp_obj_t solaros_ble_read(size_t n_args, const mp_obj_t *args)
+{
+    uint32_t len = python_optional_u32(n_args, args, 0, 64);
+    if (len == 0 || len > 256) {
+        mp_raise_ValueError(MP_ERROR_TEXT("expected length 1..256"));
+    }
+
+    char buffer[256];
+    const size_t read_len = python_ble_keyboard_api()->read_chars(buffer, len);
+    return mp_obj_new_bytes((const byte *)buffer, read_len);
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_read_obj, 0, 1, solaros_ble_read);
 static mp_obj_t solaros_ble_scan(void)
 {
-    solar_os_ble_scan_result_t results[SOLAR_OS_BLE_SCAN_MAX_RESULTS];
+    solar_os_ble_scan_result_t results[PYTHON_BLE_SCAN_RESULTS];
     size_t found = 0;
     if (python_should_cancel(NULL)) {
-        python_ble_check(SOLAR_OS_BLE_ERR_CANCELLED);
+        python_ble_check(SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
-    const esp_err_t err = solar_os_ble_scan(results, SOLAR_OS_BLE_SCAN_MAX_RESULTS, &found);
+    const int err = python_ble_api()->scan(results, PYTHON_BLE_SCAN_RESULTS, &found);
     /* Discovery reports NOT_FOUND when no advertisement matched. */
-    if (err != ESP_ERR_NOT_FOUND || found != 0) {
+    if (err != SOLAR_OS_NATIVE_ERROR_NOT_FOUND || found != 0) {
         python_ble_check(err);
     }
     if (python_should_cancel(NULL)) {
-        python_ble_check(SOLAR_OS_BLE_ERR_CANCELLED);
+        python_ble_check(SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
     mp_obj_t list = mp_obj_new_list(0, NULL);
-    for (size_t i = 0; i < found && i < SOLAR_OS_BLE_SCAN_MAX_RESULTS; i++) {
+    for (size_t i = 0; i < found && i < PYTHON_BLE_SCAN_RESULTS; i++) {
         const solar_os_ble_scan_result_t *device = &results[i];
         char address[18];
         snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
@@ -53,14 +140,12 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_scan_obj, solaros_ble_scan);
 static solar_os_ble_session_t python_ble_get(void)
 {
     if (python_should_cancel(NULL)) {
-        python_ble_check(SOLAR_OS_BLE_ERR_CANCELLED);
+        python_ble_check(SOLAR_OS_NATIVE_ERROR_CANCELLED);
     }
     if (python_ble_session == SOLAR_OS_BLE_SESSION_INVALID) {
-        python_ble_check(solar_os_ble_session_create(
+        python_ble_check(python_ble_api()->session_create(
             python_runner_control != NULL ? "python.runner" : "python.app",
             &python_ble_session));
-        python_ble_check(solar_os_ble_session_set_cancel_check(
-            python_ble_session, python_should_cancel, NULL));
     }
     return python_ble_session;
 }
@@ -68,9 +153,11 @@ static solar_os_ble_session_t python_ble_get(void)
 static void python_ble_destroy(void)
 {
     if (python_ble_session != SOLAR_OS_BLE_SESSION_INVALID) {
-        (void)solar_os_ble_session_close(python_ble_session);
+        (void)python_ble_cached_api->session_close(python_ble_session);
         python_ble_session = SOLAR_OS_BLE_SESSION_INVALID;
     }
+    python_ble_cached_api = NULL;
+    python_ble_keyboard_cached_api = NULL;
 }
 
 static uint32_t python_ble_timeout(size_t n_args, const mp_obj_t *args, size_t index)
@@ -96,7 +183,7 @@ static mp_obj_t solaros_ble_gatt_connect(size_t n_args, const mp_obj_t *args)
     size_t len;
     const char *address = mp_obj_str_get_data(args[0], &len);
     uint8_t bda[6];
-    if (!solar_os_ble_parse_address(address, len, bda)) {
+    if (!python_ble_api()->parse_address(address, len, bda)) {
         mp_raise_ValueError(MP_ERROR_TEXT("expected aa:bb:cc:dd:ee:ff"));
     }
     const uint32_t type = python_optional_u32(n_args, args, 1, 0);
@@ -105,28 +192,28 @@ static mp_obj_t solaros_ble_gatt_connect(size_t n_args, const mp_obj_t *args)
     }
     const uint32_t timeout = python_ble_timeout(n_args, args, 2);
     solar_os_ble_peer_t peer;
-    python_ble_check(solar_os_ble_peer_connect(python_ble_get(), bda, type, timeout, &peer));
+    python_ble_check(python_ble_api()->peer_connect_with_options(python_ble_get(), bda, type, timeout, &peer, &python_ble_options));
     return mp_obj_new_int_from_uint(peer);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_connect_obj, 1, 3, solaros_ble_gatt_connect);
 
 static mp_obj_t solaros_ble_gatt_disconnect(mp_obj_t peer_obj)
 {
-    python_ble_check(solar_os_ble_peer_disconnect(python_ble_get(), python_u32_from_obj(peer_obj)));
+    python_ble_check(python_ble_api()->peer_disconnect(python_ble_get(), python_u32_from_obj(peer_obj)));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_gatt_disconnect_obj, solaros_ble_gatt_disconnect);
 
 static mp_obj_t solaros_ble_gatt_capacity(void)
 {
-    return mp_obj_new_int_from_uint(solar_os_ble_peer_capacity());
+    return mp_obj_new_int_from_uint(python_ble_api()->peer_capacity());
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_gatt_capacity_obj, solaros_ble_gatt_capacity);
 
 static mp_obj_t solaros_ble_gatt_status(mp_obj_t peer_obj)
 {
     solar_os_ble_session_info_t info;
-    python_ble_check(solar_os_ble_peer_get_info(python_ble_get(), python_u32_from_obj(peer_obj), &info));
+    python_ble_check(python_ble_api()->peer_get_info(python_ble_get(), python_u32_from_obj(peer_obj), &info));
     char address[18];
     snprintf(address, sizeof(address), "%02x:%02x:%02x:%02x:%02x:%02x",
         info.gatt.bda[0], info.gatt.bda[1], info.gatt.bda[2],
@@ -151,12 +238,12 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_gatt_status_obj, solaros_ble_gatt_status);
 
 static mp_obj_t solaros_ble_gatt_services(mp_obj_t peer_obj)
 {
-    solar_os_ble_gatt_service_t services[SOLAR_OS_BLE_GATT_MAX_SERVICES];
+    solar_os_ble_gatt_service_t services[PYTHON_BLE_SERVICES];
     size_t count = 0;
-    python_ble_check(solar_os_ble_peer_services(python_ble_get(), python_u32_from_obj(peer_obj), services,
-        SOLAR_OS_BLE_GATT_MAX_SERVICES, &count));
+    python_ble_check(python_ble_api()->peer_services(python_ble_get(), python_u32_from_obj(peer_obj), services,
+        PYTHON_BLE_SERVICES, &count));
     mp_obj_t result = mp_obj_new_list(0, NULL);
-    for (size_t i = 0; i < count && i < SOLAR_OS_BLE_GATT_MAX_SERVICES; i++) {
+    for (size_t i = 0; i < count && i < PYTHON_BLE_SERVICES; i++) {
         mp_obj_t item = mp_obj_new_dict(5);
         python_dict_store_uint(item, "index", i);
         python_dict_store_cstr(item, "uuid", services[i].uuid);
@@ -172,15 +259,15 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_gatt_services_obj, solaros_ble_gatt_servic
 static mp_obj_t solaros_ble_gatt_characteristics(mp_obj_t peer_obj, mp_obj_t index_obj)
 {
     const uint32_t index = python_u32_from_obj(index_obj);
-    if (index >= SOLAR_OS_BLE_GATT_MAX_SERVICES) {
+    if (index >= PYTHON_BLE_SERVICES) {
         mp_raise_ValueError(MP_ERROR_TEXT("service index out of range"));
     }
-    solar_os_ble_gatt_characteristic_t chars[SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS];
+    solar_os_ble_gatt_characteristic_t chars[PYTHON_BLE_CHARACTERISTICS];
     size_t count = 0;
-    python_ble_check(solar_os_ble_peer_characteristics(python_ble_get(), python_u32_from_obj(peer_obj), index,
-        chars, SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS, &count));
+    python_ble_check(python_ble_api()->peer_characteristics(python_ble_get(), python_u32_from_obj(peer_obj), index,
+        chars, PYTHON_BLE_CHARACTERISTICS, &count));
     mp_obj_t result = mp_obj_new_list(0, NULL);
-    for (size_t i = 0; i < count && i < SOLAR_OS_BLE_GATT_MAX_CHARACTERISTICS; i++) {
+    for (size_t i = 0; i < count && i < PYTHON_BLE_CHARACTERISTICS; i++) {
         mp_obj_t item = mp_obj_new_dict(3);
         python_dict_store_cstr(item, "uuid", chars[i].uuid);
         python_dict_store_uint(item, "handle", chars[i].handle);
@@ -197,8 +284,8 @@ static mp_obj_t solaros_ble_gatt_read(size_t n_args, const mp_obj_t *args)
     const uint32_t timeout = python_ble_timeout(n_args, args, 2);
     uint8_t value[SOLAR_OS_BLE_GATT_VALUE_MAX];
     size_t len = 0;
-    python_ble_check(solar_os_ble_peer_read(python_ble_get(), python_u32_from_obj(args[0]), handle,
-        value, sizeof(value), &len, timeout));
+    python_ble_check(python_ble_api()->peer_read_with_options(python_ble_get(), python_u32_from_obj(args[0]), handle,
+        value, sizeof(value), &len, timeout, &python_ble_options));
     return mp_obj_new_bytes(value, len);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_read_obj, 2, 3, solaros_ble_gatt_read);
@@ -216,8 +303,8 @@ static mp_obj_t solaros_ble_gatt_write(size_t n_args, const mp_obj_t *args)
         response = args[3] == mp_const_true;
     }
     const uint32_t timeout = python_ble_timeout(n_args, args, 4);
-    python_ble_check(solar_os_ble_peer_write(python_ble_get(), python_u32_from_obj(args[0]), handle,
-        data.buf, data.len, response, timeout));
+    python_ble_check(python_ble_api()->peer_write_with_options(python_ble_get(), python_u32_from_obj(args[0]), handle,
+        data.buf, data.len, response, timeout, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_write_obj, 3, 5, solaros_ble_gatt_write);
@@ -232,8 +319,8 @@ static mp_obj_t solaros_ble_gatt_subscribe(size_t n_args, const mp_obj_t *args)
         indication = args[2] == mp_const_true;
     }
     const uint32_t timeout = python_ble_timeout(n_args, args, 3);
-    python_ble_check(solar_os_ble_peer_subscribe(python_ble_get(), python_u32_from_obj(args[0]),
-        handle, indication ? 2 : 1, timeout));
+    python_ble_check(python_ble_api()->peer_subscribe_with_options(python_ble_get(), python_u32_from_obj(args[0]),
+        handle, indication ? 2 : 1, timeout, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_subscribe_obj, 2, 4, solaros_ble_gatt_subscribe);
@@ -242,7 +329,7 @@ static mp_obj_t solaros_ble_gatt_unsubscribe(size_t n_args, const mp_obj_t *args
 {
     const uint16_t handle = python_ble_handle(args[1]);
     const uint32_t timeout = python_ble_timeout(n_args, args, 2);
-    python_ble_check(solar_os_ble_peer_subscribe(python_ble_get(), python_u32_from_obj(args[0]), handle, 0, timeout));
+    python_ble_check(python_ble_api()->peer_subscribe_with_options(python_ble_get(), python_u32_from_obj(args[0]), handle, 0, timeout, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_unsubscribe_obj, 2, 3, solaros_ble_gatt_unsubscribe);
@@ -250,7 +337,7 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_gatt_unsubscribe_obj, 2, 3, sola
 static mp_obj_t solaros_ble_gatt_configure_queue(mp_obj_t peer_obj, mp_obj_t capacity_obj)
 {
     const uint32_t capacity = python_u32_from_obj(capacity_obj);
-    python_ble_check(solar_os_ble_peer_configure_queue(python_ble_get(), python_u32_from_obj(peer_obj), capacity));
+    python_ble_check(python_ble_api()->peer_configure_queue(python_ble_get(), python_u32_from_obj(peer_obj), capacity));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_gatt_configure_queue_obj, solaros_ble_gatt_configure_queue);
@@ -258,8 +345,8 @@ MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_gatt_configure_queue_obj, solaros_ble_gatt
 static mp_obj_t solaros_ble_gatt_poll(mp_obj_t peer_obj)
 {
     solar_os_ble_notification_t event;
-    esp_err_t err = solar_os_ble_peer_poll(python_ble_get(), python_u32_from_obj(peer_obj), &event);
-    if (err == ESP_ERR_NOT_FOUND) return mp_const_none;
+    int err = python_ble_api()->peer_poll(python_ble_get(), python_u32_from_obj(peer_obj), &event);
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return mp_const_none;
     python_ble_check(err);
     mp_obj_t result = mp_obj_new_dict(3);
     python_dict_store_uint(result, "handle", event.handle);
@@ -296,7 +383,7 @@ static mp_obj_t solaros_ble_server_create(size_t n_args, const mp_obj_t *args)
     python_ble_server_text(args[0], &r);
     r.capacity = python_optional_u32(n_args, args, 1, 16);
     if (!r.capacity) mp_raise_ValueError(MP_ERROR_TEXT("invalid queue capacity"));
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_server_create_obj, 1, 2, solaros_ble_server_create);
@@ -304,7 +391,7 @@ static mp_obj_t solaros_ble_server_service(mp_obj_t uuid)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_SERVICE};
     python_ble_server_text(uuid, &r);
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_obj_new_int_from_uint(r.id);
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_server_service_obj, solaros_ble_server_service);
@@ -316,14 +403,14 @@ static mp_obj_t solaros_ble_server_characteristic(size_t n_args, const mp_obj_t 
     if (!properties || (properties & ~0x3eU)) mp_raise_ValueError(MP_ERROR_TEXT("invalid properties"));
     r.properties = properties;
     if (n_args > 3 && args[3] != mp_const_none) python_ble_server_value(args[3], &r);
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_obj_new_int_from_uint(r.id);
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_server_characteristic_obj, 3, 4, solaros_ble_server_characteristic);
 #define PYTHON_BLE_SERVER_SIMPLE(name, operation) \
     static mp_obj_t solaros_ble_server_##name(void) { \
         solar_os_ble_server_request_t r = {.op=operation}; \
-        python_ble_check(solar_os_ble_server_request(python_ble_get(), &r)); \
+        python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options)); \
         return mp_const_none; \
     } \
     MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_server_##name##_obj, solaros_ble_server_##name);
@@ -334,7 +421,7 @@ PYTHON_BLE_SERVER_SIMPLE(close, SOLAR_OS_BLE_SERVER_CLOSE)
 static mp_obj_t solaros_ble_server_status(void)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_STATUS};
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     mp_obj_t result = mp_obj_new_dict(9);
     python_dict_store_bool(result, "registered", r.info.registered);
     python_dict_store_bool(result, "advertising", r.info.advertising);
@@ -352,8 +439,8 @@ static mp_obj_t solaros_ble_server_poll(void)
 {
     static const char *types[] = {"connected", "disconnected", "read", "write", "subscribe", "sent"};
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_POLL};
-    esp_err_t err = solar_os_ble_server_request(python_ble_get(), &r);
-    if (err == ESP_ERR_NOT_FOUND) return mp_const_none;
+    int err = python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options);
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return mp_const_none;
     python_ble_check(err);
     mp_obj_t result = mp_obj_new_dict(8);
     python_dict_store_cstr(result, "type", types[r.event.type]);
@@ -372,8 +459,8 @@ static mp_obj_t solaros_ble_server_peers(void)
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_PEER};
     mp_obj_t result = mp_obj_new_list(0, NULL);
     for (;;) {
-        esp_err_t err = solar_os_ble_server_request(python_ble_get(), &r);
-        if (err == ESP_ERR_NOT_FOUND) return result;
+        int err = python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options);
+        if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
         python_ble_check(err); r.peer = r.event.peer;
         mp_obj_t item = mp_obj_new_dict(3);
         python_dict_store_uint(item, "peer", r.event.peer);
@@ -387,7 +474,7 @@ static mp_obj_t solaros_ble_server_set(mp_obj_t id, mp_obj_t data)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_SET, .id=python_ble_server_id(id)};
     python_ble_server_value(data, &r);
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_server_set_obj, solaros_ble_server_set);
@@ -401,17 +488,22 @@ static mp_obj_t solaros_ble_server_send(size_t n_args, const mp_obj_t *args)
             mp_raise_ValueError(MP_ERROR_TEXT("indicate must be boolean"));
         r.indicate = args[3] == mp_const_true;
     }
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_server_send_obj, 3, 4, solaros_ble_server_send);
 static mp_obj_t solaros_ble_server_disconnect(mp_obj_t peer)
 {
     solar_os_ble_server_request_t r = {.op=SOLAR_OS_BLE_SERVER_DISCONNECT, .peer=python_ble_server_id(peer)};
-    python_ble_check(solar_os_ble_server_request(python_ble_get(), &r));
+    python_ble_check(python_ble_api()->server_request_with_options(python_ble_get(), &r, &python_ble_options));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_server_disconnect_obj, solaros_ble_server_disconnect);
+
+static int python_ble_hid_request(solar_os_ble_hid_request_t *request)
+{
+    return python_ble_api()->hid_request_with_options(python_ble_get(), request, &python_ble_options);
+}
 
 static mp_obj_t solaros_ble_hid_start(size_t n_args, const mp_obj_t *args)
 {
@@ -419,20 +511,23 @@ static mp_obj_t solaros_ble_hid_start(size_t n_args, const mp_obj_t *args)
     const char *name = mp_obj_str_get_data(args[0], &len);
     if (!len || len > 26 || memchr(name, 0, len))
         mp_raise_ValueError(MP_ERROR_TEXT("HID name must be 1..26 bytes"));
-    char copied[27]; memcpy(copied, name, len); copied[len] = 0;
+
     if (n_args > 1 && args[1] != mp_const_true && args[1] != mp_const_false)
         mp_raise_ValueError(MP_ERROR_TEXT("manual must be boolean"));
-    python_ble_check(n_args > 1 && args[1] == mp_const_true
-        ? solar_os_ble_hid_device_start_managed(python_ble_get(), copied)
-        : solar_os_ble_hid_device_start(python_ble_get(), copied));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_START,
+        .manual = n_args > 1 && args[1] == mp_const_true};
+    memcpy(r.name, name, len);
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_start_obj, 1, 2, solaros_ble_hid_start);
 
 static mp_obj_t solaros_ble_hid_hosts(void)
 {
-    solar_os_ble_hid_host_t hosts[SOLAR_OS_BLE_HID_HOST_MAX]; size_t count;
-    python_ble_check(solar_os_ble_hid_device_hosts(python_ble_get(), hosts, SOLAR_OS_BLE_HID_HOST_MAX, &count));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_HOSTS};
+    python_ble_check(python_ble_hid_request(&r));
+    const solar_os_ble_hid_host_t *hosts = r.hosts;
+    const size_t count = r.host_count;
     mp_obj_t result = mp_obj_new_list(0, NULL);
     for (size_t i=0; i<count; i++) {
         mp_obj_t host = mp_obj_new_dict(4); char address[18];
@@ -451,12 +546,14 @@ static mp_obj_t python_ble_hid_host(size_t n_args, const mp_obj_t *args, bool fo
 {
     size_t len; uint8_t bda[6];
     const char *address = mp_obj_str_get_data(args[0], &len);
-    if (!solar_os_ble_parse_address(address, len, bda))
+    if (!python_ble_api()->parse_address(address, len, bda))
         mp_raise_ValueError(MP_ERROR_TEXT("expected aa:bb:cc:dd:ee:ff"));
     uint32_t type = python_optional_u32(n_args, args, 1, 0);
     if (type > 1) mp_raise_ValueError(MP_ERROR_TEXT("address type must be 0..1"));
-    python_ble_check(forget ? solar_os_ble_hid_device_forget(python_ble_get(), bda, type)
-        : solar_os_ble_hid_device_connect(python_ble_get(), bda, type));
+    solar_os_ble_hid_request_t r = {.op = forget ? SOLAR_OS_BLE_HID_OP_FORGET : SOLAR_OS_BLE_HID_OP_CONNECT,
+        .addr_type = type};
+    memcpy(r.bda, bda, sizeof(r.bda));
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 static mp_obj_t solaros_ble_hid_connect(size_t n, const mp_obj_t *args)
@@ -467,47 +564,51 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_connect_obj, 1, 2, solaros_b
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_forget_obj, 1, 2, solaros_ble_hid_forget);
 static mp_obj_t solaros_ble_hid_disconnect(void)
 {
-    python_ble_check(solar_os_ble_hid_device_disconnect(python_ble_get()));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_DISCONNECT};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_disconnect_obj, solaros_ble_hid_disconnect);
 
 static mp_obj_t solaros_ble_hid_pair(void)
 {
-    python_ble_check(solar_os_ble_hid_device_pair(python_ble_get()));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_PAIR};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_pair_obj, solaros_ble_hid_pair);
 
 static mp_obj_t solaros_ble_hid_stop(void)
 {
-    python_ble_check(solar_os_ble_hid_device_stop(python_ble_get()));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_STOP};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_stop_obj, solaros_ble_hid_stop);
 
 static mp_obj_t solaros_ble_hid_status(void)
 {
-    solar_os_ble_hid_info_t info;
-    python_ble_check(solar_os_ble_hid_device_status(python_ble_get(), &info));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_STATUS};
+    python_ble_check(python_ble_hid_request(&r));
+    const solar_os_ble_hid_info_t *info = &r.info;
     mp_obj_t result = mp_obj_new_dict(17);
-    python_dict_store_cstr(result, "host_name", info.host_name);
-    python_dict_store_bool(result, "manual", info.manual);
-    python_dict_store_bool(result, "pairing", info.pairing);
-    python_dict_store_bool(result, "host_selected", info.host_selected);
-    python_dict_store_bool(result, "registered", info.registered);
-    python_dict_store_bool(result, "advertising", info.advertising);
-    python_dict_store_bool(result, "closing", info.closing);
-    python_dict_store_bool(result, "connected", info.connected);
-    python_dict_store_bool(result, "encrypted", info.encrypted);
-    python_dict_store_bool(result, "bonded", info.bonded);
-    python_dict_store_bool(result, "keyboard_subscribed", info.keyboard_subscribed);
-    python_dict_store_bool(result, "mouse_subscribed", info.mouse_subscribed);
-    python_dict_store_bool(result, "gamepad_subscribed", info.gamepad_subscribed);
-    python_dict_store_uint(result, "keyboard_leds", info.keyboard_leds);
-    python_dict_store_uint(result, "event_capacity", info.event_capacity);
-    python_dict_store_uint(result, "event_count", info.event_count);
-    python_dict_store_uint(result, "events_dropped", info.events_dropped);
+    python_dict_store_cstr(result, "host_name", info->host_name);
+    python_dict_store_bool(result, "manual", info->manual);
+    python_dict_store_bool(result, "pairing", info->pairing);
+    python_dict_store_bool(result, "host_selected", info->host_selected);
+    python_dict_store_bool(result, "registered", info->registered);
+    python_dict_store_bool(result, "advertising", info->advertising);
+    python_dict_store_bool(result, "closing", info->closing);
+    python_dict_store_bool(result, "connected", info->connected);
+    python_dict_store_bool(result, "encrypted", info->encrypted);
+    python_dict_store_bool(result, "bonded", info->bonded);
+    python_dict_store_bool(result, "keyboard_subscribed", info->keyboard_subscribed);
+    python_dict_store_bool(result, "mouse_subscribed", info->mouse_subscribed);
+    python_dict_store_bool(result, "gamepad_subscribed", info->gamepad_subscribed);
+    python_dict_store_uint(result, "keyboard_leds", info->keyboard_leds);
+    python_dict_store_uint(result, "event_capacity", info->event_capacity);
+    python_dict_store_uint(result, "event_count", info->event_count);
+    python_dict_store_uint(result, "events_dropped", info->events_dropped);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_status_obj, solaros_ble_hid_status);
@@ -517,18 +618,19 @@ static mp_obj_t solaros_ble_hid_poll(void)
     static const char *types[] = {
         "connected", "disconnected", "secured", "keyboard-leds", "passkey",
     };
-    solar_os_ble_hid_device_event_t event;
-    esp_err_t err = solar_os_ble_hid_device_poll(python_ble_get(), &event);
-    if (err == ESP_ERR_NOT_FOUND) return mp_const_none;
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_POLL};
+    const int err = python_ble_hid_request(&r);
+    const solar_os_ble_hid_device_event_t *event = &r.event;
+    if (err == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return mp_const_none;
     python_ble_check(err);
     mp_obj_t result = mp_obj_new_dict(7);
-    python_dict_store_cstr(result, "type", types[event.type]);
-    python_dict_store_uint(result, "peer", event.peer);
-    python_dict_store_uint(result, "passkey", event.passkey);
-    python_dict_store_uint(result, "status", event.status);
-    python_dict_store_bool(result, "encrypted", event.encrypted);
-    python_dict_store_bool(result, "bonded", event.bonded);
-    python_dict_store_uint(result, "keyboard_leds", event.keyboard_leds);
+    python_dict_store_cstr(result, "type", types[event->type]);
+    python_dict_store_uint(result, "peer", event->peer);
+    python_dict_store_uint(result, "passkey", event->passkey);
+    python_dict_store_uint(result, "status", event->status);
+    python_dict_store_bool(result, "encrypted", event->encrypted);
+    python_dict_store_bool(result, "bonded", event->bonded);
+    python_dict_store_uint(result, "keyboard_leds", event->keyboard_leds);
     return result;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_poll_obj, solaros_ble_hid_poll);
@@ -547,9 +649,9 @@ static size_t python_ble_hid_keys(size_t n_args, const mp_obj_t *args, uint16_t 
 
 static mp_obj_t solaros_ble_hid_keyboard_press(size_t n_args, const mp_obj_t *args)
 {
-    uint16_t keys[8];
-    python_ble_check(solar_os_ble_hid_keyboard_press(
-        python_ble_get(), keys, python_ble_hid_keys(n_args, args, keys)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS};
+    r.key_count = python_ble_hid_keys(n_args, args, r.keys);
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_press_obj, 1, 8,
@@ -557,9 +659,9 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_press_obj, 1, 8,
 
 static mp_obj_t solaros_ble_hid_keyboard_release(size_t n_args, const mp_obj_t *args)
 {
-    uint16_t keys[8];
-    python_ble_check(solar_os_ble_hid_keyboard_release(
-        python_ble_get(), keys, python_ble_hid_keys(n_args, args, keys)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE};
+    r.key_count = python_ble_hid_keys(n_args, args, r.keys);
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_release_obj, 1, 8,
@@ -567,7 +669,8 @@ MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_ble_hid_keyboard_release_obj, 1, 8,
 
 static mp_obj_t solaros_ble_hid_keyboard_release_all(void)
 {
-    python_ble_check(solar_os_ble_hid_keyboard_release_all(python_ble_get()));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_keyboard_release_all_obj,
@@ -575,16 +678,18 @@ MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_keyboard_release_all_obj,
 
 static mp_obj_t solaros_ble_hid_mouse_move(mp_obj_t x_obj, mp_obj_t y_obj)
 {
-    python_ble_check(solar_os_ble_hid_mouse_move(
-        python_ble_get(), python_i32_from_obj(x_obj), python_i32_from_obj(y_obj)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_MOUSE_MOVE,
+        .x = python_i32_from_obj(x_obj), .y = python_i32_from_obj(y_obj)};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_mouse_move_obj, solaros_ble_hid_mouse_move);
 
 static mp_obj_t solaros_ble_hid_mouse_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
 {
-    python_ble_check(solar_os_ble_hid_mouse_button(
-        python_ble_get(), python_u8_from_obj(button_obj), mp_obj_is_true(pressed_obj)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON,
+        .button = python_u8_from_obj(button_obj), .pressed = mp_obj_is_true(pressed_obj)};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_mouse_button_obj, solaros_ble_hid_mouse_button);
@@ -594,31 +699,35 @@ static mp_obj_t solaros_ble_hid_gamepad_axis(mp_obj_t axis_obj, mp_obj_t value_o
     const mp_int_t value = mp_obj_get_int(value_obj);
     if (value < INT16_MIN || value > INT16_MAX)
         mp_raise_ValueError(MP_ERROR_TEXT("expected axis value -32768..32767"));
-    python_ble_check(solar_os_ble_hid_gamepad_axis(
-        python_ble_get(), mp_obj_get_int(axis_obj), (int16_t)value));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS,
+        .axis = mp_obj_get_int(axis_obj), .value = (int16_t)value};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_gamepad_axis_obj, solaros_ble_hid_gamepad_axis);
 
 static mp_obj_t solaros_ble_hid_gamepad_button(mp_obj_t button_obj, mp_obj_t pressed_obj)
 {
-    python_ble_check(solar_os_ble_hid_gamepad_button(
-        python_ble_get(), python_u8_from_obj(button_obj), mp_obj_is_true(pressed_obj)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON,
+        .button = python_u8_from_obj(button_obj), .pressed = mp_obj_is_true(pressed_obj)};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_ble_hid_gamepad_button_obj, solaros_ble_hid_gamepad_button);
 
 static mp_obj_t solaros_ble_hid_gamepad_hat(mp_obj_t hat_obj)
 {
-    python_ble_check(solar_os_ble_hid_gamepad_hat(
-        python_ble_get(), python_u8_from_obj(hat_obj)));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT,
+        .hat = python_u8_from_obj(hat_obj)};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_ble_hid_gamepad_hat_obj, solaros_ble_hid_gamepad_hat);
 
 static mp_obj_t solaros_ble_hid_gamepad_send(void)
 {
-    python_ble_check(solar_os_ble_hid_gamepad_send(python_ble_get()));
+    solar_os_ble_hid_request_t r = {.op = SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND};
+    python_ble_check(python_ble_hid_request(&r));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_0(solaros_ble_hid_gamepad_send_obj, solaros_ble_hid_gamepad_send);

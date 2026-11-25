@@ -9,7 +9,8 @@
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_client_ui.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_rtsp_client.h"
@@ -67,7 +68,10 @@ typedef struct {
     solar_os_media_preferences_t *preferences;
     size_t active, cursor, top;
     unsigned dialog;
-    size_t edit_index, dialog_input_len;
+    size_t edit_index;
+    solar_os_ui_input_state_t dialog_input_state;
+    const solar_os_native_ui_api_v1_t *ui_api;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     char dialog_name[SOLAR_OS_M3U_TITLE_MAX], dialog_input[SOLAR_OS_RTSP_URL_MAX];
     char message[96];
     int16_t pointer_x, pointer_y;
@@ -245,8 +249,8 @@ static void draw_controls(solar_os_gfx_t *gfx, int w, int h,
         snprintf(title, sizeof(title), "RTSP stream");
     if (rtsp.active < rtsp.playlist.count && rtsp.playlist.entries[rtsp.active].title[0])
         snprintf(title, sizeof(title), "%s", rtsp.playlist.entries[rtsp.active].title);
-    solar_os_media_player_header_draw(gfx, w, "RTSP", "[Play]  Playlist");
-    solar_os_media_player_controls_draw(gfx, w, h, title, playback_label(status),
+    rtsp.media_ui->player_header_draw(gfx, w, "RTSP", "[Play]  Playlist");
+    rtsp.media_ui->player_controls_draw(gfx, w, h, title, playback_label(status),
         solar_os_media_preferences_volume(rtsp.preferences), false,
         rtsp.stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
         rtsp.paused ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
@@ -273,8 +277,8 @@ static void draw_playlist(solar_os_context_t *ctx)
         solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
         int w = solar_os_gfx_width(gfx), h = solar_os_gfx_height(gfx);
         solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-        solar_os_media_player_header_draw(gfx, w, "RTSP", "Play  [Playlist]");
-        solar_os_media_playlist_draw(gfx, w, h, rtsp.playlist.count, rtsp.cursor,
+        rtsp.media_ui->player_header_draw(gfx, w, "RTSP", "Play  [Playlist]");
+        rtsp.media_ui->playlist_draw(gfx, w, h, rtsp.playlist.count, rtsp.cursor,
             rtsp.active, &rtsp.top, rtsp_playlist_entry, NULL,
             rtsp.message[0] ? rtsp.message : "A add  E edit  Del remove  Enter play");
         solar_os_gfx_present(gfx);
@@ -291,25 +295,50 @@ static void draw_playlist(solar_os_context_t *ctx)
     rtsp.playlist_dirty = false;
 }
 
+/* Preserve byte offsets while masking the password. Reformatting the URL
+ * would move a middle-of-line cursor away from the source being edited. */
+static const char *dialog_display_text(char *masked, size_t capacity)
+{
+    strlcpy(masked, rtsp.dialog_input, capacity);
+    if (rtsp.dialog != 2) return masked;
+    const char *authority = strstr(masked, "://");
+    authority = authority ? authority + 3 : masked;
+    const char *at = strchr(authority, '@'), *slash = strchr(authority, '/');
+    if (at && (!slash || at < slash)) {
+        const char *colon = memchr(authority, ':', (size_t)(at - authority));
+        if (colon) memset(masked + (colon - masked) + 1, '*', (size_t)(at - colon - 1));
+    }
+    return masked;
+}
+
 static void draw_dialog(solar_os_context_t *ctx)
 {
     if (!rtsp.playlist_dirty) return;
     const char *title = rtsp.dialog == 1 ? "Stream name" : "Stream URL";
     const char *help = rtsp.message[0] ? rtsp.message : "Enter next/save  Esc cancel";
-    const char *input = rtsp.dialog_input;
     char redacted[SOLAR_OS_RTSP_URL_MAX];
-    if (rtsp.dialog == 2 && strchr(input, '@')) {
-        input = solar_os_rtsp_url_redact(input, redacted, sizeof(redacted)) == ESP_OK ?
-            redacted : "URL with credentials";
-    }
+    const char *input = dialog_display_text(redacted, sizeof(redacted));
     if (rtsp.graphical) {
         solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
-        solar_os_media_dialog_draw(gfx, solar_os_gfx_width(gfx), solar_os_gfx_height(gfx),
-            title, input, help);
+        rtsp.ui_api->dialog(gfx, solar_os_gfx_width(gfx), solar_os_gfx_height(gfx),
+            title, input, &rtsp.dialog_input_state, help);
         solar_os_gfx_present(gfx);
     } else {
         solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-        solar_os_shell_io_printf(io, "\r\033[K%s\r\n%s: %s\033[K", help, title, input);
+        const size_t prefix = strlen(title) + 2;
+        size_t cols = solar_os_shell_io_cols(io);
+        if (!cols) cols = 80;
+        const size_t visible = cols > prefix + 1 ? cols - prefix - 1 : 1;
+        solar_os_ui_input_reconcile(input, &rtsp.dialog_input_state, visible);
+        size_t end = rtsp.dialog_input_state.view, cells = 0, cursor_cells = 0;
+        while (input[end] && cells < visible) {
+            if (end < rtsp.dialog_input_state.cursor) cursor_cells++;
+            end = solar_os_ui_utf8_next(input, end); cells++;
+        }
+        char movement[24] = "";
+        if (cells > cursor_cells) snprintf(movement, sizeof(movement), "\033[%zuD", cells - cursor_cells);
+        solar_os_shell_io_printf(io, "\r\033[K%s\r\n%s: %.*s\033[K%s", help, title,
+            (int)(end - rtsp.dialog_input_state.view), input + rtsp.dialog_input_state.view, movement);
         solar_os_shell_io_set_cursor_visible(io, true);
     }
     rtsp.playlist_dirty = false;
@@ -633,23 +662,23 @@ static void begin_dialog(bool edit)
         rtsp_playlist_entry(rtsp.cursor, &entry, NULL);
         strlcpy(rtsp.dialog_input, entry.title, sizeof(rtsp.dialog_input));
     }
-    rtsp.dialog_input_len = strlen(rtsp.dialog_input);
+    rtsp.dialog_input_state = (solar_os_ui_input_state_t){.cursor = strlen(rtsp.dialog_input)};
 }
 
 static void dialog_key(solar_os_context_t *ctx, uint8_t key)
 {
     rtsp.message[0] = 0;
-    solar_os_media_input_action_t action = solar_os_media_dialog_input_key(rtsp.dialog_input,
-        rtsp.dialog == 1 ? sizeof(rtsp.dialog_name) : sizeof(rtsp.dialog_input), &rtsp.dialog_input_len, key);
-    if (action == SOLAR_OS_MEDIA_INPUT_CANCEL) rtsp.dialog = 0;
-    else if (action == SOLAR_OS_MEDIA_INPUT_SUBMIT) {
-        if (!rtsp.dialog_input_len) snprintf(rtsp.message, sizeof(rtsp.message), "Value cannot be empty");
+    solar_os_ui_input_action_t action = rtsp.ui_api->input_key(rtsp.dialog_input,
+        rtsp.dialog == 1 ? sizeof(rtsp.dialog_name) : sizeof(rtsp.dialog_input), &rtsp.dialog_input_state, key, SIZE_MAX);
+    if (action == SOLAR_OS_UI_INPUT_CANCEL) rtsp.dialog = 0;
+    else if (action == SOLAR_OS_UI_INPUT_SUBMIT) {
+        if (!rtsp.dialog_input[0]) snprintf(rtsp.message, sizeof(rtsp.message), "Value cannot be empty");
         else if (rtsp.dialog == 1) {
             strlcpy(rtsp.dialog_name, rtsp.dialog_input, sizeof(rtsp.dialog_name));
             rtsp.dialog = 2;
             strlcpy(rtsp.dialog_input, rtsp.edit_index < rtsp.playlist.count ?
                 rtsp.playlist.entries[rtsp.edit_index].path : "", sizeof(rtsp.dialog_input));
-            rtsp.dialog_input_len = strlen(rtsp.dialog_input);
+            rtsp.dialog_input_state = (solar_os_ui_input_state_t){.cursor = strlen(rtsp.dialog_input)};
         } else {
             solar_os_m3u_entry_t entry = {.duration = -1};
             esp_err_t err = solar_os_rtsp_url_normalize(rtsp.dialog_input, entry.path, sizeof(entry.path));
@@ -692,6 +721,10 @@ static void remove_selected(solar_os_context_t *ctx)
 static esp_err_t start(solar_os_context_t *ctx)
 {
     rtsp.network_done = rtsp.decode_done = true;
+    rtsp.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(rtsp.ui_api->input_text));
+    rtsp.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(rtsp.media_ui->player_button_at));
+    if (!rtsp.ui_api || !rtsp.media_ui) return ESP_ERR_NOT_SUPPORTED;
     rtsp.stopped = true;
     rtsp.active = SIZE_MAX;
     const char *url = NULL;
@@ -813,7 +846,7 @@ static bool pointer(solar_os_context_t *ctx, const solar_os_input_pointer_event_
     if (rtsp.fullscreen || rtsp.playlist_visible || rtsp.dialog || event->action != SOLAR_OS_INPUT_POINTER_PRESS ||
         !(event->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY))
         return false;
-    int button = solar_os_media_player_button_at(w, h, false, rtsp.pointer_x, rtsp.pointer_y);
+    int button = rtsp.media_ui->player_button_at(w, h, false, rtsp.pointer_x, rtsp.pointer_y);
     if (button < 0) return false;
     if (button == 1) toggle_playback(ctx);
     else if (button == 0 && rtsp.active) select_track(ctx, rtsp.active - 1);
@@ -823,6 +856,23 @@ static bool pointer(solar_os_context_t *ctx, const solar_os_input_pointer_event_
 
 static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
 {
+    if (!event) return false;
+    solar_os_event_t shortcut;
+    if (event->type == SOLAR_OS_EVENT_TEXT) {
+        if (rtsp.dialog) {
+            const size_t capacity = rtsp.dialog == 1 ? sizeof(rtsp.dialog_name) : sizeof(rtsp.dialog_input);
+            if (rtsp.ui_api->input_text(rtsp.dialog_input, capacity, &rtsp.dialog_input_state,
+                    event->data.text, strlen(event->data.text), SIZE_MAX) == SOLAR_OS_UI_INPUT_CHANGED) {
+                rtsp.playlist_dirty = rtsp.layout_dirty = true;
+                render(ctx, true);
+            }
+            return true;
+        }
+        if ((unsigned char)event->data.text[0] < 0x20U ||
+            (unsigned char)event->data.text[0] >= 0x7fU || event->data.text[1]) return false;
+        shortcut = (solar_os_event_t){.type = SOLAR_OS_EVENT_CHAR, .data.ch = event->data.text[0]};
+        event = &shortcut;
+    }
     if (event->type == SOLAR_OS_EVENT_RESUME) { resume(ctx); return true; }
     if (event->type == SOLAR_OS_EVENT_POINTER) return pointer(ctx, &event->data.pointer);
     if (event->type == SOLAR_OS_EVENT_CHAR) {
@@ -946,7 +996,7 @@ static bool event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
 const solar_os_app_t solar_os_rtsp_app = {
     .name = "rtsp", .summary = "RTSP JPEG/L16 viewer", .app_class = SOLAR_OS_APP_CLASS_GUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS,
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_POINTER_EVENTS | SOLAR_OS_APP_FLAG_TEXT_EVENTS,
     .start = start, .stop = stop, .suspend = suspend, .resume = resume, .event = event,
     .state_slot = &rtsp_state, .state_size = sizeof(rtsp_app_state_t),
     .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,

@@ -201,6 +201,7 @@ tracked_files = (
     project_dir / "packages" / "solar_os_packages.toml",
     project_dir / "scripts" / "generate_flavor_config.py",
     project_dir / "scripts" / "solaros_components.py",
+    project_dir / "scripts" / "build_native_component.py",
     *sorted((project_dir / "modules").rglob("module.toml")),
     project_dir / "scripts" / "generate_expansion_profiles.py",
     project_dir / "scripts" / "platformio_solaros_flavor.py",

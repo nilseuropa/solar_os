@@ -26,3 +26,10 @@ class NativeStreamApiTest(unittest.TestCase):
             binary = Path(tmp) / 'registry'
             self.compile('stream_test.c', ['solar_os_stream.c'], binary)
             subprocess.run([str(binary)], check=True, timeout=20)
+
+    def test_port_close_refusal_preserves_claims_until_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / 'port-stream'
+            self.compile('native_port_stream_test.c', ['solar_os_stream.c', 'solar_os_port.c',
+                'solar_os_native_handles.c', 'solar_os_native_stream.c'], binary)
+            subprocess.run([str(binary)], check=True, timeout=20)

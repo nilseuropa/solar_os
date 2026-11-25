@@ -175,6 +175,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I", tmp, "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"),
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/frame_presenter_palette_test.c"),
                 "-o", str(binary),
             ], check=True)
@@ -205,6 +206,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 "-I", str(ROOT / "src"),
                 "-I", str(ROOT / "src/services"),
                 "-I", str(ROOT / "components/u8g2/src/clib"),
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/frame_presenter_fitting_test.c"),
                 "-o", str(binary),
             ], check=True)

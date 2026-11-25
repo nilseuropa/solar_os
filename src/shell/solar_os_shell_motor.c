@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -70,3 +74,5 @@ void solar_os_shell_cmd_motor(solar_os_context_t *ctx, int argc, char **argv)
     }
     if (ret != ESP_OK) solar_os_shell_io_printf(io, "motor: %s\r\n", solar_os_shell_error_text(ret));
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_MOTOR */

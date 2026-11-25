@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_MQTT
+
 #include "solar_os_shell_commands.h"
 
 #include "solar_os_config.h"
@@ -369,3 +373,5 @@ void solar_os_shell_cmd_mqtt(solar_os_context_t *ctx, int argc, char **argv)
 }
 
 #endif
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_MQTT */

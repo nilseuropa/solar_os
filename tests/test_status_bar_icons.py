@@ -45,6 +45,7 @@ class StatusBarIconsTest(unittest.TestCase):
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + str(component / "src/clib"), "-I" + directory,
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src"),
+                "-I" + str(ROOT / "include"),
                 "-I" + str(ROOT / "src/services"),
                 str(ROOT / "tests/host/status_bar_layout_test.c"), *sources, *flags,
                 "-Wl,--gc-sections", "-o", str(binary),
@@ -67,21 +68,21 @@ class StatusBarIconsTest(unittest.TestCase):
 #include <string.h>
 typedef unsigned u8g2_uint_t;
 typedef struct { unsigned char pixels[16][24]; } u8g2_t;
-static void u8g2_DrawPixel(u8g2_t *u, unsigned x, unsigned y) {
+static void solar_os_canvas_pixel(u8g2_t *u, unsigned x, unsigned y) {
     assert(x < 24 && y < 16); u->pixels[y][x] = 1;
 }
-static void u8g2_DrawHLine(u8g2_t *u, unsigned x, unsigned y, unsigned n) {
-    for (unsigned i=0; i<n; ++i) u8g2_DrawPixel(u,x+i,y);
+static void solar_os_canvas_hline(u8g2_t *u, unsigned x, unsigned y, unsigned n) {
+    for (unsigned i=0; i<n; ++i) solar_os_canvas_pixel(u,x+i,y);
 }
-static void u8g2_DrawVLine(u8g2_t *u, unsigned x, unsigned y, unsigned n) {
-    for (unsigned i=0; i<n; ++i) u8g2_DrawPixel(u,x,y+i);
+static void solar_os_canvas_vline(u8g2_t *u, unsigned x, unsigned y, unsigned n) {
+    for (unsigned i=0; i<n; ++i) solar_os_canvas_pixel(u,x,y+i);
 }
-static void u8g2_DrawFrame(u8g2_t *u, unsigned x, unsigned y, unsigned w, unsigned h) {
-    u8g2_DrawHLine(u,x,y,w); u8g2_DrawHLine(u,x,y+h-1,w);
-    u8g2_DrawVLine(u,x,y,h); u8g2_DrawVLine(u,x+w-1,y,h);
+static void solar_os_canvas_frame(u8g2_t *u, unsigned x, unsigned y, unsigned w, unsigned h) {
+    solar_os_canvas_hline(u,x,y,w); solar_os_canvas_hline(u,x,y+h-1,w);
+    solar_os_canvas_vline(u,x,y,h); solar_os_canvas_vline(u,x+w-1,y,h);
 }
-static void u8g2_DrawBox(u8g2_t *u, unsigned x, unsigned y, unsigned w, unsigned h) {
-    for (unsigned i=0; i<h; ++i) u8g2_DrawHLine(u,x,y+i,w);
+static void solar_os_canvas_box(u8g2_t *u, unsigned x, unsigned y, unsigned w, unsigned h) {
+    for (unsigned i=0; i<h; ++i) solar_os_canvas_hline(u,x,y+i,w);
 }
 ''' + helpers + r'''
 int main(void) {

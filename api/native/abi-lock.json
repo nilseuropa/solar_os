@@ -1,5 +1,7 @@
 {
   "constants": {
+    "SOLAR_OS_APPLICATION_LIFECYCLE_ABI": "1U",
+    "SOLAR_OS_APPLICATION_LIFECYCLE_V1_MIN_SIZE": "( offsetof ( solar_os_application_lifecycle_api_v1_t , requested_tick_interval_ms ) + sizeof ( ( ( solar_os_application_lifecycle_api_v1_t * ) 0 ) - > requested_tick_interval_ms ) )",
     "SOLAR_OS_APP_DISCOVERY_ID_MAX": "32",
     "SOLAR_OS_APP_DISCOVERY_NAME_MAX": "48",
     "SOLAR_OS_APP_DISCOVERY_RUNTIME_MAX": "8",
@@ -13,10 +15,47 @@
     "SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT": "( 1U < < 6 )",
     "SOLAR_OS_APP_FLAG_SHELL_INLINE": "( 1U < < 1 )",
     "SOLAR_OS_APP_FLAG_TEXT_EVENTS": "( 1U < < 7 )",
+    "SOLAR_OS_BLE_CONNECTION_INVALID": "UINT16_MAX",
+    "SOLAR_OS_BLE_GATT_UUID_MAX": "SOLAR_OS_NATIVE_BLE_UUID_MAX",
+    "SOLAR_OS_BLE_GATT_VALUE_MAX": "SOLAR_OS_NATIVE_BLE_VALUE_MAX",
+    "SOLAR_OS_BLE_HID_HOST_MAX": "8U",
+    "SOLAR_OS_BLE_HID_KEYBOARD_LED_CAPS_LOCK": "0x 02U",
+    "SOLAR_OS_BLE_HID_KEYBOARD_LED_COMPOSE": "0x 08U",
+    "SOLAR_OS_BLE_HID_KEYBOARD_LED_KANA": "0x 10U",
+    "SOLAR_OS_BLE_HID_KEYBOARD_LED_NUM_LOCK": "0x 01U",
+    "SOLAR_OS_BLE_HID_KEYBOARD_LED_SCROLL_LOCK": "0x 04U",
+    "SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS": "6U",
+    "SOLAR_OS_BLE_NAME_MAX": "SOLAR_OS_NATIVE_BLE_NAME_MAX",
+    "SOLAR_OS_BLE_PEER_INVALID": "0U",
+    "SOLAR_OS_BLE_SESSION_INVALID": "0U",
+    "SOLAR_OS_DISPLAY_FORMAT_INDEX2_BIT": "SOLAR_OS_DISPLAY_FORMAT_BIT ( SOLAR_OS_DISPLAY_FORMAT_INDEX2 )",
+    "SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT": "SOLAR_OS_DISPLAY_FORMAT_BIT ( SOLAR_OS_DISPLAY_FORMAT_INDEX8 )",
+    "SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT": "SOLAR_OS_DISPLAY_FORMAT_BIT ( SOLAR_OS_DISPLAY_FORMAT_MONO1 )",
+    "SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT": "SOLAR_OS_DISPLAY_FORMAT_BIT ( SOLAR_OS_DISPLAY_FORMAT_RGB565 )",
     "SOLAR_OS_DSP_FFT_MAX_SIZE": "4096U",
     "SOLAR_OS_DSP_FFT_MIN_SIZE": "2U",
     "SOLAR_OS_DSP_MAX_TAPS": "1024U",
     "SOLAR_OS_DSP_Q15_ONE": "32767",
+    "SOLAR_OS_EVENT_TEXT_MAX": "5U",
+    "SOLAR_OS_GFX_COLOR_GRAY_BASE": "16U",
+    "SOLAR_OS_GFX_COLOR_GRAY_LAST": "( SOLAR_OS_GFX_COLOR_GRAY_BASE + SOLAR_OS_GFX_GRAY_MAX )",
+    "SOLAR_OS_GFX_COLOR_RGB_FLAG": "0x 01000000UL",
+    "SOLAR_OS_GFX_GRAY_MAX": "16U",
+    "SOLAR_OS_HID_KEYBOARD_REPORT_KEYS": "6U",
+    "SOLAR_OS_HID_KEY_LEFT_ALT": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 04U )",
+    "SOLAR_OS_HID_KEY_LEFT_CTRL": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 01U )",
+    "SOLAR_OS_HID_KEY_LEFT_GUI": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 08U )",
+    "SOLAR_OS_HID_KEY_LEFT_SHIFT": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 02U )",
+    "SOLAR_OS_HID_KEY_MODIFIER_FLAG": "0x 100U",
+    "SOLAR_OS_HID_KEY_RIGHT_ALT": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 40U )",
+    "SOLAR_OS_HID_KEY_RIGHT_CTRL": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 10U )",
+    "SOLAR_OS_HID_KEY_RIGHT_GUI": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 80U )",
+    "SOLAR_OS_HID_KEY_RIGHT_SHIFT": "( SOLAR_OS_HID_KEY_MODIFIER_FLAG | 0x 20U )",
+    "SOLAR_OS_HID_MOUSE_BACK": "0x 08U",
+    "SOLAR_OS_HID_MOUSE_FORWARD": "0x 10U",
+    "SOLAR_OS_HID_MOUSE_LEFT": "0x 01U",
+    "SOLAR_OS_HID_MOUSE_MIDDLE": "0x 04U",
+    "SOLAR_OS_HID_MOUSE_RIGHT": "0x 02U",
     "SOLAR_OS_IMLIB_BINS_MAX": "256U",
     "SOLAR_OS_IMLIB_BLOBS_MAX": "64U",
     "SOLAR_OS_IMLIB_MAX_HEIGHT": "480U",
@@ -30,6 +69,57 @@
     "SOLAR_OS_INFERENCE_RANK_MAX": "8U",
     "SOLAR_OS_INFERENCE_TENSOR_MAX": "( 4U * 1024U * 1024U )",
     "SOLAR_OS_INFERENCE_TIMEOUT_MAX_MS": "60000U",
+    "SOLAR_OS_INPUT_ACTION_COMMAND_MAX": "192U",
+    "SOLAR_OS_INPUT_CAP_AXIS_EVENTS": "( 1U < < 5 )",
+    "SOLAR_OS_INPUT_CAP_GESTURE_EVENTS": "( 1U < < 6 )",
+    "SOLAR_OS_INPUT_CAP_KEY_EVENTS": "( 1U < < 0 )",
+    "SOLAR_OS_INPUT_CAP_POINTER_ABSOLUTE": "( 1U < < 1 )",
+    "SOLAR_OS_INPUT_CAP_POINTER_BUTTONS": "( 1U < < 3 )",
+    "SOLAR_OS_INPUT_CAP_POINTER_RELATIVE": "( 1U < < 2 )",
+    "SOLAR_OS_INPUT_CAP_SCROLL": "( 1U < < 4 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_DOUBLE": "( 1U < < 1 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_EDGE": "( 1U < < 0 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_HAND_HELD": "( 1U < < 3 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_HAND_INSIDE": "( 1U < < 4 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_HAND_PRESENT": "( 1U < < 2 )",
+    "SOLAR_OS_INPUT_GESTURE_FLAG_IN_PROGRESS": "( 1U < < 5 )",
+    "SOLAR_OS_INPUT_GESTURE_MASK_ALL": "( ( 1UL < < ( unsigned ) SOLAR_OS_INPUT_GESTURE_COUNT ) - 1UL )",
+    "SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX": "5U",
+    "SOLAR_OS_INPUT_KEYBOARD_LAYOUT_LIST_MAX": "( 3U * SOLAR_OS_INPUT_KEYBOARD_LAYOUTS_MAX )",
+    "SOLAR_OS_INPUT_KEYMAP_ALT_BLOCK": "4U",
+    "SOLAR_OS_INPUT_KEYMAP_KEY_MAX": "256U",
+    "SOLAR_OS_INPUT_KEYMAP_LAYERS": "( 1U < < 2 )",
+    "SOLAR_OS_INPUT_KEYMAP_LAYER_MAX": "3U",
+    "SOLAR_OS_INPUT_KEYMAP_LAYER_TAP": "2U",
+    "SOLAR_OS_INPUT_KEYMAP_MATRIX": "( 1U < < 4 )",
+    "SOLAR_OS_INPUT_KEYMAP_MODIFIERS": "( 1U < < 1 )",
+    "SOLAR_OS_INPUT_KEYMAP_PHYSICAL": "( 1U < < 0 )",
+    "SOLAR_OS_INPUT_KEYMAP_RAW": "1U",
+    "SOLAR_OS_INPUT_KEYMAP_TAP_HOLD": "( 1U < < 3 )",
+    "SOLAR_OS_INPUT_MAX_PRESSED_KEYS": "24U",
+    "SOLAR_OS_INPUT_MOD_ALT": "( SOLAR_OS_INPUT_MOD_LEFT_ALT | SOLAR_OS_INPUT_MOD_RIGHT_ALT )",
+    "SOLAR_OS_INPUT_MOD_CTRL": "( SOLAR_OS_INPUT_MOD_LEFT_CTRL | SOLAR_OS_INPUT_MOD_RIGHT_CTRL )",
+    "SOLAR_OS_INPUT_MOD_LEFT_ALT": "0x 04U",
+    "SOLAR_OS_INPUT_MOD_LEFT_CTRL": "0x 01U",
+    "SOLAR_OS_INPUT_MOD_LEFT_GUI": "0x 08U",
+    "SOLAR_OS_INPUT_MOD_LEFT_SHIFT": "0x 02U",
+    "SOLAR_OS_INPUT_MOD_RIGHT_ALT": "0x 40U",
+    "SOLAR_OS_INPUT_MOD_RIGHT_CTRL": "0x 10U",
+    "SOLAR_OS_INPUT_MOD_RIGHT_GUI": "0x 80U",
+    "SOLAR_OS_INPUT_MOD_RIGHT_SHIFT": "0x 20U",
+    "SOLAR_OS_INPUT_MOD_SHIFT": "( SOLAR_OS_INPUT_MOD_LEFT_SHIFT | SOLAR_OS_INPUT_MOD_RIGHT_SHIFT )",
+    "SOLAR_OS_INPUT_PHYSICAL_NONE": "0U",
+    "SOLAR_OS_INPUT_POINTER_BUTTON_MIDDLE": "( 1U < < 2 )",
+    "SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY": "( 1U < < 0 )",
+    "SOLAR_OS_INPUT_POINTER_BUTTON_SECONDARY": "( 1U < < 1 )",
+    "SOLAR_OS_INPUT_POINTER_TARGET_MAX": "16U",
+    "SOLAR_OS_INPUT_REPEAT_DELAY_MAX_MS": "2000U",
+    "SOLAR_OS_INPUT_REPEAT_DELAY_MIN_MS": "100U",
+    "SOLAR_OS_INPUT_REPEAT_RATE_MAX": "60U",
+    "SOLAR_OS_INPUT_REPEAT_RATE_MIN": "1U",
+    "SOLAR_OS_INPUT_SOURCE_INVALID": "0U",
+    "SOLAR_OS_INPUT_SOURCE_NAME_MAX": "16U",
+    "SOLAR_OS_INPUT_USAGE_NONE": "0U",
     "SOLAR_OS_KEY_ALT_PREFIX": "0x 93u",
     "SOLAR_OS_KEY_APP_EXIT": "0x 92u",
     "SOLAR_OS_KEY_AUDIO_MUTE_TOGGLE": "0xadu",
@@ -81,6 +171,10 @@
     "SOLAR_OS_KEY_SHIFT_RIGHT": "0x 9au",
     "SOLAR_OS_KEY_SHIFT_UP": "0x 97u",
     "SOLAR_OS_KEY_UP": "0x 80u",
+    "SOLAR_OS_M3U_PATH_MAX": "320U",
+    "SOLAR_OS_M3U_TITLE_MAX": "96U",
+    "SOLAR_OS_MEDIA_PLAYER_CONTROLS_HEIGHT": "78",
+    "SOLAR_OS_MEDIA_PLAYER_HEADER_HEIGHT": "28",
     "SOLAR_OS_NATIVE_ABI_VERSION": "1U",
     "SOLAR_OS_NATIVE_ADC_ABI": "1U",
     "SOLAR_OS_NATIVE_ADC_SERVICE": "\"adc\"",
@@ -108,9 +202,13 @@
     "SOLAR_OS_NATIVE_BATTERY_SERVICE": "\"battery\"",
     "SOLAR_OS_NATIVE_BLE_CLIENT_ABI": "1U",
     "SOLAR_OS_NATIVE_BLE_CLIENT_SERVICE": "\"ble.client\"",
+    "SOLAR_OS_NATIVE_BLE_KEYBOARD_ABI": "1U",
+    "SOLAR_OS_NATIVE_BLE_KEYBOARD_SERVICE": "\"ble.keyboard\"",
     "SOLAR_OS_NATIVE_BLE_NAME_MAX": "64U",
     "SOLAR_OS_NATIVE_BLE_PEER_INVALID": "0U",
     "SOLAR_OS_NATIVE_BLE_SESSION_INVALID": "0U",
+    "SOLAR_OS_NATIVE_BLE_STREAM_ABI": "1U",
+    "SOLAR_OS_NATIVE_BLE_STREAM_SERVICE": "\"stream.ble\"",
     "SOLAR_OS_NATIVE_BLE_UUID_MAX": "37U",
     "SOLAR_OS_NATIVE_BLE_VALUE_MAX": "176U",
     "SOLAR_OS_NATIVE_BLOCK_BOOTABLE": "1U",
@@ -119,6 +217,8 @@
     "SOLAR_OS_NATIVE_BLOCK_MOUNTED": "4U",
     "SOLAR_OS_NATIVE_BLOCK_PARTITION": "1U",
     "SOLAR_OS_NATIVE_BLOCK_WHOLE_FS": "8U",
+    "SOLAR_OS_NATIVE_BLUETOOTH_ABI": "1U",
+    "SOLAR_OS_NATIVE_BLUETOOTH_SERVICE": "\"ble\"",
     "SOLAR_OS_NATIVE_BOARD_ABI": "1U",
     "SOLAR_OS_NATIVE_BOARD_CAP_ADC": "( 1ULL < < 12 )",
     "SOLAR_OS_NATIVE_BOARD_CAP_ADC_DPAD": "( 1ULL < < 20 )",
@@ -163,6 +263,7 @@
     "SOLAR_OS_NATIVE_BUS_ABI": "1U",
     "SOLAR_OS_NATIVE_BUS_ALL": "( - 1 )",
     "SOLAR_OS_NATIVE_BUS_BOARD": "0U",
+    "SOLAR_OS_NATIVE_BUS_DEFAULT_I2C": "\"i2c0\"",
     "SOLAR_OS_NATIVE_BUS_EXCLUSIVE": "1U",
     "SOLAR_OS_NATIVE_BUS_I2C": "0U",
     "SOLAR_OS_NATIVE_BUS_MIDI": "5U",
@@ -208,6 +309,10 @@
     "SOLAR_OS_NATIVE_ERROR_NOT_EMPTY": "( - 14 )",
     "SOLAR_OS_NATIVE_ERROR_NO_SPACE": "( - 15 )",
     "SOLAR_OS_NATIVE_ERROR_PERMISSION": "( - 9 )",
+    "SOLAR_OS_NATIVE_EXPR_ABI": "1U",
+    "SOLAR_OS_NATIVE_EXPR_ERROR_MAX": "64U",
+    "SOLAR_OS_NATIVE_EXPR_HAS_X": "( 1U < < 0 )",
+    "SOLAR_OS_NATIVE_EXPR_SERVICE": "\"expr\"",
     "SOLAR_OS_NATIVE_FILES_ABI": "1U",
     "SOLAR_OS_NATIVE_FILES_BASE_SIZE": "offsetof ( solar_os_native_files_api_v1_t , state_directory )",
     "SOLAR_OS_NATIVE_FILES_SERVICE": "\"storage.files\"",
@@ -225,6 +330,8 @@
     "SOLAR_OS_NATIVE_FS_REPLACE_MAX": "32U",
     "SOLAR_OS_NATIVE_FS_SCAN_MAX": "128U",
     "SOLAR_OS_NATIVE_FS_SERVICE": "\"fs\"",
+    "SOLAR_OS_NATIVE_GFX_ABI": "1U",
+    "SOLAR_OS_NATIVE_GFX_SERVICE": "\"gfx\"",
     "SOLAR_OS_NATIVE_GPIO_ABI": "1U",
     "SOLAR_OS_NATIVE_GPIO_INPUT": "0U",
     "SOLAR_OS_NATIVE_GPIO_OUTPUT": "1U",
@@ -234,6 +341,10 @@
     "SOLAR_OS_NATIVE_GPIO_SERVICE": "\"gpio\"",
     "SOLAR_OS_NATIVE_HAPTIC_ABI": "1U",
     "SOLAR_OS_NATIVE_HAPTIC_SERVICE": "\"haptic\"",
+    "SOLAR_OS_NATIVE_HID_DEVICE_ABI": "1U",
+    "SOLAR_OS_NATIVE_HID_DEVICE_SERVICE": "\"hid.device\"",
+    "SOLAR_OS_NATIVE_HID_REPORT_ABI": "1U",
+    "SOLAR_OS_NATIVE_HID_REPORT_SERVICE": "\"hid.report\"",
     "SOLAR_OS_NATIVE_HTTP_ABI": "1U",
     "SOLAR_OS_NATIVE_HTTP_BODY_TRUNCATED": "4U",
     "SOLAR_OS_NATIVE_HTTP_CANCELLED": "1U",
@@ -258,6 +369,10 @@
     "SOLAR_OS_NATIVE_IMLIB_SERVICE": "\"vision.imlib\"",
     "SOLAR_OS_NATIVE_INFERENCE_ABI": "1U",
     "SOLAR_OS_NATIVE_INFERENCE_SERVICE": "\"inference\"",
+    "SOLAR_OS_NATIVE_INPUT_ABI": "1U",
+    "SOLAR_OS_NATIVE_INPUT_ACTIONS_ABI": "1U",
+    "SOLAR_OS_NATIVE_INPUT_ACTIONS_SERVICE": "\"input.actions\"",
+    "SOLAR_OS_NATIVE_INPUT_SERVICE": "\"input\"",
     "SOLAR_OS_NATIVE_JOB_LIFECYCLE_ABI": "1U",
     "SOLAR_OS_NATIVE_JSON_ABI": "1U",
     "SOLAR_OS_NATIVE_JSON_ARRAY": "2U",
@@ -267,6 +382,8 @@
     "SOLAR_OS_NATIVE_JSON_OBJECT": "1U",
     "SOLAR_OS_NATIVE_JSON_SERVICE": "\"json\"",
     "SOLAR_OS_NATIVE_JSON_STRING": "5U",
+    "SOLAR_OS_NATIVE_KEYMAP_ABI": "1U",
+    "SOLAR_OS_NATIVE_KEYMAP_SERVICE": "\"input.keymap\"",
     "SOLAR_OS_NATIVE_LIBC_ABI": "1U",
     "SOLAR_OS_NATIVE_LIBC_SERVICE": "\"libc\"",
     "SOLAR_OS_NATIVE_LIBRARY_ABI": "1U",
@@ -278,10 +395,14 @@
     "SOLAR_OS_NATIVE_LOG_INFO": "2U",
     "SOLAR_OS_NATIVE_LOG_SERVICE": "\"log\"",
     "SOLAR_OS_NATIVE_LOG_WARN": "1U",
+    "SOLAR_OS_NATIVE_M3U_ABI": "1U",
+    "SOLAR_OS_NATIVE_M3U_SERVICE": "\"media.m3u\"",
     "SOLAR_OS_NATIVE_MEDIA_ABI": "1U",
     "SOLAR_OS_NATIVE_MEDIA_LOCAL": "1U",
     "SOLAR_OS_NATIVE_MEDIA_RTSP": "2U",
     "SOLAR_OS_NATIVE_MEDIA_SERVICE": "\"media.video\"",
+    "SOLAR_OS_NATIVE_MEDIA_WIDGETS_ABI": "1U",
+    "SOLAR_OS_NATIVE_MEDIA_WIDGETS_SERVICE": "\"ui.media\"",
     "SOLAR_OS_NATIVE_MEMORY_ABI": "1U",
     "SOLAR_OS_NATIVE_MEMORY_SERVICE": "\"memory\"",
     "SOLAR_OS_NATIVE_MOTION_ABI": "1U",
@@ -380,6 +501,8 @@
     "SOLAR_OS_NATIVE_SETTINGS_BACKUP_SERVICE": "\"settings.backup\"",
     "SOLAR_OS_NATIVE_SFTP_ABI": "1U",
     "SOLAR_OS_NATIVE_SFTP_SERVICE": "\"sftp\"",
+    "SOLAR_OS_NATIVE_SHELL_IO_ABI": "1U",
+    "SOLAR_OS_NATIVE_SHELL_IO_SERVICE": "\"shell_io\"",
     "SOLAR_OS_NATIVE_SSCMA_ABI": "1U",
     "SOLAR_OS_NATIVE_SSCMA_BASE_SIZE": "offsetof ( solar_os_native_sscma_api_v1_t , spi )",
     "SOLAR_OS_NATIVE_SSCMA_REPLY_MAX": "( 512U * 1024U )",
@@ -421,8 +544,12 @@
     "SOLAR_OS_NATIVE_SYSTEM_AVAILABLE": "1U",
     "SOLAR_OS_NATIVE_SYSTEM_SCOPED": "2U",
     "SOLAR_OS_NATIVE_SYSTEM_SERVICE": "\"system\"",
+    "SOLAR_OS_NATIVE_TCP_STREAM_ABI": "1U",
+    "SOLAR_OS_NATIVE_TCP_STREAM_SERVICE": "\"stream.tcp\"",
     "SOLAR_OS_NATIVE_TENSOR_IMAGE_ABI": "1U",
     "SOLAR_OS_NATIVE_TENSOR_IMAGE_SERVICE": "\"tensor.image\"",
+    "SOLAR_OS_NATIVE_TERMINAL_ABI": "1U",
+    "SOLAR_OS_NATIVE_TERMINAL_SERVICE": "\"terminal\"",
     "SOLAR_OS_NATIVE_THREAD_ABI": "1U",
     "SOLAR_OS_NATIVE_THREAD_SERVICE": "\"thread\"",
     "SOLAR_OS_NATIVE_TIME_ABI": "1U",
@@ -436,6 +563,10 @@
     "SOLAR_OS_NATIVE_TRANSFER_RECURSIVE": "2U",
     "SOLAR_OS_NATIVE_TRANSFER_STATUS": "0U",
     "SOLAR_OS_NATIVE_TRANSFER_UPLOAD": "0U",
+    "SOLAR_OS_NATIVE_TUI_ABI": "1U",
+    "SOLAR_OS_NATIVE_TUI_SERVICE": "\"tui\"",
+    "SOLAR_OS_NATIVE_UI_ABI": "1U",
+    "SOLAR_OS_NATIVE_UI_SERVICE": "\"ui\"",
     "SOLAR_OS_NATIVE_VECTOR_ABI": "1U",
     "SOLAR_OS_NATIVE_VECTOR_SERVICE": "\"vector\"",
     "SOLAR_OS_NATIVE_VOLUMES_ABI": "1U",
@@ -474,6 +605,8 @@
     "SOLAR_OS_NATIVE_XML_SERVICE": "\"xml\"",
     "SOLAR_OS_NATIVE_XML_START": "0U",
     "SOLAR_OS_NATIVE_XML_TEXT": "2U",
+    "SOLAR_OS_TERMINAL_MAX_COLS": "160",
+    "SOLAR_OS_TERMINAL_MAX_ROWS": "64",
     "SOLAR_OS_VISION_MAX_HEIGHT": "480U",
     "SOLAR_OS_VISION_MAX_WIDTH": "640U",
     "SOLAR_OS_VISION_QR_MAX": "8U",
@@ -491,7 +624,34 @@
       "stddef.h",
       "stdint.h"
     ],
+    "solar_os_bluetooth_input_types_v1.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
+    ],
+    "solar_os_bluetooth_stream_types_v1.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
+    ],
+    "solar_os_bluetooth_types_v1.h": [
+      "solar_os_native_ble_abi.h"
+    ],
+    "solar_os_display_types_v1.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
+    ],
     "solar_os_dsp_types_v1.h": [
+      "stddef.h",
+      "stdint.h"
+    ],
+    "solar_os_gfx_types_v1.h": [
+      "solar_os_application_types_v1.h",
+      "solar_os_display_types_v1.h"
+    ],
+    "solar_os_hid_types_v1.h": [
+      "stdbool.h",
       "stddef.h",
       "stdint.h"
     ],
@@ -512,6 +672,17 @@
       "stdint.h",
       "solar_os_image_types_v1.h"
     ],
+    "solar_os_input_action_types_v1.h": [
+      "solar_os_input_types_v1.h"
+    ],
+    "solar_os_input_keymap_types_v1.h": [
+      "solar_os_input_types_v1.h"
+    ],
+    "solar_os_input_types_v1.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
+    ],
     "solar_os_key_codes.h": [
       "stdint.h"
     ],
@@ -527,10 +698,30 @@
       "solar_os_native_service_abi.h",
       "solar_os_application_types_v1.h"
     ],
+    "solar_os_native_application_events_abi.h": [
+      "solar_os_input_types_v1.h"
+    ],
+    "solar_os_native_application_lifecycle_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_application_types_v1.h",
+      "solar_os_native_application_events_abi.h"
+    ],
     "solar_os_native_ble_abi.h": [
       "stdbool.h",
       "stddef.h",
       "stdint.h"
+    ],
+    "solar_os_native_ble_keyboard_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_bluetooth_input_types_v1.h"
+    ],
+    "solar_os_native_ble_stream_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_bluetooth_stream_types_v1.h"
+    ],
+    "solar_os_native_bluetooth_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_bluetooth_types_v1.h"
     ],
     "solar_os_native_bus_abi.h": [
       "solar_os_native_service_abi.h"
@@ -569,8 +760,23 @@
       "solar_os_native_service_abi.h",
       "solar_os_dsp_types_v1.h"
     ],
+    "solar_os_native_expr_abi.h": [
+      "solar_os_native_service_abi.h"
+    ],
     "solar_os_native_fs_abi.h": [
       "solar_os_native_service_abi.h"
+    ],
+    "solar_os_native_gfx_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_gfx_types_v1.h"
+    ],
+    "solar_os_native_hid_device_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_hid_types_v1.h"
+    ],
+    "solar_os_native_hid_report_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_hid_types_v1.h"
     ],
     "solar_os_native_http_abi.h": [
       "solar_os_native_service_abi.h"
@@ -584,6 +790,14 @@
       "solar_os_inference_types_v1.h",
       "solar_os_tensor_image_types_v1.h"
     ],
+    "solar_os_native_input_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_input_types_v1.h"
+    ],
+    "solar_os_native_input_actions_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_input_action_types_v1.h"
+    ],
     "solar_os_native_io_abi.h": [
       "solar_os_native_service_abi.h"
     ],
@@ -591,6 +805,10 @@
       "stdbool.h",
       "stddef.h",
       "stdint.h"
+    ],
+    "solar_os_native_keymap_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_input_keymap_types_v1.h"
     ],
     "solar_os_native_libc_abi.h": [
       "stddef.h",
@@ -600,8 +818,22 @@
     "solar_os_native_library_abi.h": [
       "solar_os_native_service_abi.h"
     ],
+    "solar_os_native_m3u_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_native_media_types_abi.h"
+    ],
     "solar_os_native_media_abi.h": [
       "solar_os_native_service_abi.h"
+    ],
+    "solar_os_native_media_types_abi.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
+    ],
+    "solar_os_native_media_widgets_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_gfx_types_v1.h",
+      "solar_os_native_media_types_abi.h"
     ],
     "solar_os_native_motion_abi.h": [
       "solar_os_native_service_abi.h"
@@ -629,6 +861,11 @@
     "solar_os_native_sftp_abi.h": [
       "solar_os_native_ssh_abi.h"
     ],
+    "solar_os_native_shell_io_abi.h": [
+      "stdarg.h",
+      "solar_os_native_service_abi.h",
+      "solar_os_shell_io_types_v1.h"
+    ],
     "solar_os_native_sscma_abi.h": [
       "solar_os_native_service_abi.h"
     ],
@@ -647,11 +884,27 @@
     "solar_os_native_system_abi.h": [
       "solar_os_native_service_abi.h"
     ],
+    "solar_os_native_tcp_stream_abi.h": [
+      "solar_os_native_service_abi.h"
+    ],
+    "solar_os_native_terminal_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_terminal_types_v1.h"
+    ],
     "solar_os_native_thread_abi.h": [
       "stdint.h"
     ],
     "solar_os_native_time_abi.h": [
       "stdint.h"
+    ],
+    "solar_os_native_tui_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_tui_types_v1.h"
+    ],
+    "solar_os_native_ui_abi.h": [
+      "solar_os_native_service_abi.h",
+      "solar_os_gfx_types_v1.h",
+      "solar_os_tui_types_v1.h"
     ],
     "solar_os_native_vector_abi.h": [
       "solar_os_native_service_abi.h"
@@ -670,12 +923,23 @@
     "solar_os_native_xml_abi.h": [
       "solar_os_native_service_abi.h"
     ],
+    "solar_os_shell_io_types_v1.h": [
+      "solar_os_application_types_v1.h"
+    ],
     "solar_os_tensor_image_types_v1.h": [
       "stdbool.h",
       "stddef.h",
       "stdint.h",
       "solar_os_image_types_v1.h",
       "solar_os_inference_types_v1.h"
+    ],
+    "solar_os_terminal_types_v1.h": [
+      "solar_os_application_types_v1.h"
+    ],
+    "solar_os_tui_types_v1.h": [
+      "stdbool.h",
+      "stddef.h",
+      "stdint.h"
     ],
     "solar_os_vision_types_v1.h": [
       "stdbool.h",
@@ -714,6 +978,24 @@
       "name": "ble.client",
       "scoped": false,
       "type": "solar_os_native_ble_client_api_v1_t"
+    },
+    "ble_keyboard": {
+      "abi": 1,
+      "name": "ble.keyboard",
+      "scoped": false,
+      "type": "solar_os_native_ble_keyboard_api_v1_t"
+    },
+    "ble_stream": {
+      "abi": 1,
+      "name": "stream.ble",
+      "scoped": false,
+      "type": "solar_os_native_ble_stream_api_v1_t"
+    },
+    "bluetooth": {
+      "abi": 1,
+      "name": "ble",
+      "scoped": false,
+      "type": "solar_os_native_bluetooth_api_v1_t"
     },
     "board": {
       "abi": 1,
@@ -781,6 +1063,12 @@
       "scoped": false,
       "type": "solar_os_native_dsp_api_v1_t"
     },
+    "expr": {
+      "abi": 1,
+      "name": "expr",
+      "scoped": false,
+      "type": "solar_os_native_expr_api_v1_t"
+    },
     "files": {
       "abi": 1,
       "name": "storage.files",
@@ -799,6 +1087,12 @@
       "scoped": false,
       "type": "solar_os_native_fs_api_v1_t"
     },
+    "gfx": {
+      "abi": 1,
+      "name": "gfx",
+      "scoped": false,
+      "type": "solar_os_native_gfx_api_v1_t"
+    },
     "gpio": {
       "abi": 1,
       "name": "gpio",
@@ -810,6 +1104,18 @@
       "name": "haptic",
       "scoped": false,
       "type": "solar_os_native_haptic_api_v1_t"
+    },
+    "hid_device": {
+      "abi": 1,
+      "name": "hid.device",
+      "scoped": false,
+      "type": "solar_os_native_hid_device_api_v1_t"
+    },
+    "hid_report": {
+      "abi": 1,
+      "name": "hid.report",
+      "scoped": false,
+      "type": "solar_os_native_hid_report_api_v1_t"
     },
     "http": {
       "abi": 1,
@@ -835,11 +1141,29 @@
       "scoped": false,
       "type": "solar_os_native_inference_api_v1_t"
     },
+    "input": {
+      "abi": 1,
+      "name": "input",
+      "scoped": false,
+      "type": "solar_os_native_input_api_v1_t"
+    },
+    "input_actions": {
+      "abi": 1,
+      "name": "input.actions",
+      "scoped": false,
+      "type": "solar_os_native_input_actions_api_v1_t"
+    },
     "json": {
       "abi": 1,
       "name": "json",
       "scoped": false,
       "type": "solar_os_native_json_api_v1_t"
+    },
+    "keymap": {
+      "abi": 1,
+      "name": "input.keymap",
+      "scoped": false,
+      "type": "solar_os_native_keymap_api_v1_t"
     },
     "libc": {
       "abi": 1,
@@ -859,11 +1183,23 @@
       "scoped": false,
       "type": "solar_os_native_log_api_v1_t"
     },
+    "m3u": {
+      "abi": 1,
+      "name": "media.m3u",
+      "scoped": false,
+      "type": "solar_os_native_m3u_api_v1_t"
+    },
     "media": {
       "abi": 1,
       "name": "media.video",
       "scoped": false,
       "type": "solar_os_native_media_api_v1_t"
+    },
+    "media_widgets": {
+      "abi": 1,
+      "name": "ui.media",
+      "scoped": false,
+      "type": "solar_os_native_media_widgets_api_v1_t"
     },
     "memory": {
       "abi": 1,
@@ -949,6 +1285,12 @@
       "scoped": false,
       "type": "solar_os_native_sftp_api_v1_t"
     },
+    "shell_io": {
+      "abi": 1,
+      "name": "shell_io",
+      "scoped": true,
+      "type": "solar_os_native_shell_io_api_v1_t"
+    },
     "sscma": {
       "abi": 1,
       "name": "camera.sscma",
@@ -985,11 +1327,23 @@
       "scoped": false,
       "type": "solar_os_native_system_api_v1_t"
     },
+    "tcp_stream": {
+      "abi": 1,
+      "name": "stream.tcp",
+      "scoped": false,
+      "type": "solar_os_native_tcp_stream_api_v1_t"
+    },
     "tensor_image": {
       "abi": 1,
       "name": "tensor.image",
       "scoped": false,
       "type": "solar_os_native_tensor_image_api_v1_t"
+    },
+    "terminal": {
+      "abi": 1,
+      "name": "terminal",
+      "scoped": false,
+      "type": "solar_os_native_terminal_api_v1_t"
     },
     "thread": {
       "abi": 1,
@@ -1002,6 +1356,18 @@
       "name": "time",
       "scoped": false,
       "type": "solar_os_native_time_api_v1_t"
+    },
+    "tui": {
+      "abi": 1,
+      "name": "tui",
+      "scoped": true,
+      "type": "solar_os_native_tui_api_v1_t"
+    },
+    "ui": {
+      "abi": 1,
+      "name": "ui",
+      "scoped": false,
+      "type": "solar_os_native_ui_api_v1_t"
     },
     "vector": {
       "abi": 1,
@@ -1038,6 +1404,142 @@
     "solar_os_app_discovery_kind_t": {
       "declaration": "enum { SOLAR_OS_APP_DISCOVERY_NATIVE , SOLAR_OS_APP_DISCOVERY_PLAYGROUND , } solar_os_app_discovery_kind_t"
     },
+    "solar_os_application_context_t": {
+      "declaration": "struct solar_os_context solar_os_application_context_t"
+    },
+    "solar_os_application_event_type_v1_t": {
+      "declaration": "enum { SOLAR_OS_EVENT_CHAR = 0 , SOLAR_OS_EVENT_KEY = 1 , SOLAR_OS_EVENT_POINTER = 2 , SOLAR_OS_EVENT_AXIS = 3 , SOLAR_OS_EVENT_GESTURE = 4 , SOLAR_OS_EVENT_TICK = 5 , SOLAR_OS_EVENT_RESUME = 6 , SOLAR_OS_EVENT_TEXT = 7 , } solar_os_application_event_type_v1_t"
+    },
+    "solar_os_application_event_v1_t": {
+      "declaration": "struct solar_os_application_event_v1 { solar_os_application_event_type_v1_t type ; union { char ch ; char text [ SOLAR_OS_EVENT_TEXT_MAX ] ; solar_os_input_key_event_t key ; solar_os_input_pointer_event_t pointer ; solar_os_input_axis_event_t axis ; solar_os_input_gesture_event_t gesture ; uint32_t tick_ms ; } data ; } solar_os_application_event_v1_t"
+    },
+    "solar_os_application_lifecycle_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "const char * name",
+        "const char * summary",
+        "solar_os_app_class_t app_class",
+        "uint32_t flags",
+        "int ( * start ) ( solar_os_application_context_t * )",
+        "void ( * suspend ) ( solar_os_application_context_t * )",
+        "void ( * resume ) ( solar_os_application_context_t * )",
+        "void ( * stop ) ( solar_os_application_context_t * )",
+        "bool ( * event ) ( solar_os_application_context_t * , const solar_os_application_event_v1_t * )",
+        "void ( * title ) ( solar_os_application_context_t * , char * , size_t )",
+        "void * * state_slot",
+        "size_t state_size",
+        "solar_os_application_state_storage_v1_t state_storage",
+        "bool ( * state_release_ready ) ( void )",
+        "void ( * state_release_cleanup ) ( void )",
+        "uint32_t worker_stack_bytes",
+        "bool worker_stack_external",
+        "uint32_t tick_interval_ms",
+        "uint32_t tick_deadline_ms",
+        "uint32_t ( * requested_tick_interval_ms ) ( void )"
+      ]
+    },
+    "solar_os_application_state_storage_v1_t": {
+      "declaration": "enum { SOLAR_OS_APP_STATE_NONE = 0 , SOLAR_OS_APP_STATE_TRANSIENT = 1 , SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED = 2 , SOLAR_OS_APP_STATE_EXTERNAL_REQUIRED = 3 , SOLAR_OS_APP_STATE_INTERNAL_REQUIRED = 4 , } solar_os_application_state_storage_v1_t"
+    },
+    "solar_os_ble_addr_type_t": {
+      "declaration": "enum { SOLAR_OS_BLE_ADDR_PUBLIC = 0 , SOLAR_OS_BLE_ADDR_RANDOM = 1 , SOLAR_OS_BLE_ADDR_PUBLIC_IDENTITY = 2 , SOLAR_OS_BLE_ADDR_RANDOM_IDENTITY = 3 , } solar_os_ble_addr_type_t"
+    },
+    "solar_os_ble_call_options_v1_t": {
+      "declaration": "struct { uint32_t struct_size ; solar_os_ble_cancel_check_t cancelled ; void * user ; } solar_os_ble_call_options_v1_t"
+    },
+    "solar_os_ble_cancel_check_t": {
+      "declaration": "bool ( * solar_os_ble_cancel_check_t ) ( void * )"
+    },
+    "solar_os_ble_characteristic_property_t": {
+      "declaration": "enum { SOLAR_OS_BLE_CHAR_BROADCAST = 0x 01 , SOLAR_OS_BLE_CHAR_READ = 0x 02 , SOLAR_OS_BLE_CHAR_WRITE_NO_RESPONSE = 0x 04 , SOLAR_OS_BLE_CHAR_WRITE = 0x 08 , SOLAR_OS_BLE_CHAR_NOTIFY = 0x 10 , SOLAR_OS_BLE_CHAR_INDICATE = 0x 20 , SOLAR_OS_BLE_CHAR_SIGNED_WRITE = 0x 40 , SOLAR_OS_BLE_CHAR_EXTENDED = 0x 80 , } solar_os_ble_characteristic_property_t"
+    },
+    "solar_os_ble_gatt_characteristic_t": {
+      "declaration": "solar_os_native_ble_characteristic_v1_t solar_os_ble_gatt_characteristic_t"
+    },
+    "solar_os_ble_gatt_service_t": {
+      "declaration": "solar_os_native_ble_service_v1_t solar_os_ble_gatt_service_t"
+    },
+    "solar_os_ble_gatt_status_t": {
+      "declaration": "solar_os_native_ble_gatt_status_v1_t solar_os_ble_gatt_status_t"
+    },
+    "solar_os_ble_hid_device_event_t": {
+      "declaration": "struct { solar_os_ble_hid_device_event_type_t type ; uint32_t peer ; uint32_t passkey ; uint16_t status ; uint8_t keyboard_leds ; bool encrypted ; bool bonded ; } solar_os_ble_hid_device_event_t"
+    },
+    "solar_os_ble_hid_device_event_type_t": {
+      "declaration": "enum { SOLAR_OS_BLE_HID_CONNECTED , SOLAR_OS_BLE_HID_DISCONNECTED , SOLAR_OS_BLE_HID_SECURED , SOLAR_OS_BLE_HID_KEYBOARD_LEDS , SOLAR_OS_BLE_HID_PASSKEY , } solar_os_ble_hid_device_event_type_t"
+    },
+    "solar_os_ble_hid_host_t": {
+      "declaration": "struct { uint8_t bda [ 6 ] ; uint8_t addr_type ; bool connected ; char name [ SOLAR_OS_BLE_NAME_MAX ] ; } solar_os_ble_hid_host_t"
+    },
+    "solar_os_ble_hid_info_t": {
+      "declaration": "struct { bool registered ; bool advertising ; bool closing ; bool connected ; bool encrypted ; bool bonded ; bool keyboard_subscribed ; bool mouse_subscribed ; bool gamepad_subscribed ; uint8_t keyboard_leds ; size_t event_capacity ; size_t event_count ; uint32_t events_dropped ; bool manual ; bool pairing ; bool host_selected ; uint8_t host_bda [ 6 ] ; uint8_t host_addr_type ; char host_name [ SOLAR_OS_BLE_NAME_MAX ] ; } solar_os_ble_hid_info_t"
+    },
+    "solar_os_ble_hid_operation_t": {
+      "declaration": "enum { SOLAR_OS_BLE_HID_OP_START , SOLAR_OS_BLE_HID_OP_STOP , SOLAR_OS_BLE_HID_OP_STATUS , SOLAR_OS_BLE_HID_OP_POLL , SOLAR_OS_BLE_HID_OP_KEYBOARD_PRESS , SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE , SOLAR_OS_BLE_HID_OP_KEYBOARD_RELEASE_ALL , SOLAR_OS_BLE_HID_OP_MOUSE_MOVE , SOLAR_OS_BLE_HID_OP_MOUSE_BUTTON , SOLAR_OS_BLE_HID_OP_GAMEPAD_AXIS , SOLAR_OS_BLE_HID_OP_GAMEPAD_BUTTON , SOLAR_OS_BLE_HID_OP_GAMEPAD_HAT , SOLAR_OS_BLE_HID_OP_GAMEPAD_SEND , SOLAR_OS_BLE_HID_OP_PAIR , SOLAR_OS_BLE_HID_OP_HOSTS , SOLAR_OS_BLE_HID_OP_CONNECT , SOLAR_OS_BLE_HID_OP_FORGET , SOLAR_OS_BLE_HID_OP_DISCONNECT , } solar_os_ble_hid_operation_t"
+    },
+    "solar_os_ble_hid_request_t": {
+      "declaration": "struct { solar_os_ble_hid_operation_t op ; char name [ 27 ] ; uint16_t keys [ 8 ] ; size_t key_count ; int32_t x ; int32_t y ; int16_t value ; int axis ; uint8_t button ; uint8_t hat ; bool pressed ; bool manual ; uint8_t bda [ 6 ] , addr_type ; size_t host_count ; solar_os_ble_hid_host_t hosts [ SOLAR_OS_BLE_HID_HOST_MAX ] ; solar_os_ble_hid_info_t info ; solar_os_ble_hid_device_event_t event ; } solar_os_ble_hid_request_t"
+    },
+    "solar_os_ble_keyboard_boot_setting_t": {
+      "declaration": "enum { SOLAR_OS_BLE_KEYBOARD_BOOT_DEFAULT , SOLAR_OS_BLE_KEYBOARD_BOOT_ENABLED , SOLAR_OS_BLE_KEYBOARD_BOOT_DISABLED , } solar_os_ble_keyboard_boot_setting_t"
+    },
+    "solar_os_ble_keyboard_keepalive_method_t": {
+      "declaration": "enum { SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_UNAVAILABLE , SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_EXIT_SUSPEND , SOLAR_OS_BLE_KEYBOARD_KEEPALIVE_INFORMATION_READ , } solar_os_ble_keyboard_keepalive_method_t"
+    },
+    "solar_os_ble_keyboard_key_state_t": {
+      "declaration": "struct { bool connected ; uint8_t modifiers ; uint8_t keycodes [ SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS ] ; uint8_t chars [ SOLAR_OS_BLE_KEYBOARD_MAX_PRESSED_KEYS ] ; } solar_os_ble_keyboard_key_state_t"
+    },
+    "solar_os_ble_keyboard_layout_t": {
+      "declaration": "enum { SOLAR_OS_BLE_KEYBOARD_LAYOUT_US , SOLAR_OS_BLE_KEYBOARD_LAYOUT_DE , SOLAR_OS_BLE_KEYBOARD_LAYOUT_UA , SOLAR_OS_BLE_KEYBOARD_LAYOUT_FR , SOLAR_OS_BLE_KEYBOARD_LAYOUT_RO , } solar_os_ble_keyboard_layout_t"
+    },
+    "solar_os_ble_notification_t": {
+      "declaration": "solar_os_native_ble_notification_v1_t solar_os_ble_notification_t"
+    },
+    "solar_os_ble_peer_t": {
+      "declaration": "solar_os_native_ble_peer_t solar_os_ble_peer_t"
+    },
+    "solar_os_ble_scan_result_t": {
+      "declaration": "solar_os_native_ble_scan_result_v1_t solar_os_ble_scan_result_t"
+    },
+    "solar_os_ble_server_event_t": {
+      "declaration": "struct { solar_os_ble_server_event_type_t type ; uint32_t peer , characteristic ; uint16_t mtu , status ; bool notify , indicate ; size_t value_len ; uint8_t value [ SOLAR_OS_BLE_GATT_VALUE_MAX ] ; } solar_os_ble_server_event_t"
+    },
+    "solar_os_ble_server_event_type_t": {
+      "declaration": "enum { SOLAR_OS_BLE_SERVER_CONNECTED , SOLAR_OS_BLE_SERVER_DISCONNECTED , SOLAR_OS_BLE_SERVER_READ , SOLAR_OS_BLE_SERVER_WRITE , SOLAR_OS_BLE_SERVER_SUBSCRIBE , SOLAR_OS_BLE_SERVER_SENT , } solar_os_ble_server_event_type_t"
+    },
+    "solar_os_ble_server_info_t": {
+      "declaration": "struct { bool registered , advertising , closing ; size_t peers , services , characteristics , event_capacity , event_count ; uint32_t events_dropped ; } solar_os_ble_server_info_t"
+    },
+    "solar_os_ble_server_operation_t": {
+      "declaration": "enum { SOLAR_OS_BLE_SERVER_CREATE , SOLAR_OS_BLE_SERVER_SERVICE , SOLAR_OS_BLE_SERVER_CHARACTERISTIC , SOLAR_OS_BLE_SERVER_START , SOLAR_OS_BLE_SERVER_STOP , SOLAR_OS_BLE_SERVER_CLOSE , SOLAR_OS_BLE_SERVER_STATUS , SOLAR_OS_BLE_SERVER_POLL , SOLAR_OS_BLE_SERVER_SET , SOLAR_OS_BLE_SERVER_SEND , SOLAR_OS_BLE_SERVER_DISCONNECT , SOLAR_OS_BLE_SERVER_PEER , } solar_os_ble_server_operation_t"
+    },
+    "solar_os_ble_server_request_t": {
+      "declaration": "struct { solar_os_ble_server_operation_t op ; uint32_t id , parent , peer ; uint8_t properties ; bool indicate ; char text [ SOLAR_OS_BLE_GATT_UUID_MAX ] ; size_t capacity , value_len ; uint8_t value [ SOLAR_OS_BLE_GATT_VALUE_MAX ] ; solar_os_ble_server_info_t info ; solar_os_ble_server_event_t event ; } solar_os_ble_server_request_t"
+    },
+    "solar_os_ble_session_info_t": {
+      "declaration": "solar_os_native_ble_peer_info_v1_t solar_os_ble_session_info_t"
+    },
+    "solar_os_ble_session_t": {
+      "declaration": "solar_os_native_ble_session_t solar_os_ble_session_t"
+    },
+    "solar_os_ble_stream_info_t": {
+      "declaration": "struct { bool claimed , listening , connected , failed ; uint16_t rx_mtu , tx_mtu ; uint32_t connection_interval_us ; size_t rx_pending , tx_pending ; } solar_os_ble_stream_info_t"
+    },
+    "solar_os_cassette_widget_t": {
+      "declaration": "struct { uint8_t phase ; bool playing ; uint32_t elapsed_ms , total_ms , last_tick_ms ; } solar_os_cassette_widget_t"
+    },
+    "solar_os_display_format_t": {
+      "declaration": "enum { SOLAR_OS_DISPLAY_FORMAT_MONO1 = 0 , SOLAR_OS_DISPLAY_FORMAT_INDEX8 = 1 , SOLAR_OS_DISPLAY_FORMAT_INDEX2 = 2 , SOLAR_OS_DISPLAY_FORMAT_RGB565 = 3 , } solar_os_display_format_t"
+    },
+    "solar_os_display_raster_t": {
+      "declaration": "struct { const uint8_t * data ; size_t data_size ; const uint16_t * palette_rgb565 ; size_t palette_size ; uint16_t source_width ; uint16_t source_height ; uint16_t source_stride ; uint16_t x ; uint16_t y ; uint16_t width ; uint16_t height ; solar_os_display_format_t format ; bool palette_inverted ; bool clear_background ; uint8_t background_index ; uint16_t background_rgb565 ; } solar_os_display_raster_t"
+    },
+    "solar_os_display_rect_t": {
+      "declaration": "struct { int x , y , width , height ; } solar_os_display_rect_t"
+    },
+    "solar_os_display_rotation_t": {
+      "declaration": "enum { SOLAR_OS_DISPLAY_ROTATION_0 , SOLAR_OS_DISPLAY_ROTATION_90 , SOLAR_OS_DISPLAY_ROTATION_180 , SOLAR_OS_DISPLAY_ROTATION_270 , } solar_os_display_rotation_t"
+    },
     "solar_os_dsp_capability_t": {
       "declaration": "enum { SOLAR_OS_DSP_CAP_DOT_S16 = 1U < < 0 , SOLAR_OS_DSP_CAP_GAIN_Q15 = 1U < < 1 , SOLAR_OS_DSP_CAP_MIX_Q15 = 1U < < 2 , SOLAR_OS_DSP_CAP_CLIP_S16 = 1U < < 3 , SOLAR_OS_DSP_CAP_LEVEL_S16 = 1U < < 4 , SOLAR_OS_DSP_CAP_WINDOW_Q15 = 1U < < 5 , SOLAR_OS_DSP_CAP_FIR_Q15 = 1U < < 6 , SOLAR_OS_DSP_CAP_DECIMATOR_Q15 = 1U < < 7 , SOLAR_OS_DSP_CAP_FFT_S16 = 1U < < 8 , } solar_os_dsp_capability_t"
     },
@@ -1047,8 +1549,47 @@
     "solar_os_dsp_level_t": {
       "declaration": "struct { uint32_t peak ; uint32_t rms ; } solar_os_dsp_level_t"
     },
+    "solar_os_gfx_clip_t": {
+      "declaration": "struct { int x ; int y ; int width ; int height ; } solar_os_gfx_clip_t"
+    },
+    "solar_os_gfx_color_index_t": {
+      "declaration": "enum { SOLAR_OS_GFX_COLOR_WHITE , SOLAR_OS_GFX_COLOR_LIGHT , SOLAR_OS_GFX_COLOR_DARK , SOLAR_OS_GFX_COLOR_BLACK , } solar_os_gfx_color_index_t"
+    },
+    "solar_os_gfx_color_t": {
+      "declaration": "uint32_t solar_os_gfx_color_t"
+    },
+    "solar_os_gfx_font_t": {
+      "declaration": "enum { SOLAR_OS_GFX_FONT_SMALL , SOLAR_OS_GFX_FONT_MONO , SOLAR_OS_GFX_FONT_BOLD , SOLAR_OS_GFX_FONT_MONO_12 , SOLAR_OS_GFX_FONT_MONO_14 , SOLAR_OS_GFX_FONT_MONO_16 , SOLAR_OS_GFX_FONT_MONO_18 , SOLAR_OS_GFX_FONT_MONO_20 , SOLAR_OS_GFX_FONT_BOLD_12 , SOLAR_OS_GFX_FONT_BOLD_14 , SOLAR_OS_GFX_FONT_BOLD_16 , SOLAR_OS_GFX_FONT_BOLD_18 , SOLAR_OS_GFX_FONT_BOLD_20 , SOLAR_OS_GFX_FONT_ITALIC_12 , SOLAR_OS_GFX_FONT_ITALIC_14 , SOLAR_OS_GFX_FONT_ITALIC_16 , SOLAR_OS_GFX_FONT_ITALIC_18 , SOLAR_OS_GFX_FONT_ITALIC_20 , SOLAR_OS_GFX_FONT_BOLD_ITALIC_12 , SOLAR_OS_GFX_FONT_BOLD_ITALIC_14 , SOLAR_OS_GFX_FONT_BOLD_ITALIC_16 , SOLAR_OS_GFX_FONT_BOLD_ITALIC_18 , SOLAR_OS_GFX_FONT_BOLD_ITALIC_20 , SOLAR_OS_GFX_FONT_BITMAP_8 , SOLAR_OS_GFX_FONT_COUNT , } solar_os_gfx_font_t"
+    },
+    "solar_os_gfx_line_style_t": {
+      "declaration": "enum { SOLAR_OS_GFX_LINE_SOLID , SOLAR_OS_GFX_LINE_DOTTED , SOLAR_OS_GFX_LINE_DASHED , } solar_os_gfx_line_style_t"
+    },
+    "solar_os_gfx_point_t": {
+      "declaration": "struct { int x ; int y ; } solar_os_gfx_point_t"
+    },
+    "solar_os_gfx_raster_format_t": {
+      "declaration": "enum { SOLAR_OS_GFX_RASTER_GRAY8 , SOLAR_OS_GFX_RASTER_RGB888 , } solar_os_gfx_raster_format_t"
+    },
+    "solar_os_gfx_raster_t": {
+      "declaration": "struct { const uint8_t * pixels ; size_t pixels_size ; uint32_t width ; uint32_t height ; size_t stride ; solar_os_gfx_raster_format_t format ; } solar_os_gfx_raster_t"
+    },
     "solar_os_gfx_t": {
       "declaration": "struct solar_os_gfx solar_os_gfx_t"
+    },
+    "solar_os_hid_axis_t": {
+      "declaration": "enum { SOLAR_OS_HID_AXIS_X = 0 , SOLAR_OS_HID_AXIS_Y , SOLAR_OS_HID_AXIS_Z , SOLAR_OS_HID_AXIS_RZ , SOLAR_OS_HID_AXIS_RX , SOLAR_OS_HID_AXIS_RY , SOLAR_OS_HID_AXIS_COUNT , } solar_os_hid_axis_t"
+    },
+    "solar_os_hid_hat_t": {
+      "declaration": "enum { SOLAR_OS_HID_HAT_CENTERED = 0 , SOLAR_OS_HID_HAT_UP = 1 , SOLAR_OS_HID_HAT_UP_RIGHT = 2 , SOLAR_OS_HID_HAT_RIGHT = 3 , SOLAR_OS_HID_HAT_DOWN_RIGHT = 4 , SOLAR_OS_HID_HAT_DOWN = 5 , SOLAR_OS_HID_HAT_DOWN_LEFT = 6 , SOLAR_OS_HID_HAT_LEFT = 7 , SOLAR_OS_HID_HAT_UP_LEFT = 8 , } solar_os_hid_hat_t"
+    },
+    "solar_os_hid_keyboard_report_layout_t": {
+      "declaration": "struct { uint8_t modifiers_offset ; uint8_t keys_offset ; uint8_t key_count ; uint8_t report_size ; } solar_os_hid_keyboard_report_layout_t"
+    },
+    "solar_os_hid_keyboard_report_state_t": {
+      "declaration": "struct { uint8_t modifiers ; uint8_t keys [ SOLAR_OS_HID_KEYBOARD_REPORT_KEYS ] ; } solar_os_hid_keyboard_report_state_t"
+    },
+    "solar_os_hid_status_t": {
+      "declaration": "struct { bool initialized ; bool connected ; } solar_os_hid_status_t"
     },
     "solar_os_imlib_blob_t": {
       "declaration": "struct { uint32_t x , y , width , height , pixels , code , count ; float cx , cy , rotation ; } solar_os_imlib_blob_t"
@@ -1095,8 +1636,104 @@
     "solar_os_inference_value_t": {
       "declaration": "struct { solar_os_inference_input_t tensor ; const solar_os_raster_image_pixels_t * image ; } solar_os_inference_value_t"
     },
+    "solar_os_input_action_binding_t": {
+      "declaration": "struct { uint32_t id ; bool any_source ; char source [ SOLAR_OS_INPUT_SOURCE_NAME_MAX ] ; solar_os_input_gesture_t gesture ; bool any_direction ; solar_os_input_gesture_direction_t direction ; uint32_t cooldown_ms ; uint32_t trigger_count ; uint32_t dropped_count ; char command [ SOLAR_OS_INPUT_ACTION_COMMAND_MAX ] ; } solar_os_input_action_binding_t"
+    },
+    "solar_os_input_axis_event_t": {
+      "declaration": "struct { solar_os_input_source_t source ; solar_os_input_axis_t axis ; int16_t value ; int32_t delta ; } solar_os_input_axis_event_t"
+    },
+    "solar_os_input_axis_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_AXIS_X , SOLAR_OS_INPUT_AXIS_Y , SOLAR_OS_INPUT_AXIS_Z , SOLAR_OS_INPUT_AXIS_RX , SOLAR_OS_INPUT_AXIS_RY , SOLAR_OS_INPUT_AXIS_RZ , SOLAR_OS_INPUT_AXIS_COUNT , } solar_os_input_axis_t"
+    },
+    "solar_os_input_compose_t": {
+      "declaration": "struct { uint8_t dead ; } solar_os_input_compose_t"
+    },
+    "solar_os_input_gesture_direction_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_GESTURE_DIRECTION_NONE , SOLAR_OS_INPUT_GESTURE_DIRECTION_WEST , SOLAR_OS_INPUT_GESTURE_DIRECTION_EAST , SOLAR_OS_INPUT_GESTURE_DIRECTION_NORTH , SOLAR_OS_INPUT_GESTURE_DIRECTION_SOUTH , SOLAR_OS_INPUT_GESTURE_DIRECTION_CENTER , SOLAR_OS_INPUT_GESTURE_DIRECTION_CLOCKWISE , SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNTERCLOCKWISE , SOLAR_OS_INPUT_GESTURE_DIRECTION_HORIZONTAL , SOLAR_OS_INPUT_GESTURE_DIRECTION_VERTICAL , SOLAR_OS_INPUT_GESTURE_DIRECTION_COUNT , } solar_os_input_gesture_direction_t"
+    },
+    "solar_os_input_gesture_event_t": {
+      "declaration": "struct { solar_os_input_source_t source ; solar_os_input_gesture_t gesture ; solar_os_input_gesture_direction_t direction ; uint32_t flags ; int16_t value ; uint32_t raw ; } solar_os_input_gesture_event_t"
+    },
+    "solar_os_input_gesture_observer_t": {
+      "declaration": "void ( * solar_os_input_gesture_observer_t ) ( const solar_os_input_gesture_event_t * , void * )"
+    },
+    "solar_os_input_gesture_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_GESTURE_FLICK , SOLAR_OS_INPUT_GESTURE_CIRCLE , SOLAR_OS_INPUT_GESTURE_WAVE , SOLAR_OS_INPUT_GESTURE_HOLD , SOLAR_OS_INPUT_GESTURE_PRESENCE , SOLAR_OS_INPUT_GESTURE_TAP , SOLAR_OS_INPUT_GESTURE_DOUBLE_TAP , SOLAR_OS_INPUT_GESTURE_AIRWHEEL , SOLAR_OS_INPUT_GESTURE_SWIPE , SOLAR_OS_INPUT_GESTURE_TILT , SOLAR_OS_INPUT_GESTURE_WAKE , SOLAR_OS_INPUT_GESTURE_FREE_FALL , SOLAR_OS_INPUT_GESTURE_EDGE_SWIPE , SOLAR_OS_INPUT_GESTURE_COUNT , } solar_os_input_gesture_t"
+    },
+    "solar_os_input_key_action_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_KEY_PRESS , SOLAR_OS_INPUT_KEY_RELEASE , SOLAR_OS_INPUT_KEY_REPEAT , } solar_os_input_key_action_t"
+    },
+    "solar_os_input_key_event_t": {
+      "declaration": "struct { solar_os_input_source_t source ; uint16_t physical_key ; uint16_t usage ; uint8_t key ; uint8_t modifiers ; solar_os_input_key_action_t action ; uint8_t layout_tag ; bool layout_switch ; } solar_os_input_key_event_t"
+    },
+    "solar_os_input_keyboard_layout_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_KEYBOARD_LAYOUT_US , SOLAR_OS_INPUT_KEYBOARD_LAYOUT_DE , SOLAR_OS_INPUT_KEYBOARD_LAYOUT_UA , SOLAR_OS_INPUT_KEYBOARD_LAYOUT_FR , SOLAR_OS_INPUT_KEYBOARD_LAYOUT_RO , } solar_os_input_keyboard_layout_t"
+    },
+    "solar_os_input_keymap_info_t": {
+      "declaration": "struct { solar_os_input_source_t source ; uint32_t capabilities ; uint16_t key_count , first , stride ; uint8_t rows , cols ; } solar_os_input_keymap_info_t"
+    },
+    "solar_os_input_keymap_key_t": {
+      "declaration": "struct { uint16_t usage ; uint8_t key , shifted_key , flags , layer ; } solar_os_input_keymap_key_t"
+    },
+    "solar_os_input_keymap_state_t": {
+      "declaration": "struct { bool held [ SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U ] ; solar_os_input_keymap_key_t pressed_keys [ SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U ] ; bool caps_lock , layer_used ; uint8_t modifiers , active_layer ; uint16_t layer_key ; } solar_os_input_keymap_state_t"
+    },
+    "solar_os_input_keymap_t": {
+      "declaration": "struct { uint16_t slot_count ; uint16_t physical [ SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U ] ; solar_os_input_keymap_key_t keys [ SOLAR_OS_INPUT_KEYMAP_LAYER_MAX ] [ SOLAR_OS_INPUT_KEYMAP_KEY_MAX + 1U ] ; uint16_t first , stride ; uint8_t rows , cols ; } solar_os_input_keymap_t"
+    },
+    "solar_os_input_keymap_transition_t": {
+      "declaration": "struct { uint16_t physical_key , usage ; uint8_t key , modifiers ; bool pressed ; uint16_t tap_usage ; uint8_t tap_key ; } solar_os_input_keymap_transition_t"
+    },
+    "solar_os_input_pointer_action_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_POINTER_MOVE , SOLAR_OS_INPUT_POINTER_PRESS , SOLAR_OS_INPUT_POINTER_RELEASE , } solar_os_input_pointer_action_t"
+    },
+    "solar_os_input_pointer_calibration_t": {
+      "declaration": "struct { int16_t min_x ; int16_t max_x ; int16_t min_y ; int16_t max_y ; uint16_t width ; uint16_t height ; } solar_os_input_pointer_calibration_t"
+    },
+    "solar_os_input_pointer_event_t": {
+      "declaration": "struct { solar_os_input_source_t source ; uint8_t pointer_id ; uint8_t buttons ; solar_os_input_pointer_mode_t mode ; solar_os_input_pointer_action_t action ; int16_t x ; int16_t y ; int16_t delta_x ; int16_t delta_y ; char target [ SOLAR_OS_INPUT_POINTER_TARGET_MAX ] ; } solar_os_input_pointer_event_t"
+    },
+    "solar_os_input_pointer_filter_t": {
+      "declaration": "bool ( * solar_os_input_pointer_filter_t ) ( const solar_os_input_pointer_event_t * , void * )"
+    },
+    "solar_os_input_pointer_mode_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_POINTER_ABSOLUTE , SOLAR_OS_INPUT_POINTER_RELATIVE , } solar_os_input_pointer_mode_t"
+    },
+    "solar_os_input_pointer_sample_t": {
+      "declaration": "struct { solar_os_input_pointer_event_t event ; uint32_t time_ms ; uint8_t modifiers ; bool modifiers_valid ; } solar_os_input_pointer_sample_t"
+    },
+    "solar_os_input_source_class_t": {
+      "declaration": "enum { SOLAR_OS_INPUT_SOURCE_OTHER , SOLAR_OS_INPUT_SOURCE_KEYBOARD , SOLAR_OS_INPUT_SOURCE_TOUCH , SOLAR_OS_INPUT_SOURCE_MOUSE , SOLAR_OS_INPUT_SOURCE_JOYSTICK , SOLAR_OS_INPUT_SOURCE_DPAD , SOLAR_OS_INPUT_SOURCE_BUTTONS , SOLAR_OS_INPUT_SOURCE_GESTURE , SOLAR_OS_INPUT_SOURCE_CLASS_COUNT , } solar_os_input_source_class_t"
+    },
+    "solar_os_input_source_diagnostics_t": {
+      "declaration": "struct { uint32_t key_events ; uint32_t pointer_events ; uint32_t axis_events ; uint32_t gesture_events ; bool has_key ; bool has_pointer ; bool has_axis ; bool has_gesture ; solar_os_input_key_event_t last_key ; solar_os_input_pointer_event_t last_pointer ; solar_os_input_pointer_event_t last_pointer_raw ; solar_os_input_axis_event_t last_axis ; solar_os_input_gesture_event_t last_gesture ; bool calibration_enabled ; solar_os_input_pointer_calibration_t calibration ; } solar_os_input_source_diagnostics_t"
+    },
+    "solar_os_input_source_info_t": {
+      "declaration": "struct { solar_os_input_source_t source ; char name [ SOLAR_OS_INPUT_SOURCE_NAME_MAX ] ; solar_os_input_source_class_t source_class ; uint32_t capabilities ; uint32_t gesture_mask ; bool ready ; } solar_os_input_source_info_t"
+    },
+    "solar_os_input_source_t": {
+      "declaration": "uint8_t solar_os_input_source_t"
+    },
+    "solar_os_input_text_t": {
+      "declaration": "struct { uint16_t codepoint ; uint8_t dead ; } solar_os_input_text_t"
+    },
     "solar_os_launch_policy_t": {
       "declaration": "enum { SOLAR_OS_LAUNCH_REPLACE , SOLAR_OS_LAUNCH_CHILD_RETURN , } solar_os_launch_policy_t"
+    },
+    "solar_os_m3u_entry_t": {
+      "declaration": "struct { char path [ SOLAR_OS_M3U_PATH_MAX ] ; char title [ SOLAR_OS_M3U_TITLE_MAX ] ; int32_t duration ; } solar_os_m3u_entry_t"
+    },
+    "solar_os_m3u_get_fn": {
+      "declaration": "bool ( * solar_os_m3u_get_fn ) ( size_t , solar_os_m3u_entry_t * , void * )"
+    },
+    "solar_os_media_list_layout_t": {
+      "declaration": "struct { int top , row_height , baseline , footer_height , visible ; bool compact ; } solar_os_media_list_layout_t"
+    },
+    "solar_os_media_player_layout_t": {
+      "declaration": "struct { int view_x , view_y , view_width , view_height ; int controls_y , title_y , status_y , volume_y , button_y , button_width , button_count ; int header_height , button_height , button_gap ; bool compact ; } solar_os_media_player_layout_t"
+    },
+    "solar_os_media_transport_icon_t": {
+      "declaration": "enum { SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS , SOLAR_OS_MEDIA_TRANSPORT_PLAY , SOLAR_OS_MEDIA_TRANSPORT_PAUSE , SOLAR_OS_MEDIA_TRANSPORT_STOP , SOLAR_OS_MEDIA_TRANSPORT_RECORD , SOLAR_OS_MEDIA_TRANSPORT_NEXT , SOLAR_OS_MEDIA_TRANSPORT_REWIND , SOLAR_OS_MEDIA_TRANSPORT_FORWARD , } solar_os_media_transport_icon_t"
     },
     "solar_os_native_adc_api_v1_t": {
       "table": [
@@ -1242,6 +1879,44 @@
     "solar_os_native_ble_gatt_status_v1_t": {
       "declaration": "struct { bool connected ; bool encrypted ; bool bonded ; uint8_t bda [ 6 ] ; uint8_t addr_type ; uint16_t conn_id ; uint16_t mtu ; size_t service_count ; char status [ 80 ] ; } solar_os_native_ble_gatt_status_v1_t"
     },
+    "solar_os_native_ble_keyboard_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "bool ( * enabled_for_current_boot ) ( void )",
+        "bool ( * enabled_for_next_boot ) ( void )",
+        "bool ( * board_default_enabled ) ( void )",
+        "solar_os_ble_keyboard_boot_setting_t ( * boot_setting ) ( void )",
+        "const char * ( * boot_setting_name ) ( solar_os_ble_keyboard_boot_setting_t )",
+        "bool ( * parse_boot_setting ) ( const char * , solar_os_ble_keyboard_boot_setting_t * )",
+        "int ( * set_boot_setting ) ( solar_os_ble_keyboard_boot_setting_t )",
+        "int ( * set_enabled_for_next_boot ) ( bool )",
+        "int ( * start_pairing ) ( void )",
+        "int ( * forget ) ( void )",
+        "bool ( * is_connected ) ( void )",
+        "bool ( * is_scanning ) ( void )",
+        "bool ( * is_pairing ) ( void )",
+        "bool ( * keepalive_enabled ) ( void )",
+        "int ( * set_keepalive_enabled ) ( bool )",
+        "int ( * get_keepalive_status ) ( solar_os_native_ble_keyboard_keepalive_v1_t * )",
+        "const char * ( * keepalive_method_name ) ( solar_os_ble_keyboard_keepalive_method_t )",
+        "uint32_t ( * wake_generation ) ( void )",
+        "size_t ( * remembered_count ) ( void )",
+        "void ( * get_status ) ( char * , size_t )",
+        "size_t ( * read_chars ) ( char * , size_t )",
+        "void ( * get_key_state ) ( solar_os_ble_keyboard_key_state_t * )",
+        "void ( * get_repeat ) ( uint16_t * , uint16_t * )",
+        "int ( * set_repeat ) ( uint16_t , uint16_t )",
+        "solar_os_ble_keyboard_layout_t ( * layout ) ( void )",
+        "int ( * set_layout ) ( solar_os_ble_keyboard_layout_t )",
+        "const char * ( * layout_name ) ( solar_os_ble_keyboard_layout_t )",
+        "bool ( * parse_layout ) ( const char * , solar_os_ble_keyboard_layout_t * )",
+        "const char * ( * addr_type_name ) ( uint8_t )",
+        "bool ( * parse_addr_type ) ( const char * , uint8_t * )"
+      ]
+    },
+    "solar_os_native_ble_keyboard_keepalive_v1_t": {
+      "declaration": "struct { solar_os_ble_keyboard_keepalive_method_t method ; uint32_t attempts ; int32_t last_result ; bool attempted , pending ; } solar_os_native_ble_keyboard_keepalive_v1_t"
+    },
     "solar_os_native_ble_notification_v1_t": {
       "declaration": "struct { uint16_t handle ; bool indication ; size_t value_len ; uint8_t value [ SOLAR_OS_NATIVE_BLE_VALUE_MAX ] ; } solar_os_native_ble_notification_v1_t"
     },
@@ -1263,11 +1938,97 @@
     "solar_os_native_ble_session_t": {
       "declaration": "uint32_t solar_os_native_ble_session_t"
     },
+    "solar_os_native_ble_stream_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * limits ) ( solar_os_native_ble_stream_limits_v1_t * )",
+        "int ( * listen ) ( const char * )",
+        "int ( * connect ) ( const char * , const uint8_t * , uint8_t )",
+        "int ( * remove ) ( const char * )",
+        "int ( * status ) ( const char * , solar_os_ble_stream_info_t * )"
+      ]
+    },
+    "solar_os_native_ble_stream_limits_v1_t": {
+      "declaration": "struct { uint32_t maximum_endpoints , name_bytes ; } solar_os_native_ble_stream_limits_v1_t"
+    },
     "solar_os_native_ble_subscription_mode_v1_t": {
       "declaration": "enum { SOLAR_OS_NATIVE_BLE_UNSUBSCRIBE = 0 , SOLAR_OS_NATIVE_BLE_SUBSCRIBE_NOTIFY = 1 , SOLAR_OS_NATIVE_BLE_SUBSCRIBE_INDICATE = 2 , } solar_os_native_ble_subscription_mode_v1_t"
     },
     "solar_os_native_block_v1_t": {
       "declaration": "struct { char name [ 12 ] , fs [ 8 ] , type_name [ 12 ] , mount_point [ 32 ] ; uint64_t start_sector , sector_count , bytes ; uint32_t type , partition , mbr_type , flags , logical_volume , sector_size ; } solar_os_native_block_v1_t"
+    },
+    "solar_os_native_bluetooth_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * limits ) ( solar_os_native_bluetooth_limits_v1_t * )",
+        "int ( * hid_device_start ) ( solar_os_ble_session_t , const char * )",
+        "int ( * hid_device_start_managed ) ( solar_os_ble_session_t , const char * )",
+        "int ( * hid_device_hosts ) ( solar_os_ble_session_t , solar_os_ble_hid_host_t * , size_t , size_t * )",
+        "int ( * hid_device_connect ) ( solar_os_ble_session_t , const uint8_t * , uint8_t )",
+        "int ( * hid_device_forget ) ( solar_os_ble_session_t , const uint8_t * , uint8_t )",
+        "int ( * hid_device_disconnect ) ( solar_os_ble_session_t )",
+        "int ( * hid_device_pair ) ( solar_os_ble_session_t )",
+        "int ( * hid_device_stop ) ( solar_os_ble_session_t )",
+        "int ( * hid_device_status ) ( solar_os_ble_session_t , solar_os_ble_hid_info_t * )",
+        "int ( * hid_device_poll ) ( solar_os_ble_session_t , solar_os_ble_hid_device_event_t * )",
+        "int ( * hid_keyboard_press ) ( solar_os_ble_session_t , const uint16_t * , size_t )",
+        "int ( * hid_keyboard_release ) ( solar_os_ble_session_t , const uint16_t * , size_t )",
+        "int ( * hid_keyboard_release_all ) ( solar_os_ble_session_t )",
+        "int ( * hid_mouse_move ) ( solar_os_ble_session_t , int32_t , int32_t )",
+        "int ( * hid_mouse_button ) ( solar_os_ble_session_t , uint8_t , bool )",
+        "int ( * hid_gamepad_axis ) ( solar_os_ble_session_t , int , int16_t )",
+        "int ( * hid_gamepad_button ) ( solar_os_ble_session_t , uint8_t , bool )",
+        "int ( * hid_gamepad_hat ) ( solar_os_ble_session_t , uint8_t )",
+        "int ( * hid_gamepad_send ) ( solar_os_ble_session_t )",
+        "int ( * server_request ) ( solar_os_ble_session_t , solar_os_ble_server_request_t * )",
+        "int ( * session_create ) ( const char * , solar_os_ble_session_t * )",
+        "bool ( * parse_address ) ( const char * , size_t , uint8_t * )",
+        "int ( * session_close ) ( solar_os_ble_session_t )",
+        "int ( * session_cancel ) ( solar_os_ble_session_t )",
+        "int ( * session_get_info ) ( solar_os_ble_session_t , solar_os_ble_session_info_t * )",
+        "int ( * session_connect ) ( solar_os_ble_session_t , const uint8_t * , uint8_t , uint32_t )",
+        "int ( * session_pair ) ( solar_os_ble_session_t , uint32_t , uint32_t )",
+        "int ( * session_services ) ( solar_os_ble_session_t , solar_os_ble_gatt_service_t * , size_t , size_t * )",
+        "int ( * session_characteristics ) ( solar_os_ble_session_t , size_t , solar_os_ble_gatt_characteristic_t * , size_t , size_t * )",
+        "int ( * session_read ) ( solar_os_ble_session_t , uint16_t , uint8_t * , size_t , size_t * , uint32_t )",
+        "int ( * session_write ) ( solar_os_ble_session_t , uint16_t , const uint8_t * , size_t , bool , uint32_t )",
+        "size_t ( * peer_capacity ) ( void )",
+        "int ( * peer_configure_queue ) ( solar_os_ble_session_t , solar_os_ble_peer_t , size_t )",
+        "int ( * peer_poll ) ( solar_os_ble_session_t , solar_os_ble_peer_t , solar_os_ble_notification_t * )",
+        "int ( * peer_subscribe ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , uint8_t , uint32_t )",
+        "int ( * peer_connect ) ( solar_os_ble_session_t , const uint8_t * , uint8_t , uint32_t , solar_os_ble_peer_t * )",
+        "int ( * peer_disconnect ) ( solar_os_ble_session_t , solar_os_ble_peer_t )",
+        "int ( * peer_pair ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint32_t , uint32_t )",
+        "int ( * peer_get_info ) ( solar_os_ble_session_t , solar_os_ble_peer_t , solar_os_ble_session_info_t * )",
+        "int ( * peer_services ) ( solar_os_ble_session_t , solar_os_ble_peer_t , solar_os_ble_gatt_service_t * , size_t , size_t * )",
+        "int ( * peer_characteristics ) ( solar_os_ble_session_t , solar_os_ble_peer_t , size_t , solar_os_ble_gatt_characteristic_t * , size_t , size_t * )",
+        "int ( * peer_read ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , uint8_t * , size_t , size_t * , uint32_t )",
+        "int ( * peer_write ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , const uint8_t * , size_t , bool , uint32_t )",
+        "int ( * init ) ( void )",
+        "int ( * scan ) ( solar_os_ble_scan_result_t * , size_t , size_t * )",
+        "int ( * gatt_connect ) ( const uint8_t * , uint8_t , uint32_t )",
+        "int ( * gatt_pair ) ( uint32_t , uint32_t )",
+        "int ( * gatt_disconnect ) ( void )",
+        "void ( * gatt_get_status ) ( solar_os_ble_gatt_status_t * )",
+        "int ( * gatt_services ) ( solar_os_ble_gatt_service_t * , size_t , size_t * )",
+        "int ( * gatt_characteristics ) ( size_t , solar_os_ble_gatt_characteristic_t * , size_t , size_t * )",
+        "int ( * gatt_read ) ( uint16_t , uint8_t * , size_t , size_t * , uint32_t )",
+        "int ( * gatt_write ) ( uint16_t , const uint8_t * , size_t , bool , uint32_t )",
+        "int ( * session_connect_with_options ) ( solar_os_ble_session_t , const uint8_t * , uint8_t , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * session_pair_with_options ) ( solar_os_ble_session_t , uint32_t , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * session_read_with_options ) ( solar_os_ble_session_t , uint16_t , uint8_t * , size_t , size_t * , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * session_write_with_options ) ( solar_os_ble_session_t , uint16_t , const uint8_t * , size_t , bool , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * peer_connect_with_options ) ( solar_os_ble_session_t , const uint8_t * , uint8_t , uint32_t , solar_os_ble_peer_t * , const solar_os_ble_call_options_v1_t * )",
+        "int ( * peer_pair_with_options ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint32_t , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * peer_read_with_options ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , uint8_t * , size_t , size_t * , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * peer_write_with_options ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , const uint8_t * , size_t , bool , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * peer_subscribe_with_options ) ( solar_os_ble_session_t , solar_os_ble_peer_t , uint16_t , uint8_t , uint32_t , const solar_os_ble_call_options_v1_t * )",
+        "int ( * server_request_with_options ) ( solar_os_ble_session_t , solar_os_ble_server_request_t * , const solar_os_ble_call_options_v1_t * )",
+        "int ( * hid_request_with_options ) ( solar_os_ble_session_t , solar_os_ble_hid_request_t * , const solar_os_ble_call_options_v1_t * )"
+      ]
+    },
+    "solar_os_native_bluetooth_limits_v1_t": {
+      "declaration": "struct { uint32_t scan_results , gatt_services , gatt_characteristics , value_bytes , owner_bytes , hid_hosts ; } solar_os_native_bluetooth_limits_v1_t"
     },
     "solar_os_native_board_api_v1_t": {
       "table": [
@@ -1550,6 +2311,21 @@
     "solar_os_native_encoder_sample_v1_t": {
       "declaration": "struct { int32_t count ; uint32_t decoding ; uint64_t timestamp_us ; } solar_os_native_encoder_sample_v1_t"
     },
+    "solar_os_native_expr_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * compile ) ( const char * , solar_os_native_handle_t * , solar_os_native_expr_error_v1_t * )",
+        "int ( * evaluate ) ( solar_os_native_handle_t , const solar_os_native_expr_context_v1_t * , double * , solar_os_native_expr_error_v1_t * )",
+        "int ( * uses_x ) ( solar_os_native_handle_t , bool * )",
+        "int ( * close ) ( solar_os_native_handle_t )"
+      ]
+    },
+    "solar_os_native_expr_context_v1_t": {
+      "declaration": "struct { uint32_t struct_size , flags ; double x ; void * user ; bool ( * variable ) ( void * , const char * , double * ) ; bool ( * function ) ( void * , const char * , const double * , uint32_t , double * ) ; } solar_os_native_expr_context_v1_t"
+    },
+    "solar_os_native_expr_error_v1_t": {
+      "declaration": "struct { uint32_t position ; char message [ SOLAR_OS_NATIVE_EXPR_ERROR_MAX ] ; } solar_os_native_expr_error_v1_t"
+    },
     "solar_os_native_file_t": {
       "declaration": "struct solar_os_native_file solar_os_native_file_t"
     },
@@ -1671,6 +2447,54 @@
     "solar_os_native_fs_replacement_v1_t": {
       "declaration": "struct { const char * staged , * active , * backup ; } solar_os_native_fs_replacement_v1_t"
     },
+    "solar_os_native_gfx_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "size_t ( * width ) ( const solar_os_gfx_t * )",
+        "size_t ( * height ) ( const solar_os_gfx_t * )",
+        "bool ( * dimensions ) ( const solar_os_gfx_t * , uint16_t * , uint16_t * )",
+        "int ( * canvas_bounds ) ( const solar_os_gfx_t * , solar_os_display_rect_t * )",
+        "int ( * panel_bounds ) ( const solar_os_gfx_t * , solar_os_display_rect_t * )",
+        "solar_os_display_format_t ( * format ) ( const solar_os_gfx_t * )",
+        "bool ( * palette_inverted ) ( const solar_os_gfx_t * )",
+        "bool ( * display_target_name ) ( const solar_os_gfx_t * , char * , size_t )",
+        "solar_os_gfx_color_t ( * gray ) ( uint8_t )",
+        "solar_os_gfx_color_t ( * rgb ) ( uint8_t , uint8_t , uint8_t )",
+        "bool ( * color_is_valid ) ( solar_os_gfx_color_t )",
+        "void ( * set_color ) ( solar_os_gfx_t * , solar_os_gfx_color_t )",
+        "solar_os_gfx_color_t ( * color ) ( const solar_os_gfx_t * )",
+        "void ( * set_font ) ( solar_os_gfx_t * , solar_os_gfx_font_t )",
+        "solar_os_gfx_font_t ( * font ) ( const solar_os_gfx_t * )",
+        "size_t ( * text_width ) ( solar_os_gfx_t * , const char * )",
+        "void ( * set_line_style ) ( solar_os_gfx_t * , solar_os_gfx_line_style_t )",
+        "solar_os_gfx_line_style_t ( * line_style ) ( const solar_os_gfx_t * )",
+        "void ( * clear ) ( solar_os_gfx_t * , solar_os_gfx_color_t )",
+        "void ( * pixel ) ( solar_os_gfx_t * , int , int )",
+        "void ( * line ) ( solar_os_gfx_t * , int , int , int , int )",
+        "void ( * rect ) ( solar_os_gfx_t * , int , int , int , int )",
+        "void ( * fill_rect ) ( solar_os_gfx_t * , int , int , int , int )",
+        "void ( * fill_polygon ) ( solar_os_gfx_t * , const solar_os_gfx_point_t * , size_t )",
+        "void ( * circle ) ( solar_os_gfx_t * , int , int , int )",
+        "void ( * fill_circle ) ( solar_os_gfx_t * , int , int , int )",
+        "void ( * text ) ( solar_os_gfx_t * , int , int , const char * )",
+        "int ( * icon_from_name ) ( const char * , uint32_t * )",
+        "int ( * icon ) ( solar_os_gfx_t * , int , int , uint32_t , uint32_t )",
+        "void ( * bitmap ) ( solar_os_gfx_t * , int , int , int , int , const uint8_t * )",
+        "void ( * bitmap_2bpp ) ( solar_os_gfx_t * , int , int , int , int , const uint8_t * , size_t , const solar_os_gfx_color_t * )",
+        "void ( * bitmap_2bpp_scaled ) ( solar_os_gfx_t * , int , int , int , int , const uint8_t * , size_t , int , int , const solar_os_gfx_color_t * )",
+        "int ( * blit_raster ) ( solar_os_gfx_t * , const solar_os_gfx_raster_t * , int , int , int , int , const solar_os_gfx_clip_t * )",
+        "int ( * present_mono_xbm ) ( solar_os_gfx_t * , const uint8_t * , size_t , int , int , int , int , size_t )",
+        "int ( * present_frame ) ( solar_os_gfx_t * , const solar_os_display_raster_t * )",
+        "int ( * present_frame_at ) ( solar_os_gfx_t * , const solar_os_display_raster_t * , int , int )",
+        "bool ( * supports_frame_format ) ( const solar_os_gfx_t * , solar_os_display_format_t )",
+        "bool ( * needs_present ) ( const solar_os_gfx_t * )",
+        "void ( * present ) ( solar_os_gfx_t * )",
+        "size_t ( * text_advance ) ( solar_os_gfx_t * , const char * , size_t )",
+        "size_t ( * text_fit ) ( solar_os_gfx_t * , const char * , size_t , size_t , size_t * )",
+        "void ( * text_span ) ( solar_os_gfx_t * , int , int , const char * , size_t )",
+        "size_t ( * text_tail ) ( solar_os_gfx_t * , const char * , size_t , size_t , size_t * )"
+      ]
+    },
     "solar_os_native_gpio_api_v1_t": {
       "table": [
         "uint32_t abi_version , struct_size",
@@ -1711,6 +2535,40 @@
     },
     "solar_os_native_haptic_provider_v1_t": {
       "declaration": "struct { const char * name , * driver ; uint32_t effect_count , library_lease ; void * user ; int ( * play_effect ) ( void * , uint32_t ) ; int ( * stop ) ( void * ) ; } solar_os_native_haptic_provider_v1_t"
+    },
+    "solar_os_native_hid_device_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * init ) ( void )",
+        "void ( * get_status ) ( solar_os_hid_status_t * )",
+        "int ( * keyboard_press ) ( const uint16_t * , size_t )",
+        "int ( * keyboard_release ) ( const uint16_t * , size_t )",
+        "int ( * keyboard_release_all ) ( void )",
+        "int ( * mouse_move ) ( int32_t , int32_t )",
+        "int ( * mouse_button ) ( uint8_t , bool )",
+        "int ( * gamepad_axis ) ( solar_os_hid_axis_t , int16_t )",
+        "int ( * gamepad_button ) ( uint8_t , bool )",
+        "int ( * gamepad_hat ) ( solar_os_hid_hat_t )",
+        "int ( * gamepad_send ) ( void )",
+        "void ( * release_all ) ( void )"
+      ]
+    },
+    "solar_os_native_hid_report_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * limits ) ( solar_os_native_hid_report_limits_v1_t * )",
+        "int ( * create ) ( solar_os_native_handle_t * )",
+        "int ( * close ) ( solar_os_native_handle_t )",
+        "int ( * reset ) ( solar_os_native_handle_t )",
+        "bool ( * update ) ( solar_os_native_handle_t , uint8_t , uint16_t , const uint8_t * , size_t , solar_os_hid_keyboard_report_state_t * )",
+        "bool ( * update_with_layout ) ( solar_os_native_handle_t , uint8_t , uint16_t , const uint8_t * , size_t , const solar_os_hid_keyboard_report_layout_t * , solar_os_hid_keyboard_report_state_t * )",
+        "bool ( * has_new_press ) ( uint8_t , const uint8_t * , const solar_os_hid_keyboard_report_state_t * )",
+        "bool ( * descriptor_map ) ( const uint8_t * , size_t , bool * )",
+        "bool ( * descriptor_layout ) ( const uint8_t * , size_t , uint8_t , solar_os_hid_keyboard_report_layout_t * )"
+      ]
+    },
+    "solar_os_native_hid_report_limits_v1_t": {
+      "declaration": "struct { uint32_t report_streams , report_keys , descriptor_report_bytes ; } solar_os_native_hid_report_limits_v1_t"
     },
     "solar_os_native_host_api_v1_t": {
       "table": [
@@ -1816,6 +2674,107 @@
         "void ( * result_free ) ( solar_os_inference_result_t * )"
       ]
     },
+    "solar_os_native_input_action_limits_v1_t": {
+      "declaration": "struct { uint32_t maximum_bindings , maximum_cooldown_ms , default_cooldown_ms ; } solar_os_native_input_action_limits_v1_t"
+    },
+    "solar_os_native_input_actions_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * limits ) ( solar_os_native_input_action_limits_v1_t * )",
+        "int ( * start ) ( void )",
+        "int ( * stop ) ( void )",
+        "bool ( * running ) ( void )",
+        "bool ( * worker_active ) ( void )",
+        "int ( * bind ) ( const char * , solar_os_input_gesture_t , bool , solar_os_input_gesture_direction_t , uint32_t , const char * , uint32_t * )",
+        "size_t ( * count ) ( void )",
+        "bool ( * get ) ( size_t , solar_os_input_action_binding_t * )",
+        "int ( * unbind ) ( uint32_t )",
+        "size_t ( * clear ) ( void )",
+        "int ( * emit_key ) ( const char * )",
+        "bool ( * matches ) ( const solar_os_input_action_binding_t * , const char * , const solar_os_input_gesture_event_t * , bool , uint64_t , uint64_t )"
+      ]
+    },
+    "solar_os_native_input_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "size_t ( * keyboard_count ) ( void )",
+        "size_t ( * source_count ) ( void )",
+        "bool ( * source_get ) ( size_t , solar_os_input_source_info_t * )",
+        "bool ( * source_get_info ) ( solar_os_input_source_t , solar_os_input_source_info_t * )",
+        "bool ( * source_find ) ( const char * , solar_os_input_source_info_t * )",
+        "bool ( * source_get_diagnostics ) ( solar_os_input_source_t , solar_os_input_source_diagnostics_t * )",
+        "const char * ( * source_class_name ) ( solar_os_input_source_class_t )",
+        "const char * ( * pointer_mode_name ) ( solar_os_input_pointer_mode_t )",
+        "const char * ( * pointer_action_name ) ( solar_os_input_pointer_action_t )",
+        "const char * ( * axis_name ) ( solar_os_input_axis_t )",
+        "const char * ( * gesture_name ) ( solar_os_input_gesture_t )",
+        "const char * ( * gesture_direction_name ) ( solar_os_input_gesture_direction_t )",
+        "bool ( * parse_gesture ) ( const char * , solar_os_input_gesture_t * )",
+        "bool ( * parse_gesture_direction ) ( const char * , solar_os_input_gesture_direction_t * )",
+        "bool ( * pointer_is_captured ) ( solar_os_input_source_t )",
+        "int ( * pointer_apply_display_transform ) ( solar_os_input_pointer_event_t * , uint16_t , uint16_t , uint16_t , uint8_t )",
+        "int ( * pointer_apply_orientation ) ( solar_os_input_pointer_event_t * , uint16_t , uint16_t , uint16_t )",
+        "int ( * pointer_calibration_get ) ( solar_os_input_source_t , bool * , solar_os_input_pointer_calibration_t * )",
+        "int ( * pointer_calibration_set ) ( solar_os_input_source_t , const solar_os_input_pointer_calibration_t * )",
+        "int ( * pointer_calibration_reset ) ( solar_os_input_source_t )",
+        "size_t ( * get_pressed ) ( solar_os_input_key_event_t * , size_t )",
+        "uint32_t ( * key_press_generation ) ( void )",
+        "solar_os_input_keyboard_layout_t ( * keyboard_layout ) ( void )",
+        "int ( * set_keyboard_layout ) ( solar_os_input_keyboard_layout_t )",
+        "int ( * set_keyboard_layout_list ) ( const char * )",
+        "int ( * keyboard_layout_list ) ( char * , size_t )",
+        "const char * ( * keyboard_layout_name ) ( solar_os_input_keyboard_layout_t )",
+        "bool ( * parse_keyboard_layout ) ( const char * , solar_os_input_keyboard_layout_t * )",
+        "bool ( * parse_key_chord ) ( const char * , uint8_t * , uint8_t * )",
+        "uint8_t ( * translate_hid_usage ) ( uint16_t , uint8_t , bool )",
+        "uint8_t ( * translate_char_key ) ( uint8_t , uint8_t )",
+        "int ( * key_text ) ( uint8_t , solar_os_input_text_t * )",
+        "int ( * resolve_layout_key ) ( solar_os_input_key_event_t * , solar_os_input_text_t * )",
+        "uint8_t ( * translate_hid_usage_byte ) ( uint16_t , uint8_t , bool )",
+        "size_t ( * compose_feed ) ( solar_os_input_compose_t * , const solar_os_input_text_t * , uint16_t * )",
+        "void ( * get_repeat ) ( uint16_t * , uint16_t * )",
+        "int ( * set_repeat ) ( uint16_t , uint16_t )",
+        "int ( * producer_open ) ( const char * , solar_os_input_source_class_t , uint32_t , bool , solar_os_native_handle_t * )",
+        "int ( * producer_info ) ( solar_os_native_handle_t , solar_os_input_source_info_t * )",
+        "int ( * producer_ready ) ( solar_os_native_handle_t , bool )",
+        "int ( * producer_release_all ) ( solar_os_native_handle_t )",
+        "int ( * producer_write_key ) ( solar_os_native_handle_t , uint16_t , uint16_t , uint8_t , uint8_t , solar_os_input_key_action_t )",
+        "int ( * producer_set_key ) ( solar_os_native_handle_t , uint16_t , uint16_t , uint8_t , uint8_t )",
+        "int ( * producer_write_key_tap ) ( solar_os_native_handle_t , uint16_t , uint16_t , uint8_t , uint8_t )",
+        "int ( * producer_write_char ) ( solar_os_native_handle_t , char )",
+        "int ( * producer_write_pointer ) ( solar_os_native_handle_t , const solar_os_input_pointer_event_t * )",
+        "int ( * producer_write_pointer_sample ) ( solar_os_native_handle_t , const solar_os_input_pointer_sample_t * )",
+        "int ( * producer_write_axis ) ( solar_os_native_handle_t , const solar_os_input_axis_event_t * )",
+        "int ( * producer_write_gesture ) ( solar_os_native_handle_t , const solar_os_input_gesture_event_t * )",
+        "int ( * producer_gestures ) ( solar_os_native_handle_t , uint32_t )",
+        "int ( * producer_calibration_default ) ( solar_os_native_handle_t , const solar_os_input_pointer_calibration_t * )",
+        "size_t ( * producer_read_chars ) ( solar_os_native_handle_t , char * , size_t )",
+        "int ( * producer_close ) ( solar_os_native_handle_t )",
+        "int ( * keyboard_open ) ( const char * , bool , solar_os_native_handle_t * )",
+        "bool ( * keyboard_claimed ) ( solar_os_native_handle_t )",
+        "int ( * keyboard_read ) ( solar_os_native_handle_t , solar_os_input_key_event_t * , bool * )",
+        "int ( * keyboard_close ) ( solar_os_native_handle_t )",
+        "int ( * pointer_open ) ( const char * , solar_os_native_handle_t * )",
+        "int ( * pointer_read ) ( solar_os_native_handle_t , solar_os_input_pointer_sample_t * , bool * )",
+        "int ( * pointer_close ) ( solar_os_native_handle_t )",
+        "int ( * observer_open ) ( const solar_os_native_input_observer_v1_t * , solar_os_native_handle_t * )",
+        "int ( * observer_close ) ( solar_os_native_handle_t )",
+        "int ( * filter_open ) ( const solar_os_native_input_filter_v1_t * , solar_os_native_handle_t * )",
+        "int ( * filter_close ) ( solar_os_native_handle_t )",
+        "const char * ( * key_name ) ( uint8_t )",
+        "bool ( * parse_key ) ( const char * , uint8_t * )",
+        "uint8_t ( * composition_modifiers ) ( void )",
+        "uint8_t ( * composition_apply ) ( uint8_t )",
+        "uint8_t ( * composition_apply_with_modifiers ) ( uint8_t , uint8_t )",
+        "int ( * producer_modifiers ) ( solar_os_native_handle_t , uint8_t )"
+      ]
+    },
+    "solar_os_native_input_filter_v1_t": {
+      "declaration": "struct { uint32_t struct_size , library_lease ; solar_os_input_pointer_filter_t filter ; void * user ; } solar_os_native_input_filter_v1_t"
+    },
+    "solar_os_native_input_observer_v1_t": {
+      "declaration": "struct { uint32_t struct_size , library_lease ; solar_os_input_gesture_observer_t observer ; void * user ; } solar_os_native_input_observer_v1_t"
+    },
     "solar_os_native_job_descriptor_v1_t": {
       "declaration": "struct { uint32_t abi_version ; uint32_t struct_size ; const char * id ; const char * summary ; uint32_t tick_interval_ms ; uint32_t tick_deadline_ms ; int ( * start ) ( int , char * * ) ; void ( * stop ) ( void ) ; bool ( * tick ) ( uint32_t ) ; } solar_os_native_job_descriptor_v1_t"
     },
@@ -1870,6 +2829,30 @@
     },
     "solar_os_native_json_value_t": {
       "declaration": "struct solar_os_native_json_value solar_os_native_json_value_t"
+    },
+    "solar_os_native_keymap_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * info ) ( const char * , solar_os_input_keymap_info_t * )",
+        "int ( * get ) ( const char * , bool , solar_os_input_keymap_t * )",
+        "int ( * set ) ( const char * , const solar_os_input_keymap_t * )",
+        "int ( * reset ) ( const char * )",
+        "int ( * load ) ( const char * , const char * )",
+        "unsigned ( * find_slot ) ( const solar_os_input_keymap_t * , uint16_t )",
+        "int ( * validate ) ( const solar_os_input_keymap_t * )",
+        "void ( * release ) ( solar_os_input_keymap_state_t * )",
+        "bool ( * decode ) ( solar_os_input_keymap_state_t * , const solar_os_input_keymap_t * , uint16_t , bool , solar_os_input_keymap_transition_t * )",
+        "int ( * parse ) ( const char * , const solar_os_input_keymap_t * , solar_os_input_keymap_t * )",
+        "int ( * provider_open ) ( const solar_os_native_keymap_provider_v1_t * , solar_os_native_handle_t * )",
+        "int ( * provider_activate ) ( solar_os_native_handle_t )",
+        "int ( * provider_process ) ( solar_os_native_handle_t , uint16_t , bool , bool * )",
+        "int ( * provider_press_priority ) ( solar_os_native_handle_t , uint16_t , unsigned * )",
+        "int ( * provider_release_all ) ( solar_os_native_handle_t )",
+        "int ( * provider_close ) ( solar_os_native_handle_t )"
+      ]
+    },
+    "solar_os_native_keymap_provider_v1_t": {
+      "declaration": "struct { uint32_t struct_size , library_lease ; solar_os_native_handle_t producer ; const solar_os_input_keymap_t * defaults ; int ( * lock ) ( void * ) ; void ( * unlock ) ( void * ) ; int ( * prepare ) ( void * ) ; void * user ; } solar_os_native_keymap_provider_v1_t"
     },
     "solar_os_native_libc_api_v1_t": {
       "table": [
@@ -1934,6 +2917,17 @@
     "solar_os_native_log_status_v1_t": {
       "declaration": "struct { uint64_t capacity , count , bytes ; uint32_t initialized , cdc_enabled , ring_in_psram , level , dropped ; } solar_os_native_log_status_v1_t"
     },
+    "solar_os_native_m3u_accept_fn": {
+      "declaration": "int ( * solar_os_native_m3u_accept_fn ) ( const solar_os_m3u_entry_t * , void * )"
+    },
+    "solar_os_native_m3u_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "bool ( * path ) ( const char * )",
+        "int ( * read ) ( const char * , solar_os_native_m3u_accept_fn , void * )",
+        "int ( * write ) ( const char * , size_t , solar_os_m3u_get_fn , void * )"
+      ]
+    },
     "solar_os_native_media_api_v1_t": {
       "table": [
         "uint32_t abi_version , struct_size , capabilities",
@@ -1952,6 +2946,23 @@
     },
     "solar_os_native_media_t": {
       "declaration": "struct solar_os_script_media solar_os_native_media_t"
+    },
+    "solar_os_native_media_widgets_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "void ( * transport_button_draw ) ( solar_os_gfx_t * , int , int , int , int , solar_os_media_transport_icon_t , bool )",
+        "void ( * list_layout ) ( int , int , solar_os_media_list_layout_t * )",
+        "void ( * playlist_draw ) ( solar_os_gfx_t * , int , int , size_t , size_t , size_t , size_t * , solar_os_m3u_get_fn , void * , const char * )",
+        "void ( * player_layout ) ( int , int , bool , solar_os_media_player_layout_t * )",
+        "void ( * player_header_draw ) ( solar_os_gfx_t * , int , const char * , const char * )",
+        "void ( * player_status_draw ) ( solar_os_gfx_t * , int , int , const char * )",
+        "void ( * player_controls_draw ) ( solar_os_gfx_t * , int , int , const char * , const char * , uint8_t , bool , solar_os_media_transport_icon_t )",
+        "void ( * controls_draw ) ( solar_os_gfx_t * , int , int , const char * , const char * , uint8_t , const solar_os_media_transport_icon_t * , const bool * , int )",
+        "int ( * player_button_at ) ( int , int , bool , int , int )",
+        "void ( * cassette_reset ) ( solar_os_cassette_widget_t * )",
+        "void ( * cassette_update ) ( solar_os_cassette_widget_t * , bool , uint32_t , uint32_t , uint32_t )",
+        "void ( * cassette_draw ) ( solar_os_cassette_widget_t * , solar_os_gfx_t * , int , int , int , int )"
+      ]
     },
     "solar_os_native_memory_api_v1_t": {
       "table": [
@@ -2254,6 +3265,63 @@
     "solar_os_native_sftp_entry_v1_t": {
       "declaration": "struct { char name [ 96 ] ; uint64_t size ; uint32_t is_directory ; } solar_os_native_sftp_entry_v1_t"
     },
+    "solar_os_native_shell_io_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "solar_os_shell_io_t * ( * current ) ( void )",
+        "void ( * set_dimensions ) ( solar_os_shell_io_t * , uint16_t , uint16_t )",
+        "solar_os_shell_io_kind_t ( * kind ) ( const solar_os_shell_io_t * )",
+        "solar_os_terminal_t * ( * terminal ) ( solar_os_shell_io_t * )",
+        "const char * ( * terminal_profile_name ) ( solar_os_shell_terminal_profile_t )",
+        "bool ( * parse_terminal_profile ) ( const char * , solar_os_shell_terminal_profile_t * )",
+        "void ( * set_terminal_profile ) ( solar_os_shell_io_t * , solar_os_shell_terminal_profile_t )",
+        "solar_os_shell_terminal_profile_t ( * terminal_profile ) ( const solar_os_shell_io_t * )",
+        "const char * ( * charset_name ) ( solar_os_shell_charset_t )",
+        "bool ( * parse_charset ) ( const char * , solar_os_shell_charset_t * )",
+        "void ( * set_charset ) ( solar_os_shell_io_t * , solar_os_shell_charset_t )",
+        "solar_os_shell_charset_t ( * charset ) ( const solar_os_shell_io_t * )",
+        "bool ( * is_cursor_addressable ) ( const solar_os_shell_io_t * )",
+        "const char * ( * app_exit_key ) ( const solar_os_shell_io_t * )",
+        "int ( * write ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * write_len ) ( solar_os_shell_io_t * , const char * , size_t )",
+        "int ( * write_raw ) ( solar_os_shell_io_t * , const char * , size_t )",
+        "int ( * writeln ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * printf ) ( solar_os_shell_io_t * , const char * , . . . )",
+        "int ( * vprintf ) ( solar_os_shell_io_t * , const char * , va_list )",
+        "int ( * table_write ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * table_writeln ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * table_printf ) ( solar_os_shell_io_t * , const char * , . . . )",
+        "int ( * table_printf_bold ) ( solar_os_shell_io_t * , const char * , . . . )",
+        "int ( * table_write_bold ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * table_put_char ) ( solar_os_shell_io_t * , char )",
+        "int ( * set_bold ) ( solar_os_shell_io_t * , bool )",
+        "int ( * set_italic ) ( solar_os_shell_io_t * , bool )",
+        "int ( * set_underline ) ( solar_os_shell_io_t * , bool )",
+        "int ( * set_inverse ) ( solar_os_shell_io_t * , bool )",
+        "int ( * write_bold ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * printf_bold ) ( solar_os_shell_io_t * , const char * , . . . )",
+        "int ( * clear ) ( solar_os_shell_io_t * )",
+        "int ( * newline ) ( solar_os_shell_io_t * )",
+        "int ( * put_char ) ( solar_os_shell_io_t * , char )",
+        "int ( * put_utf8_byte ) ( solar_os_shell_io_t * , uint8_t )",
+        "uint16_t ( * cols ) ( const solar_os_shell_io_t * )",
+        "uint16_t ( * rows ) ( const solar_os_shell_io_t * )",
+        "size_t ( * cursor_row ) ( const solar_os_shell_io_t * )",
+        "size_t ( * cursor_col ) ( const solar_os_shell_io_t * )",
+        "int ( * set_cursor ) ( solar_os_shell_io_t * , size_t , size_t )",
+        "int ( * set_cursor_visible ) ( solar_os_shell_io_t * , bool )",
+        "bool ( * cursor_visible ) ( const solar_os_shell_io_t * )",
+        "uint32_t ( * screen_generation ) ( const solar_os_shell_io_t * )",
+        "int ( * clear_line_from ) ( solar_os_shell_io_t * , size_t , size_t )",
+        "int ( * redraw_line ) ( solar_os_shell_io_t * , size_t , size_t , const char * , size_t , size_t )",
+        "int ( * set_footer ) ( solar_os_shell_io_t * , const char * )",
+        "int ( * clear_footer ) ( solar_os_shell_io_t * )",
+        "int ( * flush ) ( solar_os_shell_io_t * )",
+        "int ( * vprintf_bold ) ( solar_os_shell_io_t * , const char * , va_list )",
+        "int ( * table_vprintf ) ( solar_os_shell_io_t * , const char * , va_list )",
+        "int ( * table_vprintf_bold ) ( solar_os_shell_io_t * , const char * , va_list )"
+      ]
+    },
     "solar_os_native_shutdown_stage_v1_t": {
       "declaration": "enum { SOLAR_OS_NATIVE_SHUTDOWN_WAKE = 0 , SOLAR_OS_NATIVE_SHUTDOWN_PORTS = 1 , SOLAR_OS_NATIVE_SHUTDOWN_APPS = 2 , SOLAR_OS_NATIVE_SHUTDOWN_JOBS = 3 , SOLAR_OS_NATIVE_SHUTDOWN_RADIOS = 4 , SOLAR_OS_NATIVE_SHUTDOWN_STORAGE = 5 , SOLAR_OS_NATIVE_SHUTDOWN_DISPLAY = 6 , SOLAR_OS_NATIVE_SHUTDOWN_POWER = 7 , SOLAR_OS_NATIVE_SHUTDOWN_COMPLETE = 8 , } solar_os_native_shutdown_stage_v1_t"
     },
@@ -2388,12 +3456,102 @@
     "solar_os_native_system_service_v1_t": {
       "declaration": "struct { char name [ 48 ] ; uint32_t abi_version ; uint32_t struct_size ; uint32_t flags ; } solar_os_native_system_service_v1_t"
     },
+    "solar_os_native_tcp_stream_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * limits ) ( solar_os_native_tcp_stream_limits_v1_t * )",
+        "int ( * listen ) ( const char * , uint32_t )",
+        "int ( * connect ) ( const char * , const char * , uint32_t )",
+        "int ( * remove ) ( const char * )"
+      ]
+    },
+    "solar_os_native_tcp_stream_limits_v1_t": {
+      "declaration": "struct { uint32_t maximum_endpoints , name_bytes ; } solar_os_native_tcp_stream_limits_v1_t"
+    },
     "solar_os_native_tensor_image_api_v1_t": {
       "table": [
         "uint32_t abi_version , struct_size",
         "void ( * defaults ) ( solar_os_tensor_image_options_t * )",
         "int ( * inspect ) ( const solar_os_raster_image_pixels_t * , const solar_os_inference_tensor_t * , const solar_os_tensor_image_options_t * , solar_os_tensor_image_transform_t * )",
         "int ( * prepare ) ( const solar_os_raster_image_pixels_t * , const solar_os_inference_tensor_t * , const solar_os_tensor_image_options_t * , uint8_t * , size_t , solar_os_tensor_image_transform_t * , solar_os_native_cancel_fn , void * )"
+      ]
+    },
+    "solar_os_native_terminal_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "void ( * clear ) ( solar_os_terminal_t * )",
+        "void ( * newline ) ( solar_os_terminal_t * )",
+        "void ( * backspace ) ( solar_os_terminal_t * )",
+        "void ( * put_printable ) ( solar_os_terminal_t * , char )",
+        "void ( * put_codepoint ) ( solar_os_terminal_t * , uint32_t )",
+        "void ( * put_char ) ( solar_os_terminal_t * , char )",
+        "void ( * put_utf8_byte ) ( solar_os_terminal_t * , uint8_t )",
+        "void ( * write_utf8 ) ( solar_os_terminal_t * , const char * )",
+        "void ( * utf8_reset ) ( solar_os_terminal_t * )",
+        "void ( * write ) ( solar_os_terminal_t * , const char * )",
+        "void ( * writeln ) ( solar_os_terminal_t * , const char * )",
+        "void ( * printf ) ( solar_os_terminal_t * , const char * , . . . )",
+        "void ( * set_bold ) ( solar_os_terminal_t * , bool )",
+        "bool ( * bold ) ( const solar_os_terminal_t * )",
+        "void ( * set_italic ) ( solar_os_terminal_t * , bool )",
+        "bool ( * italic ) ( const solar_os_terminal_t * )",
+        "void ( * set_underline ) ( solar_os_terminal_t * , bool )",
+        "bool ( * underline ) ( const solar_os_terminal_t * )",
+        "void ( * set_inverse ) ( solar_os_terminal_t * , bool )",
+        "bool ( * inverse ) ( const solar_os_terminal_t * )",
+        "void ( * write_bold ) ( solar_os_terminal_t * , const char * )",
+        "void ( * writeln_bold ) ( solar_os_terminal_t * , const char * )",
+        "void ( * printf_bold ) ( solar_os_terminal_t * , const char * , . . . )",
+        "void ( * set_status_bar ) ( solar_os_terminal_t * , const solar_os_status_bar_t * )",
+        "void ( * get_status_bar ) ( const solar_os_terminal_t * , solar_os_status_bar_t * )",
+        "bool ( * status_bar_preference_visible ) ( void )",
+        "int ( * set_status_bar_preference ) ( bool )",
+        "bool ( * status_bar_visible ) ( const solar_os_terminal_t * )",
+        "int ( * set_status_bar_visible ) ( solar_os_terminal_t * , bool )",
+        "int ( * set_status_bar_visible_transient ) ( solar_os_terminal_t * , bool )",
+        "void ( * set_footer ) ( solar_os_terminal_t * , const char * )",
+        "void ( * set_black_is_one ) ( solar_os_terminal_t * , bool )",
+        "bool ( * palette_preference_inverted ) ( void )",
+        "int ( * set_palette_preference ) ( bool )",
+        "bool ( * palette_inverted ) ( const solar_os_terminal_t * )",
+        "int ( * set_palette_inverted ) ( solar_os_terminal_t * , bool )",
+        "int ( * set_palette_inverted_transient ) ( solar_os_terminal_t * , bool )",
+        "size_t ( * cursor_row ) ( const solar_os_terminal_t * )",
+        "size_t ( * cursor_col ) ( const solar_os_terminal_t * )",
+        "size_t ( * rows ) ( const solar_os_terminal_t * )",
+        "size_t ( * cols ) ( const solar_os_terminal_t * )",
+        "void ( * set_cursor ) ( solar_os_terminal_t * , size_t , size_t )",
+        "void ( * set_cursor_visible ) ( solar_os_terminal_t * , bool )",
+        "bool ( * cursor_visible ) ( const solar_os_terminal_t * )",
+        "void ( * get_cursor_preference ) ( solar_os_terminal_cursor_shape_t * , bool * )",
+        "int ( * set_cursor_preference ) ( solar_os_terminal_cursor_shape_t , bool )",
+        "const char * ( * cursor_shape_name ) ( solar_os_terminal_cursor_shape_t )",
+        "bool ( * parse_cursor_shape ) ( const char * , solar_os_terminal_cursor_shape_t * )",
+        "void ( * clear_primitives ) ( solar_os_terminal_t * )",
+        "int ( * add_vrule ) ( solar_os_terminal_t * , size_t , size_t , size_t , uint8_t , bool )",
+        "void ( * clear_line_from ) ( solar_os_terminal_t * , size_t , size_t )",
+        "void ( * page_up ) ( solar_os_terminal_t * )",
+        "void ( * page_down ) ( solar_os_terminal_t * )",
+        "void ( * scroll_to_live ) ( solar_os_terminal_t * )",
+        "bool ( * is_scrolled_back ) ( const solar_os_terminal_t * )",
+        "uint16_t ( * orientation ) ( const solar_os_terminal_t * )",
+        "int ( * set_orientation ) ( solar_os_terminal_t * , uint16_t )",
+        "int ( * set_orientation_transient ) ( solar_os_terminal_t * , uint16_t )",
+        "solar_os_terminal_font_t ( * font ) ( const solar_os_terminal_t * )",
+        "int ( * set_font ) ( solar_os_terminal_t * , solar_os_terminal_font_t )",
+        "int ( * set_font_transient ) ( solar_os_terminal_t * , solar_os_terminal_font_t )",
+        "const char * ( * font_name ) ( solar_os_terminal_font_t )",
+        "bool ( * parse_font ) ( const char * , solar_os_terminal_font_t * )",
+        "solar_os_terminal_text_size_t ( * text_size ) ( const solar_os_terminal_t * )",
+        "int ( * set_text_size ) ( solar_os_terminal_t * , solar_os_terminal_text_size_t )",
+        "int ( * set_text_size_transient ) ( solar_os_terminal_t * , solar_os_terminal_text_size_t )",
+        "const char * ( * text_size_name ) ( solar_os_terminal_text_size_t )",
+        "bool ( * parse_text_size ) ( const char * , solar_os_terminal_text_size_t * )",
+        "void ( * get_profile ) ( const solar_os_terminal_t * , solar_os_terminal_profile_t * )",
+        "int ( * apply_profile_transient ) ( solar_os_terminal_t * , const solar_os_terminal_profile_t * )",
+        "bool ( * needs_draw ) ( const solar_os_terminal_t * )",
+        "void ( * invalidate_render ) ( solar_os_terminal_t * )",
+        "void ( * draw ) ( solar_os_terminal_t * )"
       ]
     },
     "solar_os_native_thread_api_v1_t": {
@@ -2433,6 +3591,67 @@
     },
     "solar_os_native_transfer_progress_fn": {
       "declaration": "void ( * solar_os_native_transfer_progress_fn ) ( uint64_t , void * )"
+    },
+    "solar_os_native_tui_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "int ( * begin ) ( solar_os_native_handle_t * )",
+        "int ( * attach_session ) ( solar_os_native_handle_t )",
+        "int ( * end ) ( solar_os_native_handle_t )",
+        "int ( * enable_diff ) ( solar_os_native_handle_t , bool )",
+        "size_t ( * rows ) ( solar_os_native_handle_t )",
+        "size_t ( * cols ) ( solar_os_native_handle_t )",
+        "int ( * clear ) ( solar_os_native_handle_t )",
+        "int ( * refresh ) ( solar_os_native_handle_t )",
+        "int ( * move ) ( solar_os_native_handle_t , size_t , size_t )",
+        "int ( * set_cursor_visible ) ( solar_os_native_handle_t , bool )",
+        "int ( * write ) ( solar_os_native_handle_t , const char * , uint8_t )",
+        "int ( * addstr ) ( solar_os_native_handle_t , size_t , size_t , const char * , uint8_t )",
+        "int ( * putch ) ( solar_os_native_handle_t , size_t , size_t , uint32_t , uint8_t )",
+        "int ( * hline ) ( solar_os_native_handle_t , size_t , size_t , size_t , uint32_t , uint8_t )",
+        "int ( * vline ) ( solar_os_native_handle_t , size_t , size_t , size_t , uint32_t , uint8_t )",
+        "int ( * vrule ) ( solar_os_native_handle_t , size_t , size_t , size_t , uint8_t , uint8_t )",
+        "int ( * box ) ( solar_os_native_handle_t , size_t , size_t , size_t , size_t , uint8_t )",
+        "int ( * fill ) ( solar_os_native_handle_t , size_t , size_t , size_t , size_t , uint32_t , uint8_t )",
+        "int ( * text_popup ) ( solar_os_native_handle_t , const solar_os_tui_rect_t * , const char * , const char * , solar_os_tui_rect_t * )",
+        "int ( * progress_bar ) ( solar_os_native_handle_t , size_t , size_t , size_t , const char * , uint64_t , uint64_t , bool )",
+        "int ( * draw_form ) ( solar_os_native_handle_t , const solar_os_tui_form_t * )",
+        "int ( * screen_begin ) ( solar_os_native_handle_t * )",
+        "bool ( * screen_should_fullscreen ) ( size_t )",
+        "bool ( * screen_fullscreen ) ( solar_os_native_handle_t )",
+        "size_t ( * screen_bottom_rows ) ( solar_os_native_handle_t , size_t )",
+        "size_t ( * screen_content_rows ) ( solar_os_native_handle_t , size_t , size_t )",
+        "size_t ( * screen_content_end ) ( solar_os_native_handle_t , size_t )",
+        "solar_os_tui_screen_key_action_t ( * screen_key ) ( solar_os_native_handle_t , uint8_t )",
+        "bool ( * screen_layout ) ( solar_os_native_handle_t , size_t , size_t , size_t , solar_os_tui_screen_layout_t * )",
+        "bool ( * layout_compute ) ( size_t , size_t , size_t , size_t , size_t , solar_os_tui_screen_layout_t * )",
+        "bool ( * layout_compute_fullscreen ) ( size_t , size_t , size_t , size_t , solar_os_tui_screen_layout_t * )",
+        "int ( * write_cell ) ( solar_os_native_handle_t , size_t , size_t , size_t , const char * , uint8_t )",
+        "int ( * draw_title ) ( solar_os_native_handle_t , const char * , const char * )",
+        "int ( * draw_help ) ( solar_os_native_handle_t , const char * )",
+        "int ( * draw_footer ) ( solar_os_native_handle_t , const char * , const char * )",
+        "int ( * draw_tab ) ( solar_os_native_handle_t , size_t , size_t , size_t , const char * , bool )",
+        "int ( * draw_too_small ) ( solar_os_native_handle_t , const char * )",
+        "void ( * viewport_reconcile ) ( solar_os_tui_viewport_t * , size_t , size_t )",
+        "bool ( * viewport_key ) ( solar_os_tui_viewport_t * , uint8_t , size_t , size_t , bool )",
+        "solar_os_tui_input_action_t ( * input_key ) ( char * , size_t , solar_os_tui_input_state_t * , uint32_t , size_t )",
+        "int ( * draw_input ) ( solar_os_native_handle_t , size_t , size_t , size_t , const char * , const char * , solar_os_tui_input_state_t * , uint8_t )",
+        "int ( * draw_input_ex ) ( solar_os_native_handle_t , size_t , size_t , size_t , const char * , const char * , solar_os_tui_input_state_t * , uint8_t , bool )",
+        "solar_os_tui_input_action_t ( * input_text ) ( char * , size_t , solar_os_tui_input_state_t * , const char * , size_t , size_t )"
+      ]
+    },
+    "solar_os_native_ui_api_v1_t": {
+      "table": [
+        "uint32_t abi_version , struct_size",
+        "void ( * label ) ( solar_os_gfx_t * , int , int , int , const char * )",
+        "void ( * centered_label ) ( solar_os_gfx_t * , int , int , int , const char * )",
+        "void ( * input ) ( solar_os_gfx_t * , int , int , int , const char * , solar_os_tui_input_state_t * )",
+        "void ( * dialog ) ( solar_os_gfx_t * , int , int , const char * , const char * , solar_os_tui_input_state_t * , const char * )",
+        "solar_os_tui_input_action_t ( * input_key ) ( char * , size_t , solar_os_tui_input_state_t * , uint32_t , size_t )",
+        "solar_os_tui_input_action_t ( * input_text ) ( char * , size_t , solar_os_tui_input_state_t * , const char * , size_t , size_t )",
+        "void ( * viewport_reconcile ) ( solar_os_tui_viewport_t * , size_t , size_t )",
+        "bool ( * viewport_key ) ( solar_os_tui_viewport_t * , uint8_t , size_t , size_t , bool )"
+      ]
     },
     "solar_os_native_vector_api_v1_t": {
       "table": [
@@ -2546,6 +3765,21 @@
     "solar_os_raster_image_t": {
       "declaration": "struct solar_os_raster_image solar_os_raster_image_t"
     },
+    "solar_os_shell_charset_t": {
+      "declaration": "enum { SOLAR_OS_SHELL_CHARSET_UTF8 , SOLAR_OS_SHELL_CHARSET_ASCII , } solar_os_shell_charset_t"
+    },
+    "solar_os_shell_io_kind_t": {
+      "declaration": "enum { SOLAR_OS_SHELL_IO_KIND_NONE , SOLAR_OS_SHELL_IO_KIND_TERMINAL , SOLAR_OS_SHELL_IO_KIND_PORT , } solar_os_shell_io_kind_t"
+    },
+    "solar_os_shell_io_t": {
+      "declaration": "struct solar_os_shell_io solar_os_shell_io_t"
+    },
+    "solar_os_shell_terminal_profile_t": {
+      "declaration": "enum { SOLAR_OS_SHELL_TERMINAL_PROFILE_AUTO , SOLAR_OS_SHELL_TERMINAL_PROFILE_DUMB , SOLAR_OS_SHELL_TERMINAL_PROFILE_ANSI , SOLAR_OS_SHELL_TERMINAL_PROFILE_VT100 , } solar_os_shell_terminal_profile_t"
+    },
+    "solar_os_status_bar_t": {
+      "declaration": "struct { uint16_t inbox_unread ; bool battery_valid ; uint8_t battery_percent ; bool battery_external_power ; uint8_t keyboard_count ; char keyboard_layout [ 3 ] ; bool bluetooth_supported ; bool bluetooth_enabled ; bool bluetooth_scanning ; bool wifi_started ; bool wifi_connected ; bool wifi_has_ip ; uint8_t wifi_level ; bool audio_enabled ; uint8_t audio_volume ; bool time_valid ; uint8_t hour ; uint8_t minute ; bool sd_mounted ; bool radio_attached ; bool link_running ; } solar_os_status_bar_t"
+    },
     "solar_os_tensor_dtype_t": {
       "declaration": "enum { SOLAR_OS_TENSOR_INT8 , SOLAR_OS_TENSOR_UINT8 , SOLAR_OS_TENSOR_INT16 , SOLAR_OS_TENSOR_UINT16 , SOLAR_OS_TENSOR_INT32 , SOLAR_OS_TENSOR_UINT32 , SOLAR_OS_TENSOR_INT64 , SOLAR_OS_TENSOR_UINT64 , SOLAR_OS_TENSOR_FLOAT32 , SOLAR_OS_TENSOR_FLOAT64 , SOLAR_OS_TENSOR_FLOAT16 , SOLAR_OS_TENSOR_BOOL , } solar_os_tensor_dtype_t"
     },
@@ -2564,8 +3798,47 @@
     "solar_os_tensor_image_transform_t": {
       "declaration": "struct { uint32_t source_width , source_height , input_width , input_height ; uint32_t crop_x , crop_y , crop_width , crop_height ; uint32_t resized_width , resized_height , pad_left , pad_top ; uint32_t channels ; size_t bytes ; uint64_t preprocess_us ; } solar_os_tensor_image_transform_t"
     },
+    "solar_os_terminal_cursor_shape_t": {
+      "declaration": "enum { SOLAR_OS_TERMINAL_CURSOR_BLOCK , SOLAR_OS_TERMINAL_CURSOR_UNDERSCORE , } solar_os_terminal_cursor_shape_t"
+    },
+    "solar_os_terminal_font_t": {
+      "declaration": "enum { SOLAR_OS_TERMINAL_FONT_MONO , SOLAR_OS_TERMINAL_FONT_COMPACT , } solar_os_terminal_font_t"
+    },
+    "solar_os_terminal_profile_t": {
+      "declaration": "struct { uint16_t orientation_degrees ; solar_os_terminal_font_t font ; solar_os_terminal_text_size_t text_size ; bool palette_inverted ; bool status_bar_visible ; uint8_t scale ; } solar_os_terminal_profile_t"
+    },
     "solar_os_terminal_t": {
       "declaration": "struct solar_os_terminal solar_os_terminal_t"
+    },
+    "solar_os_terminal_text_size_t": {
+      "declaration": "enum { SOLAR_OS_TERMINAL_TEXT_SIZE_14 = 0 , SOLAR_OS_TERMINAL_TEXT_SIZE_20 = 1 , SOLAR_OS_TERMINAL_TEXT_SIZE_12 = 2 , SOLAR_OS_TERMINAL_TEXT_SIZE_16 = 3 , SOLAR_OS_TERMINAL_TEXT_SIZE_18 = 4 , SOLAR_OS_TERMINAL_TEXT_SIZE_10 = 5 , SOLAR_OS_TERMINAL_TEXT_SIZE_8 = 6 , SOLAR_OS_TERMINAL_TEXT_SIZE_COUNT , } solar_os_terminal_text_size_t"
+    },
+    "solar_os_tui_attr_t": {
+      "declaration": "enum { SOLAR_OS_TUI_ATTR_NORMAL = 0 , SOLAR_OS_TUI_ATTR_BOLD = 1U < < 0 , SOLAR_OS_TUI_ATTR_INVERSE = 1U < < 1 , SOLAR_OS_TUI_ATTR_ITALIC = 1U < < 2 , SOLAR_OS_TUI_ATTR_UNDERLINE = 1U < < 3 , } solar_os_tui_attr_t"
+    },
+    "solar_os_tui_form_row_fn": {
+      "declaration": "void ( * solar_os_tui_form_row_fn ) ( size_t , char * , size_t , void * )"
+    },
+    "solar_os_tui_form_t": {
+      "declaration": "struct { solar_os_tui_rect_t bounds ; solar_os_tui_viewport_t * viewport ; size_t count ; solar_os_tui_form_row_fn row ; void * user ; const char * empty_text ; const char * edit_label ; const char * edit_text ; solar_os_tui_input_state_t * edit_state ; bool masked ; } solar_os_tui_form_t"
+    },
+    "solar_os_tui_input_action_t": {
+      "declaration": "enum { SOLAR_OS_TUI_INPUT_NONE , SOLAR_OS_TUI_INPUT_CHANGED , SOLAR_OS_TUI_INPUT_SUBMIT , SOLAR_OS_TUI_INPUT_CANCEL , } solar_os_tui_input_action_t"
+    },
+    "solar_os_tui_input_state_t": {
+      "declaration": "struct { size_t cursor ; size_t view ; } solar_os_tui_input_state_t"
+    },
+    "solar_os_tui_rect_t": {
+      "declaration": "struct { size_t row ; size_t col ; size_t height ; size_t width ; } solar_os_tui_rect_t"
+    },
+    "solar_os_tui_screen_key_action_t": {
+      "declaration": "enum { SOLAR_OS_TUI_SCREEN_KEY_NONE , SOLAR_OS_TUI_SCREEN_KEY_CONSUMED , SOLAR_OS_TUI_SCREEN_KEY_PASSTHROUGH , SOLAR_OS_TUI_SCREEN_KEY_TOGGLED , } solar_os_tui_screen_key_action_t"
+    },
+    "solar_os_tui_screen_layout_t": {
+      "declaration": "struct { solar_os_tui_rect_t title ; solar_os_tui_rect_t tabs ; solar_os_tui_rect_t body ; solar_os_tui_rect_t status ; solar_os_tui_rect_t input ; solar_os_tui_rect_t help ; } solar_os_tui_screen_layout_t"
+    },
+    "solar_os_tui_viewport_t": {
+      "declaration": "struct { size_t cursor ; size_t top ; } solar_os_tui_viewport_t"
     },
     "solar_os_vision_cancel_fn": {
       "declaration": "bool ( * solar_os_vision_cancel_fn ) ( void * )"

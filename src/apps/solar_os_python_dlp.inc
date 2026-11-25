@@ -59,7 +59,8 @@ static mp_obj_t solaros_dlp_connection_present(mp_obj_t object, mp_obj_t pixels)
     solar_os_display_link_t *link = python_dlp_link(object);
     mp_buffer_info_t buffer;
     mp_get_buffer_raise(pixels, &buffer, MP_BUFFER_READ);
-    python_check_esp(solar_os_display_link_present(link, buffer.buf, buffer.len));
+    const solar_os_display_link_call_options_t call = {.cancelled = python_should_cancel};
+    python_check_esp(solar_os_display_link_present_with_options(link, buffer.buf, buffer.len, &call));
     return mp_const_none;
 }
 MP_DEFINE_CONST_FUN_OBJ_2(solaros_dlp_connection_present_obj, solaros_dlp_connection_present);
@@ -105,8 +106,8 @@ static mp_obj_t solaros_dlp_connect(size_t count, const mp_obj_t *args, mp_map_t
     const char *stream = mp_obj_str_get_data(values[0], &length);
     if (!length || length >= SOLAR_OS_STREAM_ID_MAX || memchr(stream, 0, length))
         mp_raise_ValueError(MP_ERROR_TEXT("invalid stream name"));
-    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 5000,
-        .cancelled = python_should_cancel};
+    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 5000};
+    const solar_os_display_link_call_options_t call = {.cancelled = python_should_cancel};
     if (values[1] != MP_OBJ_NULL) options.format = python_i32_from_obj(values[1]);
     if (values[2] != MP_OBJ_NULL) options.timeout_ms = python_u32_from_obj(values[2]);
     if (options.timeout_ms < 100 || options.timeout_ms > 60000)
@@ -117,7 +118,7 @@ static mp_obj_t solaros_dlp_connect(size_t count, const mp_obj_t *args, mp_map_t
     python_dlp_t *self = mp_obj_malloc_with_finaliser(python_dlp_t, &solaros_dlp_connection_type);
     self->slot = 4; self->generation = 0;
     solar_os_display_link_t *link = NULL;
-    python_check_esp(solar_os_display_link_open_stream(stream, "python-dlp", &options, &link));
+    python_check_esp(solar_os_display_link_open_stream_with_options(stream, "python-dlp", &options, &call, &link));
     python_runtime_state->dlp_links[slot] = link;
     if (!++python_runtime_state->dlp_generation[slot]) ++python_runtime_state->dlp_generation[slot];
     self->slot = slot; self->generation = python_runtime_state->dlp_generation[slot];
@@ -129,54 +130,9 @@ static void python_dlp_destroy(void) {}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-static mp_obj_t solaros_streams_ble_connect(size_t n_args, const mp_obj_t *args)
-{
-    size_t len;
-    const char *address = mp_obj_str_get_data(args[1], &len);
-    uint8_t bda[6];
-    if (!solar_os_ble_parse_address(address, len, bda))
-        mp_raise_ValueError(MP_ERROR_TEXT("expected aa:bb:cc:dd:ee:ff"));
-    uint32_t type = n_args > 2 ? python_u32_from_obj(args[2]) : 0;
-    if (type > 3) mp_raise_ValueError(MP_ERROR_TEXT("address type must be 0..3"));
-    python_check_esp(solar_os_ble_stream_connect(mp_obj_str_get_str(args[0]), bda, type));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_streams_ble_connect_obj, 2, 3, solaros_streams_ble_connect);
-static mp_obj_t solaros_streams_ble_listen(mp_obj_t name)
-{
-    python_check_esp(solar_os_ble_stream_listen(mp_obj_str_get_str(name)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_streams_ble_listen_obj, solaros_streams_ble_listen);
-static mp_obj_t solaros_streams_ble_remove(mp_obj_t name)
-{
-    python_check_esp(solar_os_ble_stream_remove(mp_obj_str_get_str(name)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_streams_ble_remove_obj, solaros_streams_ble_remove);
+#include "solar_os_python_ble_stream.inc"
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-static mp_obj_t solaros_streams_tcp_connect(mp_obj_t name, mp_obj_t host, mp_obj_t port)
-{
-    uint32_t number = python_u32_from_obj(port);
-    if (!number || number > UINT16_MAX) mp_raise_ValueError(MP_ERROR_TEXT("invalid port"));
-    python_check_esp(solar_os_tcp_stream_connect(mp_obj_str_get_str(name), mp_obj_str_get_str(host), number));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_3(solaros_streams_tcp_connect_obj, solaros_streams_tcp_connect);
-static mp_obj_t solaros_streams_tcp_listen(mp_obj_t name, mp_obj_t port)
-{
-    uint32_t number = python_u32_from_obj(port);
-    if (!number || number > UINT16_MAX) mp_raise_ValueError(MP_ERROR_TEXT("invalid port"));
-    python_check_esp(solar_os_tcp_stream_listen(mp_obj_str_get_str(name), number));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_2(solaros_streams_tcp_listen_obj, solaros_streams_tcp_listen);
-static mp_obj_t solaros_streams_tcp_remove(mp_obj_t name)
-{
-    python_check_esp(solar_os_tcp_stream_remove(mp_obj_str_get_str(name)));
-    return mp_const_none;
-}
-MP_DEFINE_CONST_FUN_OBJ_1(solaros_streams_tcp_remove_obj, solaros_streams_tcp_remove);
+#include "solar_os_python_tcp_stream.inc"
 #endif

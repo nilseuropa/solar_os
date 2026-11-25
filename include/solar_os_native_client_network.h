@@ -2,6 +2,17 @@
 #pragma once
 /* Included through solar_os_native_client.h. */
 
+SOLAR_OS_NATIVE_DECLARE_GET(tcp_stream, "stream.tcp", solar_os_native_tcp_stream_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(tcp_stream, solar_os_native_tcp_stream_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(listen) \
+    M(connect) \
+    M(remove)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
 SOLAR_OS_NATIVE_DECLARE_GET(ble_client, "ble.client", solar_os_native_ble_client_api_v1_t, 1U)
 #define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(ble_client, solar_os_native_ble_client_api_v1_t, 1U, method)
 #define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
@@ -191,6 +202,127 @@ SOLAR_OS_NATIVE_DECLARE_GET(stream, "stream", solar_os_native_stream_api_v1_t, 1
     M(read_csv) \
     M(frame_acquire) \
     M(frame_release)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(bluetooth, "ble", solar_os_native_bluetooth_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(bluetooth, solar_os_native_bluetooth_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(hid_device_start) \
+    M(hid_device_start_managed) \
+    M(hid_device_hosts) \
+    M(hid_device_connect) \
+    M(hid_device_forget) \
+    M(hid_device_disconnect) \
+    M(hid_device_pair) \
+    M(hid_device_stop) \
+    M(hid_device_status) \
+    M(hid_device_poll) \
+    M(hid_keyboard_press) \
+    M(hid_keyboard_release) \
+    M(hid_keyboard_release_all) \
+    M(hid_mouse_move) \
+    M(hid_mouse_button) \
+    M(hid_gamepad_axis) \
+    M(hid_gamepad_button) \
+    M(hid_gamepad_hat) \
+    M(hid_gamepad_send) \
+    M(server_request) \
+    M(session_create) \
+    M(parse_address) \
+    M(session_close) \
+    M(session_cancel) \
+    M(session_get_info) \
+    M(session_connect) \
+    M(session_pair) \
+    M(session_services) \
+    M(session_characteristics) \
+    M(session_read) \
+    M(session_write) \
+    M(peer_capacity) \
+    M(peer_configure_queue) \
+    M(peer_poll) \
+    M(peer_subscribe) \
+    M(peer_connect) \
+    M(peer_disconnect) \
+    M(peer_pair) \
+    M(peer_get_info) \
+    M(peer_services) \
+    M(peer_characteristics) \
+    M(peer_read) \
+    M(peer_write) \
+    M(init) \
+    M(scan) \
+    M(gatt_connect) \
+    M(gatt_pair) \
+    M(gatt_disconnect) \
+    M(gatt_get_status) \
+    M(gatt_services) \
+    M(gatt_characteristics) \
+    M(gatt_read) \
+    M(gatt_write) \
+    M(session_connect_with_options) \
+    M(session_pair_with_options) \
+    M(session_read_with_options) \
+    M(session_write_with_options) \
+    M(peer_connect_with_options) \
+    M(peer_pair_with_options) \
+    M(peer_read_with_options) \
+    M(peer_write_with_options) \
+    M(peer_subscribe_with_options) \
+    M(server_request_with_options) \
+    M(hid_request_with_options)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(ble_keyboard, "ble.keyboard", solar_os_native_ble_keyboard_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(ble_keyboard, solar_os_native_ble_keyboard_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(enabled_for_current_boot) \
+    M(enabled_for_next_boot) \
+    M(board_default_enabled) \
+    M(boot_setting) \
+    M(boot_setting_name) \
+    M(parse_boot_setting) \
+    M(set_boot_setting) \
+    M(set_enabled_for_next_boot) \
+    M(start_pairing) \
+    M(forget) \
+    M(is_connected) \
+    M(is_scanning) \
+    M(is_pairing) \
+    M(keepalive_enabled) \
+    M(set_keepalive_enabled) \
+    M(get_keepalive_status) \
+    M(keepalive_method_name) \
+    M(wake_generation) \
+    M(remembered_count) \
+    M(get_status) \
+    M(read_chars) \
+    M(get_key_state) \
+    M(get_repeat) \
+    M(set_repeat) \
+    M(layout) \
+    M(set_layout) \
+    M(layout_name) \
+    M(parse_layout) \
+    M(addr_type_name) \
+    M(parse_addr_type)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(ble_stream, "stream.ble", solar_os_native_ble_stream_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(ble_stream, solar_os_native_ble_stream_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(listen) \
+    M(connect) \
+    M(remove) \
+    M(status)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

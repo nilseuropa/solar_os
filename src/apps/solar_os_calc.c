@@ -11,9 +11,8 @@
 
 #include "esp_err.h"
 #include "solar_os_expr.h"
-#include "solar_os_gfx.h"
+#include "solar_os_native_client.h"
 #include "solar_os_keys.h"
-#include "solar_os_memory.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_storage.h"
@@ -64,6 +63,8 @@ typedef struct {
 } calc_eval_frame_t;
 
 typedef struct calc_state {
+    const solar_os_native_application_api_v1_t *application_api;
+    const solar_os_native_gfx_api_v1_t *gfx_api;
     calc_mode_t mode;
     calc_focus_t focus;
     bool suspended;
@@ -465,7 +466,7 @@ static void calc_text_submit(solar_os_context_t *ctx)
             *arg++ = '\0';
         arg = arg != NULL ? calc_trim(arg) : NULL;
         if (strcmp(command, ":quit") == 0 || strcmp(command, ":q") == 0) {
-            solar_os_context_finish(ctx, 0, NULL);
+            calc->application_api->finish(0, NULL);
             return;
         } else if (strcmp(command, ":help") == 0) {
             calc_text_help(io);
@@ -559,31 +560,31 @@ static bool calc_trace_value(double *value)
 static void calc_draw_graph(solar_os_gfx_t *gfx, int left, int top, int width,
                             int height)
 {
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
+    calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
     for (int x = left + width / 2; x < left + width; x += 40)
-        solar_os_gfx_line(gfx, x, top, x, top + height - 1);
+        calc->gfx_api->line(gfx, x, top, x, top + height - 1);
     for (int x = left + width / 2 - 40; x >= left; x -= 40)
-        solar_os_gfx_line(gfx, x, top, x, top + height - 1);
+        calc->gfx_api->line(gfx, x, top, x, top + height - 1);
     for (int y = top + height / 2; y < top + height; y += 40)
-        solar_os_gfx_line(gfx, left, y, left + width - 1, y);
+        calc->gfx_api->line(gfx, left, y, left + width - 1, y);
     for (int y = top + height / 2 - 40; y >= top; y -= 40)
-        solar_os_gfx_line(gfx, left, y, left + width - 1, y);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
+        calc->gfx_api->line(gfx, left, y, left + width - 1, y);
+    calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
     const int axis_x = calc_map_x(0.0, left, width);
     const int axis_y = calc_map_y(0.0, top, height);
     if (axis_x >= left && axis_x < left + width)
-        solar_os_gfx_line(gfx, axis_x, top, axis_x, top + height - 1);
+        calc->gfx_api->line(gfx, axis_x, top, axis_x, top + height - 1);
     if (axis_y >= top && axis_y < top + height)
-        solar_os_gfx_line(gfx, left, axis_y, left + width - 1, axis_y);
+        calc->gfx_api->line(gfx, left, axis_y, left + width - 1, axis_y);
 
     for (size_t row_index = 0; row_index < calc->row_count; row_index++) {
         calc_row_t *row = &calc->rows[row_index];
         if (row->kind != CALC_ROW_GRAPH || !row->compiled || !row->visible)
             continue;
-        solar_os_gfx_set_color(gfx, row_index == calc->active_row
+        calc->gfx_api->set_color(gfx, row_index == calc->active_row
                                         ? SOLAR_OS_GFX_COLOR_BLACK
                                         : SOLAR_OS_GFX_COLOR_DARK);
-        solar_os_gfx_set_line_style(gfx, row_index == calc->active_row
+        calc->gfx_api->set_line_style(gfx, row_index == calc->active_row
                                              ? SOLAR_OS_GFX_LINE_SOLID
                                              : SOLAR_OS_GFX_LINE_DASHED);
         bool have_previous = false;
@@ -600,50 +601,50 @@ static void calc_draw_graph(solar_os_gfx_t *gfx, int left, int top, int width,
             const int py = calc_map_y(y, top, height);
             if (have_previous && py > top - height && py < top + height * 2 &&
                 abs(py - previous_y) < height) {
-                solar_os_gfx_line(gfx, left + px - 1, previous_y, left + px,
+                calc->gfx_api->line(gfx, left + px - 1, previous_y, left + px,
                                   py);
             }
             previous_y = py;
             have_previous = py > top - height && py < top + height * 2;
         }
     }
-    solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
+    calc->gfx_api->set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
 
     double trace_y = 0.0;
     if (calc->trace && calc_trace_value(&trace_y)) {
         const int px = calc_map_x(calc->trace_x, left, width);
         const int py = calc_map_y(trace_y, top, height);
         if (px >= left && px < left + width && py >= top && py < top + height) {
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
-            solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_DOTTED);
-            solar_os_gfx_line(gfx, px, top, px, top + height - 1);
-            solar_os_gfx_line(gfx, left, py, left + width - 1, py);
-            solar_os_gfx_set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-            solar_os_gfx_circle(gfx, px, py, 3);
+            calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
+            calc->gfx_api->set_line_style(gfx, SOLAR_OS_GFX_LINE_DOTTED);
+            calc->gfx_api->line(gfx, px, top, px, top + height - 1);
+            calc->gfx_api->line(gfx, left, py, left + width - 1, py);
+            calc->gfx_api->set_line_style(gfx, SOLAR_OS_GFX_LINE_SOLID);
+            calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+            calc->gfx_api->circle(gfx, px, py, 3);
         }
     }
 }
 
-static void calc_graphics_render(solar_os_context_t *ctx)
+static void calc_graphics_render(void)
 {
     if (calc == NULL || calc->suspended)
         return;
-    solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
+    solar_os_gfx_t *gfx = calc->application_api->gfx();
     if (gfx == NULL)
         return;
-    const int width = (int)solar_os_gfx_width(gfx);
-    const int height = (int)solar_os_gfx_height(gfx);
+    const int width = (int)calc->gfx_api->width(gfx);
+    const int height = (int)calc->gfx_api->height(gfx);
     const int footer = height >= 120 ? 18 : 12;
     const int panel = width >= 380 ? 142 : (width >= 240 ? 110 : width / 2);
-    solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    calc->gfx_api->clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+    calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     if (height >= 120)
-        solar_os_gfx_text(gfx, 5, 14, "calc");
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
-    solar_os_gfx_line(gfx, panel, 0, panel, height - footer);
-    solar_os_gfx_line(gfx, 0, height - footer, width - 1, height - footer);
+        calc->gfx_api->text(gfx, 5, 14, "calc");
+    calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_LIGHT);
+    calc->gfx_api->line(gfx, panel, 0, panel, height - footer);
+    calc->gfx_api->line(gfx, 0, height - footer, width - 1, height - footer);
 
     const int row_height = height >= 120 ? 25 : 15;
     for (size_t i = 0;
@@ -652,10 +653,10 @@ static void calc_graphics_render(solar_os_context_t *ctx)
         const int y = (height >= 120 ? 27 : 12) + (int)i * row_height;
         if (i == calc->active_row) {
             const int row_top = y >= 13 ? y - 13 : 0;
-            solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
-            solar_os_gfx_rect(gfx, 1, row_top, panel - 2, row_height - 1);
+            calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_DARK);
+            calc->gfx_api->rect(gfx, 1, row_top, panel - 2, row_height - 1);
         }
-        solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+        calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
         char shown[24];
         int source_chars = panel / 7 - 4;
         if (source_chars < 1)
@@ -669,29 +670,29 @@ static void calc_graphics_render(solar_os_context_t *ctx)
         snprintf(shown, sizeof(shown), "%u %c %.*s", (unsigned)(i + 1U),
                  calc->rows[i].visible ? '*' : ' ', source_chars,
                  calc->rows[i].source + source_start);
-        solar_os_gfx_text(gfx, 4, y, shown);
+        calc->gfx_api->text(gfx, 4, y, shown);
         if (i == calc->active_row && calc->focus == CALC_FOCUS_ROWS) {
             const int cursor_x =
                 4 + (4 + (int)(calc->cursor - source_start)) * 7;
             if (cursor_x < panel) {
-                solar_os_gfx_line(gfx, cursor_x, y - 11, cursor_x, y + 2);
+                calc->gfx_api->line(gfx, cursor_x, y - 11, cursor_x, y + 2);
             }
         }
         char result[22];
         if (height >= 120 && calc->rows[i].has_result) {
             calc_format(calc->rows[i].result, result, sizeof(result));
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, 23, y + 10, result);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+            calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            calc->gfx_api->text(gfx, 23, y + 10, result);
+            calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
         } else if (height >= 120 && calc->rows[i].error.message[0] != '\0') {
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
-            solar_os_gfx_text(gfx, 23, y + 10, calc->rows[i].error.message);
-            solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
+            calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+            calc->gfx_api->text(gfx, 23, y + 10, calc->rows[i].error.message);
+            calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_MONO_12);
         }
     }
     calc_draw_graph(gfx, panel + 1, 0, width - panel - 1, height - footer - 1);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
+    calc->gfx_api->set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    calc->gfx_api->set_font(gfx, SOLAR_OS_GFX_FONT_SMALL);
     char trace_text[64];
     const char *footer_text;
     if (calc->message[0] != '\0') {
@@ -713,8 +714,8 @@ static void calc_graphics_render(solar_os_context_t *ctx)
                           ? "type edit  arrows row  Tab graph"
                           : "arrows pan  +/- zoom  t trace";
     }
-    solar_os_gfx_text(gfx, 4, height - 5, footer_text);
-    solar_os_gfx_present(gfx);
+    calc->gfx_api->text(gfx, 4, height - 5, footer_text);
+    calc->gfx_api->present(gfx);
 }
 
 static void calc_graphics_edit(char ch)
@@ -833,7 +834,7 @@ static void calc_graphics_event(solar_os_context_t *ctx, uint8_t ch)
         } else
             calc_graphics_edit((char)ch);
     }
-    calc_graphics_render(ctx);
+    calc_graphics_render();
 }
 
 static void calc_print_usage(solar_os_context_t *ctx, const char *reason)
@@ -848,15 +849,24 @@ static void calc_print_usage(solar_os_context_t *ctx, const char *reason)
 
 static esp_err_t calc_start(solar_os_context_t *ctx)
 {
-    const int argc = solar_os_context_argc(ctx);
-    if (argc > 1 &&
-        !(argc == 2 && strcmp(solar_os_context_argv(ctx, 1), "--tui") == 0)) {
-        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_COMMAND);
-    }
-    calc = solar_os_memory_calloc(
-        1, sizeof(*calc), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "calc.state");
     if (calc == NULL)
-        return ESP_ERR_NO_MEM;
+        return ESP_ERR_INVALID_STATE;
+    const solar_os_native_host_api_v1_t *host = solar_os_native_host_v1();
+    calc->application_api = solar_os_native_application_get(
+        host->get_service,
+        offsetof(solar_os_native_application_api_v1_t, finish) +
+            sizeof(calc->application_api->finish));
+    calc->gfx_api = solar_os_native_gfx_get(
+        host->get_service,
+        offsetof(solar_os_native_gfx_api_v1_t, present) +
+            sizeof(calc->gfx_api->present));
+    if (calc->application_api == NULL || calc->gfx_api == NULL)
+        return ESP_ERR_NOT_SUPPORTED;
+    const int argc = calc->application_api->argc();
+    if (argc > 1 &&
+        !(argc == 2 && strcmp(calc->application_api->argv(1), "--tui") == 0)) {
+        calc->application_api->set_app_class(SOLAR_OS_APP_CLASS_COMMAND);
+    }
     calc->row_count = 1U;
     calc->rows[0].visible = true;
     calc->units_x = calc->units_y = 0.05;
@@ -865,7 +875,7 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
     bool one_shot = false;
     char expression[CALC_SOURCE_MAX] = "";
     for (int i = 1; i < argc; i++) {
-        const char *arg = solar_os_context_argv(ctx, i);
+        const char *arg = calc->application_api->argv(i);
         if (strcmp(arg, "--tui") == 0)
             force_tui = true;
         else if (strcmp(arg, "-e") == 0 || strcmp(arg, "--eval") == 0)
@@ -876,13 +886,13 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
             strlcat(expression, arg, sizeof(expression));
         } else {
             calc_print_usage(ctx, "unknown option");
-            solar_os_context_finish(ctx, 2, NULL);
+            calc->application_api->finish(2, NULL);
             return ESP_OK;
         }
     }
     if (one_shot && expression[0] == '\0') {
         calc_print_usage(ctx, "-e needs an expression");
-        solar_os_context_finish(ctx, 2, NULL);
+        calc->application_api->finish(2, NULL);
         return ESP_OK;
     }
 
@@ -894,7 +904,7 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
             char result[32];
             calc_format(row->result, result, sizeof(result));
             solar_os_shell_io_writeln(io, result);
-            solar_os_context_finish(ctx, 0, NULL);
+            calc->application_api->finish(0, NULL);
         } else {
             char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
             snprintf(message,
@@ -906,7 +916,7 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
                                      row->error.message[0]
                                          ? row->error.message
                                          : "not a scalar expression");
-            solar_os_context_finish(ctx, 1, NULL);
+            calc->application_api->finish(1, NULL);
         }
         solar_os_shell_io_flush(io);
         calc->mode = CALC_MODE_TEXT;
@@ -917,14 +927,14 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
     const bool port_shell =
         launch_io != NULL &&
         solar_os_shell_io_kind(launch_io) == SOLAR_OS_SHELL_IO_KIND_PORT;
-    if (!force_tui && !port_shell && solar_os_context_gfx(ctx) != NULL) {
+    if (!force_tui && !port_shell && calc->application_api->gfx() != NULL) {
         calc->mode = CALC_MODE_GRAPHICS;
-        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_GUI);
-        solar_os_context_set_graphics_active(ctx, true);
-        calc_graphics_render(ctx);
+        calc->application_api->set_app_class(SOLAR_OS_APP_CLASS_GUI);
+        calc->application_api->set_graphics_active(true);
+        calc_graphics_render();
     } else {
         calc->mode = CALC_MODE_TEXT;
-        solar_os_context_set_app_class(ctx, SOLAR_OS_APP_CLASS_TUI);
+        calc->application_api->set_app_class(SOLAR_OS_APP_CLASS_TUI);
         solar_os_shell_io_t *io = calc_io(ctx);
         solar_os_shell_io_writeln(
             io, "SolarOS calculator (radians). :help for commands.");
@@ -935,18 +945,19 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
 
 static void calc_stop(solar_os_context_t *ctx)
 {
-    if (calc != NULL && calc->mode == CALC_MODE_GRAPHICS)
-        solar_os_context_set_graphics_active(ctx, false);
-    solar_os_memory_free(calc);
-    calc = NULL;
+    if (calc && calc->application_api && calc->mode == CALC_MODE_GRAPHICS)
+        calc->application_api->set_graphics_active(false);
+    if (calc && solar_os_context_shell_io(ctx) == &calc_fallback_io)
+        solar_os_context_set_shell_io(ctx, NULL);
 }
 
 static void calc_suspend(solar_os_context_t *ctx)
 {
+    (void)ctx;
     if (calc == NULL || calc->mode != CALC_MODE_GRAPHICS)
         return;
     calc->suspended = true;
-    solar_os_context_set_graphics_active(ctx, false);
+    calc->application_api->set_graphics_active(false);
 }
 
 static void calc_resume(solar_os_context_t *ctx)
@@ -961,8 +972,8 @@ static void calc_resume(solar_os_context_t *ctx)
         return;
     }
     calc->suspended = false;
-    solar_os_context_set_graphics_active(ctx, true);
-    calc_graphics_render(ctx);
+    calc->application_api->set_graphics_active(true);
+    calc_graphics_render();
 }
 
 static bool calc_event(solar_os_context_t *ctx, const solar_os_event_t *event)
@@ -983,7 +994,7 @@ static bool calc_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             calc->input_len = calc->input_cursor = 0U;
             calc_text_render_input(ctx);
         } else {
-            solar_os_context_finish(ctx, 0, NULL);
+            calc->application_api->finish(0, NULL);
         }
         return true;
     }
@@ -1061,5 +1072,8 @@ const solar_os_app_t solar_os_calc_app = {
     .stop = calc_stop,
     .event = calc_event,
     .title = calc_title,
+    .state_slot = (void **)&calc,
+    .state_size = sizeof(*calc),
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
     .tick_deadline_ms = 30U,
 };

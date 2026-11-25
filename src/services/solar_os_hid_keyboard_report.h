@@ -4,7 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define SOLAR_OS_HID_KEYBOARD_REPORT_KEYS 6U
+#include "solar_os_hid_types_v1.h"
+
 #define SOLAR_OS_HID_KEYBOARD_REPORT_STREAMS 4U
 
 typedef struct {
@@ -19,20 +20,6 @@ typedef struct {
     solar_os_hid_keyboard_report_stream_t
         streams[SOLAR_OS_HID_KEYBOARD_REPORT_STREAMS];
 } solar_os_hid_keyboard_report_tracker_t;
-
-typedef struct {
-    uint8_t modifiers;
-    uint8_t keys[SOLAR_OS_HID_KEYBOARD_REPORT_KEYS];
-} solar_os_hid_keyboard_report_state_t;
-
-/* Byte-aligned modifier bitmap and key array from a HID report descriptor.
- * Offsets exclude the report ID, which HOGP carries in the Report Reference. */
-typedef struct {
-    uint8_t modifiers_offset;
-    uint8_t keys_offset;
-    uint8_t key_count;
-    uint8_t report_size;
-} solar_os_hid_keyboard_report_layout_t;
 
 void solar_os_hid_keyboard_report_reset(
     solar_os_hid_keyboard_report_tracker_t *tracker);

@@ -10,3 +10,7 @@ lifecycle_abi = 1
 minimum_host_api_size = 20
 required_capabilities = ["psram"]
 artifact = "solaros_native_hello.app.elf"
+
+[build]
+entry = "main"
+sources = ["main/hello.c"]

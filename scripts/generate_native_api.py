@@ -273,7 +273,9 @@ static inline bool solar_os_native_##id##_has_##method(const type *api) \
 }
 ''')
     types = snapshot(headers, [])['types']
-    groups = {}
+    # The root host includes these anchors even after its final table moves to
+    # a separate provider. Regenerate them empty instead of leaving stale C.
+    groups = {'root_early': [], 'root_late': []}
     client_headers = {name: [] for name in ('core', *sorted(CLIENT_HELPER_GROUPS))}
     group_by_namespace = {namespace: group for group, namespaces in CLIENT_HELPER_GROUPS.items()
                           for namespace in namespaces.split()}
@@ -328,7 +330,7 @@ static inline bool solar_os_native_##id##_has_##method(const type *api) \
                            f'{"SOLAR_OS_NATIVE_SYSTEM_SCOPED" if service["scoped"] else "0U"}}},\n')
     result[Path('src/services/generated/native_service_descriptors.inc')] = ''.join(descriptors)
     providers = tomllib.loads((root/'api/native/services.toml').read_text()).get('provider', [])
-    parents = {}
+    parents = {'root': []}
     for provider in providers:
         if not re.fullmatch(r'[a-z][a-z0-9_]*', provider['parent']) or \
             not re.fullmatch(r'solar_os_native_\w+_get_service', provider['getter']):
@@ -342,6 +344,11 @@ static inline bool solar_os_native_##id##_has_##method(const type *api) \
                           '    if (provided) return provided;\n}\n')
             if entry.get('gate'): source.append('#endif\n')
         result[Path(f'src/services/generated/native_{parent}_providers.inc')] = ''.join(source)
+    root_headers = [BANNER, '/* Root provider declarations follow the same registry as dispatch. */\n']
+    for entry in parents['root']:
+        header = entry['getter'].removesuffix('_get_service') + '.h'
+        root_headers.append(f'#include "../{header}"\n')
+    result[Path('src/services/generated/native_root_provider_headers.inc')] = ''.join(root_headers)
     return result
 
 

@@ -8,12 +8,15 @@
 #include "solar_os_memory.h"
 #include "solar_os_log.h"
 #include "solar_os_shell_io.h"
+#include "freertos/task.h"
 
 static const solar_os_app_t parent, child;
+static const solar_os_application_lifecycle_api_v1_t portable;
 static solar_os_context_t contexts[2];
 static unsigned allocations, starts, stops, cleaned, readiness_checks, resumes, suspends, titles;
 static atomic_uint events;
-static bool ready = true, start_failure;
+static bool ready = true, start_failure, start_deferred;
+static unsigned pending_delays, cleanup_delays;
 static void *cold;
 bool solar_os_shutdown_requested(void) { return false; }
 const char *esp_err_to_name(esp_err_t error) { (void)error; return "test error"; }
@@ -27,8 +30,21 @@ void solar_os_memory_free(void *pointer) { if (pointer) --allocations; free(poin
 
 static void owner(const solar_os_app_t *app, solar_os_context_t *ctx)
 { assert(solar_os_application_context() == ctx && solar_os_application_descriptor() == app); }
+void vTaskDelay(TickType_t ticks)
+{
+    /* Reboot has a separate, existing presentation delay. */
+    if (ticks == pdMS_TO_TICKS(150)) return;
+    assert(ticks == 1 && pending_delays && cold && allocations == 1);
+    owner(&child, &contexts[1]);
+    ++cleanup_delays;
+    ready = --pending_delays == 0;
+}
 static esp_err_t start(solar_os_context_t *ctx)
-{ owner(&parent, ctx); assert(cold); ++starts; return start_failure ? ESP_FAIL : ESP_OK; }
+{
+    owner(&parent, ctx); assert(cold); ++starts;
+    if (start_deferred) ready = false;
+    return start_failure ? ESP_FAIL : ESP_OK;
+}
 static void stop(solar_os_context_t *ctx) { owner(&parent, ctx); ++stops; }
 static bool release_ready(void) { owner(&parent, &contexts[0]); ++readiness_checks; return ready; }
 static void release_cleanup(void) { owner(&parent, &contexts[0]); assert(cold); ++cleaned; }
@@ -64,6 +80,83 @@ static const solar_os_app_t parent = {
 };
 static const solar_os_app_t child = {.name = "child", .app_class = SOLAR_OS_APP_CLASS_COMMAND, .event = child_event};
 
+static int portable_status;
+static int portable_start(solar_os_application_context_t *ctx)
+{ owner(&portable, ctx); assert(cold); ++starts; return portable_status; }
+static bool portable_ready(void)
+{ owner(&portable, &contexts[0]); return ready; }
+static void portable_cleanup(void)
+{ owner(&portable, &contexts[0]); assert(cold); ++cleaned; }
+static uint32_t portable_interval(void)
+{
+    assert(!solar_os_application_context() && solar_os_application_descriptor() == &portable);
+    return cold ? 7 : 0;
+}
+static const solar_os_application_lifecycle_api_v1_t portable = {
+    .abi_version = SOLAR_OS_APPLICATION_LIFECYCLE_ABI, .struct_size = sizeof(portable),
+    .name = "parent", .app_class = SOLAR_OS_APP_CLASS_COMMAND, .start = portable_start,
+    .state_slot = &cold, .state_size = 16, .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
+    .state_release_ready = portable_ready, .state_release_cleanup = portable_cleanup,
+    .tick_interval_ms = 11, .requested_tick_interval_ms = portable_interval,
+};
+static int legacy_start_status(solar_os_context_t *ctx) { (void)ctx; return ESP_ERR_TIMEOUT; }
+static void portable_contract(void)
+{
+    solar_os_application_scope_t outer;
+    solar_os_application_scope_enter(&outer, &child, &contexts[1]);
+    const unsigned before = starts;
+    solar_os_app_t invalid = portable;
+    invalid.abi_version = 99;
+    assert(solar_os_app_start(&invalid, &contexts[0]) == ESP_ERR_NOT_SUPPORTED);
+    invalid = portable; invalid.struct_size = 8;
+    assert(solar_os_app_start(&invalid, &contexts[0]) == ESP_ERR_INVALID_SIZE);
+    invalid = portable; invalid.state_storage = (solar_os_application_state_storage_v1_t)99;
+    assert(solar_os_app_start(&invalid, &contexts[0]) == ESP_ERR_INVALID_ARG);
+    assert(starts == before && !cold && !allocations);
+    owner(&child, &contexts[1]);
+    assert(solar_os_app_tick_interval_ms(&portable, 25) == 11);
+    owner(&child, &contexts[1]);
+    portable_status = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    assert(solar_os_app_start(&portable, &contexts[0]) == ESP_ERR_NOT_SUPPORTED && !cold && !allocations);
+    owner(&child, &contexts[1]);
+    portable_status = SOLAR_OS_NATIVE_OK;
+    assert(!solar_os_app_start(&portable, &contexts[0]) && cold && allocations == 1);
+    assert(solar_os_app_tick_interval_ms(&portable, 25) == 7);
+    owner(&child, &contexts[1]);
+    ready = false;
+    assert(!solar_os_app_stop_checked(&portable, &contexts[0]) && cold && allocations == 1);
+    ready = true;
+    assert(solar_os_app_stop_checked(&portable, &contexts[0]) && !cold && !allocations);
+    owner(&child, &contexts[1]);
+    const solar_os_app_t legacy = {.name="legacy", .app_class=SOLAR_OS_APP_CLASS_COMMAND, .start=legacy_start_status};
+    assert(solar_os_app_start(&legacy, &contexts[0]) == ESP_ERR_TIMEOUT);
+    owner(&child, &contexts[1]);
+    solar_os_application_scope_leave(&outer);
+    assert(!solar_os_application_context() && !solar_os_application_descriptor());
+}
+
+static void deferred_cleanup_contract(void)
+{
+    solar_os_application_scope_t outer;
+    solar_os_application_scope_enter(&outer, &child, &contexts[1]);
+    unsigned before = stops, before_cleanup = cleaned;
+    pending_delays = 2; start_failure = start_deferred = true;
+    assert(solar_os_app_start(&parent, &contexts[0]) == ESP_FAIL);
+    assert(!cold && !allocations && !pending_delays && cleanup_delays == 2);
+    assert(stops == before + 1 && cleaned == before_cleanup + 1);
+    owner(&child, &contexts[1]);
+    start_failure = start_deferred = false;
+    assert(!solar_os_app_start(&parent, &contexts[0]));
+    before = stops; before_cleanup = cleaned;
+    ready = false; pending_delays = 3;
+    solar_os_app_stop(&parent, &contexts[0]);
+    assert(!cold && !allocations && !pending_delays && cleanup_delays == 5);
+    assert(stops == before + 1 && cleaned == before_cleanup + 1);
+    owner(&child, &contexts[1]);
+    solar_os_application_scope_leave(&outer);
+    assert(!solar_os_application_context() && !solar_os_application_descriptor());
+}
+
 int main(void)
 {
     assert(!solar_os_application_context() && !solar_os_application_descriptor());
@@ -92,5 +185,7 @@ int main(void)
     owner(&child, &contexts[1]);
     solar_os_application_scope_leave(&outer);
     assert(!solar_os_application_context() && !solar_os_application_descriptor());
+    portable_contract();
+    deferred_cleanup_contract();
     return 0;
 }

@@ -97,4 +97,5 @@ int main(void)
     assert(solar_os_ble_stream_listen("ble4")==ESP_ERR_NO_MEM);
     for (unsigned i=0;i<4;i++) { char name[8]; snprintf(name,sizeof(name),"ble%u",i); assert(!solar_os_ble_stream_remove(name)); }
     puts("BLE stream registry and ownership tests passed");
+    return 0;
 }

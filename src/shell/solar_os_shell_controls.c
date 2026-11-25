@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
+
 #include "solar_os_shell_commands.h"
 
 #include <errno.h>
@@ -342,3 +346,5 @@ void solar_os_shell_cmd_control(solar_os_context_t *ctx, int argc, char **argv)
                                     control_usage, NULL);
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_CONTROLS */

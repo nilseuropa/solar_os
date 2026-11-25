@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
+
 #include "solar_os_shell_commands.h"
 
 #include <string.h>
@@ -171,3 +175,5 @@ void solar_os_shell_cmd_wireguard(solar_os_context_t *ctx, int argc, char **argv
 
     wireguard_print_usage(term);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_WIREGUARD */

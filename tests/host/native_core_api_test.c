@@ -272,6 +272,42 @@ static int dummy_destroy(void *value)
     assert(solar_os_native_handle_count()>0);
     return SOLAR_OS_NATIVE_OK;
 }
+static bool destroying, finish_destroy;
+static unsigned resource_owner;
+static int owned_destroy(void *state)
+{
+    /* The owner must remain queryable after the object has been freed and
+     * while another task is still completing its destructor. */
+    free(state);
+    pthread_mutex_lock(&test_lock);
+    destroying=true;pthread_cond_broadcast(&test_condition);
+    while(!finish_destroy)pthread_cond_wait(&test_condition,&test_lock);
+    pthread_mutex_unlock(&test_lock);
+    return SOLAR_OS_NATIVE_OK;
+}
+static void *close_worker(void *argument)
+{
+    const solar_os_native_handle_t id=*(solar_os_native_handle_t *)argument;
+    assert(!solar_os_native_handle_close_owned(id,199,&resource_owner));return NULL;
+}
+static void test_owner_during_concurrent_close(void)
+{
+    void *state=malloc(8);assert(state);
+    solar_os_native_handle_t id;
+    assert(!solar_os_native_handle_create_owned(199,state,owned_destroy,&resource_owner,&id));
+    pthread_t worker;assert(!pthread_create(&worker,NULL,close_worker,&id));
+    pthread_mutex_lock(&test_lock);
+    while(!destroying)pthread_cond_wait(&test_condition,&test_lock);
+    pthread_mutex_unlock(&test_lock);
+    assert(solar_os_native_handle_close_owner(&resource_owner)==SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(!solar_os_native_handle_acquire_owned(id,199,&resource_owner));
+    solar_os_native_handle_release(id); /* A stray release cannot clear closing. */
+    assert(solar_os_native_handle_close_owner(&resource_owner)==SOLAR_OS_NATIVE_ERROR_BUSY);
+    pthread_mutex_lock(&test_lock);finish_destroy=true;pthread_cond_broadcast(&test_condition);
+    pthread_mutex_unlock(&test_lock);
+    assert(!pthread_join(worker,NULL) && !solar_os_native_handle_count());
+    assert(!solar_os_native_handle_close_owner(&resource_owner));
+}
 static void test_registry_capacity_and_exhaustion(void)
 {
     uint32_t ids[NATIVE_HANDLES_MAX];unsigned destroyed=0;
@@ -284,6 +320,13 @@ static void test_registry_capacity_and_exhaustion(void)
     assert(solar_os_native_handle_acquire(ids[0],199)==&destroyed);
     assert(solar_os_native_handle_close(ids[0])==SOLAR_OS_NATIVE_ERROR_BUSY);
     solar_os_native_handle_release(ids[0]);
+    native_handle_slot_t *slot=find_handle(ids[0]);
+    slot->reference_state=NATIVE_HANDLE_REFERENCE_MAX;
+    assert(!solar_os_native_handle_acquire(ids[0],199));
+    solar_os_native_handle_release(ids[0]);
+    assert(solar_os_native_handle_acquire(ids[0],199)==&destroyed);
+    assert(slot->reference_state==NATIVE_HANDLE_REFERENCE_MAX);
+    slot->reference_state=0;
     for(unsigned i=0;i<NATIVE_HANDLES_MAX;++i)assert(!solar_os_native_handle_close(ids[i]));
     assert(destroyed==NATIVE_HANDLES_MAX && !solar_os_native_handle_count());
     next_handle=UINT32_MAX-1;
@@ -298,7 +341,7 @@ int main(void)
     assert(!solar_os_native_core_get_service(NULL,1,8));
     assert(!solar_os_native_core_get_service("io.ports",2,8));
     test_ports();
-    test_crypto();test_clock();test_registry_capacity_and_exhaustion();
+    test_crypto();test_clock();test_owner_during_concurrent_close();test_registry_capacity_and_exhaustion();
     puts("native core API ownership passed");
     return 0;
 }

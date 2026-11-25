@@ -1,12 +1,14 @@
 import copy
 import importlib.util
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import types
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -27,9 +29,56 @@ class NativeApiContractTest(unittest.TestCase):
     def test_generated_sdk_and_released_baseline_are_current(self):
         api.main(['--check'])
 
+    def test_new_root_provider_compiles_with_generated_declarations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.clone(temporary)
+            metadata = root / 'api/native/services.toml'
+            metadata.write_text(metadata.read_text() + '\n[[provider]]\nparent="root"\n'
+                'getter="solar_os_native_fixture_extra_get_service"\n')
+            headers, services = api.load(root)
+            outputs = api.outputs(root, headers, services)
+            generated = root / 'src/services/generated'
+            generated.mkdir(parents=True, exist_ok=True)
+            for name in ('native_root_provider_headers.inc', 'native_root_providers.inc'):
+                path = Path('src/services/generated') / name
+                (root / path).write_text(outputs[path])
+            providers = tomllib.loads(metadata.read_text())['provider']
+            for provider in providers:
+                if provider['parent'] != 'root':
+                    continue
+                header = provider['getter'].removesuffix('_get_service') + '.h'
+                target = root / 'src/services' / header
+                if header == 'solar_os_native_fixture_extra.h':
+                    target.write_text('#include <stdint.h>\nconst void *solar_os_native_fixture_extra_get_service('
+                                      'const char *,uint32_t,uint32_t);\n')
+                else:
+                    shutil.copyfile(ROOT / 'src/services' / header, target)
+            source = root / 'providers.c'
+            source.write_text('#include <stddef.h>\n#include <stdint.h>\n'
+                '#include "generated/native_root_provider_headers.inc"\n'
+                'static const void *lookup(const char *name,uint32_t abi,uint32_t minimum){\n'
+                '#include "generated/native_root_providers.inc"\nreturn NULL;}\n'
+                'int main(void){return lookup("fixture",1,8)==NULL;}\n')
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-c', str(source),
+                '-I', str(root / 'src/services'), '-I', str(ROOT / 'include'),
+                '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
+                '-I', str(ROOT / 'tests/host'), '-o', str(root / 'providers.o')], check=True)
+
+    def test_removing_root_providers_clears_dispatch_and_declarations(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.clone(temporary)
+            metadata = root / 'api/native/services.toml'
+            text = re.sub(r'\[\[provider\]\]\n.*?(?=\n\[\[|\Z)', '', metadata.read_text(), flags=re.S)
+            metadata.write_text(text)
+            headers, services = api.load(root)
+            outputs = api.outputs(root, headers, services)
+            for name in ('native_root_provider_headers.inc', 'native_root_providers.inc'):
+                content = outputs[Path('src/services/generated') / name]
+                self.assertNotIn('_get_service', content)
+
     def test_system_coverage_is_current_and_pending_work_is_explicit(self):
         audit.main(['--check'])
-        if any(not entry['operations'] for entry in audit.inventory(ROOT).values()):
+        if any(not entry['operations'] and not entry['internal_reason'] for entry in audit.inventory(ROOT).values()):
             with self.assertRaisesRegex(ValueError, 'coverage is incomplete'):
                 audit.main(['--require-full'])
         else: audit.main(['--require-full'])
@@ -78,6 +127,64 @@ typedef void (*solar_os_callback_t)(void);
 static int solar_os_private(void);
 ''')
         self.assertEqual(set(declarations), {'solar_os_multiline', 'solar_os_pointer', 'solar_os_log_example'})
+
+    def test_explicit_internal_review_is_separate_from_public_operation_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.system_fixture(tmp)
+            entry=audit.inventory(root)['solar_os_example_read']
+            meta=root/'api/native/system.toml'
+            meta.write_text(meta.read_text()+'\n[internal.solar_os_example_read]\n'
+                'reason="Called only by core boot to initialize the event pump."\n'
+                f'review="{entry["review_revision"]}"\n')
+            entry=audit.inventory(root)['solar_os_example_read']
+            self.assertFalse(entry['operations'])
+            self.assertTrue(entry['internal_reason'])
+            report = root / 'inventory.json'
+            audit.main(['--root',str(root),'--require-full','--report',str(report)])
+            self.assertEqual(json.loads(report.read_text())['solar_os_example_read'], entry)
+
+    def test_internal_review_cannot_hide_unknown_mapped_or_unreviewed_declarations(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.system_fixture(tmp)
+            meta=root/'api/native/system.toml';original=meta.read_text()
+            revision=audit.inventory(root)['solar_os_example_read']['review_revision']
+            review=f'\n[internal.solar_os_example_read]\nreason="Core boot hook."\nreview="{revision}"\n'
+            cases=[(original+review.replace('solar_os_example_read','solar_os_typo'),'unknown OS declaration'),
+                (original+review.replace('Core boot hook.',' '),'needs a reason'),
+                (original+review.replace(revision,'stale'),'internal review changed'),
+                (original+'solar_os_example_read=["memory.alloc"]\n'+review,'both mapped and internal')]
+            for text,error in cases:
+                with self.subTest(error=error):
+                    meta.write_text(text)
+                    with self.assertRaisesRegex(ValueError,error):audit.inventory(root)
+            meta.write_text(original+review)
+            header=root/'src/services/example.h'
+            header.write_text('int solar_os_example_read(int flags);\n')
+            with self.assertRaisesRegex(ValueError,'internal review changed'):audit.inventory(root)
+
+    def test_internal_review_pins_local_types_and_leaves_new_declarations_pending(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.system_fixture(tmp)
+            header=root/'src/services/example.h';meta=root/'api/native/system.toml'
+            types=root/'include/solar_os_example_types.h'
+            types.write_text('typedef struct { int value; } solar_os_example_t;\n')
+            header.write_text('#include "solar_os_example_types.h"\nint solar_os_example_read(solar_os_example_t *value);\n')
+            original=meta.read_text()
+            def review():
+                revision=audit.inventory(root)['solar_os_example_read']['review_revision']
+                meta.write_text(original+'\n[internal.solar_os_example_read]\nreason="Core boot hook."\n'
+                    f'review="{revision}"\n')
+            review()
+            types.write_text('typedef struct { int value, flags; } solar_os_example_t;\n')
+            with self.assertRaisesRegex(ValueError,'internal review changed'):audit.inventory(root)
+            header.write_text(header.read_text()+'int solar_os_example_write(void);\n')
+            meta.write_text(original);review()
+            entries=audit.inventory(root)
+            self.assertTrue(entries['solar_os_example_read']['internal_reason'])
+            self.assertFalse(entries['solar_os_example_write']['operations'])
+            self.assertFalse(entries['solar_os_example_write']['internal_reason'])
+            with self.assertRaisesRegex(ValueError,'coverage is incomplete'):
+                audit.main(['--root',str(root),'--require-full'])
 
     def test_existing_os_record_and_constant_changes_require_coverage_review(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,8 +275,11 @@ static int solar_os_private(void);
         with tempfile.TemporaryDirectory() as tmp:
             root = self.clone(tmp)
             path = root/'api/native/services.toml'
-            path.write_text(path.read_text().replace('scoped = false',
-                'scoped = false\ngate = "SOLAR_OS_PACKAGE_SERVICE_DOES_NOT_EXIST"', 1))
+            source = path.read_text()
+            changed = re.sub(r'(?m)^gate = "SOLAR_OS_PACKAGE_[^"]+"$',
+                'gate = "SOLAR_OS_PACKAGE_SERVICE_DOES_NOT_EXIST"', source, count=1)
+            self.assertNotEqual(source, changed)
+            path.write_text(changed)
             with self.assertRaisesRegex(ValueError, 'unknown native service package gate'):
                 api.main(['--root', str(root), '--check'])
 
@@ -180,6 +290,20 @@ static int solar_os_private(void);
             path.write_text(path.read_text()+'\nstruct untracked { int value; };\n')
             with self.assertRaisesRegex(ValueError, 'must use a typedef'):
                 api.load(root)
+
+    def test_rehoming_last_root_table_clears_and_checks_the_dispatch_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=self.clone(tmp)
+            metadata=root/'api/native/services.toml'
+            metadata.write_text(metadata.read_text().replace('provider = "root_late"','provider = "separate"'))
+            anchor=root/'src/services/generated/native_root_late_dispatch.inc'
+            anchor.write_text('#error stale table left in root\n')
+            with self.assertRaisesRegex(ValueError,'regenerate native API'):
+                api.main(['--root',str(root),'--check'])
+            api.main(['--root',str(root)])
+            self.assertNotIn('stale table',anchor.read_text())
+            self.assertNotIn('return &',anchor.read_text())
+            api.main(['--root',str(root),'--check'])
 
     def test_stale_generated_output_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
