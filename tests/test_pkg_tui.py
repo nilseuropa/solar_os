@@ -34,5 +34,5 @@ class PackageTuiTest(unittest.TestCase):
         fixture = (ROOT / "tests/host/module_catalog_cache_test.inc").read_text()
         cache = (ROOT / "src/services/solar_os_module_catalog_cache.inc").read_text()
         decode = production_functions((ROOT / "src/services/solar_os_module_packages.c").read_text(), (
-            "module_catalog_decode",))
+            "module_catalog_decode", "solar_os_module_catalog_free"))
         self.compile_run("pkg-cache", fixture.replace("/* CACHE */", decode + "\n" + cache))

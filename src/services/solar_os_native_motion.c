@@ -93,4 +93,8 @@ static const solar_os_native_motion_api_v1_t api = {
 #endif
 };
 const void *solar_os_native_motion_get_service(const char *name, uint32_t abi, uint32_t size)
-{ return name && strcmp(name, SOLAR_OS_NATIVE_MOTION_SERVICE) == 0 && abi == SOLAR_OS_NATIVE_MOTION_ABI && size <= sizeof(api) ? &api : NULL; }
+{
+    const uint32_t minimum = size;
+#include "generated/native_motion_dispatch.inc"
+    return NULL;
+}

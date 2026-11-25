@@ -16,3 +16,7 @@ required_services = [
     { name = "time", abi = 1, minimum_struct_size = 16 },
     { name = "libc", abi = 1, minimum_struct_size = 52 },
 ]
+
+[builtin]
+package = "app_cc"
+entry = "solar_os_tinycc_app_main"

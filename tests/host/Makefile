@@ -613,16 +613,16 @@ tensor_image_test: tensor_image_test.c $(ROOT)/src/services/solar_os_tensor_imag
 # Override CJSON_DIR when the SDK is installed elsewhere.
 CJSON_DIR ?= $(firstword $(wildcard $(HOME)/.platformio/packages/framework-espidf*/components/json/cJSON))
 IDF_HOST_DIR := $(patsubst %/components/json/cJSON,%,$(CJSON_DIR))
-himax_model_test: himax_model_test.c zoo_test.c $(ROOT)/modules/himax/manager.c $(ROOT)/src/services/solar_os_native_data.c $(ROOT)/src/services/solar_os_json_scan.c
+himax_model_test: himax_model_test.c zoo_test.c $(ROOT)/modules/himax/manager.c $(ROOT)/src/services/solar_os_native_data.c $(ROOT)/src/services/solar_os_native_json.c $(ROOT)/src/services/solar_os_json.c $(ROOT)/src/services/solar_os_json_scan.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -fsanitize=address,undefined -no-pie \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
-		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/include -I$(CJSON_DIR) \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(ROOT)/include -I$(CJSON_DIR) \
 		-isystem $(IDF_HOST_DIR)/components/esp_rom/include -isystem $(IDF_HOST_DIR)/components/esp_rom/esp32s3 \
 		$(filter-out zoo_test.c,$^) $(CJSON_DIR)/cJSON.c -Wl,--gc-sections,--wrap=rename,--wrap=fwrite -lcrypto -lz -lm -o $@
-zoo_test: zoo_test.c $(ROOT)/src/services/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c
+zoo_test: zoo_test.c $(ROOT)/src/apps/solar_os_zoo.c $(ROOT)/src/services/solar_os_zip.c $(ROOT)/src/services/solar_os_download.c $(ROOT)/src/services/solar_os_json.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_IMAGE=1 -DSOLAR_OS_PACKAGE_SERVICE_INFERENCE=1 -DSOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538=1 -DSOLAR_OS_PACKAGE_SERVICE_PIPELINE=1 -DSOLAR_OS_VERSION=\"99.0.0\" \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
-		-I$(ROOT)/src -I$(ROOT)/src/services -I$(CJSON_DIR) \
+		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(CJSON_DIR) \
 		-isystem $(IDF_HOST_DIR)/components/esp_rom/include -isystem $(IDF_HOST_DIR)/components/esp_rom/esp32s3 \
 		$^ $(CJSON_DIR)/cJSON.c -Wl,--gc-sections,--wrap=rename,--wrap=fwrite -lcrypto -lz -lm -o $@
 model_bundle_test: model_bundle_test.c inference_test.c $(ROOT)/src/services/solar_os_inference.c \

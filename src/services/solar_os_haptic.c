@@ -135,7 +135,7 @@ esp_err_t solar_os_haptic_register(
     return ESP_OK;
 }
 
-esp_err_t solar_os_haptic_unregister(const char *name)
+static esp_err_t unregister_provider(const char *name, const void *ctx, bool owned)
 {
     if (!name_valid(name)) {
         return ESP_ERR_INVALID_ARG;
@@ -149,6 +149,10 @@ esp_err_t solar_os_haptic_unregister(const char *name)
         if (!haptic_devices[i].active ||
             strcmp(haptic_devices[i].info.name, name) != 0) {
             continue;
+        }
+        if (owned && haptic_devices[i].ctx != ctx) {
+            xSemaphoreGive(haptic_mutex);
+            return ESP_ERR_NOT_FOUND;
         }
         if (haptic_devices[i].refs > 0U) {
             xSemaphoreGive(haptic_mutex);
@@ -226,3 +230,8 @@ esp_err_t solar_os_haptic_stop(const char *name)
     release(&ref);
     return ret;
 }
+
+esp_err_t solar_os_haptic_unregister(const char *name)
+{ return unregister_provider(name, NULL, false); }
+esp_err_t solar_os_haptic_unregister_owned(const char *name, const void *ctx)
+{ return ctx ? unregister_provider(name, ctx, true) : ESP_ERR_INVALID_ARG; }

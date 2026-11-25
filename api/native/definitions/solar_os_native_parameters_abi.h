@@ -1,0 +1,28 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#define SOLAR_OS_NATIVE_PARAMETERS_SERVICE "parameters"
+#define SOLAR_OS_NATIVE_PARAMETERS_ABI 1U
+#define SOLAR_OS_NATIVE_PARAMETER_LINEAR 0U
+#define SOLAR_OS_NATIVE_PARAMETER_LOGARITHMIC 1U
+typedef struct {
+    char path[64], owner[40], name[32], label[40], unit[12];
+    float minimum, maximum, step;
+    uint32_t curve;
+} solar_os_native_parameter_info_v1_t;
+/* Metadata is copied. Normalized values are 0..65535. Each writer claim gets
+ * a distinct OS owner key. Provider removal revokes a claim; closing a revoked
+ * claim succeeds, while owned writes return NOT_FOUND. Claims are explicit
+ * resources that must be closed before their owning module exits. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    size_t (*count)(void);
+    int (*info)(size_t index, solar_os_native_parameter_info_v1_t *info);
+    int (*find)(const char *path, solar_os_native_parameter_info_v1_t *info);
+    int (*get)(const char *path, float *value);
+    int (*set)(const char *path, float value);
+    int (*get_normalized)(const char *path, uint32_t *value);
+    int (*set_normalized)(const char *path, uint32_t value);
+    int (*claim)(const char *path, const char *writer, solar_os_native_handle_t *claim);
+    int (*release)(solar_os_native_handle_t claim);
+    int (*set_owned)(solar_os_native_handle_t claim, float value);
+} solar_os_native_parameters_api_v1_t;

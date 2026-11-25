@@ -17,6 +17,31 @@
 
 static const char *TAG = "solar_os";
 
+static _Thread_local solar_os_application_scope_t application_scope;
+
+void solar_os_application_scope_enter(solar_os_application_scope_t *scope,
+    const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    *scope = application_scope;
+    application_scope = (solar_os_application_scope_t){.context = ctx, .app = app};
+}
+
+void solar_os_application_scope_leave(solar_os_application_scope_t *scope)
+{
+    application_scope = *scope;
+    *scope = (solar_os_application_scope_t){0};
+}
+
+solar_os_context_t *solar_os_application_context(void)
+{
+    return application_scope.context;
+}
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return application_scope.app;
+}
+
 static solar_os_memory_class_t app_state_memory_class(
     solar_os_app_state_storage_t storage)
 {
@@ -34,12 +59,15 @@ static solar_os_memory_class_t app_state_memory_class(
     }
 }
 
-static bool app_release_state(const solar_os_app_t *app)
+static bool app_release_state(const solar_os_app_t *app, solar_os_context_t *ctx)
 {
     if (app == NULL || app->state_slot == NULL || *app->state_slot == NULL) {
         return true;
     }
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
     if (app->state_release_ready != NULL && !app->state_release_ready()) {
+        solar_os_application_scope_leave(&scope);
         return false;
     }
     if (app->state_release_cleanup != NULL) {
@@ -47,6 +75,7 @@ static bool app_release_state(const solar_os_app_t *app)
     }
     solar_os_memory_free(*app->state_slot);
     *app->state_slot = NULL;
+    solar_os_application_scope_leave(&scope);
     return true;
 }
 
@@ -97,7 +126,7 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
         if (app->state_slot == NULL) {
             return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
         }
-        if (*app->state_slot != NULL && !app_release_state(app)) {
+        if (*app->state_slot != NULL && !app_release_state(app, ctx)) {
             return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
         }
         *app->state_slot = solar_os_memory_calloc(
@@ -109,11 +138,14 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
             return app_start_failure(app, ctx, ESP_ERR_NO_MEM);
         }
     }
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
     const esp_err_t err = app->start != NULL ? app->start(ctx) : ESP_OK;
+    solar_os_application_scope_leave(&scope);
     if (err != ESP_OK) {
         (void)app_start_failure(app, ctx, err);
     }
-    if (err != ESP_OK && !app_release_state(app)) {
+    if (err != ESP_OK && !app_release_state(app, ctx)) {
         SOLAR_OS_LOGW(TAG, "%s retained cold state after failed start",
                       app->name != NULL ? app->name : "?");
     }
@@ -126,10 +158,13 @@ bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ct
         return true;
     }
     if (ctx != NULL) ctx->app = app;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
     if (app->stop != NULL) {
         app->stop(ctx);
     }
-    if (!app_release_state(app)) {
+    solar_os_application_scope_leave(&scope);
+    if (!app_release_state(app, ctx)) {
         SOLAR_OS_LOGW(TAG, "%s retained cold state while worker stops",
                       app->name != NULL ? app->name : "?");
         return false;
@@ -140,6 +175,45 @@ bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ct
 void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx)
 {
     (void)solar_os_app_stop_checked(app, ctx);
+}
+
+bool solar_os_app_event(const solar_os_app_t *app, solar_os_context_t *ctx,
+    const solar_os_event_t *event)
+{
+    if (!app || !app->event) return false;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    const bool handled = app->event(ctx, event);
+    solar_os_application_scope_leave(&scope);
+    return handled;
+}
+
+void solar_os_app_suspend(const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    if (!app || !app->suspend) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->suspend(ctx);
+    solar_os_application_scope_leave(&scope);
+}
+
+void solar_os_app_resume(const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    if (!app || !app->resume) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->resume(ctx);
+    solar_os_application_scope_leave(&scope);
+}
+
+void solar_os_app_title(const solar_os_app_t *app, solar_os_context_t *ctx,
+    char *buffer, size_t size)
+{
+    if (!app || !app->title) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->title(ctx, buffer, size);
+    solar_os_application_scope_leave(&scope);
 }
 
 void solar_os_context_init(solar_os_context_t *ctx,

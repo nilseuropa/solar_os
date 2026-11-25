@@ -458,7 +458,7 @@ static esp_err_t pkg_print_available(solar_os_shell_io_t *term)
                                  solar_os_module_type_name(package->type),
                                  package->id,
                                  package->version,
-                                 package->installed ? " installed" : "",
+                                 package->compiled ? " compiled" : (package->installed ? " installed" : ""),
                                  package->compatible ? "" : " incompatible");
         if (!package->compatible) {
             solar_os_shell_io_table_printf(term,
@@ -496,6 +496,11 @@ static esp_err_t pkg_install_module(solar_os_shell_io_t *term, const char *id)
     if (err != ESP_OK) {
         solar_os_shell_diag_esp(term, "pkg install", err, detail, NULL);
         return err;
+    }
+    if (result.compiled) {
+        solar_os_shell_io_printf(term, "pkg: %s %s %s is compiled into firmware\n",
+            solar_os_module_type_name(result.type), result.id, result.version);
+        return ESP_OK;
     }
     solar_os_shell_io_printf(term,
                              "pkg: installed %s %s %s (%u bytes) -> %s\n",
@@ -682,7 +687,7 @@ static bool pkg_print_installed_module(const char *id, void *user)
                              "%s %s%s %s (%s)\n",
                              solar_os_module_type_name(print->type),
                              id,
-                             print->type == SOLAR_OS_MODULE_TYPE_LIBRARY ?
+                             info.compiled ? " (compiled)" : print->type == SOLAR_OS_MODULE_TYPE_LIBRARY ?
                                  (solar_os_native_module_active(print->type, id) ?
                                      " (loaded)" : " (on storage)") : "",
                              info.version[0] ? info.version : "unknown",

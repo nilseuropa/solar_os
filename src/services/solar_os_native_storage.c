@@ -159,7 +159,8 @@ const void *solar_os_native_storage_get_service(const char *name, uint32_t abi,
     uint32_t minimum_size, void *opaque)
 {
     solar_os_native_storage_context_t *context = opaque;
-    if (context && name && !strcmp(name, SOLAR_OS_NATIVE_STORAGE_SERVICE) &&
-        abi == SOLAR_OS_NATIVE_STORAGE_ABI && minimum_size <= sizeof(context->api)) return &context->api;
+    if (!context) return NULL;
+    const uint32_t minimum = minimum_size;
+#include "generated/native_storage_dispatch.inc"
     return NULL;
 }

@@ -1172,14 +1172,14 @@ static void flash_port_enter_bootloader(esp_loader_port_t *base) {
     return;
   }
   if (port->boot_pin >= 0)
-    (void)solar_os_gpio_write(port->boot_pin, false);
+    (void)solar_os_gpio_write_owned(port->boot_pin, FLASH_OWNER, false);
   if (port->reset_pin >= 0) {
-    (void)solar_os_gpio_write(port->reset_pin, false);
+    (void)solar_os_gpio_write_owned(port->reset_pin, FLASH_OWNER, false);
     flash_port_delay(base, 100U);
-    (void)solar_os_gpio_write(port->reset_pin, true);
+    (void)solar_os_gpio_write_owned(port->reset_pin, FLASH_OWNER, true);
     flash_port_delay(base, 50U);
     if (port->boot_pin >= 0)
-      (void)solar_os_gpio_write(port->boot_pin, true);
+      (void)solar_os_gpio_write_owned(port->boot_pin, FLASH_OWNER, true);
   }
 }
 
@@ -1188,9 +1188,9 @@ static void flash_port_reset_target(esp_loader_port_t *base) {
   if (flash_port_flush_usb(port) != ESP_LOADER_SUCCESS) return;
   if (port->usb_reset) { flash_port_usb_reset(port); return; }
   if (port->reset_pin >= 0) {
-    (void)solar_os_gpio_write(port->reset_pin, false);
+    (void)solar_os_gpio_write_owned(port->reset_pin, FLASH_OWNER, false);
     flash_port_delay(base, 100U);
-    (void)solar_os_gpio_write(port->reset_pin, true);
+    (void)solar_os_gpio_write_owned(port->reset_pin, FLASH_OWNER, true);
   }
 }
 
@@ -1356,7 +1356,7 @@ static esp_err_t flash_claim_gpio(flash_loader_port_t *port) {
     err = solar_os_gpio_configure_owned(pins[i], SOLAR_OS_GPIO_MODE_OUTPUT,
                                         SOLAR_OS_GPIO_PULL_UP, FLASH_OWNER);
     if (err == ESP_OK)
-      err = solar_os_gpio_write(pins[i], true);
+      err = solar_os_gpio_write_owned(pins[i], FLASH_OWNER, true);
   }
   if (err != ESP_OK) {
     for (size_t i = 0U; i < count; i++) {
@@ -1512,7 +1512,7 @@ solar_os_flash_artifact_program(const solar_os_flash_artifact_t *artifact,
     if (port.io_error != ESP_OK) err = port.io_error;
   }
   if (port.boot_pin >= 0)
-    (void)solar_os_gpio_write(port.boot_pin, true);
+    (void)solar_os_gpio_write_owned(port.boot_pin, FLASH_OWNER, true);
   if (err == ESP_OK) {
     flash_report(progress, user, SOLAR_OS_FLASH_PROGRESS_IDENTIFYING, 0U, 0U,
                  false);

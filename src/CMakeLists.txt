@@ -208,10 +208,19 @@ set(SOLAR_OS_GENERATED_FONT_SENTINEL
 if(NOT EXISTS "${SOLAR_OS_GENERATED_FONT_SENTINEL}")
     message(FATAL_ERROR "SolarOS generated default fonts missing: ${SOLAR_OS_GENERATED_FONT_SENTINEL}. Run: make -C fonts/tools/bdfconv && python3 fonts/generate_u8g2_fonts.py")
 endif()
+if(CMAKE_SCRIPT_MODE_FILE)
+    file(GLOB_RECURSE SOLAR_OS_MODULE_MANIFESTS
+        "${SOLAR_OS_PROJECT_DIR}/modules/*/module.toml")
+else()
+    file(GLOB_RECURSE SOLAR_OS_MODULE_MANIFESTS CONFIGURE_DEPENDS
+        "${SOLAR_OS_PROJECT_DIR}/modules/*/module.toml")
+endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${SOLAR_OS_FLAVOR_INPUT}"
     "${SOLAR_OS_PACKAGE_CATALOG}"
     "${SOLAR_OS_PROJECT_DIR}/scripts/generate_flavor_config.py"
+    "${SOLAR_OS_PROJECT_DIR}/scripts/solaros_components.py"
+    ${SOLAR_OS_MODULE_MANIFESTS}
     "${SOLAR_OS_GENERATED_FONT_SENTINEL}"
 )
 
@@ -536,6 +545,9 @@ if(DEFINED SOLAR_OS_BOARD_STORAGE_DRIVER)
     endif()
 endif()
 list(APPEND SOLAR_OS_SRCS ${SOLAR_OS_BOARD_SRCS})
+if(NOT SOLAR_OS_BOARD_CDC_DRIVER STREQUAL "tinyusb_composite")
+    list(APPEND SOLAR_OS_SRCS "drivers/hid_port_unavailable.c")
+endif()
 list(APPEND SOLAR_OS_REQUIRES ${SOLAR_OS_BOARD_REQUIRES})
 
 list(APPEND SOLAR_OS_SRCS ${SOLAR_OS_PACKAGE_SRCS})

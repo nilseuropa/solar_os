@@ -8,7 +8,8 @@ function(solar_os_link_builtin_cc target)
         "${cc_source}/include/*.h" "${cc_source}/sdk/*.h" "${cc_source}/examples/*.c")
     file(GLOB cc_headers CONFIGURE_DEPENDS
         "${SOLAR_OS_PROJECT_DIR}/include/solar_os_native*.h"
-        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_*_types_v1.h")
+        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_*_types_v1.h"
+        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_key_codes.h")
     add_custom_command(OUTPUT "${cc_output}/libsolar_os_cc.a"
         COMMAND "${Python3_EXECUTABLE}" "${cc_source}/native_build.py"
             --builtin-output "${cc_output}"

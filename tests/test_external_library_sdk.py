@@ -1,4 +1,5 @@
 import ast
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -24,6 +25,29 @@ def builtin_headers(source):
 
 
 class ExternalLibrarySdkTest(unittest.TestCase):
+    def test_current_builtin_sdk_lists_shows_and_exports_within_file_bounds(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'include').mkdir()
+            for name in ('stddef.h', 'stdbool.h', 'stdarg.h'):
+                (root / 'include' / name).write_text('#pragma once\n')
+            headers = builtin_headers(root)
+            limit = int(re.search(r'#define SOLAR_OS_NATIVE_SDK_FILE_MAX (\d+)U',
+                (ROOT / 'include/solar_os_native_sdk.h').read_text())[1])
+            index = root / 'sdk_browser_builtin_headers.inc'
+            entries = []
+            for name, path in sorted(headers.items()):
+                data = path.read_bytes()
+                with self.subTest(header=name):
+                    self.assertLessEqual(len(data), limit)
+                entries.append('{%s, %s, %d},' % (json.dumps(name), json.dumps(data.decode()), len(data)))
+            index.write_text('\n'.join(entries))
+            browser = root / 'browser'; build_browser(browser, builtin_index=index)
+            subprocess.run([str(browser), str(root), 'builtins'], check=True)
+            for name, path in headers.items():
+                with self.subTest(exported=name):
+                    self.assertEqual((root / 'sdk' / name).read_bytes(), path.read_bytes())
+
     def test_builtin_sdk_contains_quoted_header_dependencies(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = Path(temporary)

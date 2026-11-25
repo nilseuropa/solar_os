@@ -55,6 +55,7 @@ esp_err_t solar_os_gpio_configure_owned(int pin,
                                         solar_os_gpio_pull_t pull,
                                         const char *owner);
 esp_err_t solar_os_gpio_read_owned(int pin, const char *owner, bool *level);
+esp_err_t solar_os_gpio_write_owned(int pin, const char *owner, bool level);
 esp_err_t solar_os_gpio_release_owned(int pin, const char *owner);
 const char *solar_os_gpio_mode_name(solar_os_gpio_mode_t mode);
 const char *solar_os_gpio_pull_name(solar_os_gpio_pull_t pull);

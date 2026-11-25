@@ -396,10 +396,11 @@ static solar_os_stream_direction_t stream_default_open_direction(
         SOLAR_OS_STREAM_DIRECTION_SINK : SOLAR_OS_STREAM_DIRECTION_SOURCE;
 }
 
-esp_err_t solar_os_stream_open_ex(const char *id,
+static esp_err_t stream_open_common(const char *id,
                                   const char *owner,
                                   const solar_os_stream_open_options_t *options,
-                                  solar_os_stream_handle_t *handle)
+                                  solar_os_stream_handle_t *handle,
+                                  const solar_os_stream_type_t *expected_type)
 {
     if (!stream_text_valid(id, SOLAR_OS_STREAM_ID_MAX, true) ||
         !stream_text_valid(owner, SOLAR_OS_STREAM_OWNER_MAX, true) ||
@@ -424,6 +425,10 @@ esp_err_t solar_os_stream_open_ex(const char *id,
         return ESP_ERR_NOT_FOUND;
     }
     stream_entry_t *entry = &streams[index];
+    if (expected_type != NULL && entry->driver.info.type != *expected_type) {
+        stream_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     const solar_os_stream_direction_t direction = options != NULL ?
         options->direction : stream_default_open_direction(entry->driver.info.direction);
     if (!stream_direction_compatible(entry->driver.info.direction, direction)) {
@@ -474,6 +479,19 @@ esp_err_t solar_os_stream_open_ex(const char *id,
         }
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_stream_open_ex(const char *id, const char *owner,
+    const solar_os_stream_open_options_t *options, solar_os_stream_handle_t *handle)
+{
+    return stream_open_common(id, owner, options, handle, NULL);
+}
+
+esp_err_t solar_os_stream_open_typed(const char *id, const char *owner,
+    solar_os_stream_type_t expected_type, const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *handle)
+{
+    return stream_open_common(id, owner, options, handle, &expected_type);
 }
 
 esp_err_t solar_os_stream_open(const char *id,

@@ -476,7 +476,7 @@ static void port_app_update_title(port_shell_state_t *state,
     }
     char title[sizeof(session->title)] = {0};
     if (session->app->title != NULL) {
-        session->app->title(&state->ctx,
+        solar_os_app_title(session->app, &state->ctx,
                             title,
                             sizeof(title));
     }
@@ -568,7 +568,7 @@ static esp_err_t port_app_resume(port_shell_state_t *state,
         port_shell_reset_terminal_state(state);
         (void)solar_os_shell_io_clear(
             solar_os_shell_session_io(state->session));
-        session->app->resume(&state->ctx);
+        solar_os_app_resume(session->app, &state->ctx);
     }
     session->app_class = solar_os_context_app_class(&state->ctx);
     port_app_update_title(state, session);
@@ -588,7 +588,7 @@ static esp_err_t port_app_suspend(port_shell_state_t *state,
     }
 
     if (session->app->suspend != NULL) {
-        session->app->suspend(&state->ctx);
+        solar_os_app_suspend(session->app, &state->ctx);
     }
     port_app_update_title(state, session);
     portENTER_CRITICAL(&port_shells_lock);
@@ -859,7 +859,7 @@ static bool port_shell_emit_char(char ch, void *user)
 
     const solar_os_app_t *foreground_app = port_shell_foreground_app(state);
     if (foreground_app != NULL && foreground_app->event != NULL) {
-        (void)foreground_app->event(&state->ctx, &event);
+        (void)solar_os_app_event(foreground_app, &state->ctx, &event);
     } else {
         (void)solar_os_shell_session_event(&state->ctx, state->session, &event);
     }
@@ -906,7 +906,7 @@ static void port_shell_send_tick(port_shell_state_t *state, uint32_t now_ms)
     };
     const int64_t started_us = solar_os_tick_begin();
     if (foreground_app != NULL && foreground_app->event != NULL) {
-        (void)foreground_app->event(&state->ctx, &event);
+        (void)solar_os_app_event(foreground_app, &state->ctx, &event);
     } else {
         (void)solar_os_shell_session_event(&state->ctx, state->session, &event);
     }

@@ -60,9 +60,50 @@ static void put(const char *path, const char *text)
 { FILE *f = fopen(path, "wb"); assert(f); assert(fwrite(text, 1, strlen(text), f) == strlen(text)); assert(!fclose(f)); }
 static void expect(const char *path, const char *text)
 { char buffer[64] = {0}; FILE *f = fopen(path, "rb"); assert(f); size_t n = fread(buffer, 1, sizeof(buffer), f); assert(!fclose(f)); assert(n == strlen(text) && !memcmp(buffer, text, n)); }
+static void batch_replacement(const char *root)
+{
+    const size_t count = SOLAR_OS_STORAGE_REPLACE_MAX;
+    typedef struct { char paths[3][SOLAR_OS_STORAGE_PATH_MAX]; } paths_t;
+    paths_t *paths = calloc(count, sizeof(*paths));
+    solar_os_storage_replacement_t *items = calloc(count, sizeof(*items));
+    assert(paths && items);
+    for (size_t i = 0; i < count; ++i) {
+        for (unsigned p = 0; p < 3; ++p)
+            assert(snprintf(paths[i].paths[p], sizeof(paths[i].paths[p]), "%s/batch-%zu-%u", root, i, p) > 0);
+        items[i] = (solar_os_storage_replacement_t){paths[i].paths[0], paths[i].paths[1], paths[i].paths[2]};
+        put(items[i].active_path, "original");
+        put(items[i].staged_path, "replacement");
+    }
+    assert(solar_os_storage_replace_files(items, count + 1) == ESP_ERR_INVALID_ARG);
+    const char *saved = items[count - 1].backup_path;
+    items[count - 1].backup_path = items[0].staged_path;
+    assert(solar_os_storage_replace_files(items, count) == ESP_ERR_INVALID_ARG);
+    items[count - 1].backup_path = saved;
+    /* Exercise every rollback bitmap word, including the final publication. */
+    for (unsigned pass = 0; pass < 2; ++pass) {
+        rename_calls = 0;
+        fail_rename = pass ? count * 2U : count + 1U;
+        assert(solar_os_storage_replace_files(items, count) == ESP_FAIL);
+        for (size_t i = 0; i < count; ++i) {
+            expect(items[i].active_path, "original");
+            assert(access(items[i].backup_path, F_OK));
+            put(items[i].staged_path, "replacement");
+        }
+    }
+    fail_rename = 0;
+    assert(!solar_os_storage_replace_files(items, count));
+    for (size_t i = 0; i < count; ++i) {
+        expect(items[i].active_path, "replacement");
+        assert(access(items[i].backup_path, F_OK) && access(items[i].staged_path, F_OK));
+        assert(!remove(items[i].active_path));
+    }
+    free(items);
+    free(paths);
+}
 int main(int argc, char **argv)
 {
     assert(argc == 2);
+    batch_replacement(argv[1]);
     solar_os_native_storage_context_t one, two;
     char cwd[] = "/first";
     assert(!solar_os_native_storage_init(&one, cwd, NULL, NULL));

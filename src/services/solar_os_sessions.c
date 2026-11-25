@@ -466,7 +466,7 @@ static void session_update_title(solar_os_session_entry_t *session)
     if (session->started && session->app->title != NULL) {
         session_prepare_context(session);
         session->title[0] = '\0';
-        session->app->title(session_state.ctx, session->title, sizeof(session->title));
+        solar_os_app_title(session->app, session_state.ctx, session->title, sizeof(session->title));
     }
     if (session->title[0] == '\0') {
         strlcpy(session->title, app_display_name(session->app), sizeof(session->title));
@@ -1319,7 +1319,7 @@ static void suspend_foreground_session(void)
     solar_os_session_entry_t *session = session_state.foreground_session;
     session_prepare_context(session);
     if (session->app != NULL && session->app->suspend != NULL) {
-        session->app->suspend(session_state.ctx);
+        solar_os_app_suspend(session->app, session_state.ctx);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
     session_capture_graphics_snapshot(session);
@@ -1387,7 +1387,7 @@ static bool start_or_resume_session(solar_os_session_entry_t *session)
     } else if (session->app->resume != NULL) {
         if (session->app->flags & SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT)
             session_restore_graphics_snapshot(session);
-        session->app->resume(session_state.ctx);
+        solar_os_app_resume(session->app, session_state.ctx);
     } else {
         session_restore_graphics_snapshot(session);
     }
@@ -1462,7 +1462,7 @@ static bool start_or_resume_detached_session(solar_os_session_entry_t *session)
     } else if (session->app->resume != NULL) {
         if (session->app->flags & SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT)
             session_restore_graphics_snapshot(session);
-        session->app->resume(session_state.ctx);
+        solar_os_app_resume(session->app, session_state.ctx);
     } else {
         session_restore_graphics_snapshot(session);
     }
@@ -1489,7 +1489,7 @@ static void suspend_detached_session(solar_os_session_entry_t *session)
     session_context_capture(&previous);
     session_prepare_context(session);
     if (session->app != NULL && session->app->suspend != NULL) {
-        session->app->suspend(session_state.ctx);
+        solar_os_app_suspend(session->app, session_state.ctx);
     }
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
     session_capture_graphics_snapshot(session);
@@ -2107,12 +2107,12 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
         } else if (session->app->resume != NULL) {
             if (session->app->flags & SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT)
                 session_restore_graphics_snapshot(session);
-            session->app->resume(session_state.ctx);
+            solar_os_app_resume(session->app, session_state.ctx);
         } else if (session->app->event != NULL) {
             const solar_os_event_t resume_event = {
                 .type = SOLAR_OS_EVENT_RESUME,
             };
-            session->app->event(session_state.ctx, &resume_event);
+            solar_os_app_event(session->app, session_state.ctx, &resume_event);
         }
         session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
         if (session->app->resume == NULL) {
@@ -2131,7 +2131,7 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
             .type = SOLAR_OS_EVENT_CHAR,
             .data.ch = (char)SOLAR_OS_KEY_ALT_PREFIX,
         };
-        (void)session->app->event(session_state.ctx, &alt_event);
+        (void)solar_os_app_event(session->app, session_state.ctx, &alt_event);
     }
 
     const bool tick = event->type == SOLAR_OS_EVENT_TICK;
@@ -2149,7 +2149,7 @@ static void dispatch_session_event(solar_os_session_entry_t *session,
 
     session_prepare_context(session);
     const int64_t started_us = tick ? solar_os_tick_begin() : 0;
-    session->app->event(session_state.ctx, event);
+    solar_os_app_event(session->app, session_state.ctx, event);
     session->graphics_active = solar_os_context_graphics_active(session_state.ctx);
     if (event->type == SOLAR_OS_EVENT_RESUME && session->app->resume == NULL) {
         session_restore_graphics_snapshot(session);
@@ -2184,12 +2184,12 @@ static void dispatch_legacy_event(const solar_os_event_t *event)
                                     (uint8_t)event->data.ch);
         if (action == SOLAR_OS_TUI_SCREEN_KEY_TOGGLED) {
             if (app->resume != NULL) {
-                app->resume(session_state.ctx);
+                solar_os_app_resume(app, session_state.ctx);
             } else {
                 const solar_os_event_t resume_event = {
                     .type = SOLAR_OS_EVENT_RESUME,
                 };
-                (void)app->event(session_state.ctx, &resume_event);
+                (void)solar_os_app_event(app, session_state.ctx, &resume_event);
             }
             return;
         }
@@ -2203,7 +2203,7 @@ static void dispatch_legacy_event(const solar_os_event_t *event)
             .type = SOLAR_OS_EVENT_CHAR,
             .data.ch = (char)SOLAR_OS_KEY_ALT_PREFIX,
         };
-        (void)app->event(session_state.ctx, &alt_event);
+        (void)solar_os_app_event(app, session_state.ctx, &alt_event);
     }
 
     const bool tick = event->type == SOLAR_OS_EVENT_TICK;
@@ -2220,7 +2220,7 @@ static void dispatch_legacy_event(const solar_os_event_t *event)
     }
 
     const int64_t started_us = tick ? solar_os_tick_begin() : 0;
-    app->event(session_state.ctx, event);
+    solar_os_app_event(app, session_state.ctx, event);
     if (tick && solar_os_tick_end(&session_state.legacy_tick_stats, started_us) &&
         solar_os_tick_should_log_miss(&session_state.legacy_tick_stats)) {
         SOLAR_OS_LOGW(TAG,
@@ -3384,7 +3384,7 @@ void solar_os_sessions_dispatch_resume(uint32_t now_ms)
     if (foreground == NULL && session_state.foreground_app != NULL &&
         session_state.foreground_app->resume != NULL) {
         restore_foreground_context();
-        session_state.foreground_app->resume(session_state.ctx);
+        solar_os_app_resume(session_state.foreground_app, session_state.ctx);
     } else {
         solar_os_sessions_dispatch_foreground_event(&event);
     }

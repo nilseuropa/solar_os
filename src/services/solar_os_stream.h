@@ -242,6 +242,11 @@ esp_err_t solar_os_stream_open_ex(const char *id,
                                   const char *owner,
                                   const solar_os_stream_open_options_t *options,
                                   solar_os_stream_handle_t *handle);
+/* Checks the endpoint type under the registry lock before selecting an option
+ * union or pinning a provider. A concurrent replacement cannot reinterpret it. */
+esp_err_t solar_os_stream_open_typed(const char *id, const char *owner,
+    solar_os_stream_type_t expected_type, const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *handle);
 esp_err_t solar_os_stream_open(const char *id,
                                const char *owner,
                                solar_os_stream_handle_t *handle);

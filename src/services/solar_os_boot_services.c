@@ -130,7 +130,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC) && !SOLAR_OS_BOARD_USB_DEFAULT_OFF) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         const esp_err_t hid_err = solar_os_hid_init();
-        if (hid_err != ESP_OK) {
+        if (hid_err != ESP_OK && hid_err != ESP_ERR_NOT_SUPPORTED) {
             SOLAR_OS_LOGW(TAG, "USB HID unavailable: %s", esp_err_to_name(hid_err));
         }
 #endif

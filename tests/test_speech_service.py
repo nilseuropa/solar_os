@@ -6,6 +6,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = REPOSITORY / "scripts" / "generate_flavor_config.py"
+sys.path.insert(0, str(GENERATOR_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("speech_flavor_config", GENERATOR_PATH)
 assert SPEC is not None and SPEC.loader is not None
 generate_flavor_config = importlib.util.module_from_spec(SPEC)

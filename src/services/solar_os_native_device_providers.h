@@ -1,0 +1,8 @@
+#pragma once
+#include "solar_os_native_device_abi.h"
+int solar_os_native_backlight_provider_register(const solar_os_native_backlight_provider_v1_t *provider, solar_os_native_handle_t *handle);
+int solar_os_native_haptic_provider_register(const solar_os_native_haptic_provider_v1_t *provider, solar_os_native_handle_t *handle);
+int solar_os_native_charger_provider_register(const solar_os_native_charger_provider_v1_t *provider, solar_os_native_handle_t *handle);
+int solar_os_native_backlight_provider_close(solar_os_native_handle_t handle);
+int solar_os_native_haptic_provider_close(solar_os_native_handle_t handle);
+int solar_os_native_charger_provider_close(solar_os_native_handle_t handle);

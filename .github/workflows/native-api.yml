@@ -1,0 +1,107 @@
+name: Native API contract
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check out the host JSON parser
+        uses: actions/checkout@v4
+        with:
+          repository: DaveGamble/cJSON
+          ref: c859b25da02955fef659d658b8f324b5cde87be3 # 1.7.19, as in ESP-IDF
+          path: .host-deps/cjson
+          persist-credentials: false
+      - name: Check generated SDK and released ABI
+        run: python scripts/generate_native_api.py --check
+      - name: Check against the previous contract
+        env:
+          NATIVE_ABI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if git cat-file -e "$NATIVE_ABI_BASE:api/native/abi-lock.json" 2>/dev/null; then
+            git show "$NATIVE_ABI_BASE:api/native/abi-lock.json" > "$RUNNER_TEMP/native-api-base.json"
+            python scripts/generate_native_api.py --check --baseline "$RUNNER_TEMP/native-api-base.json"
+          fi
+      - name: Check system service coverage
+        run: python scripts/audit_native_system.py --check
+      - name: Test compatibility, optional services, ownership, and unload
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: tests
+          CJSON_DIR: ${{ github.workspace }}/.host-deps/cjson
+        run: >-
+          python -m unittest
+          test_native_api_contract test_native_run_scopes test_native_runtime_services
+          test_application_scopes test_native_application test_foreground_app_state
+          test_session_display_return test_port_shell_lifecycle test_ssh_session_policy
+          test_pkg_upgrade test_module_requirements test_module_catalog test_pkg_tui test_app_discovery_cache
+          test_native_vector test_native_dsp test_script_dsp_bindings
+          test_system_api_core test_components test_core_flavor test_flavor_config test_flavor_packages test_compiler_packages
+          test_native_core_api
+          test_native_fs_api
+          test_native_network_api test_native_routing_api test_native_http_api test_native_http_lifecycle test_http_policy
+          test_native_remote_api
+          test_native_stream_api
+          test_native_controls_api
+          test_native_io_api
+          test_native_bus_api
+          test_native_json_api
+          test_native_diagnostics_api test_native_xml_api
+          test_native_storage_control_api
+          test_native_device_api
+          test_native_device_providers
+          test_external_library_sdk test_sdk_browser
+          test_native_api_layout
+          test_native_libraries test_native_images test_native_storage test_native_foreground test_native_compiled_foreground
+  firmware:
+    needs: compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [freenove_esp32_wrover_v3, seeed_reterminal_sticky, esp32_s3_devkitc1_n16r8, waveshare_esp32_s3_epaper_3_97]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: native-api-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
+      - name: Install PlatformIO
+        run: python -m pip install platformio==6.2.0
+      - name: Build firmware with generated contract checks
+        run: pio run -e "${{ matrix.environment }}"
+      - name: Check the compiled foreground host without an ELF backend
+        if: matrix.environment == 'freenove_esp32_wrover_v3'
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: tests
+        run: python -m unittest test_native_compiled_foreground
+      - name: Check public SDK with the SolarOS C frontend
+        if: matrix.environment == 'esp32_s3_devkitc1_n16r8'
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+          PYTHONPATH: tests
+          NATIVE_ABI_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          python modules/experimental/tinycc/build.py
+          python -m unittest test_native_api_contract.NativeApiContractTest.test_public_sdk_compiles_with_the_solaros_c_frontend test_native_api_layout
+          if git cat-file -e "$NATIVE_ABI_BASE:api/native/layout-xtensa.json" 2>/dev/null; then
+            git show "$NATIVE_ABI_BASE:api/native/layout-xtensa.json" > "$RUNNER_TEMP/native-layout-base.json"
+            python scripts/check_native_layout.py --baseline "$RUNNER_TEMP/native-layout-base.json"
+          fi

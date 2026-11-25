@@ -43,13 +43,7 @@ size_t strlcpy(char *out, const char *s, size_t n)
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 void solar_os_work_begin(solar_os_work_budget_t *budget) { budget->last_yield_us = 0; }
 void solar_os_work_checkpoint(solar_os_work_budget_t *budget) { (void)budget; }
-static void *json_alloc(size_t n) { return solar_os_memory_alloc(n,0,""); }
-struct solar_os_json_doc { cJSON *root; };
-esp_err_t solar_os_json_init(void) { cJSON_Hooks h = {json_alloc, solar_os_memory_free}; cJSON_InitHooks(&h); return 0; }
-esp_err_t solar_os_json_parse(const char *s,size_t n,solar_os_json_doc_t **out)
-{ cJSON *root = cJSON_ParseWithLength(s,n); if (!root) return ESP_ERR_INVALID_ARG; *out=json_alloc(sizeof(**out)); (*out)->root=root; return 0; }
-const solar_os_json_value_t *solar_os_json_root(const solar_os_json_doc_t *d) { return d?d->root:NULL; }
-void solar_os_json_free(solar_os_json_doc_t *d) { if(d){ cJSON_Delete(d->root); solar_os_memory_free(d); } }
+
 bool solar_os_storage_sd_is_mounted(void) { return true; }
 bool solar_os_storage_flash_is_mounted(void) { return false; }
 const char *solar_os_storage_sd_mount_point(void) { return mount_root; }

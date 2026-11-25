@@ -26,6 +26,13 @@ files.
   unloaded; leases protect their API while consumers use it. See
   [Native libraries](manual/native-library.md). A per-entry lifecycle ABI is distinct
   from the native host ABI.
+- Service packages declare `core = true`. They and their dependencies are
+  selected in every flavor before target, hardware and update-layout pruning.
+  Flavors select optional apps, jobs, engines and expansion drivers; they cannot
+  disable a core service. `flavors/core.toml` selects no additional groups.
+  The configurator uses the same core membership and dependency rules.
+- `layouts` restricts a package to physical update layouts. The OTA service is
+  available in OTA layouts; single-image layouts remove it and its dependants.
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
   component requirements.
 - Every source file and component requirement belongs to a package.
@@ -53,7 +60,7 @@ configurator. They are deliberately granular: examples include `http_client`,
 `ftp`, `logging`, `invaders`, `pcm1808`, and `st7305`. Categories such as
 Networking, Maintenance, Games, and Expansion hardware only organize the
 configurator; categories cannot be selected and do not appear in a flavor.
-Dormant engineering packages such as USB HID are not exposed as groups.
+The HID service is part of the core; its hidden group is not a separate choice.
 
 Groups can contain more than one package when users reasonably perceive one
 feature. For example, `ssh` includes the SSH and SCP clients, while `ftp`
@@ -78,13 +85,51 @@ are installed as [external foreground apps](manual/native-app.md) through the mo
 catalog and require native-module support in the firmware. They do not add
 firmware flavor groups.
 
+## Compiled native components
+
+A native module can declare its built-in form in its existing `module.toml`:
+
+```toml
+[builtin]
+package = "app_cc"
+entry = "solar_os_cc_app_main"
+```
+
+The manifest owns the ID, name, version, lifecycle and exact library pins for
+both deployment forms. The flavor generator selects descriptors after package,
+target and capability resolution. The resulting registry is immutable; lookup
+allocates no state. Manifest changes invalidate both CMake and PlatformIO
+configuration. The core lifecycle manager uses this registry for compiled
+resident components, with the same registration checks, leases and shutdown
+as ELFs. Compiled components work without the optional ELF backend.
+The compiler command also resolves its entry through this registry.
+
+The built-in entry contract accepts lifecycle ABI 1 apps, jobs, drivers and
+libraries. A foreground lifecycle ABI 2 app also names its compiled manifest
+symbol in `[builtin].manifest`. That record uses the same validation, memory
+admission, session ownership, input, suspend/resume and cleanup path as an ELF
+foreground app. The package supplies both symbols. Compiled foreground entries
+remain discoverable without an ELF backend or mounted storage. Existing firmware
+apps without a native module manifest retain their application registry entries.
+
+The public `components` service reports the compiled native descriptors. It
+lists module identities, not service tables or attached hardware. Runtime state
+is allocated only when a component's lifecycle starts. Compiled code stays in
+firmware flash; external code occupies executable PSRAM while loaded.
+
 ## Service boundaries
+
+Git, device flashing, and the model-zoo catalog/installer are application
+implementations. Their backends live in `src/apps/` and belong to `app_git`,
+`app_flash`, and `app_zoo`; selecting OS services does not select these apps.
+They consume the shared transport, storage, crypto, and inference services.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
 `network.http-server` own their individual implementations. Image and document
-decoding are separate `media.image` and `media.document` packages, so selecting
-`app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
+decoding remain separate `media.image` and `media.document` packages.
+These services are included in the core when the target and board support them;
+selecting an application changes the application selection, not the service set.
 
 `service.osc` owns the bounded OSC 1.0 codec, incoming native-parameter
 mapping, named volatile outbound bindings, and the `osc` shell command.

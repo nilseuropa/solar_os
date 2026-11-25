@@ -191,6 +191,9 @@ static void hid_notify(void)
 
 esp_err_t solar_os_hid_init(void)
 {
+    if (!hid_port_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     if (hid.initialized) {
         return ESP_OK;
     }

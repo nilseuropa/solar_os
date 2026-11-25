@@ -23,6 +23,8 @@ def configure_builtin_cc():
     for directory, pattern in (('include', '*.h'), ('sdk', '*.h'), ('examples', '*.c')):
         inputs.extend((source / directory).rglob(pattern))
     inputs.extend((root / 'include').glob('solar_os_native*.h'))
+    inputs.extend((root / 'include').glob('solar_os_*_types_v1.h'))
+    inputs.append(root / 'include/solar_os_key_codes.h')
     inputs.extend(root / path for path in (
         'modules/cc/module.toml', 'modules/tinycc/module.toml',
         'modules/examples/hello-library/main/hello_library_api.h',

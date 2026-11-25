@@ -1,0 +1,6 @@
+[flavor]
+name = "core"
+description = "SolarOS services, shell and package installation with the board's required hardware."
+
+# Core services and bootstrap packages are automatic. Select additional apps,
+# jobs and expansion drivers in a custom flavor or install compatible modules.

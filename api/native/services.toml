@@ -1,0 +1,706 @@
+# Public service identity and provider wiring. C declarations live in definitions/.
+
+[[service]]
+id = "application"
+name = "application"
+abi = 1
+header = "solar_os_native_application_abi.h"
+type = "solar_os_native_application_api_v1_t"
+scoped = true
+provider = "application"
+table = "application_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_application_get_service"
+
+[[service]]
+id = "time"
+name = "time"
+abi = 1
+header = "solar_os_native_time_abi.h"
+type = "solar_os_native_time_api_v1_t"
+scoped = false
+provider = "root_early"
+table = "native_time_api"
+
+[[service]]
+id = "thread"
+name = "thread"
+abi = 1
+header = "solar_os_native_thread_abi.h"
+type = "solar_os_native_thread_api_v1_t"
+scoped = false
+provider = "root_early"
+table = "native_thread_api"
+
+[[service]]
+id = "libc"
+name = "libc"
+abi = 1
+header = "solar_os_native_libc_abi.h"
+type = "solar_os_native_libc_api_v1_t"
+scoped = false
+provider = "root_early"
+table = "native_libc_api"
+
+[[service]]
+id = "library"
+name = "library"
+abi = 1
+header = "solar_os_native_library_abi.h"
+type = "solar_os_native_library_service_api_v1_t"
+scoped = false
+provider = "root_early"
+table = "native_library_api"
+
+[[service]]
+id = "system"
+name = "system"
+abi = 1
+header = "solar_os_native_system_abi.h"
+type = "solar_os_native_system_api_v1_t"
+scoped = false
+provider = "root_early"
+table = "native_system_api"
+
+[[service]]
+id = "storage"
+name = "storage"
+abi = 1
+header = "solar_os_native_storage_abi.h"
+type = "solar_os_native_storage_api_v1_t"
+scoped = true
+provider = "storage"
+table = "context->api"
+
+[[service]]
+id = "files"
+name = "storage.files"
+abi = 1
+header = "solar_os_native_data_abi.h"
+type = "solar_os_native_files_api_v1_t"
+scoped = false
+provider = "data"
+table = "files_api"
+
+[[service]]
+id = "json"
+name = "json"
+abi = 1
+header = "solar_os_native_data_abi.h"
+type = "solar_os_native_json_api_v1_t"
+scoped = false
+provider = "json"
+table = "json_api"
+
+[[service]]
+id = "memory"
+name = "memory"
+abi = 1
+header = "solar_os_native_service_abi.h"
+type = "solar_os_native_memory_api_v1_t"
+scoped = false
+provider = "media"
+table = "memory_api"
+
+[[service]]
+id = "motion"
+name = "motion"
+abi = 1
+header = "solar_os_native_motion_abi.h"
+type = "solar_os_native_motion_api_v1_t"
+scoped = false
+provider = "motion"
+table = "api"
+
+[[service]]
+id = "controllers"
+name = "controllers"
+abi = 1
+header = "solar_os_native_controllers_abi.h"
+type = "solar_os_native_controllers_api_v1_t"
+scoped = false
+provider = "controllers"
+table = "api"
+
+[[service]]
+id = "ble_client"
+name = "ble.client"
+abi = 1
+header = "solar_os_native_ble_abi.h"
+type = "solar_os_native_ble_client_api_v1_t"
+scoped = false
+provider = "root_late"
+table = "native_ble_client_v1"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BLE"
+
+[[service]]
+id = "sscma"
+name = "camera.sscma"
+abi = 1
+header = "solar_os_native_sscma_abi.h"
+type = "solar_os_native_sscma_api_v1_t"
+scoped = false
+provider = "media"
+table = "sscma_api"
+gate = "SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538"
+
+[[service]]
+id = "image"
+name = "image"
+abi = 1
+header = "solar_os_native_image_abi.h"
+type = "solar_os_native_image_api_v1_t"
+scoped = false
+provider = "media"
+table = "image_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_IMAGE"
+
+[[service]]
+id = "media"
+name = "media.video"
+abi = 1
+header = "solar_os_native_media_abi.h"
+type = "solar_os_native_media_api_v1_t"
+scoped = false
+provider = "media"
+table = "media_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA"
+
+[[service]]
+id = "qr"
+name = "vision.qr"
+abi = 1
+header = "solar_os_native_vision_abi.h"
+type = "solar_os_native_qr_api_v1_t"
+scoped = false
+provider = "media"
+table = "qr_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_VISION"
+
+[[service]]
+id = "imlib"
+name = "vision.imlib"
+abi = 1
+header = "solar_os_native_vision_abi.h"
+type = "solar_os_native_imlib_api_v1_t"
+scoped = false
+provider = "media"
+table = "imlib_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_IMLIB"
+
+[[service]]
+id = "inference"
+name = "inference"
+abi = 1
+header = "solar_os_native_inference_abi.h"
+type = "solar_os_native_inference_api_v1_t"
+scoped = false
+provider = "media"
+table = "inference_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_INFERENCE"
+
+[[service]]
+id = "tensor_image"
+name = "tensor.image"
+abi = 1
+header = "solar_os_native_inference_abi.h"
+type = "solar_os_native_tensor_image_api_v1_t"
+scoped = false
+provider = "media"
+table = "tensor_image_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_INFERENCE"
+
+[[service]]
+id = "foreground"
+name = "foreground"
+abi = 1
+header = "solar_os_native_app_abi.h"
+type = "solar_os_native_foreground_api_v1_t"
+scoped = true
+provider = "foreground"
+table = "foreground_api"
+
+# Provider delegation preserves scoped overrides before optional/global tables.
+[[provider]]
+parent = "root"
+getter = "solar_os_native_motion_get_service"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_core_get_service"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_controllers_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_media_get_service"
+
+[[provider]]
+parent = "media"
+getter = "solar_os_native_data_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES"
+
+[[service]]
+id = "crypto"
+name = "crypto"
+abi = 1
+header = "solar_os_native_crypto_abi.h"
+type = "solar_os_native_crypto_api_v1_t"
+scoped = false
+provider = "core"
+table = "crypto_api"
+
+[[service]]
+id = "ports"
+name = "io.ports"
+abi = 1
+header = "solar_os_native_ports_abi.h"
+type = "solar_os_native_ports_api_v1_t"
+scoped = false
+provider = "core"
+table = "ports_api"
+
+[[service]]
+id = "clock"
+name = "clock"
+abi = 1
+header = "solar_os_native_clock_abi.h"
+type = "solar_os_native_clock_api_v1_t"
+scoped = false
+provider = "core"
+table = "clock_api"
+
+[[service]]
+id = "fs"
+name = "fs"
+abi = 1
+header = "solar_os_native_fs_abi.h"
+type = "solar_os_native_fs_api_v1_t"
+scoped = false
+provider = "fs"
+table = "fs_api"
+
+[[service]]
+id = "volumes"
+name = "storage.volumes"
+abi = 1
+header = "solar_os_native_volumes_abi.h"
+type = "solar_os_native_volumes_api_v1_t"
+scoped = false
+provider = "fs"
+table = "volumes_api"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_fs_get_service"
+
+[[service]]
+id = "net"
+name = "net"
+abi = 1
+header = "solar_os_native_net_abi.h"
+type = "solar_os_native_net_api_v1_t"
+scoped = false
+provider = "network"
+table = "net_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_NET"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_network_get_service"
+
+[[service]]
+id = "http"
+name = "http"
+abi = 1
+header = "solar_os_native_http_abi.h"
+type = "solar_os_native_http_api_v1_t"
+scoped = false
+provider = "http"
+table = "http_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_http_get_service"
+
+[[service]]
+id = "routing"
+name = "network.routing"
+abi = 1
+header = "solar_os_native_routing_abi.h"
+type = "solar_os_native_routing_api_v1_t"
+scoped = false
+provider = "routing"
+table = "routing_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_NETWORK"
+
+[[service]]
+id = "wifi"
+name = "wifi"
+abi = 1
+header = "solar_os_native_wifi_abi.h"
+type = "solar_os_native_wifi_api_v1_t"
+scoped = false
+provider = "routing"
+table = "wifi_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_WIFI"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_routing_get_service"
+
+[[service]]
+id = "ssh"
+name = "ssh"
+abi = 1
+header = "solar_os_native_ssh_abi.h"
+type = "solar_os_native_ssh_api_v1_t"
+scoped = false
+provider = "remote"
+table = "ssh_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SSH"
+
+[[service]]
+id = "sftp"
+name = "sftp"
+abi = 1
+header = "solar_os_native_sftp_abi.h"
+type = "solar_os_native_sftp_api_v1_t"
+scoped = false
+provider = "remote"
+table = "sftp_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SFTP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_remote_get_service"
+
+[[service]]
+id = "stream"
+name = "stream"
+abi = 1
+header = "solar_os_native_stream_abi.h"
+type = "solar_os_native_stream_api_v1_t"
+scoped = false
+provider = "stream"
+table = "stream_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_STREAMS"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_stream_get_service"
+
+[[service]]
+id = "parameters"
+name = "parameters"
+abi = 1
+header = "solar_os_native_parameters_abi.h"
+type = "solar_os_native_parameters_api_v1_t"
+scoped = false
+provider = "controls_api"
+table = "parameters_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "controls"
+name = "controls"
+abi = 1
+header = "solar_os_native_controls_abi.h"
+type = "solar_os_native_controls_api_v1_t"
+scoped = false
+provider = "controls_api"
+table = "controls_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_CONTROLS"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_controls_api_get_service"
+
+[[service]]
+id = "resources"
+name = "resources"
+abi = 1
+header = "solar_os_native_io_abi.h"
+type = "solar_os_native_resources_api_v1_t"
+scoped = false
+provider = "io"
+table = "resources_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_RESOURCES"
+
+[[service]]
+id = "pins"
+name = "pins"
+abi = 1
+header = "solar_os_native_io_abi.h"
+type = "solar_os_native_pins_api_v1_t"
+scoped = false
+provider = "io"
+table = "pins_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_RESOURCES"
+
+[[service]]
+id = "gpio"
+name = "gpio"
+abi = 1
+header = "solar_os_native_io_abi.h"
+type = "solar_os_native_gpio_api_v1_t"
+scoped = false
+provider = "io"
+table = "gpio_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_GPIO"
+
+[[service]]
+id = "adc"
+name = "adc"
+abi = 1
+header = "solar_os_native_io_abi.h"
+type = "solar_os_native_adc_api_v1_t"
+scoped = false
+provider = "io"
+table = "adc_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_ADC"
+
+[[service]]
+id = "pwm"
+name = "pwm"
+abi = 1
+header = "solar_os_native_io_abi.h"
+type = "solar_os_native_pwm_api_v1_t"
+scoped = false
+provider = "io"
+table = "pwm_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_PWM"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_io_get_service"
+
+[[service]]
+id = "bus"
+name = "bus"
+abi = 1
+header = "solar_os_native_bus_abi.h"
+type = "solar_os_native_bus_api_v1_t"
+scoped = false
+provider = "bus"
+table = "bus_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_RESOURCES"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_bus_get_service"
+
+[[provider]]
+parent = "data"
+getter = "solar_os_native_json_get_service"
+
+[[service]]
+id = "clipboard"
+name = "clipboard"
+abi = 1
+header = "solar_os_native_diagnostics_abi.h"
+type = "solar_os_native_clipboard_api_v1_t"
+scoped = false
+provider = "diagnostics"
+table = "clipboard_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "log"
+name = "log"
+abi = 1
+header = "solar_os_native_diagnostics_abi.h"
+type = "solar_os_native_log_api_v1_t"
+scoped = false
+provider = "diagnostics"
+table = "log_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_diagnostics_get_service"
+
+[[service]]
+id = "xml"
+name = "xml"
+abi = 1
+header = "solar_os_native_xml_abi.h"
+type = "solar_os_native_xml_api_v1_t"
+scoped = false
+provider = "xml"
+table = "xml_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_DOCUMENT"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_xml_get_service"
+
+[[service]]
+id = "disk_image"
+name = "storage.images"
+abi = 1
+header = "solar_os_native_storage_control_abi.h"
+type = "solar_os_native_disk_image_api_v1_t"
+scoped = false
+provider = "storage_control"
+table = "image_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "ramfs"
+name = "storage.ramfs"
+abi = 1
+header = "solar_os_native_storage_control_abi.h"
+type = "solar_os_native_ramfs_api_v1_t"
+scoped = false
+provider = "storage_control"
+table = "ramfs_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "settings_backup"
+name = "settings.backup"
+abi = 1
+header = "solar_os_native_storage_control_abi.h"
+type = "solar_os_native_settings_backup_api_v1_t"
+scoped = false
+provider = "storage_control"
+table = "backup_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_storage_control_get_service"
+
+[[service]]
+id = "board"
+name = "board"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_board_api_v1_t"
+scoped = false
+provider = "device"
+table = "board_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "backlight"
+name = "backlight"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_backlight_api_v1_t"
+scoped = false
+provider = "device"
+table = "backlight_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "power"
+name = "power"
+abi = 1
+header = "solar_os_native_power_abi.h"
+type = "solar_os_native_power_api_v1_t"
+scoped = false
+provider = "device"
+table = "power_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[service]]
+id = "status_led"
+name = "status_led"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_status_led_api_v1_t"
+scoped = false
+provider = "device"
+table = "status_led_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_GPIO"
+
+[[service]]
+id = "battery"
+name = "battery"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_battery_api_v1_t"
+scoped = false
+provider = "device"
+table = "battery_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BATTERY"
+
+[[service]]
+id = "charger"
+name = "charger"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_charger_api_v1_t"
+scoped = false
+provider = "device"
+table = "charger_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_CHARGER"
+
+[[service]]
+id = "haptic"
+name = "haptic"
+abi = 1
+header = "solar_os_native_device_abi.h"
+type = "solar_os_native_haptic_api_v1_t"
+scoped = false
+provider = "device"
+table = "haptic_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_HAPTIC"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_device_get_service"
+
+[[service]]
+id = "components"
+name = "components"
+abi = 1
+header = "solar_os_native_components_abi.h"
+type = "solar_os_native_components_api_v1_t"
+scoped = false
+provider = "components"
+table = "components_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_components_get_service"
+
+[[service]]
+id = "vector"
+name = "vector"
+abi = 1
+header = "solar_os_native_vector_abi.h"
+type = "solar_os_native_vector_api_v1_t"
+scoped = false
+provider = "vector"
+table = "vector_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_VECTOR"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_vector_get_service"
+
+[[service]]
+id = "dsp"
+name = "dsp"
+abi = 1
+header = "solar_os_native_dsp_abi.h"
+type = "solar_os_native_dsp_api_v1_t"
+scoped = false
+provider = "dsp"
+table = "dsp_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_DSP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_dsp_get_service"

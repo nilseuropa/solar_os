@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os_storage.h"
+#include "solar_os_components.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,22 +18,14 @@ extern "C" {
 #define SOLAR_OS_MODULE_PACKAGE_DESCRIPTION_MAX 128U
 #define SOLAR_OS_MODULE_PACKAGE_URL_MAX 320U
 #define SOLAR_OS_MODULE_PACKAGE_SHA256_MAX 65U
-#define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 16U
-#define SOLAR_OS_MODULE_DEPENDENCIES_MAX 4U
-#define SOLAR_OS_MODULE_SERVICES_MAX 8U
+#define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 256U
+#define SOLAR_OS_MODULE_DEPENDENCIES_MAX 8U
+#define SOLAR_OS_MODULE_SERVICES_MAX 64U
 #define SOLAR_OS_MODULE_APP_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_FOREGROUND_LIFECYCLE_ABI 2U
 #define SOLAR_OS_MODULE_JOB_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_DRIVER_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_LIBRARY_LIFECYCLE_ABI 1U
-
-typedef enum {
-    SOLAR_OS_MODULE_TYPE_INVALID = 0,
-    SOLAR_OS_MODULE_TYPE_APP,
-    SOLAR_OS_MODULE_TYPE_JOB,
-    SOLAR_OS_MODULE_TYPE_DRIVER,
-    SOLAR_OS_MODULE_TYPE_LIBRARY,
-} solar_os_module_type_t;
 
 typedef struct {
     char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
@@ -62,6 +55,7 @@ typedef struct {
     solar_os_module_service_requirement_t services[SOLAR_OS_MODULE_SERVICES_MAX];
     bool compatible;
     bool installed;
+    bool compiled;
     char incompatibility[96];
 } solar_os_module_package_t;
 
@@ -72,7 +66,8 @@ typedef struct {
     uint32_t native_abi;
     bool signature_verified;
     size_t count;
-    solar_os_module_package_t packages[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    /* Owned count-sized allocation; release with catalog_free. */
+    solar_os_module_package_t *packages;
 } solar_os_module_catalog_t;
 
 typedef bool (*solar_os_module_package_cancel_fn)(void *user);
@@ -92,6 +87,7 @@ typedef struct {
     char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     uint32_t bytes;
+    bool compiled;
 } solar_os_module_install_result_t;
 
 typedef bool (*solar_os_module_package_visit_fn)(const char *id, void *user);
@@ -122,6 +118,7 @@ typedef enum {
 
 typedef struct {
     bool installed;
+    bool compiled;
     char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
     solar_os_module_compatibility_t compatibility;
 } solar_os_module_installed_info_t;
@@ -134,7 +131,7 @@ typedef struct {
     size_t unverified_count;
     size_t incompatible_count;
     uint32_t download_bytes;
-    solar_os_module_upgrade_entry_t entries[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    solar_os_module_upgrade_entry_t *entries;
     bool applied;
 } solar_os_module_upgrade_plan_t;
 

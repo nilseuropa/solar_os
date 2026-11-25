@@ -62,4 +62,8 @@ static const solar_os_native_controllers_api_v1_t api={
     .open=open_controller,.evaluate=evaluate,.pause=pause_controller,.fault=fault_controller,.close=close_controller,
     .open_bound=open_bound,.command=command_bound,.step_bound=step_bound,.status_bound=status_bound};
 const void *solar_os_native_controllers_get_service(const char *name, uint32_t abi, uint32_t size)
-{ return name && !strcmp(name,SOLAR_OS_NATIVE_CONTROLLERS_SERVICE) && abi==SOLAR_OS_NATIVE_CONTROLLERS_ABI && size<=sizeof(api)?&api:NULL; }
+{
+    const uint32_t minimum = size;
+#include "generated/native_controllers_dispatch.inc"
+    return NULL;
+}

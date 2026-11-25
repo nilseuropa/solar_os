@@ -57,7 +57,7 @@ class UsbSerialTest(unittest.TestCase):
                              (ROOT / "tests/host/usb_serial_discovery_main.inc").read_text())
 
     def test_flash_transports_and_reset_sequences(self):
-        source = (ROOT / "src/services/solar_os_flash.c").read_text()
+        source = (ROOT / "src/apps/solar_os_flash.c").read_text()
         start = source.index("typedef struct {\n  esp_loader_port_t base;")
         end = source.index("} flash_loader_port_t;", start) + len("} flash_loader_port_t;")
         code = (ROOT / "tests/host/usb_flash_transport_test.inc").read_text() + source[start:end] + "\n"

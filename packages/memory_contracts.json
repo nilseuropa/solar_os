@@ -200,7 +200,7 @@
       },
       "reason": "Placement new into tagged owned memory; creates no additional allocation."
     },
-    "src/services/solar_os_native.c": {
+    "src/services/solar_os_system_api.c": {
       "calls": {
         "xTaskCreateStaticPinnedToCore": 1
       },

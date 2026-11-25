@@ -225,8 +225,8 @@ solaros.gpio.write(1, 1)
 
 ## `solaros.onewire`
 
-OneWire functions operate on runtime-safe expansion GPIOs when the OneWire
-service is included in the active flavor. Use `solaros.buses.onewire_*` for a
+OneWire functions operate on runtime-safe expansion GPIOs through the core
+OneWire service. Use `solaros.buses.onewire_*` for a
 registered named bus. Transfers reset the bus before writing and reading, and
 are limited to 64 bytes in each direction.
 
@@ -368,7 +368,7 @@ print([hex(addr) for addr in solaros.i2c.scan()])
 
 ## `solaros.spi`
 
-Available when the board and flavor include the SPI service. This compatibility
+Available when the board supports the core SPI service. This compatibility
 module selects `spi0` when present, otherwise the first registered named SPI
 bus. On a dynamic-only board, `status()["available"]` remains `False` until a
 bus is created. Chip select may be a configured CS name from `status()["cs"]`

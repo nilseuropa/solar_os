@@ -1414,23 +1414,25 @@ esp_err_t solar_os_storage_replace_files(
         errno = EINVAL;
         return ESP_ERR_INVALID_ARG;
     }
-    const char *paths[SOLAR_OS_STORAGE_REPLACE_MAX * 3U];
-    size_t path_count = 0U;
     for (size_t i = 0; i < count; i++) {
         const char *member[] = {items[i].staged_path, items[i].active_path, items[i].backup_path};
         for (size_t p = 0; p < 3U; p++) {
             if (member[p] == NULL || member[p][0] == '\0') {
                 errno = EINVAL; return ESP_ERR_INVALID_ARG;
             }
-            for (size_t prior = 0; prior < path_count; prior++) {
-                if (strcmp(member[p], paths[prior]) == 0) {
-                    errno = EINVAL; return ESP_ERR_INVALID_ARG;
+            for (size_t prior = 0; prior <= i; prior++) {
+                const char *previous[] = {items[prior].staged_path,
+                    items[prior].active_path, items[prior].backup_path};
+                const size_t members = prior < i ? 3U : p;
+                for (size_t q = 0; q < members; q++) {
+                    if (strcmp(member[p], previous[q]) == 0) {
+                        errno = EINVAL; return ESP_ERR_INVALID_ARG;
+                    }
                 }
             }
             if (solar_os_disk_image_path_busy(member[p])) {
                 errno = EBUSY; return ESP_ERR_INVALID_STATE;
             }
-            paths[path_count++] = member[p];
             struct stat info;
             if (stat(member[p], &info) == 0) {
                 if (!S_ISREG(info.st_mode)) { errno = EINVAL; return ESP_ERR_INVALID_ARG; }
@@ -1439,8 +1441,10 @@ esp_err_t solar_os_storage_replace_files(
             } else if (errno != ENOENT) return ESP_FAIL;
         }
     }
-    bool backed_up[SOLAR_OS_STORAGE_REPLACE_MAX] = {0};
-    bool published[SOLAR_OS_STORAGE_REPLACE_MAX] = {0};
+    /* Two bits per file keep transaction state bounded without a large stack
+     * path array or an allocation during recovery. */
+    uint32_t backed_up[(SOLAR_OS_STORAGE_REPLACE_MAX + 31U) / 32U] = {0};
+    uint32_t published[(SOLAR_OS_STORAGE_REPLACE_MAX + 31U) / 32U] = {0};
     /* A failed rollback can still change the namespace. */
     solar_os_storage_notify_changed();
     for (size_t i = 0; i < count; i++) {
@@ -1459,15 +1463,15 @@ esp_err_t solar_os_storage_replace_files(
         if (backup && remove(item->backup_path) != 0) goto rollback;
         if (active) {
             if (rename(item->active_path, item->backup_path) != 0) goto rollback;
-            backed_up[i] = true;
+            backed_up[i / 32U] |= 1U << (i % 32U);
         }
     }
     for (size_t i = 0; i < count; i++) {
         if (rename(items[i].staged_path, items[i].active_path) != 0) goto rollback;
-        published[i] = true;
+        published[i / 32U] |= 1U << (i % 32U);
     }
     for (size_t i = 0; i < count; i++) {
-        if (backed_up[i] && remove(items[i].backup_path) != 0)
+        if ((backed_up[i / 32U] & (1U << (i % 32U))) && remove(items[i].backup_path) != 0)
             ESP_LOGW(TAG, "stale replacement backup remains: %s", items[i].backup_path);
     }
     solar_os_storage_notify_changed();
@@ -1478,11 +1482,11 @@ rollback:;
     for (size_t i = count; i > 0U; i--) {
         const size_t index = i - 1U;
         const solar_os_storage_replacement_t *item = &items[index];
-        if (published[index] && remove(item->active_path) != 0) {
+        if ((published[index / 32U] & (1U << (index % 32U))) && remove(item->active_path) != 0) {
             ESP_LOGW(TAG, "replacement cleanup failed: %s", item->active_path);
             continue;
         }
-        if (backed_up[index] && rename(item->backup_path, item->active_path) != 0)
+        if ((backed_up[index / 32U] & (1U << (index % 32U))) && rename(item->backup_path, item->active_path) != 0)
             ESP_LOGW(TAG, "file replacement rollback failed: %s", item->active_path);
     }
     solar_os_storage_notify_changed();

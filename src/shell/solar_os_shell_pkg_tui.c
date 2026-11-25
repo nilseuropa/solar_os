@@ -121,16 +121,14 @@ static void pkg_tui_tree_left(void)
     }
 }
 
-static bool pkg_tui_selected(solar_os_module_package_t *package)
+/* The UI owns the catalog until the next completed operation is published.
+ * Borrow its selected record instead of copying all service requirements onto
+ * the foreground task's stack. */
+static const solar_os_module_package_t *pkg_tui_selected(void)
 {
     pkg_tui_node_t node;
-    if (!pkg_tui_node_at(pkg_tui.viewport.cursor, &node) || node.is_folder) {
-        return false;
-    }
-    if (package != NULL) {
-        *package = pkg_tui.catalog->packages[node.package];
-    }
-    return true;
+    if (!pkg_tui_node_at(pkg_tui.viewport.cursor, &node) || node.is_folder) return NULL;
+    return &pkg_tui.catalog->packages[node.package];
 }
 
 static bool pkg_tui_cancelled(void *user)
@@ -279,7 +277,8 @@ static void pkg_tui_finish_operation(void)
                 "signed catalog refreshed and saved", sizeof(pkg_tui.status));
         } else if (completed == PKG_TUI_OPERATION_INSTALL) {
             pkg_tui_update_installed(pkg_tui.operation_package.id, true);
-            strlcpy(pkg_tui.status, "module installed", sizeof(pkg_tui.status));
+            strlcpy(pkg_tui.status, pkg_tui.install_result.compiled ?
+                "component is compiled into firmware" : "module installed", sizeof(pkg_tui.status));
         } else if (completed == PKG_TUI_OPERATION_REMOVE) {
             pkg_tui_update_installed(pkg_tui.operation_package.id, false);
             strlcpy(pkg_tui.status, "module removed", sizeof(pkg_tui.status));
@@ -351,7 +350,7 @@ static void pkg_tui_render_list(void)
         } else {
             const solar_os_module_package_t *package = &pkg_tui.catalog->packages[node.package];
             snprintf(line, sizeof(line), "  [%c] %s %s",
-                package->installed ? 'I' : (package->compatible ? ' ' : '!'), package->id, package->version);
+                package->compiled ? 'B' : (package->installed ? 'I' : (package->compatible ? ' ' : '!')), package->id, package->version);
         }
         solar_os_tui_write_cell(tui,
                                 1U + row,
@@ -369,8 +368,8 @@ static void pkg_tui_render_list(void)
 
 static void pkg_tui_render_details(void)
 {
-    solar_os_module_package_t package;
-    if (!pkg_tui_selected(&package)) {
+    const solar_os_module_package_t *package = pkg_tui_selected();
+    if (!package) {
         pkg_tui.details = false;
         pkg_tui_render_list();
         return;
@@ -378,19 +377,20 @@ static void pkg_tui_render_details(void)
     solar_os_tui_t *tui = &pkg_tui.tui;
     const size_t cols = solar_os_tui_cols(tui);
     solar_os_tui_clear(tui);
-    solar_os_tui_draw_title(tui, package.id, package.version);
+    solar_os_tui_draw_title(tui, package->id, package->version);
 
     char lines[7][160];
-    snprintf(lines[0], sizeof(lines[0]), "Name: %s", package.name);
-    snprintf(lines[1], sizeof(lines[1]), "Type: %s", solar_os_module_type_name(package.type));
-    snprintf(lines[2], sizeof(lines[2]), "State: %s", package.installed ? "installed" : "not installed");
-    snprintf(lines[3], sizeof(lines[3]), "Lifecycle ABI: %u", (unsigned)package.lifecycle_abi);
-    snprintf(lines[4], sizeof(lines[4]), "Size: %u bytes", (unsigned)package.artifact_size);
-    snprintf(lines[5], sizeof(lines[5]), "Description: %s", package.description);
+    snprintf(lines[0], sizeof(lines[0]), "Name: %s", package->name);
+    snprintf(lines[1], sizeof(lines[1]), "Type: %s", solar_os_module_type_name(package->type));
+    snprintf(lines[2], sizeof(lines[2]), "State: %s", package->compiled ? "compiled into firmware" :
+        (package->installed ? "installed" : "not installed"));
+    snprintf(lines[3], sizeof(lines[3]), "Lifecycle ABI: %u", (unsigned)package->lifecycle_abi);
+    snprintf(lines[4], sizeof(lines[4]), "Size: %u bytes", (unsigned)package->artifact_size);
+    snprintf(lines[5], sizeof(lines[5]), "Description: %s", package->description);
     snprintf(lines[6],
              sizeof(lines[6]),
              "Compatibility: %s",
-             package.compatible ? "compatible" : package.incompatibility);
+             package->compatible ? "compatible" : package->incompatibility);
     const size_t visible = solar_os_tui_screen_content_rows(tui, 1U, 1U);
     for (size_t row = 0U; row < visible && row < 7U; row++) {
         solar_os_tui_write_cell(tui,
@@ -463,35 +463,39 @@ static void pkg_tui_render(void)
 
 static void pkg_tui_install_selected(void)
 {
-    solar_os_module_package_t package;
-    if (!pkg_tui_selected(&package)) {
+    const solar_os_module_package_t *package = pkg_tui_selected();
+    if (!package) {
         return;
     }
-    if (!package.compatible) {
-        strlcpy(pkg_tui.status, package.incompatibility, sizeof(pkg_tui.status));
+    if (!package->compatible) {
+        strlcpy(pkg_tui.status, package->incompatibility, sizeof(pkg_tui.status));
         pkg_tui.stop_requested = false;
         pkg_tui.operation_result = ESP_ERR_NOT_SUPPORTED;
         pkg_tui.result_popup = true;
         return;
     }
-    pkg_tui.operation_package = package;
+    pkg_tui.operation_package = *package;
     pkg_tui.prompt_operation = PKG_TUI_OPERATION_INSTALL;
 }
 
 static void pkg_tui_remove_selected(void)
 {
-    solar_os_module_package_t package;
-    if (!pkg_tui_selected(&package)) {
+    const solar_os_module_package_t *package = pkg_tui_selected();
+    if (!package) {
         return;
     }
-    if (!package.installed) {
+    if (package->compiled) {
+        strlcpy(pkg_tui.status, "component is compiled into firmware; change the firmware flavor to remove it", sizeof(pkg_tui.status));
+        return;
+    }
+    if (!package->installed) {
         strlcpy(pkg_tui.status, "module is not installed", sizeof(pkg_tui.status));
         pkg_tui.stop_requested = false;
         pkg_tui.operation_result = ESP_ERR_NOT_FOUND;
         pkg_tui.result_popup = true;
         return;
     }
-    pkg_tui.operation_package = package;
+    pkg_tui.operation_package = *package;
     pkg_tui.prompt_operation = PKG_TUI_OPERATION_REMOVE;
 }
 

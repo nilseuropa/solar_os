@@ -12,6 +12,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "solar_os_config.h"
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
+#include "solar_os_native_app_manifest.h"
 #include "solar_os_display.h"
 #include "solar_os_frame_presenter.h"
 #include "solar_os_input.h"
@@ -94,6 +96,7 @@ typedef struct {
 struct foreground_slot {
     foreground_slot_t *next;
     solar_os_native_app_manifest_v2_t manifest;
+    const solar_os_component_t *component;
     solar_os_app_t app;
     solar_os_app_registry_entry_t registry;
     void *state;
@@ -888,10 +891,10 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
 static const void *foreground_get_service(const char *name, uint32_t abi,
                                            uint32_t size, void *user)
 {
-    return user == foreground_current() && foreground_caller() && name &&
-        !strcmp(name, SOLAR_OS_NATIVE_FOREGROUND_SERVICE) &&
-        abi == SOLAR_OS_NATIVE_FOREGROUND_ABI && size <= sizeof(foreground_api) ?
-        &foreground_api : NULL;
+    if (user != foreground_current() || !foreground_caller()) return NULL;
+    const uint32_t minimum = size;
+#include "generated/native_foreground_dispatch.inc"
+    return NULL;
 }
 
 
@@ -949,9 +952,24 @@ static void foreground_worker(void *arg)
         .cleanup = foreground_worker_cleanup,
         .expected_manifest = &state->slot->manifest,
     };
-    char detail[160];
-    state->result = solar_os_native_run(state->slot->path, state->argc, argv,
-        &options, NULL, detail, sizeof(detail));
+    char detail[160] = {0};
+    if (state->slot->component) {
+        int code = 0;
+        state->result = solar_os_native_run_compiled_app(state->slot->component,
+            state->argc, argv, &options, &code);
+        if (state->result == ESP_OK && code) {
+            state->result = ESP_FAIL;
+            strlcpy(detail, "compiled app entry returned an error", sizeof(detail));
+        }
+    } else {
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+        state->result = solar_os_native_run(state->slot->path, state->argc, argv,
+            &options, NULL, detail, sizeof(detail));
+#else
+        state->result = ESP_ERR_NOT_SUPPORTED;
+        foreground_worker_cleanup(state);
+#endif
+    }
     if (state->result != ESP_OK && detail[0]) strlcpy(state->detail, detail, sizeof(state->detail));
     if (state->result == ESP_OK && state->exit_code != 0) state->result = ESP_FAIL;
     atomic_store(&state->worker, NULL);
@@ -1234,15 +1252,18 @@ static bool foreground_event(solar_os_context_t *ctx, const solar_os_event_t *ev
 }
 
 static esp_err_t foreground_prepare_slot(const char *path,
-    const solar_os_native_elf_info_t *info, const solar_os_app_t **app)
+    const solar_os_native_app_manifest_v2_t *record, const solar_os_component_t *component,
+    const solar_os_app_t **app)
 {
-    solar_os_native_app_manifest_v2_t manifest = info->app;
+    if (!solar_os_native_app_manifest_valid(record) ||
+        (component && strcmp(component->id, record->id))) return ESP_ERR_INVALID_RESPONSE;
+    solar_os_native_app_manifest_v2_t manifest = *record;
     portENTER_CRITICAL(&foreground_slots_lock);
     size_t count = 0U;
     for (foreground_slot_t *slot = foreground_slots; slot; slot = slot->next) {
         count++;
         if (!strcmp(slot->manifest.id, manifest.id)) {
-            const bool same = !strcmp(slot->path, path) &&
+            const bool same = slot->component == component && !strcmp(slot->path, path) &&
                 !memcmp(&slot->manifest, &manifest, sizeof(manifest));
             *app = same ? &slot->app : NULL;
             portEXIT_CRITICAL(&foreground_slots_lock);
@@ -1257,6 +1278,7 @@ static esp_err_t foreground_prepare_slot(const char *path,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "native.app.slot");
     if (!slot) return ESP_ERR_NO_MEM;
     slot->manifest = manifest;
+    slot->component = component;
     atomic_init(&slot->active, false);
     strlcpy(slot->path, path, sizeof(slot->path));
     slot->app = (solar_os_app_t){
@@ -1286,7 +1308,7 @@ static esp_err_t foreground_prepare_slot(const char *path,
     for (foreground_slot_t *other = foreground_slots; other; other = other->next) {
         count++;
         if (!strcmp(other->manifest.id, manifest.id)) {
-            const bool same = !strcmp(other->path, path) &&
+            const bool same = other->component == component && !strcmp(other->path, path) &&
                 !memcmp(&other->manifest, &manifest, sizeof(manifest));
             *app = same ? &other->app : NULL;
             portEXIT_CRITICAL(&foreground_slots_lock);
@@ -1306,6 +1328,7 @@ static esp_err_t foreground_prepare_slot(const char *path,
     return ESP_OK;
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 static esp_err_t foreground_discovery_read(void *context, size_t offset,
                                            void *buffer, size_t length)
 {
@@ -1315,11 +1338,19 @@ static esp_err_t foreground_discovery_read(void *context, size_t offset,
     return fread(buffer, 1U, length, file) == length ? ESP_OK : ESP_FAIL;
 }
 
+#endif
+
 esp_err_t solar_os_native_foreground_resolve(const char *path,
     const solar_os_app_t **app, char *detail, size_t detail_size)
 {
     if (!path || !app || strlen(path) >= SOLAR_OS_STORAGE_PATH_MAX) return ESP_ERR_INVALID_ARG;
     *app = NULL;
+    const solar_os_component_t *component = solar_os_component_find(SOLAR_OS_MODULE_TYPE_APP, path);
+    if (component) {
+        return component->lifecycle_abi == 2U ?
+            foreground_prepare_slot(component->id, component->manifest, component, app) : ESP_OK;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
     solar_os_storage_metadata_t metadata;
     esp_err_t err = solar_os_storage_stat(path, &metadata);
     if (err != ESP_OK) return err;
@@ -1333,7 +1364,11 @@ esp_err_t solar_os_native_foreground_resolve(const char *path,
     fclose(file);
     if (err != ESP_OK) return err;
     if (!info.foreground) return ESP_OK; /* lifecycle-1 command */
-    return foreground_prepare_slot(path, &info, app);
+    return foreground_prepare_slot(path, &info.app, NULL, app);
+#else
+    (void)detail; (void)detail_size;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 esp_err_t solar_os_native_foreground_launch(solar_os_context_t *ctx,
@@ -1353,6 +1388,15 @@ esp_err_t solar_os_native_foreground_launch(solar_os_context_t *ctx,
 
 const solar_os_app_registry_entry_t *solar_os_native_foreground_find(const char *id)
 {
+    const solar_os_component_t *component = solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, id);
+    if (component) {
+        if (component->type != SOLAR_OS_MODULE_TYPE_APP || component->lifecycle_abi != 2U) return NULL;
+        const solar_os_app_t *app = NULL;
+        if (foreground_prepare_slot(component->id, component->manifest, component, &app) != ESP_OK) return NULL;
+        foreground_slot_t *slot = foreground_find_slot(app);
+        return slot ? &slot->registry : NULL;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     const solar_os_app_t *app = NULL;
     if (solar_os_module_package_path(SOLAR_OS_MODULE_TYPE_APP, id, path, sizeof(path)) != ESP_OK)
@@ -1374,6 +1418,9 @@ const solar_os_app_registry_entry_t *solar_os_native_foreground_find(const char 
         return NULL;
     foreground_slot_t *slot = foreground_find_slot(app);
     return slot && !strcmp(slot->manifest.id, id) ? &slot->registry : NULL;
+#else
+    return NULL;
+#endif
 }
 
 bool solar_os_native_foreground_active(const char *id)
@@ -1427,3 +1474,5 @@ void solar_os_native_foreground_release(const solar_os_app_t *app, const char *o
     if (!strcmp(slot->owner, owner)) slot->owner[0] = '\0';
     portEXIT_CRITICAL(&foreground_slots_lock);
 }
+
+#endif /* SOLAR_OS_NATIVE_FOREGROUND_ENABLED */

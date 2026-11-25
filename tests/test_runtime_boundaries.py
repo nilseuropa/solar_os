@@ -739,7 +739,13 @@ class RuntimeBoundaryTest(unittest.TestCase):
             '{"deepsleep", "enter deep sleep and cold boot on wake",', shell
         )
         self.assertIn("solar_os_context_request_deep_sleep(ctx);", command)
-        self.assertIn("esp_sleep_enable_ext1_wakeup_io", sleep_path)
+        self.assertIn("configure_rtc_wakeup(wake_mask, SLEEP_WAKE_MODE)", sleep_path)
+        wake_helper = main.split("static esp_err_t configure_rtc_wakeup", 1)[1].split(
+            "static bool wait_key_released_stable", 1
+        )[0]
+        self.assertIn("SOLAR_OS_BOARD_KEY_WAKE_EXT0", wake_helper)
+        self.assertIn("esp_sleep_enable_ext0_wakeup", wake_helper)
+        self.assertIn("esp_sleep_enable_ext1_wakeup_io", wake_helper)
         self.assertIn("esp_sleep_enable_timer_wakeup", sleep_path)
         self.assertIn("solar_os_ble_keyboard_prepare_sleep", sleep_path)
         self.assertIn("solar_os_wifi_prepare_sleep", sleep_path)

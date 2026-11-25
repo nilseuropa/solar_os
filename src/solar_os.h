@@ -6,13 +6,12 @@
 
 #include "esp_err.h"
 #include "solar_os_input.h"
+#include "solar_os_application_types_v1.h"
 
 #define SOLAR_OS_APP_ARG_MAX 8
 #define SOLAR_OS_APP_ARG_LEN 160
 #define SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX 160
 
-typedef struct solar_os_terminal solar_os_terminal_t;
-typedef struct solar_os_gfx solar_os_gfx_t;
 typedef struct solar_os_app solar_os_app_t;
 typedef struct solar_os_job solar_os_job_t;
 typedef struct solar_os_shell_io solar_os_shell_io_t;
@@ -22,23 +21,6 @@ typedef void (*solar_os_session_list_fn)(solar_os_shell_io_t *io, void *user);
 typedef esp_err_t (*solar_os_context_output_fn)(const char *text,
                                                 size_t len,
                                                 void *user);
-
-#define SOLAR_OS_APP_FLAG_RESUMABLE (1U << 0)
-/* Reuse a launching display shell's terminal instead of allocating a new one. */
-#define SOLAR_OS_APP_FLAG_SHELL_INLINE (1U << 1)
-/* Receive structured local key events instead of their legacy character form. */
-#define SOLAR_OS_APP_FLAG_KEY_EVENTS (1U << 2)
-/* Receive generic absolute or relative pointer events. */
-#define SOLAR_OS_APP_FLAG_POINTER_EVENTS (1U << 3)
-/* Receive normalized analog axis events. */
-#define SOLAR_OS_APP_FLAG_AXIS_EVENTS (1U << 4)
-/* Receive recognized touchless and touch gesture events. */
-#define SOLAR_OS_APP_FLAG_GESTURE_EVENTS (1U << 5)
-/* Retain the ordinary graphics snapshot even when resume also manages workers. */
-#define SOLAR_OS_APP_FLAG_RESUME_SNAPSHOT (1U << 6)
-/* Receive typed local text as UTF-8 instead of its legacy character form.
- * With KEY_EVENTS, text follows the key press or repeat that typed it. */
-#define SOLAR_OS_APP_FLAG_TEXT_EVENTS (1U << 7)
 
 /*
  * Foreground-app mutable state is cold by default: the shared app lifecycle
@@ -54,22 +36,11 @@ typedef enum {
     SOLAR_OS_APP_STATE_INTERNAL_REQUIRED,
 } solar_os_app_state_storage_t;
 
-typedef enum {
-    SOLAR_OS_APP_CLASS_UNSPECIFIED = 0,
-    /* Sequential shell-style output is preserved as a transcript. */
-    SOLAR_OS_APP_CLASS_COMMAND,
-    /* Cell-addressed screen state is private to the foreground session. */
-    SOLAR_OS_APP_CLASS_TUI,
-    /* Graphics framebuffer state is private to the foreground session. */
-    SOLAR_OS_APP_CLASS_GUI,
-} solar_os_app_class_t;
+
 
 #define SOLAR_OS_APP_STATIC_SRAM_EXCEPTION(reason)
 
-typedef enum {
-    SOLAR_OS_LAUNCH_REPLACE,
-    SOLAR_OS_LAUNCH_CHILD_RETURN,
-} solar_os_launch_policy_t;
+
 
 typedef enum {
     SOLAR_OS_SESSION_REQUEST_NONE,
@@ -176,6 +147,25 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
                              solar_os_context_t *ctx);
 void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx);
 bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ctx);
+bool solar_os_app_event(const solar_os_app_t *app, solar_os_context_t *ctx,
+                         const solar_os_event_t *event);
+void solar_os_app_suspend(const solar_os_app_t *app, solar_os_context_t *ctx);
+void solar_os_app_resume(const solar_os_app_t *app, solar_os_context_t *ctx);
+void solar_os_app_title(const solar_os_app_t *app, solar_os_context_t *ctx,
+                        char *buffer, size_t size);
+
+/* Private execution scopes expose only the calling application's services.
+ * A worker may enter while its lifecycle owner guarantees the context remains
+ * alive. Scopes are task-local and must be left before returning or exiting. */
+typedef struct solar_os_application_scope {
+    solar_os_context_t *context;
+    const solar_os_app_t *app;
+} solar_os_application_scope_t;
+void solar_os_application_scope_enter(solar_os_application_scope_t *scope,
+                                      const solar_os_app_t *app, solar_os_context_t *ctx);
+void solar_os_application_scope_leave(solar_os_application_scope_t *scope);
+solar_os_context_t *solar_os_application_context(void);
+const solar_os_app_t *solar_os_application_descriptor(void);
 
 typedef enum {
     SOLAR_OS_JOB_KIND_BACKGROUND,

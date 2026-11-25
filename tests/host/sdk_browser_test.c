@@ -21,11 +21,15 @@ static int64_t now_us(void) { ticks+=1000;return ticks; }
 static void sleep_ms(uint32_t ms) { assert(ms==1);yields++;ticks+=ms*1000; }
 static const solar_os_native_time_api_v1_t clock_api={1,sizeof(clock_api),now_us,sleep_ms};
 static const solar_os_cc_header_v1_t headers[]={
+#ifdef SOLAR_OS_TEST_BUILTIN_SDK
+#include "sdk_browser_builtin_headers.inc"
+#else
     {"solar_os_native_abi.h","#define NATIVE 1\n",17},
     {"stdio.h","#define STDIO 1\n",16},
+#endif
 };
 static solar_os_cc_api_v1_t compiler={.abi_version=1,.struct_size=sizeof(compiler),
-    .sdk_version="0.6.0",.sdk_count=2,.sdk_headers=headers};
+    .sdk_version="0.6.0",.sdk_count=sizeof(headers)/sizeof(headers[0]),.sdk_headers=headers};
 static int write_text(const char *s,size_t n)
 { size_t used=strlen(output);assert(used+n<sizeof(output));memcpy(output+used,s,n);output[used+n]=0;if(cancel_output && n>=256)cancel=true;return 0; }
 static void *allocate(size_t n) { if(fail_alloc)return NULL;void *p=calloc(1,n);assert(p);allocations++;return p; }
@@ -91,7 +95,12 @@ int main(int argc,char **argv)
     storage=(solar_os_native_storage_api_v1_t){.abi_version=1,.struct_size=sizeof(storage),.resolve_path=resolve,
         .file_size=file_size,.read_file=read_file,.replace_file=replace,.stop_requested=stopped,
         .directory_entry=entry,.make_directories=mkdirs,.remove_path=remove_path};
-    if(!strcmp(argv[2],"library")) {
+    if(!strcmp(argv[2],"builtins")) {
+        assert(!run("list",NULL) && strstr(output,"solar_os_native_client.h"));
+        for (unsigned i=0;i<compiler.sdk_count;i++)
+            assert(!run("show",headers[i].name) && !strcmp(output,headers[i].text));
+        assert(!run("export","sdk"));
+    } else if(!strcmp(argv[2],"library")) {
         assert(argc>=6);
         assert(!run("list",NULL) && strstr(output,argv[3]) && strstr(output,argv[4]));
         for(int i=5;i<argc;i++) assert(!run("show",argv[i]) && output[0]);

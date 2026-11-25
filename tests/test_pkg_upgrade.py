@@ -4,9 +4,9 @@ import tempfile
 import unittest
 
 from test_foreground_presenter import production_functions
+from host_cjson import CJSON
 
 ROOT = Path(__file__).resolve().parents[1]
-CJSON = Path.home() / '.platformio/packages/framework-espidf/components/json/cJSON'
 
 
 class PackageUpgradeTest(unittest.TestCase):
@@ -18,7 +18,7 @@ class PackageUpgradeTest(unittest.TestCase):
                 'cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror',
                 '-Wno-unused-function', '-g', '-O1', '-fsanitize=address,undefined',
                 '-fno-omit-frame-pointer', '-I' + str(CJSON),
-                '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/services'),
+                '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/services'),
                 str(cfile), *map(str, extra_sources), *extra_flags, '-o', str(binary),
             ], check=True)
             subprocess.run([str(binary)], cwd=tmp, check=True)

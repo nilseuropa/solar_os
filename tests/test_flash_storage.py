@@ -21,7 +21,7 @@ class FlashStorageTest(unittest.TestCase):
 
     def test_runtime_cache_selection_and_leases(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = (ROOT / "src/services/solar_os_flash.c").read_text()
+            service = (ROOT / "src/apps/solar_os_flash.c").read_text()
             code = (ROOT / "tests/host/flash_cache_operations.inc").read_text()
             for name in ("flash_name_valid", "flash_join", "flash_remove_tree", "solar_os_flash_catalog_free",
                          "solar_os_flash_catalog_load_at", "solar_os_flash_catalog_load",
@@ -34,7 +34,7 @@ class FlashStorageTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + directory,
-                "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
+                "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/apps"), "-I" + str(ROOT / "src/services"),
                 str(ROOT / "tests/host/flash_cache_test.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True, timeout=10)

@@ -90,5 +90,6 @@ class NativeForegroundTest(unittest.TestCase):
                             "-I", str(ROOT / "tests/host"),
                             str(ROOT / "tests/host/native_foreground_test.c"),
                             "-I", str(ROOT / "src"),
+                            "-I", str(ROOT / "src/services"),
                             "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

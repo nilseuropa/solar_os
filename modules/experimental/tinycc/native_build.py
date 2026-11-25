@@ -16,6 +16,7 @@ from isolate import isolate
 
 def sdk_headers(source):
     headers = {p.name: p for p in (ROOT / "include").glob("solar_os_native*abi.h")}
+    headers.update({p.name: p for p in (ROOT / "include").glob("solar_os_native_client*.h")})
     headers.update({p.name: p for p in (ROOT / "include").glob("solar_os_*_types_v1.h")})
     headers["solar_os_key_codes.h"] = ROOT / "include/solar_os_key_codes.h"
     headers["solar_os_cc_abi.h"] = HERE / "include/solar_os_cc_abi.h"

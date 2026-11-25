@@ -9,14 +9,15 @@ packages_any = []
 +++
 # Firmware Packages and Flavors
 
-A **flavor** selects which features are compiled into a firmware image.
+A **flavor** selects the apps, jobs, engines and expansion drivers compiled
+into a firmware image. OS services are part of the core in every flavor.
 A **group** is a convenient selection, such as `scripting` or `vision`.
 A **package** supplies a particular app, job, service, or driver.
 Required dependencies are included automatically; unsupported packages are
 removed for the selected board.
 
-The `hardware_shell` group includes `service.usb-host` and
-`service.usb-storage`, and `service.usb-serial` on boards with the `USB_HOST` capability. This provides
+The core includes `service.usb-host`, `service.usb-storage` and
+`service.usb-serial` on boards with the `USB_HOST` capability. This provides
 USB input, CDC-ACM/CP210x/CH340 serial ports, and one FAT USB flash or UFI/CBI
 floppy drive at `/usb0`. Hosting
 starts disabled; arrange host wiring and external 5 V peripheral power, then
@@ -31,8 +32,8 @@ apps
 jobs
 ```
 
-`pkg system` shows compiled packages. `pkg installed` lists separately installed
-native modules. A compiled driver is available to use, but does not mean its
+`pkg system` shows compiled packages. `pkg installed` lists native modules
+and identifies native components included in firmware. A compiled driver is available to use, but does not mean its
 hardware is attached; check `expansion devices`.
 
 Use `pkg update` to refresh the signed native-module catalog and list installed
@@ -45,8 +46,9 @@ Native packages can require exact versions of library packages and minimum
 firmware service tables. `pkg install cc` installs its matching `tinycc` library
 first. Installation verifies the complete dependency graph and required services
 before downloading artifacts. A dependency already on storage is reused only
-when its size and SHA-256 match the signed catalog. Close or unload active
-modules before replacing them.
+when its size and SHA-256 match the signed catalog. A matching compiled
+component also satisfies an exact dependency. Close or unload active modules
+before replacing them.
 
 For ESP32-S3 boards with PSRAM, the optional `cc` firmware group includes the C
 command and TinyCC provider in the image. The `full` flavor enables it by
@@ -73,30 +75,26 @@ reinstall the consumer to restore its declared dependencies.
 ## Choose features
 
 Use the [SolarOS Builder](#solaros-builder) to select a board and flavor, or
-create a custom flavor below. The `full` flavor includes these optional groups
-where the board supports them:
+create a custom flavor below. Services are automatic when supported. These groups select additional apps,
+workers, engines and drivers:
 
 | Group | Use | Guide |
 | --- | --- | --- |
 | `cc` | Compile native C applications with the built-in command and TinyCC provider on ESP32-S3 boards with PSRAM. | [C development](c.md) |
-| `vision` | Decode QR codes and process images. | [Computer vision](vision.md) |
-| `inference` | Run resident models on ESP32-S3 with PSRAM. | [Model inference](inference.md) |
 | `inference_backend` | Include the ESP-DL engine in firmware; otherwise install the `espdl` library. | [Model inference](inference.md) |
-| `jet` | Include the script/display frontend for the separately installed Jet library. Also selected by Python and Lua on supported boards. | [Jet 3D renderer](jet.md) |
 | `zoo` | Browse and install model bundles. | [Zoo](apps.md#zoo) |
-| `pipelines` | Process images or video in the background. Also select the desired processor. | [Image pipelines](pipelines.md) |
-| `servo` | Control calibrated positional servos. | [Servo outputs](servo.md) |
+| `pipelines` | Include the model-upload worker for native image pipelines. Also select the desired processor. | [Image pipelines](pipelines.md) |
 | `pwm` | Use native PWM outputs where supported. | [GPIO and PWM](gpio.analog.md) |
 | `pca9685` | Add 16 PWM outputs over expansion I2C. | [PCA9685](servo.md#pca9685-expansion-controller) |
 | `drv8830` | Control brushed DC motors over named I2C buses. | [Motor control](motor.md) |
-| `motor` | Common motor service, shell controls and Python/Lua APIs. | [Motor control](motor.md) |
-| `encoder` | Common encoder counts, shell controls and Python/Lua APIs. | [Encoder counts](encoder.md) |
 | `pcnt_encoder` | Attach native A/B encoders with explicit x1/x2/x4 counting. | [Encoder counts](encoder.md) |
 | `ds3231` | Add a battery-backed I2C clock and hardware alarm. | [DS3231](expansion.md#ds3231-real-time-clock) |
 
-Python or Lua alone does not enable optional media, vision, or inference
-services. Stored-image processing needs no camera or display. Audio can use
-an expansion output on a board without a built-in speaker.
+Media, vision and inference services are available when the target and hardware
+support them. Selecting Python or Lua does not change that service set. Engines
+such as ESP-DL can remain external libraries. Stored-image processing needs no
+camera or display. Audio can use an expansion output on a board without a
+built-in speaker.
 
 For external hardware, select its driver group and check the board's expansion
 capabilities and available pins. Built-in hardware uses fixed instances of the
@@ -112,7 +110,8 @@ Dependencies and board requirements are resolved automatically:
   a required dependency is an error.
 - The board's required drivers are always included. Unsupported features and
   their dependants are removed for the selected board and MCU.
-- `bootstrap` supplies the minimum runtime and shell and cannot be disabled.
+- Core services and `bootstrap` are automatic and cannot be disabled by a
+  flavor. Target, hardware and update-layout limits still apply.
 - Categories organize the builder; select individual groups within them.
 - Emulators such as Game Boy, Apple II and Commodore 64 are installed as native
   modules rather than selected as firmware groups. Check `pkg available` for
@@ -131,23 +130,28 @@ Package source ownership and service internals are documented in the
 
 ## Firmware profiles
 
-SolarOS provides three firmware profiles. `full` is the standard profile with
-the broad application and hardware-service selection. `classic` is a compact
+SolarOS provides four firmware profiles. `core` supplies the services, shell,
+package installer on supported targets, and required board hardware. It selects
+no additional apps, workers or expansion-driver collections. `full` adds the
+broad application and driver selection. `classic` is a compact
 profile with ADC D-pad support for ODROID-GO, the I/O app, control bindings,
 and 1-Wire. It is the default for all classic ESP32 targets, including boards
 with 4 MiB flash.
 `writerdeck` is the compact profile used by e-paper boards with smaller
 application partitions.
 
-`classic` retains Python, Playground, writing, media, communications, and the
-selected board's required hardware drivers. Lua, built-in games, video playback,
-and image-processing pipelines are omitted. ODROID-GO retains its buttons and
+`classic` retains Python, Playground, Editor, Pager, Files, Launcher, the I/O
+app, the serial terminal, Clock, Calculator and file-transfer clients. It keeps
+every eligible core service and the selected board's required hardware drivers.
+Reader, Writer, Notes, media and web apps, Agent, Chat, the legacy chat workers,
+network server workers, and the speech worker are omitted to fit 4 MiB boards.
+Lua, built-in games, video playback and pipeline workers are also omitted. ODROID-GO retains its buttons and
 ADC D-pad; VGA32 retains its default PS/2 keyboard attachment.
 
 `writerdeck` includes Python, Playground, editing, Files, Reader, Writer, Notes,
 View, audio playback, recording, Web, Agent, WireGuard, SC2 messaging, and file
-transfer. The synthesizer and controls worker are omitted;
-native apps that use the Synth service require a custom flavor with `synth` enabled.
+transfer. The synthesizer app and controls worker are omitted;
+the Synth service remains available.
 Its transfer tools include FTP/FTPD, SSH, SCP, SFTP, SFTP Sync, and Curl.
 PCM5102/I2S and PWM audio remain available for runtime expansion outputs.
 The screen keyboard, Bridge, DAQ, IRC, legacy gateway client/server, speech

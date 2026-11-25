@@ -10,6 +10,8 @@ import re
 import sys
 import tomllib
 
+from solaros_components import BuiltinComponent, load_builtin_components, selected_components
+
 
 DEFAULT_PACKAGE_CATALOG = Path(__file__).resolve().parents[1] / "packages" / "solar_os_packages.toml"
 
@@ -24,6 +26,8 @@ class PackageDef:
     expansion_drivers: tuple[str, ...]
     capabilities: tuple[str, ...]
     any_capabilities: tuple[str, ...]
+    core: bool = False
+    layouts: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,7 @@ class PackageCatalog:
     packages: tuple[str, ...]
     group_defs: dict[str, GroupDef]
     package_defs: dict[str, PackageDef]
+    components: tuple[BuiltinComponent, ...] = ()
 
 
 def c_string(value: str) -> str:
@@ -148,6 +153,11 @@ def load_catalog(path: Path) -> PackageCatalog:
     for name, raw in raw_packages.items():
         if not isinstance(raw, dict):
             raise ValueError(f"packages.{name} must be a table")
+        if not isinstance(raw.get("core", False), bool):
+            raise ValueError(f"packages.{name}.core must be a boolean")
+        layouts = string_tuple(raw.get("layouts"), f"packages.{name}.layouts")
+        if set(layouts) - {"ota", "single"}:
+            raise ValueError(f"packages.{name}.layouts contains an unknown update layout")
         package_defs[name] = PackageDef(
             label=str(raw.get("label") or default_package_label(name)),
             depends=string_tuple(raw.get("depends"), f"packages.{name}.depends"),
@@ -163,6 +173,8 @@ def load_catalog(path: Path) -> PackageCatalog:
             any_capabilities=normalize_capability_tuple(
                 string_tuple(raw.get("any_capabilities"),
                              f"packages.{name}.any_capabilities")),
+            core=raw.get("core", False),
+            layouts=layouts,
         )
 
     for name, package_def in package_defs.items():
@@ -262,6 +274,7 @@ def load_catalog(path: Path) -> PackageCatalog:
         packages=packages,
         group_defs=group_defs,
         package_defs=package_defs,
+        components=load_builtin_components(path.resolve().parent.parent, package_defs),
     )
 
 
@@ -317,11 +330,12 @@ def load_flavor(path: Path,
         if group_def.immutable
         for member in group_def.members
     }
+    immutable_members.update(name for name, spec in catalog.package_defs.items() if spec.core)
     disabled_immutable = sorted(
         package for package in immutable_members if package_overrides.get(package) is False)
     if disabled_immutable:
         raise ValueError(
-            "immutable bootstrap package(s) cannot be disabled: "
+            "core or immutable bootstrap package(s) cannot be disabled: "
             + ", ".join(disabled_immutable))
     for member in immutable_members:
         packages_enabled[member] = True
@@ -391,9 +405,26 @@ def apply_update_layout(catalog: PackageCatalog,
     """Add packages inherent to the physical update layout."""
     if layout not in {"ota", "single"}:
         raise ValueError(f"unknown update layout: {layout}")
-    if layout == "single":
-        return dict(packages_enabled)
-    return enable_required_packages(catalog, packages_enabled, {"service_ota"})
+    result = dict(packages_enabled)
+    if layout == "ota":
+        result = enable_required_packages(catalog, result, {"service_ota"})
+    for name, spec in catalog.package_defs.items():
+        if spec.layouts and layout not in spec.layouts:
+            result[name] = False
+    return prune_unavailable_dependencies(catalog, result)
+
+
+def prune_unavailable_dependencies(catalog: PackageCatalog,
+                                   packages_enabled: dict[str, bool]) -> dict[str, bool]:
+    result = dict(packages_enabled)
+    changed = True
+    while changed:
+        changed = False
+        for name, spec in catalog.package_defs.items():
+            if result[name] and any(not result[dependency] for dependency in spec.depends):
+                result[name] = False
+                changed = True
+    return result
 
 
 def apply_board_capability_pruning(catalog: PackageCatalog,
@@ -559,6 +590,25 @@ def generate_header(name: str,
             lines.append(f"    X({symbol}){suffix}")
     else:
         lines.append("#define SOLAR_OS_EXPANSION_DRIVER_SYMBOLS(X)")
+    lines.append("")
+    components = selected_components(catalog.components, packages_enabled)
+    lines.append("#define SOLAR_OS_BUILTIN_COMPONENTS(X)" + (" \\" if components else ""))
+    for index, component in enumerate(components):
+        dependencies = "NULL"
+        if component.dependencies:
+            rows = ", ".join("{" + c_string(identity) + ", " + c_string(version) + "}"
+                             for identity, version in component.dependencies)
+            dependencies = "((const solar_os_component_dependency_t[]){" + rows + "})"
+        row = ["SOLAR_OS_MODULE_TYPE_" + component.type.upper(), c_string(component.id),
+               c_string(component.name), c_string(component.version), str(component.lifecycle_abi),
+               component.entry, str(len(component.dependencies)), dependencies, "&" + component.manifest if component.manifest else "NULL"]
+        lines.append("    X(" + ", ".join(row) + ")" + (" \\" if index + 1 < len(components) else ""))
+    manifests = [component.manifest for component in components if component.manifest]
+    lines.append("#define SOLAR_OS_BUILTIN_APP_MANIFESTS(X)" + (" \\" if manifests else ""))
+    for index, manifest in enumerate(manifests):
+        lines.append("    X(" + manifest + ")" + (" \\" if index + 1 < len(manifests) else ""))
+    lines.append("#define SOLAR_OS_NATIVE_FOREGROUND_ENABLED (SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES || " +
+                 str(int(bool(manifests))) + ")")
     lines.append("")
     for group in catalog.groups:
         lines.append(f"#define {package_macro(group)} {1 if groups_enabled[group] else 0}")

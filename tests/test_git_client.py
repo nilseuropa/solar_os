@@ -87,7 +87,7 @@ class GitClientTest(unittest.TestCase):
             "-I" + str(cls.source / "src/util/hash/sha1dc"),
             str(REPO / "tests/host/git_sha1_test.c"), str(cls.library),
             "-o", str(cls.sha1_binary)], check=True)
-        transport = (REPO / "src/services/solar_os_git_transport.c").read_text()
+        transport = (REPO / "src/apps/solar_os_git_transport.c").read_text()
         parser = transport.split("static bool copy_part", 1)[1].split("typedef struct solar_os_git_ssh", 1)[0]
         (cls.work / "parser.c").write_text(
             '#include "solar_os_git_transport.h"\n#include <string.h>\n#include <ctype.h>\n'
@@ -95,9 +95,9 @@ class GitClientTest(unittest.TestCase):
         cls.binary = cls.work / "git-client"
         subprocess.run(["cc", "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
             "-I" + str(state_include),
-            "-I" + str(REPO / "src/services"), "-I" + str(REPO / "src"),
+            "-I" + str(REPO / "src/apps"), "-I" + str(REPO / "src/services"), "-I" + str(REPO / "src"),
             "-I" + str(cls.source / "include"), "-I" + str(cls.build / "include"),
-            str(REPO / "src/services/solar_os_git.c"), str(REPO / "tests/host/git_client_test.c"),
+            str(REPO / "src/apps/solar_os_git.c"), str(REPO / "tests/host/git_client_test.c"),
             str(cls.work / "parser.c"), str(cls.library), "-lz", "-lpthread", "-ldl",
             "-o", str(cls.binary)], check=True)
         (cls.work / "url.c").write_text(
@@ -107,7 +107,7 @@ class GitClientTest(unittest.TestCase):
             'printf("%s|%s|%u|%s",u.username,u.host,u.port,u.path);return 0;}\n')
         cls.url_binary = cls.work / "url-parser"
         subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-            "-I" + str(REPO / "src/services"), "-I" + str(cls.source / "include"),
+            "-I" + str(REPO / "src/apps"), "-I" + str(REPO / "src/services"), "-I" + str(cls.source / "include"),
             "-I" + str(cls.build / "include"), str(cls.work / "parser.c"),
             str(cls.work / "url.c"), "-o", str(cls.url_binary)], check=True)
         (cls.work / "esp_random.h").write_text(

@@ -45,9 +45,7 @@ class NativeModulePackagesTest(unittest.TestCase):
         ble_header = (ROOT / "include" / "solar_os_native_ble_abi.h").read_text(
             encoding="utf-8"
         )
-        native = (ROOT / "src" / "services" / "solar_os_native.c").read_text(
-            encoding="utf-8"
-        )
+        native = (ROOT / "src/services/solar_os_system_api.c").read_text() + (ROOT / "src/services/solar_os_native.c").read_text()
 
         self.assertGreater(job_header.index("get_service"), job_header.index("register_job"))
         self.assertIn('SOLAR_OS_NATIVE_BLE_CLIENT_SERVICE "ble.client"', ble_header)

@@ -26,10 +26,11 @@ Use `pkg install <library-id>` for a library present in the signed catalog.
 Installation checks the catalog signature, target, host and lifecycle ABIs,
 capabilities, artifact size and hash, and the library registration. The ELF is
 stored under `modules/libraries/<library-id>.elf` in the preferred volume.
-`pkg installed` reports whether a library is loaded or only on storage.
+`pkg installed` reports whether a library is compiled into firmware, loaded,
+or only on storage.
 
 Libraries are loaded when a consumer acquires their API. Acquisition reads the
-installed file; it does not download code. Loaded libraries use PSRAM and remain
+installed file or uses a matching compiled provider; it does not download code. Loaded libraries use PSRAM and remain
 resident until explicitly unloaded, removed, or reclaimed while unused under
 memory pressure. Installed libraries are not
 loaded by the boot scan. After restarting, consumers load them again as needed.

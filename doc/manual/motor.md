@@ -13,9 +13,8 @@ The motor service exposes named motor endpoints through the shell, Python,
 Lua, and C. Drivers register endpoints with this service, so applications use
 the same API across controllers. The current hardware backend is DRV8830.
 
-Select the `motor` package group for the common service and the `drv8830`
-group for that controller. Selecting a driver also includes its required
-service. Both groups are included in the `full` flavor where supported.
+The common motor service is part of the core. Select the `drv8830` group
+to include that controller; `full` includes it where supported.
 `motor list` reports each endpoint's driver and drive, brake, and clear
 capabilities. Optional operations return an unsupported-operation error when
 the provider does not implement them.

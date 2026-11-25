@@ -7,11 +7,6 @@
 #include "solar_os.h"
 
 #define SOLAR_OS_APP_OWNER_MAX 24
-#define SOLAR_OS_APP_DISCOVERY_NAME_MAX 48
-#define SOLAR_OS_APP_DISCOVERY_ID_MAX 32
-#define SOLAR_OS_APP_DISCOVERY_TITLE_MAX 48
-#define SOLAR_OS_APP_DISCOVERY_SUMMARY_MAX 128
-#define SOLAR_OS_APP_DISCOVERY_RUNTIME_MAX 8
 
 typedef enum {
     SOLAR_OS_APP_CAP_TEXT = 1U << 0,
@@ -31,19 +26,7 @@ typedef struct {
     uint8_t max_argc;
 } solar_os_app_registry_entry_t;
 
-typedef enum {
-    SOLAR_OS_APP_DISCOVERY_NATIVE,
-    SOLAR_OS_APP_DISCOVERY_PLAYGROUND,
-} solar_os_app_discovery_kind_t;
 
-typedef struct {
-    char name[SOLAR_OS_APP_DISCOVERY_NAME_MAX];
-    char id[SOLAR_OS_APP_DISCOVERY_ID_MAX];
-    char title[SOLAR_OS_APP_DISCOVERY_TITLE_MAX];
-    char summary[SOLAR_OS_APP_DISCOVERY_SUMMARY_MAX];
-    char runtime[SOLAR_OS_APP_DISCOVERY_RUNTIME_MAX];
-    solar_os_app_discovery_kind_t kind;
-} solar_os_app_discovery_info_t;
 
 size_t solar_os_app_registry_count(void);
 const solar_os_app_registry_entry_t *solar_os_app_registry_get(size_t index);

@@ -2,6 +2,7 @@
  * confirmation. Recheck local bytes and active users before the first download. */
 typedef struct {
     bool installed;
+    bool compiled;
     bool tracked;
     uint32_t size;
     char sha256[SOLAR_OS_MODULE_PACKAGE_SHA256_MAX];
@@ -12,6 +13,20 @@ static esp_err_t module_local_fingerprint(solar_os_module_type_t type, const cha
     const solar_os_module_install_options_t *options, module_upgrade_local_t *local)
 {
     memset(local, 0, sizeof(*local));
+    const solar_os_component_t *component = solar_os_component_find(type, id);
+    if (component) {
+        if (component->dependency_count > SOLAR_OS_MODULE_DEPENDENCIES_MAX) return ESP_ERR_INVALID_SIZE;
+        local->installed = local->compiled = local->tracked = true;
+        strlcpy(local->receipt.version, component->version, sizeof(local->receipt.version));
+        local->receipt.dependency_count = component->dependency_count;
+        for (size_t i = 0; i < component->dependency_count; ++i) {
+            strlcpy(local->receipt.dependencies[i].id, component->dependencies[i].id,
+                sizeof(local->receipt.dependencies[i].id));
+            strlcpy(local->receipt.dependencies[i].version, component->dependencies[i].version,
+                sizeof(local->receipt.dependencies[i].version));
+        }
+        return ESP_OK;
+    }
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t err = solar_os_module_package_path(type, id, path, sizeof(path));
     solar_os_storage_metadata_t metadata;
@@ -60,6 +75,7 @@ static esp_err_t module_local_fingerprint(solar_os_module_type_t type, const cha
 static bool module_local_matches(const module_upgrade_local_t *local,
                                  const solar_os_module_package_t *package)
 {
+    if (local->compiled) return local->installed && !strcmp(local->receipt.version, package->version);
     return local->installed && local->size == package->artifact_size &&
         !strcasecmp(local->sha256, package->artifact_sha256);
 }
@@ -74,7 +90,12 @@ esp_err_t solar_os_module_package_inspect(const solar_os_module_catalog_t *catal
     esp_err_t err = module_local_fingerprint(type, id, options, &local);
     if (err != ESP_OK) return err;
     info->installed = local.installed;
+    info->compiled = local.compiled;
     if (local.tracked) strlcpy(info->version, local.receipt.version, sizeof(info->version));
+    if (local.compiled) {
+        info->compatibility = SOLAR_OS_MODULE_COMPATIBILITY_VERIFIED;
+        return ESP_OK;
+    }
     if (catalog && catalog->signature_verified) {
         int index = module_catalog_index(catalog, id);
         if (index >= 0 && catalog->packages[index].type == type && module_local_matches(&local, &catalog->packages[index])) {
@@ -119,6 +140,7 @@ static bool module_version_compare(const char *a, const char *b, int *comparison
 static bool module_upgrade_version_allowed(const module_upgrade_local_t *local,
                                            const solar_os_module_package_t *package)
 {
+    if (local->compiled) return module_local_matches(local, package);
     if (!local->tracked || module_local_matches(local, package)) return true;
     int comparison;
     return module_version_compare(package->version, local->receipt.version, &comparison) && comparison >= 0;
@@ -145,7 +167,7 @@ static bool module_upgrade_count_held(const char *id, void *user)
     int index = module_catalog_index(visit->plan->catalog, id);
     if (index < 0 || visit->plan->catalog->packages[index].type != visit->type) {
         ++visit->plan->held_count;
-        ++visit->plan->unverified_count;
+        if (!solar_os_component_find(visit->type, id)) ++visit->plan->unverified_count;
     }
     return true;
 }
@@ -154,6 +176,7 @@ void solar_os_module_upgrade_plan_free(solar_os_module_upgrade_plan_t *plan)
 {
     if (!plan) return;
     solar_os_module_catalog_free(plan->catalog);
+    solar_os_memory_free(plan->entries);
     solar_os_memory_free(plan);
     atomic_store(&module_operation_running, false);
 }
@@ -178,6 +201,11 @@ esp_err_t solar_os_module_upgrade_plan(const char *id,
     if (err != ESP_OK) {
         module_set_detail(detail, detail_len, "no usable saved catalog; run pkg update first");
         goto done;
+    }
+    if (plan->catalog->count) {
+        plan->entries = solar_os_memory_calloc(plan->catalog->count, sizeof(*plan->entries),
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "modules.upgrade.entries");
+        if (!plan->entries) { err = ESP_ERR_NO_MEM; goto done; }
     }
     local = solar_os_memory_calloc(plan->catalog->count ? plan->catalog->count : 1U, sizeof(*local),
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "modules.upgrade.local");
@@ -207,8 +235,10 @@ esp_err_t solar_os_module_upgrade_plan(const char *id,
         if (!package->compatible || !module_upgrade_version_allowed(&local[i], package)) {
             if (id) {
                 err = ESP_ERR_NOT_SUPPORTED;
-                module_set_detail(detail, detail_len, !package->compatible ? package->incompatibility :
-                    "upgrade would downgrade or cannot order versions; use pkg install to replace explicitly");
+                module_set_detail(detail, detail_len, local[i].compiled ?
+                    "component is compiled into firmware; change firmware to upgrade it" :
+                    (!package->compatible ? package->incompatibility :
+                    "upgrade would downgrade or cannot order versions; use pkg install to replace explicitly"));
                 goto done;
             }
             ++plan->held_count;

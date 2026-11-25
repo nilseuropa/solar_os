@@ -86,6 +86,16 @@ class ForegroundAppStatePolicyTest(unittest.TestCase):
             )
             self.assertEqual(len(check_foreground_app_state.lifecycle_bypasses(repository)), 1)
 
+    def test_event_title_and_suspend_callbacks_require_the_shared_scope(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            source = repository / "src"
+            source.mkdir()
+            (source / "app.c").write_text('const solar_os_app_t *view = lookup();\n'
+                'view->event(ctx, event);\nview->title(ctx, text, size);\n'
+                'session->app->resume(ctx);\nforeground_app->suspend(ctx);\n', encoding="utf-8")
+            self.assertEqual(len(check_foreground_app_state.lifecycle_bypasses(repository)), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

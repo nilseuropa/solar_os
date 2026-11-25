@@ -364,33 +364,8 @@ static const solar_os_native_tensor_image_api_v1_t tensor_image_api = {
 const void *solar_os_native_media_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
     if (!name) return NULL;
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
-    const void *data = solar_os_native_data_get_service(name, abi, minimum);
-    if (data) return data;
-#endif
-#define OFFER(table, service, version) \
-    if (!strcmp(name, service) && abi == version && minimum <= sizeof(table)) return &table
-    OFFER(memory_api, SOLAR_OS_NATIVE_MEMORY_SERVICE, SOLAR_OS_NATIVE_MEMORY_ABI);
-#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
-    OFFER(sscma_api, SOLAR_OS_NATIVE_SSCMA_SERVICE, SOLAR_OS_NATIVE_SSCMA_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
-    OFFER(image_api, SOLAR_OS_NATIVE_IMAGE_SERVICE, SOLAR_OS_NATIVE_IMAGE_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA
-    OFFER(media_api, SOLAR_OS_NATIVE_MEDIA_SERVICE, SOLAR_OS_NATIVE_MEDIA_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_VISION
-    OFFER(qr_api, SOLAR_OS_NATIVE_QR_SERVICE, SOLAR_OS_NATIVE_QR_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_IMLIB
-    OFFER(imlib_api, SOLAR_OS_NATIVE_IMLIB_SERVICE, SOLAR_OS_NATIVE_IMLIB_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
-    OFFER(inference_api, SOLAR_OS_NATIVE_INFERENCE_SERVICE, SOLAR_OS_NATIVE_INFERENCE_ABI);
-    OFFER(tensor_image_api, SOLAR_OS_NATIVE_TENSOR_IMAGE_SERVICE, SOLAR_OS_NATIVE_TENSOR_IMAGE_ABI);
-#endif
-#undef OFFER
+#include "generated/native_media_providers.inc"
+#include "generated/native_media_dispatch.inc"
     (void)abi; (void)minimum;
     return NULL;
 }

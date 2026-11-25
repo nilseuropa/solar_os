@@ -98,6 +98,10 @@ def lifecycle_bypasses(repository: Path) -> list[str]:
         if vendor in path.parents:
             continue
         source = path.read_text(encoding="utf-8")
+        descriptors = re.findall(r"\b(?:const\s+)?solar_os_app_t\s*\*\s*(\w+)", source)
+        receivers = [r"\w+->app", r"\w+\.foreground_app", "app", "foreground_app"]
+        receivers.extend(re.escape(name) for name in descriptors)
+        scoped_callback = re.compile(r"\b(?:" + "|".join(receivers) + r")->(?:event|suspend|resume|title)\s*\(")
         backend_tables = re.findall(
             r"\bconst\s+solar_os_\w+_backend_t\s*\*\s*(\w+)\b", source
         )
@@ -108,10 +112,10 @@ def lifecycle_bypasses(repository: Path) -> list[str]:
                 re.search(rf"\b{re.escape(name)}->(?:start|stop)\s*\(", line)
                 for name in backend_tables
             )
-            if callback.search(line) and ".ops->" not in line and not backend_call:
+            if (callback.search(line) or scoped_callback.search(line)) and ".ops->" not in line and not backend_call:
                 errors.append(
                     f"{path.relative_to(repository)}:{line_number}: "
-                    "foreground callback bypasses solar_os_app_start/stop"
+                    "foreground callback bypasses the shared application scope"
                 )
     return errors
 

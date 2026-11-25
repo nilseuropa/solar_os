@@ -154,7 +154,7 @@ esp_err_t solar_os_charger_register(
     return ESP_OK;
 }
 
-esp_err_t solar_os_charger_unregister(const char *name)
+static esp_err_t unregister_provider(const char *name, const void *ctx, bool owned)
 {
     if (!name_valid(name)) {
         return ESP_ERR_INVALID_ARG;
@@ -168,6 +168,10 @@ esp_err_t solar_os_charger_unregister(const char *name)
         if (!charger_devices[i].active ||
             strcmp(charger_devices[i].info.name, name) != 0) {
             continue;
+        }
+        if (owned && charger_devices[i].ctx != ctx) {
+            xSemaphoreGive(charger_mutex);
+            return ESP_ERR_NOT_FOUND;
         }
         if (charger_devices[i].refs > 0U) {
             xSemaphoreGive(charger_mutex);
@@ -298,3 +302,8 @@ const char *solar_os_charger_state_name(solar_os_charger_state_t state)
     default: return "unknown";
     }
 }
+
+esp_err_t solar_os_charger_unregister(const char *name)
+{ return unregister_provider(name, NULL, false); }
+esp_err_t solar_os_charger_unregister_owned(const char *name, const void *ctx)
+{ return ctx ? unregister_provider(name, ctx, true) : ESP_ERR_INVALID_ARG; }

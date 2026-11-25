@@ -43,9 +43,11 @@ class NativeVisionServicesTest(unittest.TestCase):
     def test_application_host_extension_preserves_original_prefix(self):
         header = (ROOT / "include/solar_os_native_abi.h").read_text()
         self.assertGreater(header.index("get_service"), header.index("write_utf8"))
-        native = (ROOT / "src/services/solar_os_native.c").read_text()
+        native = ((ROOT / "src/services/solar_os_native.c").read_text() + (ROOT / "src/services/solar_os_system_api.h").read_text() + (ROOT / "src/services/solar_os_system_api.c").read_text())
         self.assertIn(".get_service = native_job_get_service", native)
-        self.assertIn("solar_os_native_media_get_service(name", native)
+        self.assertIn('"generated/native_root_providers.inc"', native)
+        providers = (ROOT / 'src/services/generated/native_root_providers.inc').read_text()
+        self.assertIn("solar_os_native_media_get_service(name", providers)
 
     def test_acceptance_module_declares_extended_host_requirement(self):
         manifest = tomllib.loads((ROOT / "modules/examples/vision-check/module.toml").read_text())

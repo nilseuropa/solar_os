@@ -10,9 +10,10 @@ ROOT=Path(__file__).resolve().parents[1]
 HERE=ROOT/'modules/experimental/tinycc'
 
 
-def build_browser(binary):
+def build_browser(binary, builtin_index=None):
     subprocess.run(['cc','-std=c11','-D_POSIX_C_SOURCE=200809L','-O1','-g','-Wall','-Wextra','-Werror',
         '-Wno-format-truncation','-fsanitize=address,undefined','-fno-omit-frame-pointer',
+        *(['-DSOLAR_OS_TEST_BUILTIN_SDK', '-I'+str(builtin_index.parent)] if builtin_index else []),
         '-I'+str(ROOT/'include'),'-I'+str(HERE),'-I'+str(HERE/'include'),
         str(ROOT/'tests/host/sdk_browser_test.c'),str(HERE/'sdk_cli.c'),str(HERE/'sdk_reader.c'),
         '-o',str(binary)],check=True)

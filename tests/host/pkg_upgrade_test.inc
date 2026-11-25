@@ -23,18 +23,42 @@
 #define SOLAR_OS_HTTP_METHOD_GET 0
 #define ESP_LOGW(...) ((void)0)
 static atomic_bool module_operation_running;
+static solar_os_module_package_t published_packages[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
 static solar_os_module_catalog_t published;
 static char payloads[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX][64];
 static bool active[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
 static unsigned allocations, downloads, fetches, rename_calls, validations;
 static unsigned fail_download, fail_rename;
+static const char *fail_allocation_tag;
 static bool fail_receipt_write, fail_validation, fail_activation, cancel_requested;
 static esp_err_t catalog_error;
+static bool compiled_engine, compiled_client, compiled_bridge;
+static const solar_os_component_dependency_t client_dependencies[] = {{"engine", "1.0.0"}};
+static const solar_os_component_t firmware_components[] = {
+    {SOLAR_OS_MODULE_TYPE_LIBRARY, "engine", "Engine", "1.0.0", 1, NULL, 0, NULL, NULL},
+    {SOLAR_OS_MODULE_TYPE_APP, "builtin", "Compiled client", "1.0.0", 1, NULL, 1, client_dependencies, NULL},
+    {SOLAR_OS_MODULE_TYPE_LIBRARY, "bridge", "Bridge", "1.0.0", 1, NULL, 1, client_dependencies, NULL},
+};
+size_t solar_os_component_count(void) { return (compiled_engine ? 1U : 0U) + (compiled_client ? 1U : 0U) + (compiled_bridge ? 1U : 0U); }
+const solar_os_component_t *solar_os_component_get(size_t index)
+{
+    if (compiled_engine) { if (!index) return &firmware_components[0]; --index; }
+    if (compiled_client) { if (!index) return &firmware_components[1]; --index; }
+    return compiled_bridge && !index ? &firmware_components[2] : NULL;
+}
+const solar_os_component_t *solar_os_component_find(solar_os_module_type_t type, const char *id)
+{
+    for (size_t i = 0; i < solar_os_component_count(); ++i) {
+        const solar_os_component_t *component = solar_os_component_get(i);
+        if ((!type || component->type == type) && !strcmp(id, component->id)) return component;
+    }
+    return NULL;
+}
 
 size_t strlcpy(char *d, const char *s, size_t n)
 { size_t len = strlen(s); if (n) snprintf(d, n, "%s", s); return len; }
 static void *solar_os_memory_alloc(size_t n, int cls, const char *tag)
-{ (void)cls; (void)tag; void *p = malloc(n); if (p) ++allocations; return p; }
+{ (void)cls; if (fail_allocation_tag && !strcmp(fail_allocation_tag, tag)) return NULL; void *p = malloc(n); if (p) ++allocations; return p; }
 static void *solar_os_memory_calloc(size_t n, size_t size, int cls, const char *tag)
 { void *p = solar_os_memory_alloc(n * size, cls, tag); if (p) memset(p, 0, n * size); return p; }
 static void solar_os_memory_free(void *p)
@@ -120,9 +144,16 @@ esp_err_t solar_os_module_catalog_load(solar_os_module_catalog_t **out, char *de
 {
     *out = NULL; module_set_detail(detail, n, ""); if (catalog_error) return catalog_error;
     *out = solar_os_memory_alloc(sizeof(**out), 1, "catalog"); if (!*out) return ESP_ERR_NO_MEM;
-    **out = published; return ESP_OK;
+    **out = published;
+    (*out)->packages = NULL;
+    if (published.count) {
+        (*out)->packages = solar_os_memory_alloc(published.count * sizeof(*published.packages), 1, "catalog.entries");
+        if (!(*out)->packages) { solar_os_memory_free(*out); *out = NULL; return ESP_ERR_NO_MEM; }
+        memcpy((*out)->packages, published.packages, published.count * sizeof(*published.packages));
+    }
+    return ESP_OK;
 }
-void solar_os_module_catalog_free(solar_os_module_catalog_t *p) { solar_os_memory_free(p); }
+void solar_os_module_catalog_free(solar_os_module_catalog_t *p) { if (p) solar_os_memory_free(p->packages); solar_os_memory_free(p); }
 static esp_err_t module_catalog_fetch(solar_os_module_catalog_t **out,
     solar_os_module_package_cancel_fn cancel, void *user, char *detail, size_t n)
 { (void)cancel; (void)user; ++fetches; return solar_os_module_catalog_load(out, detail, n); }
@@ -177,12 +208,15 @@ static void clear_directory(const char *path)
 }
 static void reset(void)
 {
+    compiled_engine = compiled_client = compiled_bridge = false;
     assert(!allocations && !atomic_load(&module_operation_running));
     clear_directory("modules"); memset(&published, 0, sizeof(published));
+    memset(published_packages, 0, sizeof(published_packages)); published.packages = published_packages;
     published.signature_verified = true; strcpy(published.host_version, SOLAR_OS_VERSION);
     memset(active, 0, sizeof(active)); downloads = fetches = rename_calls = validations = 0;
     fail_download = fail_rename = 0; fail_receipt_write = fail_validation = fail_activation = cancel_requested = false;
     catalog_error = ESP_OK;
+    fail_allocation_tag = NULL;
 }
 static solar_os_module_package_t *package(size_t i, const char *id, solar_os_module_type_t type,
                                          const char *version, const char *body)
@@ -382,9 +416,92 @@ static void test_missing_dependencies_and_full_catalog(void)
     assert(!allocations);
 }
 
+static unsigned compiled_visits;
+static bool visit_compiled(const char *id, void *user)
+{ assert(user == &compiled_visits && !strcmp(id, "engine")); ++compiled_visits; return true; }
+static void test_compiled_components(void)
+{
+    reset(); compiled_engine = true;
+    solar_os_module_package_t *app = package(0, "demo", SOLAR_OS_MODULE_TYPE_APP, "1.0.0", "app");
+    app->dependency_count = 1; strcpy(app->dependencies[0].id, "engine"); strcpy(app->dependencies[0].version, "1.0.0");
+    assert(module_catalog_requirements(&published) == ESP_OK && app->compatible);
+    assert(solar_os_module_package_install("demo", NULL, NULL, detail, sizeof(detail)) == ESP_OK && downloads == 1);
+    assert(solar_os_storage_makedirs("modules/libraries", true) == ESP_OK);
+    assert(solar_os_storage_write_file("modules/libraries/engine.elf", "shadow", 6, false) == ESP_OK);
+    compiled_visits = 0;
+    assert(solar_os_module_package_foreach_installed(SOLAR_OS_MODULE_TYPE_LIBRARY, visit_compiled, &compiled_visits) == ESP_OK && compiled_visits == 1);
+    solar_os_module_installed_info_t info;
+    assert(solar_os_module_package_inspect(&published, SOLAR_OS_MODULE_TYPE_LIBRARY, "engine", NULL, &info) == ESP_OK);
+    assert(info.installed && info.compiled && info.compatibility == SOLAR_OS_MODULE_COMPATIBILITY_VERIFIED && !strcmp(info.version, "1.0.0"));
+    assert(solar_os_module_package_remove("engine", detail, sizeof(detail)) == ESP_ERR_NOT_SUPPORTED);
+    expect_file("modules/libraries/engine.elf", "shadow");
+
+    reset(); compiled_engine = true;
+    app = package(0, "demo", SOLAR_OS_MODULE_TYPE_APP, "1.0.0", "app");
+    app->dependency_count = 1; strcpy(app->dependencies[0].id, "engine"); strcpy(app->dependencies[0].version, "1.0.0");
+    solar_os_module_package_t *newer = package(1, "engine", SOLAR_OS_MODULE_TYPE_LIBRARY, "2.0.0", "newer engine");
+    assert(module_catalog_requirements(&published) == ESP_OK && app->compatible && !newer->compatible);
+    assert(solar_os_module_package_install("demo", NULL, NULL, detail, sizeof(detail)) == ESP_OK && downloads == 1);
+
+    reset(); compiled_engine = true;
+    app = package(0, "demo", SOLAR_OS_MODULE_TYPE_APP, "1.0.0", "app");
+    app->dependency_count = 1; strcpy(app->dependencies[0].id, "engine"); strcpy(app->dependencies[0].version, "2.0.0");
+    solar_os_module_package_t *lib = package(1, "engine", SOLAR_OS_MODULE_TYPE_LIBRARY, "2.0.0", "new engine");
+    assert(module_catalog_requirements(&published) == ESP_OK && !app->compatible && !lib->compatible && lib->compiled);
+    assert(solar_os_module_package_install("demo", NULL, NULL, detail, sizeof(detail)) == ESP_ERR_NOT_SUPPORTED && !downloads);
+    solar_os_module_install_result_t result;
+    unsigned previous_fetches = fetches;
+    assert(solar_os_module_package_install("engine", NULL, &result, detail, sizeof(detail)) == ESP_OK);
+    assert(result.compiled && !strcmp(result.version, "1.0.0") && fetches == previous_fetches && !downloads);
+    solar_os_module_upgrade_plan_t *plan;
+    assert(solar_os_module_upgrade_plan("engine", NULL, &plan, detail, sizeof(detail)) == ESP_ERR_NOT_SUPPORTED && !plan);
+    fetches = 0; plan = plan_for(NULL); assert(!plan->count && plan->held_count == 1); solar_os_module_upgrade_plan_free(plan);
+
+    reset(); compiled_engine = compiled_client = true;
+    assert(solar_os_module_package_install("builtin", NULL, &result, detail, sizeof(detail)) == ESP_OK);
+    assert(result.compiled && !fetches && !downloads && !strcmp(result.id, "builtin"));
+    reset(); compiled_client = true;
+    package(0, "engine", SOLAR_OS_MODULE_TYPE_LIBRARY, "1.0.0", "engine");
+    assert(solar_os_module_package_install("builtin", NULL, &result, detail, sizeof(detail)) == ESP_OK && downloads == 1);
+    assert(result.compiled && !strcmp(result.id, "builtin"));
+
+    reset(); compiled_client = true;
+    lib = package(0, "engine", SOLAR_OS_MODULE_TYPE_LIBRARY, "2.0.0", "new engine");
+    install_old(lib, "1.0.0", "old engine", NULL);
+    plan = plan_for("engine");
+    assert(solar_os_module_upgrade_check(plan, NULL, detail, sizeof(detail)) == ESP_ERR_INVALID_STATE && strstr(detail,"builtin needs engine 1.0.0"));
+    solar_os_module_upgrade_plan_free(plan); assert(!downloads);
+
+    reset(); compiled_bridge = true;
+    lib = package(0, "engine", SOLAR_OS_MODULE_TYPE_LIBRARY, "1.0.0", "engine");
+    lib->dependency_count = 1; strcpy(lib->dependencies[0].id,"bridge"); strcpy(lib->dependencies[0].version,"1.0.0");
+    assert(module_catalog_requirements(&published) == ESP_ERR_INVALID_RESPONSE);
+    reset(); assert(!allocations);
+}
+
+static void test_plan_allocation_failures(void)
+{
+    setup_pair();
+    const char *tags[] = {"modules.upgrade.plan", "catalog", "catalog.entries",
+        "modules.upgrade.entries", "modules.upgrade.local"};
+    for (size_t i = 0; i < sizeof(tags) / sizeof(tags[0]); ++i) {
+        fail_allocation_tag = tags[i];
+        solar_os_module_upgrade_plan_t *plan = (void *)1;
+        assert(solar_os_module_upgrade_plan(NULL, NULL, &plan, detail, sizeof(detail)) == ESP_ERR_NO_MEM);
+        assert(!plan && !allocations && !atomic_load(&module_operation_running));
+    }
+    fail_allocation_tag = NULL;
+    solar_os_module_upgrade_plan_t *plan = plan_for(NULL);
+    assert(plan && plan->entries && plan->catalog->packages);
+    solar_os_module_upgrade_plan_free(plan);
+    reset();
+}
+
 int main(void)
 {
     test_versions_and_receipts(); test_dependency_transactions(); test_consumers_and_legacy();
+    test_compiled_components();
+    test_plan_allocation_failures();
     test_missing_dependencies_and_full_catalog(); reset();
     puts("pkg upgrade: receipts, version ordering, compatibility, dependency planning, active guards, grouped rollback, cancellation and legacy migration passed");
 }
