@@ -4,6 +4,7 @@
 #include "solar_os_native_application_abi.h"
 #include "solar_os_native_support.h"
 #include "solar_os.h"
+#include "solar_os_app_file_types.h"
 #include "solar_os_app_registry.h"
 #include "solar_os_shell_io.h"
 
@@ -152,6 +153,34 @@ static int application_discovery_find(const char *name, bool include_playground,
     memset(info, 0, sizeof(*info));
     return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
 }
+static int application_find_opener(const char *path, solar_os_app_discovery_info_t *info)
+{
+    if (!info) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    memset(info, 0, sizeof(*info));
+    if (!path || !*path) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    return solar_os_app_registry_opener_info(path, info) ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+}
+
+static int application_get_owner(const char *name, char *owner, size_t capacity)
+{
+    if (!owner || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    owner[0] = 0;
+    if (!name || !*name) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const solar_os_app_registry_entry_t *entry = solar_os_app_registry_find(name);
+    if (!entry || !entry->app) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    char value[SOLAR_OS_APP_OWNER_MAX];
+    if (!solar_os_app_registry_owner(entry->app, value, sizeof(value))) return SOLAR_OS_NATIVE_OK;
+    const size_t length = strlen(value);
+    if (length >= capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    memcpy(owner, value, length + 1);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int application_module_visit(bool (*visit)(const char *id, void *user), void *user)
+{
+    return solar_os_native_result(solar_os_app_registry_foreach_module(visit, user));
+}
+
 static const solar_os_native_application_api_v1_t application_api = {
     .abi_version = SOLAR_OS_NATIVE_APPLICATION_ABI, .struct_size = sizeof(application_api),
     .active = application_active, .name = application_name, .summary = application_summary,
@@ -167,6 +196,9 @@ static const solar_os_native_application_api_v1_t application_api = {
     .request_session_close = application_session_close, .reboot = application_reboot, .write_utf8 = application_write,
     .discovery_count = application_discovery_count, .discovery_info = application_discovery_info,
     .discovery_find = application_discovery_find,
+    .find_opener = application_find_opener, .get_owner = application_get_owner,
+    .module_visit = application_module_visit,
+    .file_type_matches = solar_os_app_file_types_match,
 };
 #endif
 

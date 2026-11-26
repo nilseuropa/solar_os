@@ -3,6 +3,7 @@
 
 #define SOLAR_OS_CC_LIBRARY "tinycc"
 #define SOLAR_OS_CC_ABI 1U
+#define SOLAR_OS_CC_PACKED_ABI 2U
 #define SOLAR_OS_CC_SOURCE_MAX 65536U
 #define SOLAR_OS_CC_OUTPUT_MAX (2U * 1024U * 1024U)
 #define SOLAR_OS_CC_HEAP_MAX (2U * 1024U * 1024U)
@@ -81,3 +82,12 @@ typedef struct {
 } solar_os_cc_api_v1_t;
 
 #define SOLAR_OS_CC_API_BASE_SIZE offsetof(solar_os_cc_api_v1_t, sdk_version)
+
+/* The compiled code API keeps the same prefix. SDK metadata and data can be
+ * read independently into an existing caller buffer. Borrowed names remain
+ * valid for the library lease. */
+typedef struct {
+    solar_os_cc_api_v1_t base;
+    const char *(*sdk_header_info)(uint32_t index, uint32_t *bytes);
+    int (*sdk_header_read)(uint32_t index, void *buffer, uint32_t capacity);
+} solar_os_cc_api_v2_t;

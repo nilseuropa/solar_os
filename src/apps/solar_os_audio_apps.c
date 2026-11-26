@@ -32,11 +32,6 @@ typedef enum {
 } audio_app_mode_t;
 
 typedef enum {
-    AUDIO_APP_FORMAT_WAV,
-    AUDIO_APP_FORMAT_MP3,
-} audio_app_format_t;
-
-typedef enum {
     AUDIO_APP_EVENT_PROGRESS,
     AUDIO_APP_EVENT_DONE,
 } audio_app_event_type_t;
@@ -50,7 +45,7 @@ typedef struct {
 
 typedef struct {
     audio_app_mode_t mode;
-    audio_app_format_t format;
+    uint32_t format;
     QueueHandle_t events;
     TaskHandle_t task;
     volatile bool stop_requested;
@@ -81,14 +76,7 @@ static bool audio_app_uses_external_worker(void)
 
 static solar_os_shell_io_t *audio_app_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&audio_app_fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &audio_app_fallback_io);
-        io = &audio_app_fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &audio_app_fallback_io, true);
 }
 
 static void audio_app_request_close(solar_os_context_t *ctx,
@@ -303,10 +291,8 @@ static void audio_app_task(void *arg)
                                         audio_app.duration_ms,
                                         &options,
                                         &info);
-    } else if (audio_app.format == AUDIO_APP_FORMAT_MP3) {
-        err = solar_os_audio_play_mp3(audio_app.path, audio_app.volume, &options, &info);
     } else {
-        err = solar_os_audio_play_wav(audio_app.path, audio_app.volume, &options, &info);
+        err = solar_os_audio_file_play(audio_app.path, audio_app.format, audio_app.volume, &options, &info);
     }
 
     const bool cancelled = audio_app.stop_requested || err == ESP_ERR_TIMEOUT;
@@ -327,10 +313,10 @@ static void audio_app_task(void *arg)
 }
 
 static void audio_app_print_info(solar_os_shell_io_t *io,
-                                 audio_app_format_t format,
+                                 uint32_t format,
                                  const solar_os_audio_wav_info_t *info)
 {
-    if (format == AUDIO_APP_FORMAT_MP3 && info->duration_ms == 0) {
+    if (format == SOLAR_OS_AUDIO_FORMAT_MP3 && info->duration_ms == 0) {
         solar_os_shell_io_printf(io,
                                  "MP3, %" PRIu32 " Hz, %u ch, %u bit",
                                  info->sample_rate,
@@ -339,7 +325,7 @@ static void audio_app_print_info(solar_os_shell_io_t *io,
     } else {
         solar_os_shell_io_printf(io,
                                  "%s, %" PRIu32 " Hz, %u ch, %u bit, %" PRIu32 " ms",
-                                 format == AUDIO_APP_FORMAT_MP3 ? "MP3" : "WAV",
+                                 format == SOLAR_OS_AUDIO_FORMAT_MP3 ? "MP3" : "WAV",
                                  info->sample_rate,
                                  (unsigned)info->channels,
                                  (unsigned)info->bits_per_sample,
@@ -399,33 +385,17 @@ static esp_err_t audio_app_start_common(solar_os_context_t *ctx, audio_app_mode_
         }
     } else {
         solar_os_audio_wav_info_t source;
-        const esp_err_t wav_err = solar_os_audio_get_wav_info(audio_app.path, &source);
-        if (wav_err == ESP_OK) {
-            audio_app.format = AUDIO_APP_FORMAT_WAV;
-        } else {
-            const esp_err_t mp3_err = solar_os_audio_get_mp3_info(audio_app.path, &source);
-            if (mp3_err == ESP_OK) {
-                audio_app.format = AUDIO_APP_FORMAT_MP3;
-            } else if (wav_err == ESP_FAIL || mp3_err == ESP_FAIL) {
-                solar_os_shell_io_printf(io,
-                                         "aplay: open failed: %s\n",
-                                         esp_err_to_name(mp3_err));
-                solar_os_shell_io_flush(io);
-                char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
-                snprintf(message,
-                         sizeof(message),
-                         "aplay: open failed: %s",
-                         esp_err_to_name(mp3_err));
-                audio_app_request_close(ctx, 1, message);
-                return ESP_OK;
-            } else {
-                solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
-                solar_os_shell_io_flush(io);
-                audio_app_request_close(ctx, 1, "aplay: unsupported audio file");
-                return ESP_OK;
-            }
+        const esp_err_t probe = solar_os_audio_file_probe(
+            audio_app.path, SOLAR_OS_AUDIO_FORMAT_AUTO, &audio_app.format, &source);
+        if (probe == ESP_FAIL) {
+            char message[SOLAR_OS_CONTEXT_STATUS_MESSAGE_MAX];
+            snprintf(message, sizeof(message), "aplay: open failed: %s", esp_err_to_name(probe));
+            solar_os_shell_io_writeln(io, message);
+            solar_os_shell_io_flush(io);
+            audio_app_request_close(ctx, 1, message);
+            return ESP_OK;
         }
-        if (source.channels == 0 || source.sample_rate == 0 || source.bits_per_sample == 0) {
+        if (probe != ESP_OK || source.channels == 0 || source.sample_rate == 0 || source.bits_per_sample == 0) {
             solar_os_shell_io_writeln(io, "aplay: unsupported audio file");
             solar_os_shell_io_flush(io);
             audio_app_request_close(ctx, 1, "aplay: unsupported audio file");

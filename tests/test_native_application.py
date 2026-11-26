@@ -18,7 +18,8 @@ class NativeApplicationTest(unittest.TestCase):
                 '-I', str(ROOT / 'src/services'), '-I', str(ROOT / 'src/shell'),
                 '-I', str(ROOT / 'components/u8g2/src/clib'),
                 str(ROOT / 'tests/host/native_application_test.c'), str(ROOT / 'src/solar_os.c'), str(ROOT / 'src/services/solar_os_native_handles.c'),
-                str(ROOT / 'src/services/solar_os_native_application.c'), '-o', str(binary)], check=True)
+                str(ROOT / 'src/services/solar_os_native_application.c'),
+                str(ROOT / 'src/apps/solar_os_app_file_types.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)
 
     def test_absent_core_and_public_boundary(self):

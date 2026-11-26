@@ -59,4 +59,5 @@ typedef struct {
         solar_os_native_cancel_fn cancel, void *user);
     uint32_t (*revision)(void);
     void (*notify_changed)(void);
+    const char *(*entry_type_name)(uint32_t type);
 } solar_os_native_fs_api_v1_t;

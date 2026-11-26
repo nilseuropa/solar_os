@@ -4,9 +4,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "solar_os.h"
 #include "solar_os_display_link_transport.h"
 #include "solar_os_dlp_receiver.h"
 #include "solar_os_memory.h"
+#include "solar_os_native_display_link.h"
+#include "solar_os_native_handles.h"
 #include "esp_log.h"
 #undef ESP_LOGW
 #define ESP_LOGW(tag, ...) ((void)(tag), (void)snprintf(NULL, 0, __VA_ARGS__))
@@ -19,12 +22,14 @@ static uint8_t images[52], shown[26], input[16384], output[16384];
 static size_t in_at, in_size, out_at, out_size;
 static uint64_t clock_us;
 static unsigned presented, allocations, opens, closes;
-static bool fail_write, cancel, legacy_only, silent_peer;
+static bool fail_write, cancel, legacy_only, silent_peer, fail_close;
 static uint64_t cancel_at;
 static bool fail_cache;
 static unsigned transient_reads, transient_writes;
 static bool graphics;
 static const char *fail_graphics_tag;
+static const solar_os_app_t app = {.name = "display-link-test"};
+const solar_os_app_t *solar_os_application_descriptor(void) { return &app; }
 uint32_t esp_random(void) { return 1000 + opens; }
 int64_t esp_timer_get_time(void) { return clock_us; }
 uint64_t solar_os_time_uptime_ms(void) { return clock_us / 1000; }
@@ -69,7 +74,12 @@ static esp_err_t open_port(void *ctx) {
     solar_os_dlp_receiver_reset(&receiver, receiver.device.boot + 1);
     return ESP_OK;
 }
-static esp_err_t close_port(void *ctx) { (void)ctx; closes++; return ESP_OK; }
+static esp_err_t close_port(void *ctx) {
+    (void)ctx;
+    if (fail_close) return ESP_ERR_TIMEOUT;
+    closes++;
+    return ESP_OK;
+}
 static esp_err_t read_port(void *ctx, uint8_t *data, size_t size, uint32_t timeout, size_t *count) {
     (void)ctx; (void)timeout;
     *count = 0;
@@ -102,6 +112,54 @@ static bool borrowed_cancel(void *ctx) {
 }
 static const char *TAG = "dlp-host";
 #include "dlp_client_core.inc"
+
+static bool cancel_native_present(void *ctx) {
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    solar_os_native_handle_t handle = *(solar_os_native_handle_t *)ctx;
+    solar_os_native_display_link_info_v1_t info;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_BUSY && !info.width);
+    return true;
+}
+
+static void test_native_link(void) {
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    assert(api);
+    assert(!solar_os_native_display_link_get_service("display.link", 2, 0));
+    solar_os_native_display_link_options_v1_t options = {.format = -1, .timeout_ms = 100};
+    solar_os_native_handle_t handle = 0;
+    assert(api->open("missing", "native", &options, NULL, NULL, &handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!handle && !allocations);
+    assert(!api->open("test0", "native", &options, NULL, NULL, &handle));
+    solar_os_native_display_link_info_v1_t info;
+    assert(!api->info(handle, &info));
+    assert(info.width == 13 && info.height == 13 && info.stride == 2 && info.frame_bytes == 26);
+    assert(info.format == SOLAR_OS_NATIVE_DISPLAY_LINK_MONO1 && (info.capabilities & SOLAR_OS_NATIVE_DISPLAY_LINK_SYNC));
+    uint8_t pixels[26] = {0x17};
+    assert(api->present(handle, pixels, 25, NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(api->present(handle, pixels, 26, cancel_native_present, &handle) == SOLAR_OS_NATIVE_ERROR_CANCELLED);
+    assert(!api->present(handle, pixels, 26, NULL, NULL) && !memcmp(shown, pixels, 26));
+    fail_close = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !info.width);
+    assert(api->present(handle, pixels, 26, NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(allocations && opens == closes + 1);
+    fail_close = false;
+    assert(!solar_os_native_handle_close_owner(&app));
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!allocations && opens == closes && !solar_os_native_handle_count());
+
+    fail_close = silent_peer = true;
+    assert(api->open("test0", "native", &options, NULL, NULL, &handle) != SOLAR_OS_NATIVE_OK);
+    assert(handle && allocations && opens == closes + 1);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    fail_close = silent_peer = false;
+    assert(!api->close(handle));
+    assert(!allocations && opens == closes && !solar_os_native_handle_count());
+}
 
 int main(void) {
     const solar_os_display_link_call_options_t call = {.cancelled = should_cancel};
@@ -219,6 +277,7 @@ int main(void) {
         solar_os_display_link_destroy(link);
         assert(!allocations && opens == closes);
     }
+    test_native_link();
     assert(solar_os_port_unregister("test0") == ESP_OK);
     puts("DLP stream host: compact/legacy, fragmented I/O, delta, cache pressure, reconnect, cancellation, graphics allocation failure and cleanup PASS");
 }

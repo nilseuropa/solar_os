@@ -1,21 +1,42 @@
+import subprocess
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from test_foreground_presenter import production_functions
 
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGES = (ROOT / "packages/solar_os_packages.toml").read_text(encoding="utf-8")
 APPS = (ROOT / "src/apps/solar_os_app_registry.c").read_text(encoding="utf-8")
 FTP_APP = (ROOT / "src/apps/solar_os_ftp_app.c").read_text(encoding="utf-8")
-SFTP_APP = (ROOT / "src/apps/solar_os_sftp_app.c").read_text(encoding="utf-8")
 SERVICE = (ROOT / "src/services/solar_os_sftp.c").read_text(encoding="utf-8")
 MANUAL = (ROOT / "doc/manual/apps.md").read_text(encoding="utf-8")
 
 
 class SftpAppTest(unittest.TestCase):
+    def test_connection_arguments_and_app_state_are_isolated(self):
+        context = FTP_APP.split("} ftp_app_worker_progress_t;", 1)[1].split("static void ftp_app_render(void);", 1)[0]
+        parser = production_functions(FTP_APP, (
+            "ftp_app_parse_port", "ftp_app_parse_sftp_target", "ftp_app_parse_args",
+        ))
+        fixture = (ROOT / "tests/host/file_transfer_app_args.inc").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            source = stage / "arguments.c"
+            source.write_text(fixture.replace("/* STATE */", context).replace("/* PARSER */", parser))
+            executable = stage / "arguments"
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fno-pie", "-no-pie", "-fsanitize=address,undefined",
+                f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'include'}",
+                str(source), "-o", str(executable),
+            ], check=True)
+            subprocess.run([str(executable)], check=True, timeout=5)
+
     def test_reuses_ftp_file_manager_interaction_model(self):
-        self.assertIn('#include "solar_os_ftp_app.c"', SFTP_APP)
-        self.assertIn('#define FTP_APP_COMMAND "sftp"', SFTP_APP)
+        self.assertIn('FILE_TRANSFER_APP("sftp", "two-pane SFTP file manager", sftp_app_state)', FTP_APP)
+        self.assertIn('FILE_TRANSFER_APP("ftp", "two-pane FTP file manager", ftp_app_state)', FTP_APP)
         self.assertIn("FTP_APP_INPUT_CONNECT", FTP_APP)
         self.assertIn("case SOLAR_OS_KEY_F2:", FTP_APP)
         self.assertIn("case 'n':", FTP_APP)
@@ -54,13 +75,14 @@ class SftpAppTest(unittest.TestCase):
 
     def test_package_and_registry_wiring(self):
         service = PACKAGES.split("[packages.service_sftp]", 1)[1].split("\n[", 1)[0]
-        app = PACKAGES.split("[packages.app_sftp]", 1)[1].split("\n[", 1)[0]
         self.assertIn('depends = ["service_ssh"]', service)
         self.assertIn('sources = ["services/solar_os_sftp.c"]', service)
-        dependencies = tomllib.loads(PACKAGES)["packages"]["app_sftp"]["depends"]
-        self.assertIn("service_sftp", dependencies)
+        packages = tomllib.loads(PACKAGES)["packages"]
+        dependencies = packages["app_sftp"]["depends"]
+        self.assertIn("service_remote_files", dependencies)
+        self.assertIn("service_sftp", packages["service_remote_files"]["depends"])
         self.assertIn("service_text_search", dependencies)
-        self.assertIn('sources = ["apps/solar_os_sftp_app.c"]', app)
+        self.assertEqual(packages["app_sftp"]["sources"], packages["app_ftp"]["sources"])
         self.assertIn('APP_ENTRY("sftp"', APPS)
 
     def test_manual_documents_connection_form_and_matching_controls(self):

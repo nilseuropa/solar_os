@@ -6,6 +6,21 @@ if (name && !strcmp(name, "board") && abi == 1U &&
     minimum <= sizeof(board_api)) return &board_api;
 #endif
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
+_Static_assert(__builtin_types_compatible_p(__typeof__(identity_api), const solar_os_native_identity_api_v1_t), "native service table type");
+if (name && !strcmp(name, "device.identity") && abi == 1U &&
+    minimum <= sizeof(identity_api)) return &identity_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+_Static_assert(__builtin_types_compatible_p(__typeof__(rtc_api), const solar_os_native_rtc_api_v1_t), "native service table type");
+if (name && !strcmp(name, "clock.rtc") && abi == 1U &&
+    minimum <= sizeof(rtc_api)) return &rtc_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+_Static_assert(__builtin_types_compatible_p(__typeof__(rtc_provider_api), const solar_os_native_rtc_provider_api_v1_t), "native service table type");
+if (name && !strcmp(name, "clock.rtc.provider") && abi == 1U &&
+    minimum <= sizeof(rtc_provider_api)) return &rtc_provider_api;
+#endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
 _Static_assert(__builtin_types_compatible_p(__typeof__(backlight_api), const solar_os_native_backlight_api_v1_t), "native service table type");
 if (name && !strcmp(name, "backlight") && abi == 1U &&
     minimum <= sizeof(backlight_api)) return &backlight_api;
@@ -34,4 +49,19 @@ if (name && !strcmp(name, "charger") && abi == 1U &&
 _Static_assert(__builtin_types_compatible_p(__typeof__(haptic_api), const solar_os_native_haptic_api_v1_t), "native service table type");
 if (name && !strcmp(name, "haptic") && abi == 1U &&
     minimum <= sizeof(haptic_api)) return &haptic_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+_Static_assert(__builtin_types_compatible_p(__typeof__(modem_api), const solar_os_native_modem_api_v1_t), "native service table type");
+if (name && !strcmp(name, "modem") && abi == 1U &&
+    minimum <= sizeof(modem_api)) return &modem_api;
+#endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
+_Static_assert(__builtin_types_compatible_p(__typeof__(sensors_api), const solar_os_native_sensors_api_v1_t), "native service table type");
+if (name && !strcmp(name, "sensors") && abi == 1U &&
+    minimum <= sizeof(sensors_api)) return &sensors_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+_Static_assert(__builtin_types_compatible_p(__typeof__(nfc_api), const solar_os_native_nfc_api_v1_t), "native service table type");
+if (name && !strcmp(name, "nfc") && abi == 1U &&
+    minimum <= sizeof(nfc_api)) return &nfc_api;
 #endif

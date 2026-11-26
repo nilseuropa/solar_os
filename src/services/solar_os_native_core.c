@@ -2,13 +2,16 @@
 #include <string.h>
 #include "solar_os_native_crypto_abi.h"
 #include "solar_os_native_ports_abi.h"
-#include "solar_os_native_clock_abi.h"
+#include "solar_os_native_clock_values.h"
+#include "solar_os_native_device_providers.h"
 #include "solar_os_native_handles.h"
 #include "solar_os_native_support.h"
 #include "solar_os_crypto.h"
 #include "solar_os_memory.h"
 #include "solar_os_port.h"
+#include "solar_os_secure_wipe.h"
 #include "solar_os_time.h"
+#include "solar_os_timezone.h"
 
 #define CORE_BYTES_MAX 65536U
 static int hash_destroy(void *state)
@@ -136,6 +139,7 @@ static const solar_os_native_crypto_api_v1_t crypto_api = {
     .hash_hex_valid=solar_os_crypto_sha256_hex_is_valid,.bytes_to_hex=bytes_to_hex,
     .hex_to_bytes=hex_to_bytes,.hash_matches_hex=solar_os_crypto_sha256_matches_hex,
     .base64_decode=base64_decode,.verify_p256_sha256=verify_signature,
+    .wipe=solar_os_secure_wipe,
 };
 
 static void port_info_copy(const solar_os_port_info_t *source,solar_os_native_port_info_v1_t *out)
@@ -275,34 +279,19 @@ static const solar_os_native_ports_api_v1_t ports_api = {
     .serial_break=port_serial_break,
 };
 
-static bool datetime_in(const solar_os_native_datetime_v1_t *in,solar_os_datetime_t *out)
-{
-    if (!in || !out || in->year>UINT16_MAX || in->month>UINT8_MAX || in->day>UINT8_MAX ||
-        in->hour>UINT8_MAX || in->minute>UINT8_MAX || in->second>UINT8_MAX ||
-        in->weekday>UINT8_MAX || in->clock_integrity>1) return false;
-    *out=(solar_os_datetime_t){.year=in->year,.month=in->month,.day=in->day,
-        .hour=in->hour,.minute=in->minute,.second=in->second,.weekday=in->weekday,
-        .clock_integrity=in->clock_integrity!=0};
-    return true;
-}
-static void datetime_out(const solar_os_datetime_t *in,solar_os_native_datetime_v1_t *out)
-{
-    *out=(solar_os_native_datetime_v1_t){in->year,in->month,in->day,in->hour,
-        in->minute,in->second,in->weekday,in->clock_integrity};
-}
 static int clock_get(uint32_t zone,solar_os_native_datetime_v1_t *out)
 {
     if (!out || zone>SOLAR_OS_NATIVE_CLOCK_UTC) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     memset(out,0,sizeof(*out));solar_os_datetime_t value={0};
     int result=solar_os_native_result(zone==SOLAR_OS_NATIVE_CLOCK_UTC ?
         solar_os_time_get_utc_datetime(&value) : solar_os_time_get_datetime(&value));
-    if (!result) datetime_out(&value,out);
+    if (!result) solar_os_native_datetime_out(&value,out);
     return result;
 }
 static int clock_set(uint32_t zone,const solar_os_native_datetime_v1_t *in)
 {
     solar_os_datetime_t value;
-    if (zone>SOLAR_OS_NATIVE_CLOCK_UTC || !datetime_in(in,&value))
+    if (zone>SOLAR_OS_NATIVE_CLOCK_UTC || !solar_os_native_datetime_in(in,&value))
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     return solar_os_native_result(zone==SOLAR_OS_NATIVE_CLOCK_UTC ?
         solar_os_time_set_utc_datetime(&value) : solar_os_time_set_datetime(&value));
@@ -311,18 +300,18 @@ static int clock_convert(uint32_t zone,const solar_os_native_datetime_v1_t *in,
     solar_os_native_datetime_v1_t *out)
 {
     solar_os_datetime_t source,destination={0};
-    if (!out || zone>SOLAR_OS_NATIVE_CLOCK_UTC || !datetime_in(in,&source))
+    if (!out || zone>SOLAR_OS_NATIVE_CLOCK_UTC || !solar_os_native_datetime_in(in,&source))
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     int result=solar_os_native_result(zone==SOLAR_OS_NATIVE_CLOCK_UTC ?
         solar_os_time_local_to_utc(&source,&destination) : solar_os_time_utc_to_local(&source,&destination));
     memset(out,0,sizeof(*out));
-    if (!result) datetime_out(&destination,out);
+    if (!result) solar_os_native_datetime_out(&destination,out);
     return result;
 }
 static bool clock_valid(const solar_os_native_datetime_v1_t *in)
 {
     solar_os_datetime_t value;
-    return datetime_in(in,&value) && solar_os_time_datetime_is_valid(&value);
+    return solar_os_native_datetime_in(in,&value) && solar_os_time_datetime_is_valid(&value);
 }
 static int clock_timezone(solar_os_native_timezone_v1_t *out)
 {
@@ -343,7 +332,7 @@ static int clock_ntp(const char *server,uint32_t timeout,solar_os_native_datetim
     memset(utc,0,sizeof(*utc));memset(local,0,sizeof(*local));
     solar_os_datetime_t u={0},l={0};
     int result=solar_os_native_result(solar_os_time_ntp_sync(server,timeout,&u,&l));
-    if (!result) { datetime_out(&u,utc);datetime_out(&l,local); }
+    if (!result) { solar_os_native_datetime_out(&u,utc);solar_os_native_datetime_out(&l,local); }
     return result;
 }
 static int clock_epoch(uint64_t *milliseconds)
@@ -358,6 +347,9 @@ static const solar_os_native_clock_api_v1_t clock_api={
     .format_uptime=solar_os_time_format_uptime,.epoch_ms=clock_epoch,.get=clock_get,.set=clock_set,
     .convert=clock_convert,.valid=clock_valid,.get_timezone=clock_timezone,
     .set_timezone=clock_set_timezone,.ntp_sync=clock_ntp,
+    .provider_register=solar_os_native_clock_provider_register,
+    .provider_close=solar_os_native_clock_provider_close,
+    .resolve_timezone=solar_os_timezone_resolve,.timezone_is_raw_posix=solar_os_timezone_value_is_raw_posix,
 };
 const void *solar_os_native_core_get_service(const char *name,uint32_t abi,uint32_t minimum)
 {

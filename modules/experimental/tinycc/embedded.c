@@ -4,7 +4,6 @@ extern void solar_os_cc_checkpoint(void);
 extern void *solar_os_cc_reallocate(void *, unsigned long);
 extern void solar_os_cc_diagnostic(void *, const char *);
 extern void solar_os_cc_set_source_name(const char *);
-extern const char *solar_os_cc_standard_runtime(void);
 
 /* Serialize TinyCC's object sections to memory. The existing restricted
  * module writer then converts this object into the SolarOS ELF subset. */
@@ -38,7 +37,7 @@ int solar_os_cc_generate(const solar_os_cc_request_v1_t *request,
         if(status) {tcc_delete(s1);return SOLAR_OS_NATIVE_ERROR_FAILED;}
     }
     solar_os_cc_set_source_name("/sdk/solar_os_c_runtime.c");
-    if(solar_os_cc_add_standard(s1,solar_os_cc_standard_runtime(),entry)) {
+    if(solar_os_cc_add_standard(s1,entry)) {
         tcc_delete(s1);return SOLAR_OS_NATIVE_ERROR_FAILED;
     }
     if (solar_os_cc_add_support(s1)) { tcc_delete(s1); return SOLAR_OS_NATIVE_ERROR_FAILED; }

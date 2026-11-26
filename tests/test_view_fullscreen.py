@@ -22,7 +22,6 @@ class ViewFullscreenTest(unittest.TestCase):
 #include "solar_os_storage.h"
 #define VIEW_PAN_STEP 32
 struct solar_os_gfx { solar_os_display_rect_t panel, canvas; };
-struct solar_os_context { solar_os_gfx_t *gfx; };
 static int x,y,w,h;
 solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx) { return ctx->gfx; }
 solar_os_display_rect_t solar_os_gfx_canvas_bounds(const solar_os_gfx_t *gfx) { return gfx->canvas; }

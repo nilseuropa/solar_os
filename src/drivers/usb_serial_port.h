@@ -1,13 +1,9 @@
 #pragma once
 
+#include "solar_os_native_usb_serial_abi.h"
 #include "solar_os_port.h"
 
-typedef enum {
-    SOLAR_OS_USB_SERIAL_ACM,
-    SOLAR_OS_USB_SERIAL_JTAG,
-    SOLAR_OS_USB_SERIAL_CP210X,
-    SOLAR_OS_USB_SERIAL_CH34X,
-} usb_serial_port_kind_t;
+typedef solar_os_usb_serial_kind_t usb_serial_port_kind_t;
 
 typedef struct {
     uint16_t vid, pid;

@@ -239,6 +239,17 @@ void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, ui
     }
 }
 
+solar_os_shell_io_t *solar_os_shell_io_with_fallback(solar_os_context_t *context,
+    solar_os_shell_io_t *fallback, bool replace_empty)
+{
+    solar_os_shell_io_t *io = solar_os_context_shell_io(context);
+    if (io && (!replace_empty || solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_NONE))
+        return io;
+    solar_os_shell_io_init_terminal(fallback, solar_os_context_terminal(context));
+    solar_os_context_set_shell_io(context, fallback);
+    return fallback;
+}
+
 solar_os_shell_io_kind_t solar_os_shell_io_kind(const solar_os_shell_io_t *io)
 {
     return io != NULL ? io->kind : SOLAR_OS_SHELL_IO_KIND_NONE;

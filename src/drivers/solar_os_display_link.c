@@ -19,7 +19,7 @@ struct solar_os_display_link {
   SemaphoreHandle_t mutex;
   uint8_t *mono, *row, *wire, *retained;
   size_t wire_size;
-  bool retained_valid;
+  bool retained_valid, closing;
   uint16_t *pixels;
   uint32_t frame_id;
   esp_err_t last_error;
@@ -301,8 +301,17 @@ esp_err_t solar_os_display_link_open_transport_with_options(
   return ESP_OK;
 fail:
   if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, NULL);
-  solar_os_display_link_destroy(d);
+  if (solar_os_display_link_close(d) != ESP_OK) *out = d;
   return e;
+}
+esp_err_t solar_os_display_link_close(solar_os_display_link_t *d) {
+  if (d && d->io.close_checked) {
+    d->closing = true;
+    esp_err_t error = d->io.close_checked(d->io.protocol.ctx);
+    if (error != ESP_OK) return error;
+  }
+  solar_os_display_link_destroy(d);
+  return ESP_OK;
 }
 void solar_os_display_link_destroy(solar_os_display_link_t *d) {
   if (!d)
@@ -350,6 +359,27 @@ u8g2_t *solar_os_display_link_u8g2(solar_os_display_link_t *d) {
 }
 const sdlp_info_t *solar_os_display_link_info(const solar_os_display_link_t *d) {
   return d ? &d->host.info : NULL;
+}
+esp_err_t solar_os_display_link_copy_info(const solar_os_display_link_t *d,
+                                         solar_os_native_display_link_info_v1_t *out) {
+  if (!out) return ESP_ERR_INVALID_ARG;
+  memset(out, 0, sizeof(*out));
+  if (!d) return ESP_ERR_INVALID_ARG;
+  if (d->closing) return ESP_ERR_INVALID_STATE;
+  const sdlp_info_t *value = &d->host.info;
+  const unsigned format = d->host.format;
+  const size_t stride = sdlp_row_bytes(value->width, format);
+  *out = (solar_os_native_display_link_info_v1_t){.width = value->width, .height = value->height,
+      .format = format, .preferred_format = value->preferred_format, .formats = value->formats,
+      .capabilities = value->capabilities, .max_clock_hz = value->max_clock_hz,
+      .min_gap_us = value->min_gap_us, .max_rect_bytes = value->max_rect_bytes,
+      .command_ms = value->command_ms, .present_ms = value->present_ms,
+      .nominal_refresh_ms = value->nominal_refresh_ms, .stride = stride,
+      .frame_bytes = stride * value->height};
+  memcpy(out->model, value->model, sizeof(out->model));
+  memcpy(out->firmware, value->firmware, sizeof(out->firmware));
+  memcpy(out->identity, value->identity, sizeof(out->identity));
+  return ESP_OK;
 }
 
 static bool raster_valid(const uint8_t *data, size_t size, uint16_t w,
@@ -517,6 +547,7 @@ esp_err_t solar_os_display_link_present(solar_os_display_link_t *d,
 esp_err_t solar_os_display_link_present_with_options(solar_os_display_link_t *d,
     const uint8_t *pixels, size_t size, const solar_os_display_link_call_options_t *call) {
   if (!d || !pixels) return ESP_ERR_INVALID_ARG;
+  if (d->closing) return ESP_ERR_INVALID_STATE;
   xSemaphoreTake(d->mutex, portMAX_DELAY);
   if (d->io.set_call_options) d->io.set_call_options(d->io.protocol.ctx, call);
   esp_err_t error = call && call->cancelled && call->cancelled(call->cancel_user) ? ESP_FAIL : ESP_OK;

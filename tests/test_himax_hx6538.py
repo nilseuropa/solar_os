@@ -15,11 +15,11 @@ class HimaxHx6538Test(unittest.TestCase):
         board = load_board_manifest(ROOT / "boards/manifests/seeed_sensecap_watcher.toml")
         header = generate_header(board, load_driver_catalog(ROOT / "boards/expansion_drivers.toml"))
         line = next(line for line in header.splitlines() if '.name = "camera0"' in line)
-        bindings = re.search(r'\.bindings = (\{\{.*\}\})\}', line).group(1)
+        bindings = re.search(r'\.bindings = \(const solar_os_expansion_binding_t\[\]\)(\{\{.*\}\})\}', line).group(1)
         driver_source = (ROOT / "src/services/solar_os_himax_hx6538.c").read_text()
         descriptor = driver_source[driver_source.index('#define LINE(key_)'):]
         validator = production_functions((ROOT / "src/services/solar_os_expansion.c").read_text(),
-            ("binding_matches_spec", "binding_key", "set_binding_validation", "validate_bindings"))
+            ("binding_matches_spec", "binding_key", "set_binding_validation", "validate_driver_bindings"))
         run_c(r'''
 #include <assert.h>
 #include <string.h>
@@ -34,9 +34,6 @@ static esp_err_t detach(const char *n) { (void)n; return ESP_OK; }
 const char *solar_os_expansion_binding_kind_name(solar_os_expansion_binding_kind_t kind)
 { (void)kind; return "binding"; }
 ''' + descriptor + r'''
-static bool copy_driver(const char *name, solar_os_expansion_driver_t *out) {
-    assert(!strcmp(name, "himax-hx6538")); *out = solar_os_himax_hx6538_expansion_driver; return true;
-}
 static bool binding_valid(const solar_os_expansion_binding_t *binding,
     const solar_os_expansion_binding_t *bindings, size_t count, bool board) {
     (void)binding; (void)bindings; (void)count; assert(board); return true;
@@ -44,7 +41,8 @@ static bool binding_valid(const solar_os_expansion_binding_t *binding,
 ''' + validator + '\nstatic const solar_os_expansion_binding_t bindings[] = ' + bindings + r''';
 int main(void) {
     solar_os_expansion_binding_validation_t reason = {0};
-    assert(validate_bindings("himax-hx6538", bindings, sizeof(bindings)/sizeof(bindings[0]), &reason, true) == ESP_OK);
+    assert(validate_driver_bindings(&solar_os_himax_hx6538_expansion_driver, bindings,
+        sizeof(bindings)/sizeof(bindings[0]), &reason, true) == ESP_OK);
 }
 ''', "-I", str(ROOT / "src/services"), "-I", str(ROOT / "include"))
 

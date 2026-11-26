@@ -42,6 +42,39 @@ bool solar_os_app_discovery_get(size_t index, bool include_playground, solar_os_
     strcpy(info->title, "Example");
     return true;
 }
+bool solar_os_app_registry_opener_info(const char *path, solar_os_app_discovery_info_t *info)
+{
+    return solar_os_app_registry_can_open(path) && solar_os_app_discovery_get(0, false, info);
+}
+
+const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name)
+{
+    static const solar_os_app_registry_entry_t entry = {.app = &child, .name = "child"};
+    return !strcmp(name, entry.name) ? &entry : NULL;
+}
+
+bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t capacity)
+{
+    assert(app == &child && capacity >= sizeof("session 4"));
+    strcpy(owner, "session 4");
+    return true;
+}
+
+esp_err_t solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user), void *user)
+{
+    if (!visit) return ESP_ERR_INVALID_ARG;
+    if (visit("child", user)) visit("another", user);
+    return ESP_OK;
+}
+
+static bool visit_module(const char *name, void *user)
+{
+    unsigned *visits = user;
+    assert(!strcmp(name, "child"));
+    ++*visits;
+    return false;
+}
+
 static esp_err_t output(const char *text, size_t length, void *user)
 { assert(user == &output_bytes && length == 4 && !memcmp(text, "core", 4)); output_bytes += length; return ESP_OK; }
 static void *outside(void *user)
@@ -70,6 +103,15 @@ int main(void)
     assert(api->discovery_info(2, true, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !info.name[0]);
     assert(api->discovery_info(0, false, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(api->discovery_find(NULL, false, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!api->find_opener("/flash/example.txt", &info) && !strcmp(info.name, "child"));
+    assert(api->find_opener("/flash/example.xyz", &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !info.name[0]);
+    char owner[16];
+    assert(!api->get_owner("child", owner, sizeof(owner)) && !strcmp(owner, "session 4"));
+    assert(api->get_owner("child", owner, 4) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE && !owner[0]);
+    assert(api->get_owner("missing", owner, sizeof(owner)) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !owner[0]);
+    unsigned visits = 0;
+    assert(!api->module_visit(visit_module, &visits) && visits == 1);
+    assert(api->module_visit(NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     start_failure = false;
     assert(!solar_os_app_start(&parent, &contexts[0]));
     solar_os_application_scope_t scope;
@@ -103,6 +145,8 @@ int main(void)
     assert(contexts[0].requested_app == &child && !strcmp(contexts[0].argv[1], "data.txt"));
     assert(contexts[0].launch_policy == SOLAR_OS_LAUNCH_REPLACE);
     assert(api->launch("child", 1, arguments, 2) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->file_type_matches(".md .txt", "/flash/example.TXT"));
+    assert(!api->file_type_matches(".txt", "/flash/.txt"));
     assert(!api->open("file.txt") && contexts[0].launch_policy == SOLAR_OS_LAUNCH_CHILD_RETURN);
     assert(api->open("file.bin") == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && api->can_open("file.txt"));
     assert(api->print_sessions() == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);

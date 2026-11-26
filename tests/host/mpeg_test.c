@@ -1,5 +1,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_mpeg.h"
+#include "solar_os.h"
+#include "solar_os_native_mpeg.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -59,6 +61,67 @@ void *solar_os_memory_realloc(void *ptr, size_t size, solar_os_memory_class_t cl
 static unsigned cancel_checks, cancel_after;
 static bool cancel(void *user)
 { cancel_checks++; return *(bool *)user || (cancel_after && cancel_checks >= cancel_after); }
+
+const solar_os_app_t *solar_os_application_descriptor(void) { return NULL; }
+
+typedef struct {
+    const solar_os_native_mpeg_api_v1_t *api;
+    solar_os_native_handle_t decoder;
+    unsigned frames, audio_chunks;
+} native_playback_t;
+
+static int native_video(const solar_os_native_mpeg_frame_v1_t *frame, void *user)
+{
+    native_playback_t *playback = user;
+    assert(frame->width == 160 && frame->height == 120 && frame->y_bytes >= 160 * 120);
+    assert(playback->api->close(playback->decoder) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    solar_os_mpeg_info_t info;
+    assert(playback->api->info(playback->decoder, &info) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    uint8_t raster[13 * 9 * 2];
+    assert(playback->api->raster(frame, raster, sizeof(raster) - 1, 13, 9, true, false) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(!playback->api->raster(frame, raster, sizeof(raster), 13, 9, true, false));
+    assert(!playback->api->raster(frame, raster, sizeof(raster), 13, 9, false, false) && raster[0] == frame->y[0]);
+    solar_os_native_mpeg_frame_v1_t invalid = *frame;
+    invalid.chroma_bytes = 1;
+    assert(playback->api->raster(&invalid, raster, sizeof(raster), 13, 9, true, false) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    ++playback->frames;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int native_audio(const solar_os_mpeg_audio_t *audio, void *user)
+{
+    native_playback_t *playback = user;
+    assert(audio->frames == 1152 && audio->sample_rate == 44100 && isfinite(audio->samples[0]));
+    ++playback->audio_chunks;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void test_native_mpeg(const char *video_path, const char *video_only_path)
+{
+    const solar_os_native_mpeg_api_v1_t *api = solar_os_native_mpeg_get_service(
+        SOLAR_OS_NATIVE_MPEG_SERVICE, SOLAR_OS_NATIVE_MPEG_ABI, sizeof(*api));
+    assert(api);
+    native_playback_t playback = {.api = api};
+    bool stopped = false, ended = false;
+    char detail[96];
+    assert(!api->open(video_path, cancel, &stopped, &playback.decoder, detail, sizeof(detail)));
+    stopped = true; /* The callback passed to open expired when it returned. */
+    solar_os_mpeg_info_t info;
+    assert(!api->info(playback.decoder, &info) && info.fps == 25 && info.audio);
+    assert(!api->video(playback.decoder, native_video, &playback, NULL, NULL, &ended) && !ended && playback.frames == 1);
+    assert(!api->audio(playback.decoder, native_audio, &playback, NULL, NULL, &ended) && !ended && playback.audio_chunks == 1);
+    double position;
+    assert(!api->seek(playback.decoder, 1.0, &position, NULL, NULL) && position >= 1.0);
+    assert(!api->video(playback.decoder, native_video, &playback, NULL, NULL, &ended) && playback.frames == 2);
+    assert(api->video(playback.decoder, native_video, &playback, cancel, &stopped, &ended) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(api->error_detail(playback.decoder, detail, 1) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE && !detail[0]);
+    assert(!api->error_detail(playback.decoder, detail, sizeof(detail)) && strstr(detail, "cancelled"));
+    assert(!api->close(playback.decoder) && !live);
+    assert(api->info(playback.decoder, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!api->open(video_only_path, NULL, NULL, &playback.decoder, NULL, 0));
+    assert(!api->audio(playback.decoder, native_audio, &playback, NULL, NULL, &ended) && ended && playback.audio_chunks == 1);
+    assert(!api->close(playback.decoder) && !live);
+}
 static uint32_t frame_hash(const solar_os_mpeg_frame_t *f)
 {
     uint32_t hash = 2166136261U;
@@ -319,6 +382,7 @@ int main(int argc, char **argv)
     assert(solar_os_mpeg_video(d, &frame, &ended) == ESP_ERR_TIMEOUT);
     solar_os_mpeg_close(d);
     assert(live == 0);
+    test_native_mpeg(argv[1], argv[2]);
     puts("MPEG frames, audio, raster, format rejection, cancellation and allocation failures "
          "passed");
 }

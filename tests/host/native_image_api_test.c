@@ -3,6 +3,13 @@
 #include "solar_os_native_media.h"
 #include "solar_os_native_image_abi.h"
 #include "solar_os_native_vision_abi.h"
+#include "solar_os_native_mjpeg_abi.h"
+#include "solar_os.h"
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return NULL;
+}
 
 int main(void)
 {
@@ -10,6 +17,7 @@ int main(void)
     const solar_os_native_imlib_api_v1_t *imlib = solar_os_native_media_get_service("vision.imlib", 1, sizeof(*imlib));
     const solar_os_native_qr_api_v1_t *qr = solar_os_native_media_get_service("vision.qr", 1, sizeof(*qr));
     assert(images && imlib && qr);
+    assert(solar_os_native_media_get_service("media.mjpeg", 1, sizeof(solar_os_native_mjpeg_api_v1_t)));
     const solar_os_native_memory_api_v1_t *memory = solar_os_native_media_get_service("memory", 1, sizeof(*memory));
     assert(memory && !memory->alloc(0));
     void *buffer = memory->alloc(1024); assert(buffer); memory->free(buffer);
@@ -27,6 +35,15 @@ int main(void)
     for (unsigned y = 3; y < 7; ++y) for (unsigned x = 4; x < 10; ++x) pixels[y*16+x] = 200;
     solar_os_raster_image_t *image = NULL;
     assert(!images->from_pixels(pixels, sizeof(pixels), 16, 12, SOLAR_OS_RASTER_IMAGE_GRAY8, 0, &image));
+    solar_os_gfx_t *gfx = (solar_os_gfx_t *)pixels;
+    assert(!images->draw(image, gfx, 6, 8, 0, 0));
+    assert(!images->present(image, gfx, 6, 8, 0, 0));
+    assert(images->present(image, gfx, 315, 0, 0, 0) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(images->draw(image, NULL, 6, 8, 0, 0) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!strcmp(imlib->operation_name(SOLAR_OS_IMLIB_BLOBS), "blobs"));
+    assert(!imlib->is_transform(SOLAR_OS_IMLIB_BLOBS) && imlib->is_transform(SOLAR_OS_IMLIB_BINARY));
+    assert(imlib->option_allowed(SOLAR_OS_IMLIB_BLOBS, "thresholds"));
+    assert(!imlib->option_allowed(SOLAR_OS_IMLIB_BLOBS, "missing_option"));
     solar_os_imlib_options_t o; imlib->defaults(&o); o.threshold_count = 1;
     o.thresholds[0] = (solar_os_imlib_threshold_t){128,255,0,0,0,0};
     solar_os_imlib_result_t *result = NULL;

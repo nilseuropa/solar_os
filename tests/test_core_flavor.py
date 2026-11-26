@@ -34,11 +34,12 @@ class CoreFlavorTest(unittest.TestCase):
 
     def test_classic_keeps_python_and_terminal_tools_with_a_smaller_app_selection(self):
         _, _, _, enabled = config.load_flavor(ROOT / "flavors/classic.toml", self.catalog)
-        for name in ("app_python", "app_playground", "app_edit", "app_less", "app_files",
-                     "app_ssh", "app_ftp", "app_io", "app_com"):
+        for name in ("app_python", "app_playground", "app_edit", "app_less"):
             self.assertTrue(enabled[name], name)
-        for name in ("app_reader", "app_writer", "app_agent", "app_web", "app_chat",
-                     "app_recorder", "app_player", "job_speechd", "job_httpd", "job_chatd"):
+        for name in ("app_files", "app_ssh", "app_scp", "app_sftpsync", "app_curl",
+                     "app_io", "app_com", "app_reader", "app_writer", "app_agent", "app_web", "app_chat",
+                     "app_recorder", "app_player", "app_ftp", "app_sftp", "app_inbox",
+                     "app_contacts", "job_speechd", "job_httpd", "job_chatd"):
             self.assertFalse(enabled[name], name)
         for name, spec in self.catalog.package_defs.items():
             if spec.core:

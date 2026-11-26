@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "solar_os_osc.h"
+#include "solar_os_native_network.h"
 #include "solar_os_parameters.h"
 #include "solar_os_stream.h"
 
@@ -144,6 +145,13 @@ static void test_codec_and_dispatch(void)
     packet[15] = 2U;
     assert(solar_os_osc_dispatch_packet(packet, 20U + element_len, &result) ==
            ESP_ERR_NOT_SUPPORTED);
+    const solar_os_native_osc_api_v1_t *api = solar_os_native_network_get_service(
+        SOLAR_OS_NATIVE_OSC_SERVICE, SOLAR_OS_NATIVE_OSC_ABI, sizeof(*api));
+    assert(api && !solar_os_native_network_get_service(SOLAR_OS_NATIVE_OSC_SERVICE, 2, 0));
+    assert(!api->encode_integer("/solaros/parameter/synth/filter/cutoff", 432,
+        packet, sizeof(packet), &length));
+    assert(!api->dispatch(packet, length, &result) && result.applied == 1 && test_value == 432.0f);
+    assert(api->encode_floats("/ignored", &requested, 1, packet, 4, &length) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
     assert(solar_os_parameters_unregister(&registration) == ESP_OK);
 }
 
@@ -194,12 +202,20 @@ static void test_bindings(void)
     uint32_t scalar_id = 0U;
     assert(solar_os_osc_bind(&scalar, &scalar_id) == ESP_OK);
     assert(solar_os_osc_bind(&scalar, NULL) == ESP_ERR_INVALID_STATE);
+    const solar_os_native_osc_api_v1_t *api = solar_os_native_network_get_service(
+        SOLAR_OS_NATIVE_OSC_SERVICE, SOLAR_OS_NATIVE_OSC_ABI, sizeof(*api));
+    assert(api && api->count() == 1 && api->bind(&scalar, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    solar_os_native_osc_binding_info_v1_t native_info;
+    assert(!api->info(0, &native_info) && native_info.id == scalar_id && !strcmp(native_info.config.name, scalar.name));
+    assert(api->info(1, &native_info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->due(&native_info, 50));
+    assert(!api->report(scalar_id, 50, SOLAR_OS_NATIVE_OSC_SEND_ERROR, SOLAR_OS_NATIVE_ERROR_TIMEOUT));
+    assert(!api->info(0, &native_info) && native_info.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT && native_info.send_errors == 1);
     bool send = false;
     bool integer = false;
-    assert(solar_os_osc_binding_prepare(scalar_id, 100U, 20.0f,
-                                        &send, &integer) == ESP_OK);
+    assert(!api->prepare(scalar_id, 100, 20.0f, &send, &integer));
     assert(send && !integer);
-    solar_os_osc_binding_note_sent(scalar_id, 100U);
+    assert(!api->report(scalar_id, 100, SOLAR_OS_NATIVE_OSC_SENT, 0));
     assert(solar_os_osc_binding_prepare(scalar_id, 600U, 20.05f,
                                         &send, &integer) == ESP_OK);
     assert(!send);

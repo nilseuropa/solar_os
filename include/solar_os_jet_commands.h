@@ -2,12 +2,11 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "solar_os_jet_wire_types_v1.h"
 
 /* Shared control schema for the provider and both interpreters. Payloads are
  * borrowed for one synchronous call; providers copy all retained resources.
  * Numeric slots use doubles so integer handles retain all 32 bits. */
-#define SOLAR_OS_JET_VALUES 24
-#define SOLAR_OS_JET_NAME 64
 #define SOLAR_OS_JET_MAX_TEXTURES 16
 #define SOLAR_OS_JET_MAX_MATERIALS 32
 #define SOLAR_OS_JET_MAX_LIGHTS 8
@@ -19,51 +18,8 @@
 #define SOLAR_OS_JET_MAX_FLARES 4
 #define SOLAR_OS_JET_MAX_FLARE_ELEMENTS 12
 #define SOLAR_OS_JET_MAX_SHADERS 16
-typedef struct {
-    int32_t screen_x,screen_y,depth,local[3],world[3];
-    uint32_t frame;
-} solar_os_jet_shader_parameters_t;
-/* Callbacks must contain VM exceptions and return a native error instead. */
-typedef int (*solar_os_jet_shader_fn)(void *,uint32_t,double,double,
-    const solar_os_jet_shader_parameters_t *,uint32_t *);
-typedef struct {solar_os_jet_shader_fn function;void *user;uint32_t slot;} solar_os_jet_shader_callback_t;
 typedef struct {uint32_t fields;double values[SOLAR_OS_JET_VALUES];} solar_os_jet_element_t;
 typedef struct {int16_t x,y;} solar_os_jet_pick_t;
-typedef struct {
-    uint32_t opcode, handle, fields;
-    double values[SOLAR_OS_JET_VALUES];
-    const void *data, *extra;
-    size_t bytes, extra_bytes;
-    char name[SOLAR_OS_JET_NAME];
-} solar_os_jet_command_t;
-typedef struct {
-    uint32_t handle, count, handles[32];
-    double values[SOLAR_OS_JET_VALUES];
-    char name[SOLAR_OS_JET_NAME];
-} solar_os_jet_reply_t;
-enum {
-    SOLAR_OS_JET_INFO=1, SOLAR_OS_JET_MATERIAL, SOLAR_OS_JET_MATERIAL_SET,
-    SOLAR_OS_JET_MATERIAL_INFO, SOLAR_OS_JET_TEXTURE, SOLAR_OS_JET_TEXTURE_SET,
-    SOLAR_OS_JET_TEXTURE_INFO, SOLAR_OS_JET_ASSIGN, SOLAR_OS_JET_MESH_DATA,
-    SOLAR_OS_JET_PRIMITIVE, SOLAR_OS_JET_OBJECT_SET, SOLAR_OS_JET_OBJECT_INFO,
-    SOLAR_OS_JET_OBJECT_ACTION, SOLAR_OS_JET_CAMERA_SET, SOLAR_OS_JET_CAMERA_INFO,
-    SOLAR_OS_JET_CAMERA_ACTION, SOLAR_OS_JET_POINT_LIGHT, SOLAR_OS_JET_POINT_LIGHT_SET,
-    SOLAR_OS_JET_POINT_LIGHT_INFO, SOLAR_OS_JET_SCENE_SET, SOLAR_OS_JET_SCENE_INFO,
-    SOLAR_OS_JET_GRADIENT, SOLAR_OS_JET_LOD,
-    SOLAR_OS_JET_SPRITE, SOLAR_OS_JET_SPRITE_SET, SOLAR_OS_JET_SPRITE_INFO,
-    SOLAR_OS_JET_PICK, SOLAR_OS_JET_PICK_RESULT,
-    SOLAR_OS_JET_LOAD_OBJ, SOLAR_OS_JET_LOAD_MTL, SOLAR_OS_JET_LOAD_BMP,
-    SOLAR_OS_JET_PROTOTYPE, SOLAR_OS_JET_PROTOTYPE_INFO,
-    SOLAR_OS_JET_INSTANCE, SOLAR_OS_JET_INSTANCE_ADD, SOLAR_OS_JET_INSTANCE_SET,
-    SOLAR_OS_JET_INSTANCE_INFO, SOLAR_OS_JET_INSTANCE_REMOVE, SOLAR_OS_JET_INSTANCE_CLEAR,
-    SOLAR_OS_JET_PARTICLES, SOLAR_OS_JET_PARTICLES_SET, SOLAR_OS_JET_PARTICLES_INFO,
-    SOLAR_OS_JET_PARTICLES_EMIT, SOLAR_OS_JET_PARTICLES_CLEAR, SOLAR_OS_JET_STEP,
-    SOLAR_OS_JET_FLARE, SOLAR_OS_JET_FLARE_SET, SOLAR_OS_JET_FLARE_INFO,
-    SOLAR_OS_JET_FLARE_ELEMENT_SET, SOLAR_OS_JET_FLARE_ELEMENT_INFO,
-    SOLAR_OS_JET_POSTFX, SOLAR_OS_JET_POSTFX_INFO, SOLAR_OS_JET_POSTFX_RESET, SOLAR_OS_JET_POSTFX_CLEAR,
-    SOLAR_OS_JET_SAMPLE_TEXTURE,
-    SOLAR_OS_JET_SHADER, SOLAR_OS_JET_SHADER_SET, SOLAR_OS_JET_SHADER_INFO,
-};
 enum {
     SOLAR_OS_JET_FEATURE_MATERIALS=1, SOLAR_OS_JET_FEATURE_TEXTURES=2,
     SOLAR_OS_JET_FEATURE_GEOMETRY=4, SOLAR_OS_JET_FEATURE_SCENE=8,

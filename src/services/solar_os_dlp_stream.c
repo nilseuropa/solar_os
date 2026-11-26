@@ -49,10 +49,13 @@ static esp_err_t prepare(void *ctx, bool reset) {
   solar_os_stream_open_options_t options = {.direction = SOLAR_OS_STREAM_DIRECTION_DUPLEX};
   return solar_os_stream_open_ex(s->name, s->owner, &options, &s->handle);
 }
+static esp_err_t close_checked(void *ctx) {
+  stream_transport_t *s = ctx;
+  return solar_os_stream_handle_valid(&s->handle) ? solar_os_stream_close_ex(&s->handle) : ESP_OK;
+}
 static void destroy(void *ctx) {
   stream_transport_t *s = ctx;
-  if (!s) return;
-  if (solar_os_stream_handle_valid(&s->handle)) (void)solar_os_stream_close_ex(&s->handle);
+  (void)close_checked(s);
   solar_os_memory_free(s);
 }
 static int send_packet(stream_transport_t *s, const uint8_t *cell, uint64_t deadline) {
@@ -129,11 +132,7 @@ static int request(void *ctx, const uint8_t tx[SDLP_CELL_SIZE],
   return SDLP_LINK_ERROR;
 }
 
-esp_err_t solar_os_display_link_open_stream(const char *name, const char *owner,
-    const solar_os_display_link_options_t *options, solar_os_display_link_t **out) {
-  return solar_os_display_link_open_stream_with_options(name, owner, options, NULL, out);
-}
-esp_err_t solar_os_display_link_open_stream_with_options(const char *name, const char *owner,
+static esp_err_t open_stream(const char *name, const char *owner, bool checked,
     const solar_os_display_link_options_t *options, const solar_os_display_link_call_options_t *call,
     solar_os_display_link_t **out) {
   if (!out) return ESP_ERR_INVALID_ARG;
@@ -156,6 +155,24 @@ esp_err_t solar_os_display_link_open_stream_with_options(const char *name, const
   solar_os_display_link_transport_t io = {
     .protocol = {.ctx = s, .now_us = now_us, .sleep_us = sleep_us, .request = request,
       .push = push, .cancelled = cancelled, .minimum_timeout_ms = timeout_ms},
-    .prepare = prepare, .destroy = destroy, .set_call_options = set_call_options};
+    .prepare = prepare, .destroy = destroy, .close_checked = checked ? close_checked : NULL,
+    .set_call_options = set_call_options};
   return solar_os_display_link_open_transport_with_options(&io, options, call, out);
+}
+
+esp_err_t solar_os_display_link_open_stream(const char *name, const char *owner,
+    const solar_os_display_link_options_t *options, solar_os_display_link_t **out) {
+  return open_stream(name, owner, false, options, NULL, out);
+}
+
+esp_err_t solar_os_display_link_open_stream_with_options(const char *name, const char *owner,
+    const solar_os_display_link_options_t *options, const solar_os_display_link_call_options_t *call,
+    solar_os_display_link_t **out) {
+  return open_stream(name, owner, false, options, call, out);
+}
+
+esp_err_t solar_os_display_link_open_stream_checked(const char *name, const char *owner,
+    const solar_os_display_link_options_t *options, const solar_os_display_link_call_options_t *call,
+    solar_os_display_link_t **out) {
+  return open_stream(name, owner, true, options, call, out);
 }

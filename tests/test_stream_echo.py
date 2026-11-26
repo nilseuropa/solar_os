@@ -20,6 +20,7 @@ class StreamEchoTest(unittest.TestCase):
                 "cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 str(path / "test.c"), str(ROOT / "src/services/solar_os_stream.c"),
                 str(ROOT / "src/services/solar_os_imu.c"),
                 "-lm", "-o", str(path / "test")], capture_output=True, text=True)

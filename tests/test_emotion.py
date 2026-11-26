@@ -31,18 +31,31 @@ class EmotionTest(unittest.TestCase):
             subprocess.run([str(binary)], check=True)
 
     def test_runtime_ownership_queue_and_teardown(self):
+        for enabled in (0, 1):
+            subprocess.run([
+                "cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-fsyntax-only",
+                f"-DSOLAR_OS_PACKAGE_SERVICE_EMOTION={enabled}",
+                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
+                "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
+                str(ROOT / "src/services/solar_os_native_emotion.c"),
+            ], check=True)
         with tempfile.TemporaryDirectory() as tmp:
             for source, output in (("src/services/solar_os_emotion.h", "emotion_runtime_header.inc"),
-                                   ("src/services/solar_os_emotion.c", "emotion_runtime.inc")):
+                                   ("src/services/solar_os_emotion.c", "emotion_runtime.inc"),
+                                   ("src/services/solar_os_native_support.h", "emotion_native_support.inc"),
+                                   ("src/services/solar_os_native_handles.h", "emotion_handle_header.inc"),
+                                   ("src/services/solar_os_native_handles.c", "emotion_handles.inc"),
+                                   ("src/services/solar_os_native_emotion.c", "emotion_native.inc")):
                 text = (ROOT / source).read_text()
-                Path(tmp, output).write_text(re.sub(r'^#(?:include|pragma).*\n', '', text, flags=re.M))
+                Path(tmp, output).write_text(re.sub(r'^#(?:include|pragma)(?! "generated/).*\n', '', text, flags=re.M))
             for audio in (0, 1):
                 binary = Path(tmp, "runtime")
                 subprocess.run([
                     "cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
-                    "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                    "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
+                    "-DTEST_NATIVE_EMOTION_API", "-DSOLAR_OS_PACKAGE_SERVICE_EMOTION=1",
                     f"-DSOLAR_OS_PACKAGE_SERVICE_AUDIO={audio}",
-                    "-I", tmp, "-I", str(ROOT / "include"),
+                    "-I", tmp, "-I", str(ROOT / "include"), "-I", str(ROOT / "src/services"),
                     str(ROOT / "modules/emotion/main/emotion.c"),
                     str(ROOT / "tests/host/emotion_runtime_test.c"), "-o", str(binary),
                 ], check=True)
@@ -53,7 +66,7 @@ class EmotionTest(unittest.TestCase):
             binary = Path(tmp, "emotion")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
                 "-I", str(ROOT / "include"),
                 str(ROOT / "modules/emotion/main/emotion.c"),
                 str(ROOT / "tests/host/emotion_test.c"), "-o", str(binary),

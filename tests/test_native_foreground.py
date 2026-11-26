@@ -23,7 +23,8 @@ class NativeForegroundTest(unittest.TestCase):
             binary = Path(tmp, "cache-race")
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-pthread",
                             "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                            "-I", tmp, "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
+                            "-I", tmp, "-I", str(ROOT / "include"),
+                            "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
                             str(ROOT / "tests/host/native_cache_race_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

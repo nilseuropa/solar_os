@@ -26,6 +26,10 @@ solar_os_ps2_mouse_decode_result_t solar_os_ps2_mouse_decode(
     if (decoder->count == 0 && (byte & PS2_MOUSE_ALWAYS_ONE) == 0) {
         return SOLAR_OS_PS2_MOUSE_DECODE_UNSUPPORTED;
     }
+    if (decoder->count >= sizeof(decoder->packet)) {
+        solar_os_ps2_mouse_decoder_reset(decoder);
+        return SOLAR_OS_PS2_MOUSE_DECODE_UNSUPPORTED;
+    }
     decoder->packet[decoder->count++] = byte;
     if (decoder->count < sizeof(decoder->packet)) {
         return SOLAR_OS_PS2_MOUSE_DECODE_NONE;

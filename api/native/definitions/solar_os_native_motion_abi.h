@@ -45,6 +45,92 @@ typedef struct {
     float angle_min, angle_max; /* Radians at the servo shaft. */
 } solar_os_native_servo_config_v1_t;
 
+typedef struct {
+    solar_os_native_servo_config_v1_t calibration;
+    bool inverted;
+} solar_os_native_servo_config_v2_t;
+
+typedef struct {
+    char name[16], owner[24];
+    solar_os_native_servo_config_v2_t config;
+    bool enabled, has_command;
+    uint32_t commanded_pulse_us;
+    float commanded_angle_rad;
+    bool input_claimed, stream_writable, closing;
+} solar_os_native_servo_info_v1_t;
+
+#define SOLAR_OS_MOTOR_NAME_MAX 20
+#define SOLAR_OS_MOTOR_DRIVER_MAX 32
+
+typedef enum {
+    SOLAR_OS_MOTOR_MODE_UNKNOWN,
+    SOLAR_OS_MOTOR_MODE_COAST,
+    SOLAR_OS_MOTOR_MODE_FORWARD,
+    SOLAR_OS_MOTOR_MODE_REVERSE,
+    SOLAR_OS_MOTOR_MODE_BRAKE,
+} solar_os_native_motor_mode_v1_t;
+
+#define SOLAR_OS_MOTOR_FAULT_UNKNOWN (1U << 0)
+#define SOLAR_OS_MOTOR_FAULT_OVERCURRENT (1U << 1)
+#define SOLAR_OS_MOTOR_FAULT_UNDERVOLTAGE (1U << 2)
+#define SOLAR_OS_MOTOR_FAULT_OVERTEMPERATURE (1U << 3)
+#define SOLAR_OS_MOTOR_FAULT_CURRENT_LIMIT (1U << 4)
+
+typedef struct {
+    char name[SOLAR_OS_MOTOR_NAME_MAX];
+    char driver[SOLAR_OS_MOTOR_DRIVER_MAX];
+    bool can_drive;
+    bool can_brake;
+    bool can_clear;
+} solar_os_native_motor_info_v1_t;
+
+typedef struct {
+    solar_os_native_motor_info_v1_t info;
+    solar_os_native_motor_mode_v1_t mode;
+    bool drive_valid;
+    float drive; /* Applied normalized command, not measured speed or torque. */
+    bool voltage_valid;
+    uint32_t voltage_mv; /* Nominal magnitude; direction is in mode. */
+    uint32_t faults; /* Normalized present or recorded conditions. */
+    uint32_t blocking_faults; /* Conditions that currently prevent drive. */
+    bool fault_input_present;
+    bool fault_input_asserted;
+    bool raw_valid;
+    uint32_t raw_control; /* Optional, driver-specific diagnostics. */
+    uint32_t raw_fault;
+    solar_os_native_motor_config_v1_t config;
+    bool claimed;
+} solar_os_native_motor_status_v1_t;
+
+#define SOLAR_OS_ENCODER_NAME_MAX 20
+#define SOLAR_OS_ENCODER_DRIVER_MAX 32
+
+typedef enum {
+    SOLAR_OS_ENCODER_MODE_X1 = 1,
+    SOLAR_OS_ENCODER_MODE_X2 = 2,
+    SOLAR_OS_ENCODER_MODE_X4 = 4,
+} solar_os_native_encoder_mode_v1_t;
+
+typedef struct {
+    char name[SOLAR_OS_ENCODER_NAME_MAX];
+    char driver[SOLAR_OS_ENCODER_DRIVER_MAX];
+    solar_os_native_encoder_mode_v1_t mode;
+    bool can_reset;
+} solar_os_native_encoder_info_v1_t;
+
+typedef struct {
+    solar_os_native_encoder_info_v1_t info;
+    int32_t count;
+    solar_os_native_encoder_config_v1_t config;
+    solar_os_native_encoder_feedback_v1_t feedback;
+    bool claimed;
+} solar_os_native_encoder_status_v1_t;
+
+#define SOLAR_OS_NATIVE_MOTOR_COMMAND_DRIVE 0U
+#define SOLAR_OS_NATIVE_MOTOR_COMMAND_COAST 1U
+#define SOLAR_OS_NATIVE_MOTOR_COMMAND_BRAKE 2U
+#define SOLAR_OS_NATIVE_MOTOR_COMMAND_CLEAR_FAULT 3U
+
 /* Generic host device access, without robot/axis policy. Claim tokens pin a
  * device and reject competing writers/reset/detach. Stop/release failures
  * retain ownership for retry. Encoder reads acquire fresh hardware counts. */
@@ -62,4 +148,35 @@ typedef struct {
     int (*servo_set)(const char *name, const char *owner, float radians);
     int (*servo_disable)(const char *name, const char *owner);
     int (*servo_close)(const char *name, const char *owner);
+    size_t (*motor_count)(void);
+    bool (*motor_info)(size_t index, solar_os_native_motor_info_v1_t *info);
+    int (*motor_status)(const char *name, solar_os_native_motor_status_v1_t *status);
+    /* Only DRIVE uses normalized. Any active claim excludes named commands. */
+    int (*motor_command)(const char *name, uint32_t command, float normalized);
+    const char *(*motor_mode_name)(solar_os_native_motor_mode_v1_t mode);
+    bool (*motor_config_valid)(const solar_os_native_motor_config_v1_t *config);
+    int (*motor_get_config)(const char *name, solar_os_native_motor_config_v1_t *config);
+    int (*motor_configure)(const char *name, const char *key, float value);
+    int (*motor_configure_owned)(uint32_t claim, const solar_os_native_motor_config_v1_t *config);
+    size_t (*encoder_count)(void);
+    bool (*encoder_info)(size_t index, solar_os_native_encoder_info_v1_t *info);
+    /* Calibrated status can take a 20 ms measurement when no stream is open. */
+    int (*encoder_status)(const char *name, solar_os_native_encoder_status_v1_t *status);
+    int (*encoder_read)(const char *name, int32_t *count);
+    int (*encoder_reset)(const char *name);
+    bool (*encoder_config_valid)(const solar_os_native_encoder_config_v1_t *config);
+    int (*encoder_get_config)(const char *name, solar_os_native_encoder_config_v1_t *config);
+    int (*encoder_configure)(const char *name, const char *key, float value);
+    int (*encoder_configure_owned)(uint32_t claim, const solar_os_native_encoder_config_v1_t *config);
+    /* Copies the latest cached estimate. Use encoder_status for a fresh estimate. */
+    int (*encoder_feedback)(uint32_t claim, solar_os_native_encoder_feedback_v1_t *feedback);
+    /* With writable_input, a stream client may reserve the servo sink. The older servo_open
+     * keeps writes restricted to the named owner. */
+    int (*servo_open_ex)(const char *name, const char *owner,
+        const solar_os_native_servo_config_v2_t *config, bool writable_input);
+    size_t (*servo_count)(void);
+    int (*servo_info)(size_t index, solar_os_native_servo_info_v1_t *info);
+    int (*servo_status)(const char *name, solar_os_native_servo_info_v1_t *info);
+    int (*servo_pulse)(const char *name, const char *owner, uint32_t pulse_us);
+    int (*servo_release_owner)(const char *owner);
 } solar_os_native_motion_api_v1_t;

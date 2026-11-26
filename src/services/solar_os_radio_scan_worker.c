@@ -61,6 +61,10 @@ esp_err_t solar_os_radio_scan_worker_open(solar_os_radio_scan_worker_t **out,
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "radio.scan.worker");
     if (worker == NULL) return ESP_ERR_NO_MEM;
     worker->lock = xSemaphoreCreateMutexStatic(&worker->lock_storage);
+    if (!worker->lock) {
+        solar_os_memory_free(worker);
+        return ESP_ERR_NO_MEM;
+    }
     atomic_init(&worker->stopping, false);
     atomic_init(&worker->finished, false);
     solar_os_radio_scan_init(&worker->scan);
@@ -71,6 +75,11 @@ esp_err_t solar_os_radio_scan_worker_open(solar_os_radio_scan_worker_t **out,
         err = ESP_ERR_NO_MEM;
         (void)solar_os_radio_scan_stop(&worker->scan);
     }
+    if (err != ESP_OK && worker->scan.handle.index >= 0) {
+        worker->scan.error = err;
+        *out = worker;   /* Failed start still owns a retiring radio. */
+        return err;
+    }
     if (err != ESP_OK) {
         vSemaphoreDelete(worker->lock);
         solar_os_memory_free(worker);
@@ -80,16 +89,28 @@ esp_err_t solar_os_radio_scan_worker_open(solar_os_radio_scan_worker_t **out,
     return ESP_OK;
 }
 
-esp_err_t solar_os_radio_scan_worker_copy(solar_os_radio_scan_worker_t *worker,
-    solar_os_radio_scan_t *snapshot)
+esp_err_t solar_os_radio_scan_worker_snapshot(solar_os_radio_scan_worker_t *worker,
+    solar_os_radio_scan_snapshot_fn copy, void *user)
 {
-    if (worker == NULL || snapshot == NULL) return ESP_ERR_INVALID_ARG;
+    if (!worker || !copy) return ESP_ERR_INVALID_ARG;
     if (xSemaphoreTake(worker->lock, pdMS_TO_TICKS(10)) != pdTRUE) return ESP_ERR_TIMEOUT;
-    memcpy(snapshot, &worker->scan, sizeof(*snapshot));
+    copy(&worker->scan, user);
     worker->scan.recent_peak = SOLAR_OS_RADIO_SCAN_EMPTY;
     worker->scan.recent_peak_frequency_hz = 0;
     xSemaphoreGive(worker->lock);
     return ESP_OK;
+}
+
+static void snapshot_copy(const solar_os_radio_scan_t *scan, void *user)
+{
+    memcpy(user, scan, sizeof(*scan));
+}
+
+esp_err_t solar_os_radio_scan_worker_copy(solar_os_radio_scan_worker_t *worker,
+    solar_os_radio_scan_t *snapshot)
+{
+    if (!snapshot) return ESP_ERR_INVALID_ARG;
+    return solar_os_radio_scan_worker_snapshot(worker, snapshot_copy, snapshot);
 }
 
 esp_err_t solar_os_radio_scan_worker_clear(solar_os_radio_scan_worker_t *worker)
@@ -100,35 +121,48 @@ esp_err_t solar_os_radio_scan_worker_clear(solar_os_radio_scan_worker_t *worker)
     xSemaphoreGive(worker->lock);
     /* The task can already be parked after an error, but remains valid until
      * Close deletes it. Notifications cannot dereference a stale task handle. */
-    xTaskNotifyGive(worker->task);
+    if (worker->task) xTaskNotifyGive(worker->task);
     return ESP_OK;
 }
 
 bool solar_os_radio_scan_worker_done(const solar_os_radio_scan_worker_t *worker)
 {
-    return worker == NULL ||
+    return worker == NULL || worker->task == NULL ||
         (atomic_load_explicit(&worker->finished, memory_order_acquire) &&
          eTaskGetState(worker->task) == eSuspended);
+}
+
+esp_err_t solar_os_radio_scan_worker_close_snapshot(solar_os_radio_scan_worker_t **out,
+    solar_os_radio_scan_snapshot_fn copy, void *user)
+{
+    if (out == NULL) return ESP_ERR_INVALID_ARG;
+    solar_os_radio_scan_worker_t *worker = *out;
+    if (worker == NULL) return ESP_OK;
+    if (worker->task) {
+        atomic_store_explicit(&worker->stopping, true, memory_order_release);
+        xTaskNotifyGive(worker->task);
+        int64_t deadline = esp_timer_get_time() + SCAN_WORKER_STOP_MS * 1000LL;
+        while (!solar_os_radio_scan_worker_done(worker)) {
+            if (esp_timer_get_time() >= deadline) return ESP_ERR_TIMEOUT;
+            vTaskDelay(1);
+        }
+        solar_os_task_delete_internal(worker->task);
+        worker->task = NULL;
+    }
+    const esp_err_t result = worker->scan.error;
+    if (worker->scan.handle.index >= 0) {
+        const esp_err_t error = solar_os_radio_release(&worker->scan.handle);
+        if (error != ESP_OK) return error;
+    }
+    if (copy) copy(&worker->scan, user);
+    vSemaphoreDelete(worker->lock);
+    solar_os_memory_free(worker);
+    *out = NULL;
+    return result;
 }
 
 esp_err_t solar_os_radio_scan_worker_close(solar_os_radio_scan_worker_t **out,
     solar_os_radio_scan_t *snapshot)
 {
-    if (out == NULL) return ESP_ERR_INVALID_ARG;
-    solar_os_radio_scan_worker_t *worker = *out;
-    if (worker == NULL) return ESP_OK;
-    atomic_store_explicit(&worker->stopping, true, memory_order_release);
-    xTaskNotifyGive(worker->task);
-    int64_t deadline = esp_timer_get_time() + SCAN_WORKER_STOP_MS * 1000LL;
-    while (!solar_os_radio_scan_worker_done(worker)) {
-        if (esp_timer_get_time() >= deadline) return ESP_ERR_TIMEOUT;
-        vTaskDelay(1);
-    }
-    solar_os_task_delete_internal(worker->task);
-    esp_err_t result = worker->scan.error;
-    if (snapshot != NULL) memcpy(snapshot, &worker->scan, sizeof(*snapshot));
-    vSemaphoreDelete(worker->lock);
-    solar_os_memory_free(worker);
-    *out = NULL;
-    return result;
+    return solar_os_radio_scan_worker_close_snapshot(out, snapshot ? snapshot_copy : NULL, snapshot);
 }

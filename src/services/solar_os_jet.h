@@ -2,17 +2,8 @@
 #include "esp_err.h"
 #include "solar_os_gfx.h"
 #include "solar_os_jet_abi.h"
+#include "solar_os_native_jet_abi.h"
 typedef struct solar_os_jet solar_os_jet_t;
-typedef struct {
-    const char *display; /* NULL uses the calling foreground. */
-    uint16_t fps; /* 0 follows the target, capped at 30. */
-} solar_os_jet_options_t;
-typedef struct {
-    uint32_t frames, presented, dropped;
-    uint64_t render_us, present_us;
-    uint16_t width, height;
-    esp_err_t error;
-} solar_os_jet_status_t;
 
 /* Serialize all calls, including lifecycle, on a scene. Rendering runs on the
  * caller; the shared presenter owns its display worker and three color buffers.

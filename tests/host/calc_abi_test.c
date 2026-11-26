@@ -62,6 +62,14 @@ esp_err_t solar_os_app_registry_request_launch(solar_os_context_t *ctx, const ch
     size_t argc, const char *const args[])
 { (void)ctx; (void)name; (void)argc; (void)args; return ESP_ERR_NOT_SUPPORTED; }
 bool solar_os_app_registry_can_open(const char *path) { (void)path; return false; }
+bool solar_os_app_registry_opener_info(const char *path, solar_os_app_discovery_info_t *info)
+{ (void)path; (void)info; return false; }
+const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name)
+{ (void)name; return NULL; }
+bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t capacity)
+{ (void)app; if (owner && capacity) owner[0] = 0; return false; }
+esp_err_t solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user), void *user)
+{ (void)visit; (void)user; return ESP_ERR_NOT_SUPPORTED; }
 esp_err_t solar_os_app_registry_request_open(solar_os_context_t *ctx, const char *path)
 { (void)ctx; (void)path; return ESP_ERR_NOT_SUPPORTED; }
 size_t solar_os_app_discovery_count(bool playground) { (void)playground; return 0; }

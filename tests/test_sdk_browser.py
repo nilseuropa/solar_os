@@ -30,7 +30,7 @@ class SdkBrowserTest(unittest.TestCase):
                 '[sdk.headers]\n"api.h"="api.h"\n"detail/inner.h"="inner.h"\n')
             (module/'api.h').write_text('#define ANSWER 42\n');(module/'inner.h').write_text('#include "../api.h"\n')
             data=pack.pack_elf(fixture(),manifest)
-            for mode in ('valid','nul','broken','traversal','truncated','collision'):
+            for mode in ('valid','packed','nul','broken','traversal','truncated','collision'):
                 with self.subTest(mode=mode):
                     folder=root/mode;libraries=folder/'modules/libraries';libraries.mkdir(parents=True)
                     artifact=bytearray(data)

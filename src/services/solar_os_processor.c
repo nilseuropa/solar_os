@@ -31,6 +31,7 @@ struct solar_os_processor {
     uint32_t provider_lease, provider_model;
     const solar_os_processor_provider_api_v1_t *provider;
     void *provider_client;
+    bool source_bound;
 #if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
     solar_os_inference_t *client;
     char input[SOLAR_OS_INFERENCE_NAME_MAX];
@@ -49,11 +50,13 @@ static esp_err_t provider_error(int error)
     switch (error) {
     case SOLAR_OS_NATIVE_OK: return ESP_OK;
     case SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT: return ESP_ERR_INVALID_ARG;
-    case SOLAR_OS_NATIVE_ERROR_INVALID_STATE: return ESP_ERR_INVALID_STATE;
+    case SOLAR_OS_NATIVE_ERROR_INVALID_STATE:
+    case SOLAR_OS_NATIVE_ERROR_BUSY: return ESP_ERR_INVALID_STATE;
     case SOLAR_OS_NATIVE_ERROR_NO_MEMORY: return ESP_ERR_NO_MEM;
     case SOLAR_OS_NATIVE_ERROR_NOT_FOUND: return ESP_ERR_NOT_FOUND;
     case SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED: return ESP_ERR_NOT_SUPPORTED;
-    case SOLAR_OS_NATIVE_ERROR_TIMEOUT: return ESP_ERR_TIMEOUT;
+    case SOLAR_OS_NATIVE_ERROR_TIMEOUT:
+    case SOLAR_OS_NATIVE_ERROR_CANCELLED: return ESP_ERR_TIMEOUT;
     case SOLAR_OS_NATIVE_ERROR_INVALID_SIZE: return ESP_ERR_INVALID_SIZE;
     default: return ESP_FAIL;
     }
@@ -105,15 +108,18 @@ esp_err_t solar_os_processor_bind_source(solar_os_processor_t *p, const char *so
     if (!p || !source || !*source) return ESP_ERR_INVALID_ARG;
     if (!p->provider) return ESP_OK;
     if (p->provider_client) return ESP_ERR_INVALID_STATE;
-    return provider_error(p->provider->open(provider_services(), source, p->provider_model,
+    esp_err_t error = provider_error(p->provider->open(provider_services(), source, p->provider_model,
         p->timeout_ms, p->cancel, p->user, &p->provider_client));
+    if (!error && !p->provider_client) error = ESP_ERR_INVALID_RESPONSE;
+    p->source_bound = error == ESP_OK;
+    return error;
 }
 esp_err_t solar_os_processor_capture(solar_os_processor_t *p, const char *source,
     uint64_t sequence, solar_os_media_sample_t **sample, char **json)
 {
     if (!sample || !json) return ESP_ERR_INVALID_ARG;
     *sample = NULL; *json = NULL;
-    if (!p || !p->provider || !p->provider_client || !source) return ESP_ERR_INVALID_STATE;
+    if (!p || !p->source_bound || !source) return ESP_ERR_INVALID_STATE;
     solar_os_processor_frame_v1_t frame = {0};
     esp_err_t error = provider_error(p->provider->capture(p->provider_client, &frame, json));
     if (!error) error = check_json(*json);
@@ -343,23 +349,38 @@ esp_err_t solar_os_processor_create(const char *kind, uint32_t model, uint32_t t
     if (error) { solar_os_processor_destroy(p); return error; }
     *out = p; return ESP_OK;
 }
-void solar_os_processor_destroy(solar_os_processor_t *p)
+esp_err_t solar_os_processor_close_checked(solar_os_processor_t *p)
 {
-    if (!p) return;
+    if (!p) return ESP_OK;
     if (p->provider_client) {
-        while (p->provider->close(p->provider_client)) vTaskDelay(pdMS_TO_TICKS(20) + 1);
+        p->source_bound = false;
+        int result = p->provider->close(p->provider_client);
+        if (result) return provider_error(result);
+        p->provider_client = NULL;
     }
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
-    if (p->provider_lease) solar_os_native_library_release(p->provider_lease);
+    if (p->provider_lease) {
+        int result = solar_os_native_library_release(p->provider_lease);
+        if (result && result != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return provider_error(result);
+        p->provider_lease = 0;
+    }
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
     if (p->model) {
         /* A competing request can temporarily hold global inference admission. */
-        while (solar_os_inference_release(p->model) == ESP_ERR_INVALID_STATE) vTaskDelay(1);
+        esp_err_t error = solar_os_inference_release(p->model);
+        if (error == ESP_ERR_INVALID_STATE) return error;
+        p->model = 0;
     }
     solar_os_inference_destroy(p->client);
 #endif
     solar_os_memory_free(p);
+    return ESP_OK;
+}
+
+void solar_os_processor_destroy(solar_os_processor_t *p)
+{
+    while (solar_os_processor_close_checked(p) != ESP_OK) vTaskDelay(pdMS_TO_TICKS(20) + 1);
 }
 esp_err_t solar_os_processor_run(solar_os_processor_t *p, solar_os_raster_image_t *image, char **out)
 {

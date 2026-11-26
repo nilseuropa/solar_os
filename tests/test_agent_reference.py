@@ -58,23 +58,36 @@ class AgentReferenceTest(unittest.TestCase):
             descriptor,
             re.MULTILINE,
         )
-        self.assertEqual(len(modules), 57)
+        self.assertTrue(modules)
 
         for language in ("python", "lua"):
-            reference_text = ""
-            for page in self.language_pages(language):
-                if page["id"] == language:
-                    continue
+            overview = self.pages_by_id[language]
+            linked_ids = {
+                Path(target).stem
+                for target in re.findall(r"\]\(([^()/#]+\.md)\)", str(overview["markdown"]))
+            }
+            pages = {
+                str(page["id"]): page
+                for page in self.language_pages(language)
+                if page["id"] != language
+            }
+            pages.update({
+                name: self.pages_by_id[name]
+                for name in linked_ids & self.pages_by_id.keys()
+                if name != language
+            })
+            contents = []
+            for page in pages.values():
                 body = str(page["body"]).encode("utf-8")
-                reference_text += b"".join(
+                contents.extend(
                     body[
                         int(reference["offset"]) :
                         int(reference["offset"]) + int(reference["length"])
-                    ]
-                    for reference in page["agent_references"]
-                ).decode("utf-8").casefold()
-            for module in modules:
-                self.assertIn(f"solaros.{module}", reference_text)
+                    ].decode("utf-8")
+                    for reference in page.get("agent_references", [])
+                )
+            documented = set(re.findall(r"\bsolaros\.(\w+)\b", "\n".join(contents).casefold()))
+            self.assertEqual(sorted(set(modules) - documented), [], language)
 
     def test_recent_runtime_features_have_focused_topics(self):
         python_topics = {

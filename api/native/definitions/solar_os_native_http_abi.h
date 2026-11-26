@@ -57,6 +57,13 @@ typedef struct {
 } solar_os_native_http_limits_v1_t;
 typedef struct { char host[256]; uint32_t port, tls; } solar_os_native_http_origin_v1_t;
 
+typedef struct {
+    uint64_t bytes;
+    uint8_t sha256[32];
+    solar_os_native_http_result_v1_t response;
+} solar_os_native_download_result_v1_t;
+typedef void (*solar_os_native_download_progress_fn)(size_t received, size_t total, void *user);
+
 /* A context owns its keep-alive connections, streams and atomic cancellation.
  * Serialize context operations except cancel(), which is cross-task safe.
  * Stream open copies every option/buffer before return. Buffered requests
@@ -104,4 +111,11 @@ typedef struct {
     bool (*same_origin)(const solar_os_native_http_origin_v1_t *a, const solar_os_native_http_origin_v1_t *b);
     bool (*redirect_status)(int32_t status);
     int (*redirect_url)(const char *base, const char *location, char *out, size_t capacity);
+    /* Download to an exclusive caller-owned staging path. The service checks
+     * the stored bytes against the response and optional expected SHA-256.
+     * A failed transfer removes its staging file. Progress runs on the calling
+     * task, and cancel() applies during transfer and file verification. */
+    int (*download)(solar_os_native_handle_t context, const solar_os_native_http_options_v1_t *options,
+        const char *staged_path, size_t max_size, size_t expected_size, const char *expected_sha256,
+        solar_os_native_download_progress_fn progress, void *user, solar_os_native_download_result_v1_t *result);
 } solar_os_native_http_api_v1_t;

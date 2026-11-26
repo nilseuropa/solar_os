@@ -6,30 +6,16 @@
 
 #include "esp_err.h"
 #include "solar_os_config.h"
+#include "solar_os_native_audio_abi.h"
+#include "solar_os_native_audio_routes_abi.h"
 #include "solar_os_stream.h"
 
-#define SOLAR_OS_AUDIO_TONE_MIN_HZ 20U
-#define SOLAR_OS_AUDIO_TONE_MAX_HZ 8000U
 #define SOLAR_OS_AUDIO_TEST_MAX_MS 10000U
 #define SOLAR_OS_AUDIO_WAV_MAX_MS (60U * 60U * 1000U)
 #define SOLAR_OS_AUDIO_WAV_DEFAULT_PROGRESS_MS 1000U
-#define SOLAR_OS_AUDIO_VOLUME_GLOBAL 255U
-#define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_STEPS 8U
-#define SOLAR_OS_AUDIO_TONE_SEQUENCE_MAX_MS 10000U
-#define SOLAR_OS_AUDIO_TONE_QUEUE_CAPACITY 8U
+#define SOLAR_OS_AUDIO_VOLUME_GLOBAL SOLAR_OS_AUDIO_FILE_VOLUME_GLOBAL
 #define SOLAR_OS_AUDIO_STREAM_OWNER_MAX 24U
 #define SOLAR_OS_AUDIO_DEVICE_MAX 4U
-#define SOLAR_OS_AUDIO_DEVICE_ID_MAX 16U
-#define SOLAR_OS_AUDIO_DEVICE_NAME_MAX 40U
-#define SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES 4096U
-#define SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS 2U
-
-typedef enum {
-    SOLAR_OS_AUDIO_DEVICE_CAP_INPUT = 1U << 0,
-    SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT = 1U << 1,
-    SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME = 1U << 2,
-    SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN = 1U << 3,
-} solar_os_audio_device_capability_t;
 
 typedef struct solar_os_audio_stream solar_os_audio_stream_t;
 typedef struct solar_os_audio_input_stream solar_os_audio_input_stream_t;
@@ -74,52 +60,8 @@ typedef struct {
     const char *input_codec;
 } solar_os_audio_status_t;
 
-typedef struct {
-    uint32_t samples;
-    uint8_t peak_percent;
-    uint8_t average_percent;
-} solar_os_audio_level_t;
-
-typedef struct {
-    uint32_t frequency_hz;
-    uint32_t duration_ms;
-    uint32_t pause_ms;
-} solar_os_audio_tone_step_t;
-
-typedef struct {
-    /* The service copies the steps before this call returns. */
-    const solar_os_audio_tone_step_t *steps;
-    size_t step_count;
-    uint8_t volume;
-    /* Drop instead of waiting when another audio operation is active. */
-    bool drop_if_busy;
-} solar_os_audio_tone_request_t;
-
-typedef struct {
-    bool worker_running;
-    bool playing;
-    size_t queued;
-    uint32_t current_id;
-    uint32_t completed;
-    uint32_t cancelled;
-    uint32_t dropped;
-    uint32_t failed;
-} solar_os_audio_tone_queue_status_t;
-
-typedef struct {
-    uint32_t sample_rate;
-    uint32_t data_bytes;
-    uint32_t duration_ms;
-    uint16_t block_align;
-    uint8_t channels;
-    uint8_t bits_per_sample;
-} solar_os_audio_wav_info_t;
-
-typedef struct {
-    solar_os_audio_wav_info_t info;
-    bool done;
-    bool cancelled;
-} solar_os_audio_wav_progress_t;
+typedef solar_os_audio_file_info_v1_t solar_os_audio_wav_info_t;
+typedef solar_os_audio_file_progress_v1_t solar_os_audio_wav_progress_t;
 
 typedef bool (*solar_os_audio_wav_cancel_cb_t)(void *user);
 typedef bool (*solar_os_audio_wav_pause_cb_t)(void *user);
@@ -129,6 +71,7 @@ typedef void (*solar_os_audio_wav_samples_cb_t)(const int16_t *samples,
                                                 uint8_t channels,
                                                 void *user);
 typedef void (*solar_os_audio_wav_device_cb_t)(
+    bool capture,
     const solar_os_audio_device_info_t *device,
     void *user);
 typedef void (*solar_os_audio_wav_progress_cb_t)(const solar_os_audio_wav_progress_t *progress,
@@ -164,6 +107,8 @@ esp_err_t solar_os_audio_register_device_ex(
     const solar_os_audio_device_info_t *device,
     const solar_os_audio_device_ops_t *ops,
     void *user);
+/* Detach may need a retry after an in-flight device control finishes. Keep
+ * the provider and its callback data alive until unregistration succeeds. */
 esp_err_t solar_os_audio_unregister_device(const char *id);
 size_t solar_os_audio_device_count(void);
 bool solar_os_audio_device_get(size_t index, solar_os_audio_device_info_t *device);
@@ -173,7 +118,9 @@ bool solar_os_audio_output_available(void);
 /* An empty ID restores automatic first-compatible-device selection. */
 esp_err_t solar_os_audio_set_default_output(const char *id);
 bool solar_os_audio_get_default_output(char *id, size_t id_len);
-/* Open the preferred endpoint, then the first other compatible endpoint. */
+/* Open the preferred endpoint, then the first other compatible endpoint.
+ * A provider that cannot close after a failed open leaves a live stream for
+ * the caller to close before retrying. */
 esp_err_t solar_os_audio_open_default(
     solar_os_stream_direction_t direction,
     const char *owner,
@@ -181,11 +128,10 @@ esp_err_t solar_os_audio_open_default(
     solar_os_stream_handle_t *stream,
     solar_os_audio_device_info_t *device);
 esp_err_t solar_os_audio_set_device_volume(const char *id, uint8_t volume);
-esp_err_t solar_os_audio_set_device_input_gain(const char *id, float gain_db);
-esp_err_t solar_os_audio_get_device_input_gain(const char *id, float *gain_db);
 /* Register the board device and its scalar/audio endpoints without powering it. */
 esp_err_t solar_os_audio_register_streams(void);
 esp_err_t solar_os_audio_unregister_streams(const char *id);
+uint8_t solar_os_audio_global_volume(void);
 esp_err_t solar_os_audio_set_volume(uint8_t volume);
 esp_err_t solar_os_audio_toggle_mute(uint8_t *volume_after);
 esp_err_t solar_os_audio_set_mic_gain(float gain_db);
@@ -211,6 +157,8 @@ esp_err_t solar_os_audio_input_stream_read(solar_os_audio_input_stream_t *stream
                                            size_t len);
 void solar_os_audio_input_stream_close(solar_os_audio_input_stream_t *stream);
 /* Capture exactly frames of interleaved native S16LE PCM from the default input. */
+esp_err_t solar_os_audio_capture_frames(solar_os_stream_handle_t *stream, size_t frames,
+    int16_t *samples, size_t sample_capacity);
 esp_err_t solar_os_audio_capture(const char *owner,
                                  size_t frames,
                                  int16_t *samples,
@@ -221,12 +169,19 @@ esp_err_t solar_os_audio_tone_enqueue(const solar_os_audio_tone_request_t *reque
                                       uint32_t *request_id);
 esp_err_t solar_os_audio_tone_cancel(uint32_t request_id);
 void solar_os_audio_tone_queue_get_status(solar_os_audio_tone_queue_status_t *status);
+esp_err_t solar_os_audio_measure_stream(solar_os_stream_handle_t *stream, uint32_t duration_ms,
+    int channel, solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_measure_level(uint32_t duration_ms, solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_measure_channel_level(uint8_t channel,
                                                uint32_t duration_ms,
                                                solar_os_audio_level_t *level);
 esp_err_t solar_os_audio_loopback(uint32_t duration_ms, uint8_t volume);
 esp_err_t solar_os_audio_get_wav_info(const char *path, solar_os_audio_wav_info_t *info);
+esp_err_t solar_os_audio_file_probe(const char *path, uint32_t format, uint32_t *detected,
+                                    solar_os_audio_file_info_v1_t *info);
+esp_err_t solar_os_audio_file_play(const char *path, uint32_t format, uint8_t volume,
+                                   const solar_os_audio_wav_options_t *options,
+                                   solar_os_audio_file_info_v1_t *info);
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS
 esp_err_t solar_os_audio_get_mp3_info(const char *path, solar_os_audio_wav_info_t *info);
 #endif

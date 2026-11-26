@@ -11,18 +11,25 @@ class NativeIoApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'gpio_owned_write.inc').write_text(production_functions(
                 (ROOT / 'src/services/solar_os_gpio.c').read_text(), ('gpio_resource_owner', 'gpio_claim_is_ours',
-                    'gpio_claim_direct', 'solar_os_gpio_read', 'solar_os_gpio_write', 'solar_os_gpio_write_owned')))
+                    'gpio_claim_direct', 'solar_os_gpio_read', 'solar_os_gpio_write', 'solar_os_gpio_write_owned',
+                    'solar_os_gpio_mode_name', 'solar_os_gpio_pull_name', 'solar_os_gpio_parse_mode', 'solar_os_gpio_parse_pull')))
+            Path(tmp, 'pin_labels.inc').write_text(production_functions(
+                (ROOT / 'src/services/solar_os_pins.c').read_text(),
+                ('solar_os_pin_policy_name', 'solar_os_connector_pin_kind_name')))
             binary = Path(tmp) / 'io'
             subprocess.run(['cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror', '-pthread',
                 '-fsanitize=address,undefined', '-fno-pie', '-no-pie', '-I', tmp,
                 '-DSOLAR_OS_PACKAGE_SERVICE_RESOURCES=1', '-DSOLAR_OS_PACKAGE_SERVICE_GPIO=1',
+                '-DSOLAR_OS_PACKAGE_SERVICE_EXPANSION=1',
                 '-DSOLAR_OS_PACKAGE_SERVICE_ADC=1', '-DSOLAR_OS_PACKAGE_SERVICE_PWM=1', '-DSOLAR_OS_BOARD_HAS_GPIO=1',
                 '-DESP_ERR_NOT_ALLOWED=0x10d', '-include', str(ROOT / 'tests/host/compat.h'),
-                '-I', str(ROOT / 'tests/host/native_abi_stubs'), '-I', str(ROOT / 'tests/host'),
+                '-I', str(ROOT / 'tests/host/native_abi_stubs'), '-I', str(ROOT / 'tests/host/gpio_controller_stubs'),
+                '-I', str(ROOT / 'tests/host'), '-I', str(ROOT / 'src/drivers'),
                 '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
                 str(ROOT / 'tests/host/native_io_api_test.c'),
                 *(str(ROOT / ('src/services/' + name)) for name in ['solar_os_resources.c', 'solar_os_pwm.c',
-                    'solar_os_native_handles.c', 'solar_os_native_io.c']), '-o', str(binary)], check=True)
+                    'solar_os_native_handles.c', 'solar_os_native_io.c', 'solar_os_gpio_controller.c',
+                    'solar_os_native_device_providers.c']), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)
 
     def test_disabled_and_adc_only_builds_do_not_pull_optional_backends(self):

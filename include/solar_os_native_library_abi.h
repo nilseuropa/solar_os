@@ -28,6 +28,18 @@ typedef struct {
     int (*shutdown)(void);
 } solar_os_native_library_descriptor_v1_t;
 
+/* Optional tail passed through register_library as &base. Set the base's
+ * struct_size to the size of this extended record. The base table remains
+ * the default. For other requests, Core holds a lease and releases its
+ * registry lock before calling select_api. A successful selection returns
+ * an immutable table that remains valid until library shutdown. */
+typedef int (*solar_os_native_library_select_api_fn)(uint32_t abi_version,
+    uint32_t minimum_struct_size, const void **api);
+typedef struct {
+    solar_os_native_library_descriptor_v1_t base;
+    solar_os_native_library_select_api_fn select_api;
+} solar_os_native_library_versioned_descriptor_v1_t;
+
 typedef struct {
     uint32_t abi_version, struct_size;
     const char *target;

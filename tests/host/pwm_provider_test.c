@@ -4,6 +4,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "solar_os_native_motion_abi.h"
+#include "solar_os_native_motion.h"
 #include "solar_os_pwm.h"
 #include "solar_os_servo.h"
 #define RAD(x) ((x) * (3.14159265358979323846f / 180.0f))
@@ -186,6 +188,40 @@ static void servo_stream_test(fake_bank_t *bank)
     puts("servo streams: radians, calibration bounds, exclusive writer, disable, cleanup retry and private owner passed");
 }
 
+static void native_servo_test(fake_bank_t *bank)
+{
+    const solar_os_native_motion_api_v1_t *motion = solar_os_native_motion_get_service(
+        "motion", SOLAR_OS_NATIVE_MOTION_ABI, sizeof(*motion));
+    assert(motion && motion->capabilities == SOLAR_OS_NATIVE_MOTION_SERVO);
+    solar_os_native_servo_config_v2_t config = {
+        .calibration = {.provider = "bank0", .frequency_hz = 50,
+            .pulse_min_us = 1000, .pulse_max_us = 2000, .angle_min = RAD(-45), .angle_max = RAD(45)},
+        .inverted = true,
+    };
+    assert(!motion->servo_open_ex("native", "sdk", &config, true));
+    solar_os_native_servo_info_v1_t info;
+    assert(motion->servo_count() == 1 && !motion->servo_info(0, &info));
+    assert(info.stream_writable && info.config.inverted && !info.enabled && !info.has_command);
+    assert(!strcmp(info.name, "native") && !strcmp(info.owner, "sdk"));
+    assert(!strcmp(info.config.calibration.provider, "bank0") && info.config.calibration.frequency_hz == 50);
+    assert(!motion->servo_set("native", "sdk", RAD(-45)) && bank->outputs[0].pulse_width_us == 2000);
+    assert(motion->servo_pulse("native", "shell", 1200) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!motion->servo_pulse("native", "sdk", 1250));
+    assert(!motion->servo_status("native", &info) && info.commanded_pulse_us == 1250 && info.enabled);
+    assert(fabsf(info.commanded_angle_rad - RAD(22.5f)) < .0001f);
+    bank->fail_close = true;
+    assert(motion->servo_release_owner("sdk") == SOLAR_OS_NATIVE_ERROR_FAILED);
+    assert(!motion->servo_status("native", &info) && info.closing);
+    assert(!motion->servo_release_owner("sdk") && motion->servo_count() == 0);
+    assert(motion->servo_info(0, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    config.calibration.output = UINT16_MAX + 1U;
+    assert(motion->servo_open_ex("native", "sdk", &config, true) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    config.calibration.output = 0;
+    assert(!motion->servo_open("legacy", "robot", &config.calibration));
+    assert(!motion->servo_status("legacy", &info) && !info.config.inverted && !info.stream_writable);
+    assert(!motion->servo_close("legacy", "robot"));
+}
+
 int main(void)
 {
     alarm(15); /* A lock regression fails instead of hanging the host suite. */
@@ -255,6 +291,7 @@ int main(void)
     assert(solar_os_pwm_unregister("bank0") == ESP_ERR_INVALID_STATE);
     assert(solar_os_servo_release_owner("python") == ESP_OK);
     assert(solar_os_servo_release_owner("lua") == ESP_OK);
+    native_servo_test(&a);
     a.probe_lifetime = true;
     assert(solar_os_pwm_get_provider(0, &provider)); /* refs protect enumeration without bindings */
     a.probe_lifetime = false;

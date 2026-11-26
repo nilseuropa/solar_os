@@ -7,9 +7,11 @@
 #include <pthread.h>
 #include <sched.h>
 #include <stdatomic.h>
+#include "solar_os_display_types_v1.h"
 typedef int esp_err_t;
 enum { ESP_OK, ESP_FAIL, ESP_ERR_INVALID_ARG, ESP_ERR_INVALID_STATE };
-typedef pthread_mutex_t *SemaphoreHandle_t;
+typedef pthread_mutex_t StaticSemaphore_t;
+typedef StaticSemaphore_t *SemaphoreHandle_t;
 typedef int solar_os_board_display_t;
 typedef struct {
     bool active;
@@ -34,7 +36,17 @@ static pthread_mutex_t present[3]={PTHREAD_MUTEX_INITIALIZER,PTHREAD_MUTEX_INITI
 static display_target_slot_t display_targets[SOLAR_OS_DISPLAY_TARGET_MAX];
 static atomic_bool waiting,finished;
 static _Thread_local bool owns_present;
-static uint32_t display_foreground_rgb888=0x123456,display_background_rgb888=0xffffff;
+static solar_os_display_theme_v1_t display_theme = {0x123456, 0xffffff};
+#define display_foreground_rgb888 display_theme.foreground_rgb888
+#define display_background_rgb888 display_theme.background_rgb888
+static bool display_colors_loaded = true;
+static SemaphoreHandle_t display_colors_mutex;
+static StaticSemaphore_t display_colors_storage;
+static SemaphoreHandle_t xSemaphoreCreateMutexStatic(StaticSemaphore_t *storage)
+{
+    assert(!pthread_mutex_init(storage, NULL));
+    return storage;
+}
 static unsigned saves;
 static esp_err_t save_error;
 static const char *saved_key;
@@ -44,10 +56,17 @@ static esp_err_t display_save_color(const char *key,uint32_t color)
 static int xSemaphoreTake(SemaphoreHandle_t mutex,unsigned wait)
 {
     assert(mutex && wait==portMAX_DELAY && !owns_present);
+    if (mutex == &display_colors_storage) return !pthread_mutex_lock(mutex);
     atomic_store(&waiting,true);assert(!pthread_mutex_lock(mutex));owns_present=true;return pdTRUE;
 }
 static void xSemaphoreGive(SemaphoreHandle_t mutex)
-{ assert(owns_present);owns_present=false;assert(!pthread_mutex_unlock(mutex)); }
+{
+    if (mutex != &display_colors_storage) {
+        assert(owns_present);
+        owns_present = false;
+    }
+    assert(!pthread_mutex_unlock(mutex));
+}
 typedef struct { unsigned index,calls;uint32_t foreground,background;bool fail_next; } device_t;
 static device_t devices[2]={{.index=0},{.index=1}};
 static esp_err_t set_colors(void *context,uint32_t foreground,uint32_t background)
@@ -71,6 +90,12 @@ static esp_err_t board_colors(void *context,uint32_t fg,uint32_t bg)
 #endif
 static void *change_theme(void *unused)
 { (void)unused;assert(solar_os_display_set_foreground_color(0xff0000)==ESP_OK);atomic_store(&finished,true);return NULL; }
+static void *change_background(void *unused)
+{
+    (void)unused;
+    assert(solar_os_display_set_theme_color(SOLAR_OS_DISPLAY_THEME_BACKGROUND, 0xabcdef) == ESP_OK);
+    return NULL;
+}
 static void idle(void)
 { assert(!owns_present);for(unsigned i=0;i<SOLAR_OS_DISPLAY_TARGET_MAX;i++)assert(!display_targets[i].refs); }
 int main(void)
@@ -92,6 +117,9 @@ int main(void)
     while(!atomic_load(&waiting) && !atomic_load(&finished))sched_yield();
     assert(atomic_load(&waiting));
     assert(!devices[0].calls && !devices[1].calls);
+    solar_os_display_theme_v1_t theme;
+    assert(solar_os_display_get_theme(&theme) == ESP_OK);
+    assert(theme.foreground_rgb888 == 0x123456 && theme.background_rgb888 == 0xffffff);
     assert(!pthread_mutex_unlock(&present[0]));assert(!pthread_join(worker,NULL));
     idle();assert(saves==1 && !strcmp(saved_key,"foreground"));
     for(unsigned i=0;i<2;i++)assert(devices[i].foreground==0xff0000 && devices[i].background==0xffffff);
@@ -123,5 +151,15 @@ int main(void)
     display_targets[1].target.ready=true;save_error=ESP_FAIL;
     assert(solar_os_display_set_background_color(0x112233)==ESP_FAIL);idle();
     assert(display_background_rgb888==0x112233 && devices[1].background==0x112233);
+    save_error = ESP_OK;
+    assert(solar_os_display_set_theme_color((solar_os_display_theme_role_t)2, 0xff) == ESP_ERR_INVALID_ARG);
+    pthread_t foreground_task, background_task;
+    assert(!pthread_create(&foreground_task, NULL, change_theme, NULL));
+    assert(!pthread_create(&background_task, NULL, change_background, NULL));
+    assert(!pthread_join(foreground_task, NULL) && !pthread_join(background_task, NULL));
+    assert(solar_os_display_get_theme(&theme) == ESP_OK);
+    assert(theme.foreground_rgb888 == 0xff0000 && theme.background_rgb888 == 0xabcdef);
+    for (unsigned i = 0; i < 2; i++)
+        assert(devices[i].foreground == theme.foreground_rgb888 && devices[i].background == theme.background_rgb888);
     puts("Display colors: expansion and primary themes, presentation locking, redraw, rollback and persistence passed");
 }

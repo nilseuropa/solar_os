@@ -854,12 +854,10 @@ static bool rfscan_event(solar_os_context_t *ctx, const solar_os_event_t *event)
 
 static bool rfscan_release_ready(void)
 {
-    return rfscan_state == NULL || solar_os_radio_scan_worker_done(rfscan.worker);
-}
-
-static void rfscan_release_cleanup(void)
-{
-    if (rfscan_state != NULL) (void)solar_os_radio_scan_worker_close(&rfscan.worker, NULL);
+    if (!rfscan_state) return true;
+    if (!solar_os_radio_scan_worker_done(rfscan.worker)) return false;
+    (void)solar_os_radio_scan_worker_close(&rfscan.worker, NULL);
+    return rfscan.worker == NULL;
 }
 
 const solar_os_app_t solar_os_rfscan_app = {
@@ -876,7 +874,6 @@ const solar_os_app_t solar_os_rfscan_app = {
     .state_size = sizeof(rfscan_state_t),
     .state_storage = SOLAR_OS_APP_STATE_TRANSIENT,
     .state_release_ready = rfscan_release_ready,
-    .state_release_cleanup = rfscan_release_cleanup,
     .worker_stack_bytes = 4096U,
     /* Full-frame presentation on a streamed color display takes up to ~100 ms
      * on T-Deck. Radio sampling runs independently in the scan worker. */

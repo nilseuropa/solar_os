@@ -131,14 +131,14 @@ esp_err_t solar_os_jet_open(const solar_os_jet_options_t *o,solar_os_gfx_t *fore
         err=ESP_ERR_NOT_SUPPORTED; goto fail;
     }
     bool direct=(target.frame_formats & SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT)!=0;
-    solar_os_frame_presenter_config_t config={
-        .gfx=s->gfx,.format=SOLAR_OS_DISPLAY_FORMAT_RGB565,
+    solar_os_frame_presenter_options_v1_t config={
+        .format=SOLAR_OS_DISPLAY_FORMAT_RGB565,
         .width=width,.height=height,.stride=width*2,.fit=SOLAR_OS_FRAME_FIT_HEIGHT,
         .preferred_fps=o->fps ? o->fps : (direct ? 30 : 0),
         .allow_mono_fallback=true,.literal_mono_palette=true,
         .request_high_refresh=!direct,.clear_background_on_resume=true,.background_rgb565=0xffff,
     };
-    err=solar_os_frame_presenter_init(&s->presenter,&config); if(err!=ESP_OK) goto fail;
+    err=solar_os_frame_presenter_init(&s->presenter, s->gfx, &config); if(err!=ESP_OK) goto fail;
     size_t capacity=0;
     err=solar_os_frame_presenter_acquire(s->presenter,&s->writing,&capacity); if(err!=ESP_OK) goto fail;
     if(capacity!=s->bytes) {err=ESP_ERR_INVALID_SIZE;goto fail;}

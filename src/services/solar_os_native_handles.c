@@ -3,11 +3,12 @@
 
 /* Slots store host adapter state and destructors. An adapter retaining module
  * callbacks must retain their code lease until quiescent cleanup succeeds.
- * The lock protects lifetimes, not concurrent access to object state. Owners
- * quiesce resource creation before releasing all their handles. */
+ * Shared borrows protect lifetimes. Exclusive borrows also serialize access
+ * to state. Owners quiesce creation before releasing their handles. */
 #define NATIVE_HANDLES_MAX 128U
 #define NATIVE_HANDLE_CLOSING (UINT32_C(1) << 31)
-#define NATIVE_HANDLE_REFERENCE_MAX (NATIVE_HANDLE_CLOSING - 1U)
+#define NATIVE_HANDLE_EXCLUSIVE (UINT32_C(1) << 30)
+#define NATIVE_HANDLE_REFERENCE_MAX (NATIVE_HANDLE_EXCLUSIVE - 1U)
 typedef struct {
     uint32_t id, kind, reference_state;
     void *state;
@@ -73,12 +74,38 @@ void *solar_os_native_handle_acquire(solar_os_native_handle_t id, uint32_t kind)
 { return handle_acquire(id, kind, NULL); }
 void *solar_os_native_handle_acquire_owned(solar_os_native_handle_t id, uint32_t kind, const void *owner)
 { return owner ? handle_acquire(id, kind, owner) : NULL; }
+
+int solar_os_native_handle_acquire_exclusive(solar_os_native_handle_t id, uint32_t kind, void **state)
+{
+    if (!state) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *state = NULL;
+    portENTER_CRITICAL(&handles_lock);
+    native_handle_slot_t *slot = find_handle(id);
+    int result = SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    if (slot && slot->kind == kind) {
+        result = SOLAR_OS_NATIVE_ERROR_BUSY;
+        if (!slot->reference_state) {
+            slot->reference_state = NATIVE_HANDLE_EXCLUSIVE;
+            *state = slot->state;
+            result = SOLAR_OS_NATIVE_OK;
+        }
+    }
+    portEXIT_CRITICAL(&handles_lock);
+    return result;
+}
+
 void solar_os_native_handle_release(solar_os_native_handle_t id)
 {
     portENTER_CRITICAL(&handles_lock);
     native_handle_slot_t *slot=find_handle(id);
-    if (slot && slot->reference_state && !(slot->reference_state & NATIVE_HANDLE_CLOSING))
-        --slot->reference_state;
+    if (slot && slot->reference_state && slot->reference_state < NATIVE_HANDLE_EXCLUSIVE) --slot->reference_state;
+    portEXIT_CRITICAL(&handles_lock);
+}
+void solar_os_native_handle_release_exclusive(solar_os_native_handle_t id)
+{
+    portENTER_CRITICAL(&handles_lock);
+    native_handle_slot_t *slot = find_handle(id);
+    if (slot && slot->reference_state == NATIVE_HANDLE_EXCLUSIVE) slot->reference_state = 0;
     portEXIT_CRITICAL(&handles_lock);
 }
 static int handle_close(solar_os_native_handle_t id, uint32_t kind, const void *owner)

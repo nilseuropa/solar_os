@@ -21,6 +21,7 @@
 #include "solar_os_config.h"
 #include "solar_os_memory.h"
 #include "solar_os_native_driver_abi.h"
+#include "solar_os_native_support.h"
 #include "solar_os_native_job_abi.h"
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
 #endif
@@ -58,6 +59,13 @@ void *solar_os_native_run_service_user(void)
     native_run_scope_t *scope = native_run_scope_current();
     return scope ? scope->options.service_user : NULL;
 }
+
+#ifdef ESP_PLATFORM
+__attribute__((noinline)) int solar_os_native_error_result(esp_err_t error)
+{
+    return solar_os_native_result_value(error);
+}
+#endif
 
 static const solar_os_native_library_service_api_v1_t native_library_api = {
     .abi_version = SOLAR_OS_NATIVE_LIBRARY_ABI,
@@ -240,6 +248,14 @@ const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)
 {
     return &native_host_v1;
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+static const solar_os_native_driver_registration_api_v1_t native_driver_registration_api = {
+    .abi_version = SOLAR_OS_NATIVE_DRIVER_REGISTRATION_ABI,
+    .struct_size = sizeof(native_driver_registration_api),
+    .register_driver = solar_os_native_register_bound_driver,
+};
+#endif
 
 static const void *native_get_service(const char *name,
                                       uint32_t abi_version,

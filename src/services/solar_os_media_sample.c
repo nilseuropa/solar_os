@@ -99,7 +99,11 @@ esp_err_t solar_os_media_sample_open_image(const char *path, solar_os_media_samp
 { return solar_os_media_sample_open_image_bounded(path, SOLAR_OS_MEDIA_SAMPLE_MAX_BYTES, out); }
 esp_err_t solar_os_media_sample_open_image_bounded(const char *path, size_t max_bytes,
     solar_os_media_sample_t **out)
-{ return open_bounded(path, max_bytes, NULL, NULL, out); }
+{ return solar_os_media_sample_open_image_cancellable(path, max_bytes, NULL, NULL, out); }
+
+esp_err_t solar_os_media_sample_open_image_cancellable(const char *path, size_t max_bytes,
+    solar_os_media_sample_cancel_fn cancel, void *user, solar_os_media_sample_t **out)
+{ return open_bounded(path, max_bytes, cancel, user, out); }
 
 static const char *audio_format(const uint8_t *data, size_t length)
 {

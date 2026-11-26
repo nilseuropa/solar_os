@@ -58,4 +58,11 @@ typedef struct {
     void *(*buffer_pin)(solar_os_native_memory_buffer_t *buffer);
     bool (*buffer_unpin)(solar_os_native_memory_buffer_t *buffer);
     bool (*buffer_destroy)(solar_os_native_memory_buffer_t *buffer);
+    /* Classes and their names are in solar_os_native_memory_status_abi.h.
+     * A failed nonzero resize leaves the old allocation intact. A zero size
+     * frees it. Tags are optional and are copied wherever the OS retains them. */
+    void *(*alloc_class)(size_t bytes, uint32_t memory_class, const char *tag);
+    void *(*calloc_class)(size_t count, size_t bytes, uint32_t memory_class, const char *tag);
+    void *(*realloc_class)(void *buffer, size_t bytes, uint32_t memory_class, const char *tag);
+    solar_os_native_memory_buffer_t *(*buffer_create_tagged)(size_t bytes, const char *owner);
 } solar_os_native_memory_api_v1_t;

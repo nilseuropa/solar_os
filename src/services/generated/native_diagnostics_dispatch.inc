@@ -10,3 +10,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(log_api), const solar_os_
 if (name && !strcmp(name, "log") && abi == 1U &&
     minimum <= sizeof(log_api)) return &log_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENGINES
+_Static_assert(__builtin_types_compatible_p(__typeof__(engines_api), const solar_os_native_engines_api_v1_t), "native service table type");
+if (name && !strcmp(name, "engines") && abi == 1U &&
+    minimum <= sizeof(engines_api)) return &engines_api;
+#endif

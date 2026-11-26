@@ -13,6 +13,7 @@
 #include "solar_os_fonts.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_native_font_packs.h"
 #include "solar_os_storage.h"
 
 /* Built-in faces: solar_os_font_fallback() only compares their addresses. */
@@ -30,6 +31,14 @@ static size_t psram_bytes;
 static size_t live_allocs;
 static char nvs_value[128];
 static int nvs_has_value;
+
+static bool has_fallback(const uint8_t *font, uint32_t codepoint)
+{
+    solar_os_font_face_ref_t ref = {0};
+    bool found = solar_os_font_fallback(font, codepoint, &ref);
+    if (found) solar_os_font_face_release(&ref);
+    return found;
+}
 
 size_t heap_caps_get_total_size(uint32_t caps)
 {
@@ -310,19 +319,23 @@ static void test_full_load_with_psram(void)
 
     /* Every built-in face, including the 5x8 terminal face, gets a fallback
      * for Cyrillic and none for what the pack does not cover. */
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f) != NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_10_tf, 0x0490) != NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_bi_20_tf, 0x0401) != NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_14_tf, 0x0400) == NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_14_tf, 0x0105) == NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_14_tf, 'A') == NULL);
+    assert(has_fallback(u8g2_font_5x8_tf, 0x043f));
+    assert(has_fallback(u8g2_font_solar_os_default_r_10_tf, 0x0490));
+    assert(has_fallback(u8g2_font_solar_os_default_bi_20_tf, 0x0401));
+    assert(!has_fallback(u8g2_font_solar_os_default_r_14_tf, 0x0400));
+    assert(!has_fallback(u8g2_font_solar_os_default_r_14_tf, 0x0105));
+    assert(!has_fallback(u8g2_font_solar_os_default_r_14_tf, 'A'));
     /* Faces differ per size and style. */
-    const uint8_t *r8 = solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f);
-    const uint8_t *r10 = solar_os_font_fallback(u8g2_font_solar_os_default_r_10_tf, 0x043f);
-    const uint8_t *b10 = solar_os_font_fallback(u8g2_font_solar_os_default_b_10_tf, 0x043f);
-    assert(r8 != r10 && r10 != b10);
+    solar_os_font_face_ref_t r8 = {0}, r10 = {0}, b10 = {0};
+    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f, &r8));
+    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_10_tf, 0x043f, &r10));
+    assert(solar_os_font_fallback(u8g2_font_solar_os_default_b_10_tf, 0x043f, &b10));
+    assert(r8.face != r10.face && r10.face != b10.face);
     /* A U8g2 face header: glyph count, then bounding box height 8 at size 8. */
-    assert(r8[0] > 0U && r8[10] == 8U);
+    assert(r8.face[0] > 0U && r8.face[10] == 8U);
+    solar_os_font_face_release(&r8);
+    solar_os_font_face_release(&r10);
+    solar_os_font_face_release(&b10);
 
     /* A second pack covers its own ranges; loading the same pack again
      * replaces it instead of taking another slot. */
@@ -330,14 +343,35 @@ static void test_full_load_with_psram(void)
     assert(solar_os_font_pack_load("latin-ext") == ESP_OK);
     assert(solar_os_font_pack_count() == 2U);
     assert(live_allocs == 2U);
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x20ac) != NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_i_16_tf, 0x0219) != NULL);
+    assert(has_fallback(u8g2_font_5x8_tf, 0x20ac));
+    assert(has_fallback(u8g2_font_solar_os_default_i_16_tf, 0x0219));
 
     assert(solar_os_font_pack_unload("cyrillic") == ESP_OK);
     assert(solar_os_font_pack_unload("cyrillic") == ESP_ERR_NOT_FOUND);
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f) == NULL);
+    assert(!has_fallback(u8g2_font_5x8_tf, 0x043f));
     unload_all();
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x20ac) == NULL);
+    assert(!has_fallback(u8g2_font_5x8_tf, 0x20ac));
+}
+
+static void test_retained_faces_survive_reload_and_unload(void)
+{
+    psram_bytes = 8U * 1024U * 1024U;
+    solar_os_font_face_ref_t old = {0}, current = {0};
+    assert(solar_os_font_pack_load("cyrillic") == ESP_OK);
+    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f, &old));
+    assert(!solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f, &old));
+    assert(solar_os_font_pack_load("cyrillic") == ESP_OK);
+    assert(solar_os_font_pack_count() == 1 && live_allocs == 2);
+    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f, &current));
+    assert(current.face != old.face && !memcmp(current.face, old.face, 23));
+    assert(solar_os_font_pack_unload("cyrillic") == ESP_OK);
+    assert(!solar_os_font_pack_count() && live_allocs == 2);
+    assert(!has_fallback(u8g2_font_5x8_tf, 0x043f));
+    assert(current.face[10] == 8 && old.face[10] == 8);
+    solar_os_font_face_release(&old);
+    assert(!old.face && !old.pack && live_allocs == 1);
+    solar_os_font_face_release(&current);
+    assert(!live_allocs);
 }
 
 static void test_reduced_load_without_psram(void)
@@ -350,10 +384,10 @@ static void test_reduced_load_without_psram(void)
     assert(info.bytes <= SOLAR_OS_FONT_PACK_REDUCED_BYTES);
     assert(info.faces_loaded > 0U && info.faces_loaded < info.faces_total);
     /* Regular faces come first, smallest first: 5x8 and size 10 load. */
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x0105) != NULL);
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_r_10_tf, 0x0105) != NULL);
+    assert(has_fallback(u8g2_font_5x8_tf, 0x0105));
+    assert(has_fallback(u8g2_font_solar_os_default_r_10_tf, 0x0105));
     /* Bold italic at the largest size does not fit. */
-    assert(solar_os_font_fallback(u8g2_font_solar_os_default_bi_20_tf, 0x0105) == NULL);
+    assert(!has_fallback(u8g2_font_solar_os_default_bi_20_tf, 0x0105));
     unload_all();
 }
 
@@ -375,7 +409,7 @@ static void test_selection(void)
     snprintf(nvs_value, sizeof(nvs_value), "missing,cyrillic,latin-ext");
     solar_os_font_pack_restore_selection();
     assert(solar_os_font_pack_count() == 2U);
-    assert(solar_os_font_fallback(u8g2_font_5x8_tf, 0x043f) != NULL);
+    assert(has_fallback(u8g2_font_5x8_tf, 0x043f));
     assert(strcmp(nvs_value, "missing,cyrillic,latin-ext") == 0);
     unload_all();
 }
@@ -401,6 +435,40 @@ static void test_generation(void)
     assert(live_allocs == 0U);
 }
 
+static void collect_font_pack(const char *name, void *user)
+{
+    unsigned *seen = user;
+    if (!strcmp(name, "cyrillic")) *seen |= 1U;
+    if (!strcmp(name, "latin-ext")) *seen |= 2U;
+}
+
+static void test_native_font_packs(void)
+{
+    const solar_os_native_font_packs_api_v1_t *api = solar_os_native_font_packs_get_service(
+        SOLAR_OS_NATIVE_FONT_PACKS_SERVICE, SOLAR_OS_NATIVE_FONT_PACKS_ABI, sizeof(*api));
+    assert(api && !api->count());
+    assert(!solar_os_native_font_packs_get_service(SOLAR_OS_NATIVE_FONT_PACKS_SERVICE, 2, 0));
+    assert(!api->name_valid("../escape") && api->name_valid("latin-ext"));
+    char path[300], expected[300];
+    snprintf(expected, sizeof(expected), "%s/fonts", volume);
+    assert(!api->directory(path, sizeof(path)) && !strcmp(path, expected));
+    unsigned seen = 0;
+    assert(!api->visit_files(collect_font_pack, &seen) && seen == 3);
+    uint32_t generation = api->generation();
+    assert(!api->load("cyrillic") && api->count() == 1 && api->generation() == generation + 1);
+    assert(!api->load("cyrillic") && api->count() == 1 && api->generation() == generation + 2);
+    solar_os_font_pack_info_t snapshot;
+    assert(!api->info(0, &snapshot) && !strcmp(snapshot.name, "cyrillic") && snapshot.faces_loaded == 25);
+    assert(!api->save_selection());
+    char names[32];
+    assert(api->saved_selection(names, 2) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE && !names[0]);
+    assert(!api->saved_selection(names, sizeof(names)) && !strcmp(names, "cyrillic"));
+    assert(!api->unload("cyrillic") && api->generation() == generation + 3);
+    assert(!strcmp(snapshot.name, "cyrillic") && snapshot.bytes && !live_allocs);
+    assert(api->info(0, &snapshot) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !snapshot.name[0]);
+    assert(!api->save_selection() && !api->saved_selection(names, sizeof(names)) && !names[0]);
+}
+
 int main(void)
 {
     char tmpl[] = "/tmp/font_packs_test.XXXXXX";
@@ -416,9 +484,11 @@ int main(void)
     test_bad_files();
     test_face_validation();
     test_full_load_with_psram();
+    test_retained_faces_survive_reload_and_unload();
     test_reduced_load_without_psram();
     test_selection();
     test_generation();
+    test_native_font_packs();
 
     char cmd[600];
     snprintf(cmd, sizeof(cmd), "rm -rf '%s'", volume);

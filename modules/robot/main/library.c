@@ -17,7 +17,8 @@ int main(int argc, char **argv)
     const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
     const solar_os_native_time_api_v1_t *time = host->get_service("time", 1, sizeof(*time));
     const solar_os_native_thread_api_v1_t *thread = host->get_service("thread", 1, sizeof(*thread));
-    const solar_os_native_motion_api_v1_t *motion = host->get_service("motion", 1, sizeof(*motion));
+    const solar_os_native_motion_api_v1_t *motion = host->get_service("motion", SOLAR_OS_NATIVE_MOTION_ABI,
+        offsetof(solar_os_native_motion_api_v1_t, servo_close) + sizeof(motion->servo_close));
     const solar_os_native_controllers_api_v1_t *controllers=host->get_service("controllers",1,sizeof(*controllers));
     const solar_os_robot_api_v3_t *api = solar_os_robot_engine_init(memory, time, thread, motion,controllers);
     if (!api) return 1;

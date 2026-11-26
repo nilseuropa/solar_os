@@ -118,14 +118,7 @@ static void *agent_app_state;
 
 static solar_os_shell_io_t *agent_app_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&agent_fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &agent_fallback_io);
-        io = &agent_fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &agent_fallback_io, true);
 }
 
 static void agent_app_write_prefix(solar_os_shell_io_t *io)

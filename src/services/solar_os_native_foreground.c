@@ -231,8 +231,8 @@ static int foreground_video_open_ex(uint16_t width, uint16_t height,
         !palette || fps > 60U) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     if (state->presenter) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     memcpy(state->palette, palette, sizeof(state->palette));
-    const solar_os_frame_presenter_config_t config = {
-        .gfx = state->gfx, .format = SOLAR_OS_DISPLAY_FORMAT_INDEX8,
+    const solar_os_frame_presenter_options_v1_t config = {
+        .format = SOLAR_OS_DISPLAY_FORMAT_INDEX8,
         .width = width, .height = height, .stride = width,
         .palette_rgb565 = state->palette, .palette_size = 256U,
         .fit = SOLAR_OS_FRAME_FIT_HEIGHT,
@@ -240,8 +240,7 @@ static int foreground_video_open_ex(uint16_t width, uint16_t height,
         .request_high_refresh = true, .clear_background_on_resume = true,
         .literal_direct_palette = true, .background_index = background_index,
     };
-    esp_err_t err = solar_os_frame_presenter_init(&state->presenter, &config);
-    if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
+    esp_err_t err = solar_os_frame_presenter_init(&state->presenter, state->gfx, &config);
     if (err == ESP_OK) state->frame_size = (size_t)width * height;
     return foreground_result(err);
 }
@@ -254,15 +253,14 @@ static int foreground_video_open_mono1(uint16_t width, uint16_t height, uint16_t
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     if (state->presenter) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     const uint16_t stride = (width+7U)/8U;
-    const solar_os_frame_presenter_config_t config = {
-        .gfx=state->gfx, .format=SOLAR_OS_DISPLAY_FORMAT_MONO1,
+    const solar_os_frame_presenter_options_v1_t config = {
+        .format=SOLAR_OS_DISPLAY_FORMAT_MONO1,
         .width=width, .height=height, .stride=stride,
         .fit=SOLAR_OS_FRAME_FIT_HEIGHT, .preferred_fps=fps,
         .request_high_refresh=true, .clear_background_on_resume=true,
         .literal_direct_palette=true,
     };
-    esp_err_t err = solar_os_frame_presenter_init(&state->presenter,&config);
-    if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
+    esp_err_t err = solar_os_frame_presenter_init(&state->presenter, state->gfx, &config);
     if (err == ESP_OK) state->frame_size = (size_t)stride*height;
     return foreground_result(err);
 }
@@ -294,16 +292,15 @@ static int foreground_video_open_index2(uint16_t width, uint16_t height, uint16_
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     if (state->presenter) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     foreground_refresh_index2_palette(state);
-    const solar_os_frame_presenter_config_t config = {
-        .gfx = state->gfx, .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
+    const solar_os_frame_presenter_options_v1_t config = {
+        .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
         .width = width, .height = height, .stride = width / 4U,
         .palette_rgb565 = state->palette, .palette_size = 4U,
         .fit = SOLAR_OS_FRAME_FIT_HEIGHT, .preferred_fps = fps,
         .allow_mono_fallback = true, .request_high_refresh = true,
         .reverse_direct_palette = true, .clear_background_on_resume = true,
     };
-    esp_err_t err = solar_os_frame_presenter_init(&state->presenter, &config);
-    if (err == ESP_OK) err = solar_os_frame_presenter_resume(state->presenter);
+    esp_err_t err = solar_os_frame_presenter_init(&state->presenter, state->gfx, &config);
     if (err == ESP_OK) {
         state->frame_size = (size_t)(width / 4U) * height;
         state->themed_index2 = true;

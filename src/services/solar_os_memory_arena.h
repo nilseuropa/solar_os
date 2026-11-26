@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "solar_os_native_memory_status_abi.h"
+
 /* Pinned-by-default allocator with explicit movable objects. The caller serializes all operations. Low-end
  * allocations hold bulk workloads; high-end allocations hold resident data.
  * Metadata lives inside the supplied region, with no secondary allocation. */
@@ -14,10 +16,6 @@ typedef struct {
     uintptr_t start, end;
     size_t total, free, minimum_free, allocations, resident;
 } solar_os_memory_arena_t;
-
-typedef struct {
-    size_t total, free, largest, minimum_free, allocations, resident;
-} solar_os_memory_arena_status_t;
 
 typedef void (*solar_os_memory_arena_relocated_fn)(void *user, void *old_pointer,
                                                  void *new_pointer);

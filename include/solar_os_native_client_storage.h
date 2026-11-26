@@ -94,7 +94,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(fs, "fs", solar_os_native_fs_api_v1_t, 1U)
     M(replace) \
     M(copy) \
     M(revision) \
-    M(notify_changed)
+    M(notify_changed) \
+    M(entry_type_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -171,6 +172,156 @@ SOLAR_OS_NATIVE_DECLARE_GET(settings_backup, "settings.backup", solar_os_native_
     M(default_path) \
     M(create) \
     M(restore)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(packages, "packages", solar_os_native_packages_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(packages, solar_os_native_packages_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(catalog_open) \
+    M(catalog_info) \
+    M(catalog_entry) \
+    M(catalog_close) \
+    M(cached_count) \
+    M(cached_id) \
+    M(install) \
+    M(remove) \
+    M(type_name) \
+    M(path) \
+    M(visit_installed) \
+    M(receipt) \
+    M(inspect) \
+    M(upgrade)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(manual, "manual", solar_os_native_manual_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(manual, solar_os_native_manual_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(page_count) \
+    M(page_info) \
+    M(find_page) \
+    M(search_pages) \
+    M(read_page) \
+    M(reference_count) \
+    M(reference_info) \
+    M(search_references) \
+    M(read_reference)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(docs, "manual.catalog", solar_os_native_docs_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(docs, solar_os_native_docs_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(update) \
+    M(reset) \
+    M(available) \
+    M(page_count) \
+    M(page_info) \
+    M(read_source)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(document, "document", solar_os_native_document_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(document, solar_os_native_document_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(close) \
+    M(parse) \
+    M(load) \
+    M(info) \
+    M(block) \
+    M(run) \
+    M(read_source) \
+    M(read_block) \
+    M(write_markdown) \
+    M(html_to_markdown) \
+    M(parse_with_assets) \
+    M(load_with_assets)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(document_layout, "document.layout", solar_os_native_document_layout_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(document_layout, solar_os_native_document_layout_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(close) \
+    M(rebuild) \
+    M(measure) \
+    M(info) \
+    M(line) \
+    M(run) \
+    M(run_source_x) \
+    M(source_position) \
+    M(hit_test) \
+    M(adjacent_source) \
+    M(render)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(storage_browser, "storage.browser", solar_os_native_storage_browser_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(storage_browser, solar_os_native_storage_browser_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(close) \
+    M(open) \
+    M(refresh) \
+    M(info) \
+    M(entry) \
+    M(move) \
+    M(activate) \
+    M(select_directory) \
+    M(media_entry)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(credentials, "credentials", solar_os_native_credentials_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(credentials, solar_os_native_credentials_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(snapshot) \
+    M(find) \
+    M(put) \
+    M(read_secret) \
+    M(remove) \
+    M(remove_provider) \
+    M(wipe) \
+    M(kind_name)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(playground, "playground", solar_os_native_playground_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(playground, solar_os_native_playground_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(source) \
+    M(set_source) \
+    M(storage) \
+    M(set_storage) \
+    M(catalog_available) \
+    M(catalog) \
+    M(cancel) \
+    M(category_count) \
+    M(category) \
+    M(app_count) \
+    M(app) \
+    M(find) \
+    M(find_installed) \
+    M(installed_id) \
+    M(installed) \
+    M(entry_path) \
+    M(install) \
+    M(remove) \
+    M(runtime_name) \
+    M(target_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

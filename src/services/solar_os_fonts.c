@@ -22,19 +22,19 @@ static const font_face_t font_faces[] = {
     FACES_FOR_SIZE(16, 4), FACES_FOR_SIZE(18, 5), FACES_FOR_SIZE(20, 6),
 };
 
-const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
+bool solar_os_font_fallback(const uint8_t *font, uint32_t codepoint, solar_os_font_face_ref_t *ref)
 {
     if (font == NULL || solar_os_font_pack_count() == 0) {
-        return NULL;
+        return false;
     }
     for (size_t i = 0; i < sizeof(font_faces) / sizeof(font_faces[0]); i++) {
         if (font_faces[i].base == font) {
             return solar_os_font_pack_face(font_faces[i].style,
                                            font_faces[i].size_index,
-                                           codepoint);
+                                           codepoint, ref);
         }
     }
-    return NULL;
+    return false;
 }
 
 uint32_t solar_os_utf8_next(const char **text)

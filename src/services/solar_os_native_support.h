@@ -2,7 +2,7 @@
 #include "esp_err.h"
 #include "solar_os_native_service_abi.h"
 
-static inline int solar_os_native_result(esp_err_t error)
+static inline int solar_os_native_result_value(esp_err_t error)
 {
     switch(error) {
     case ESP_OK: return SOLAR_OS_NATIVE_OK;
@@ -18,6 +18,20 @@ static inline int solar_os_native_result(esp_err_t error)
 #endif
     default: return SOLAR_OS_NATIVE_ERROR_FAILED;
     }
+}
+
+#ifdef ESP_PLATFORM
+int solar_os_native_error_result(esp_err_t error);
+#endif
+
+static inline int solar_os_native_result(esp_err_t error)
+{
+#ifdef ESP_PLATFORM
+    /* Keep successful I/O on the inline path and share error conversion. */
+    return error == ESP_OK ? SOLAR_OS_NATIVE_OK : solar_os_native_error_result(error);
+#else
+    return solar_os_native_result_value(error);
+#endif
 }
 
 /* Convert module callback results back at the private service boundary. */

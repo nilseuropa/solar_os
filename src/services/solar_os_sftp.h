@@ -6,11 +6,12 @@
 
 #include "esp_err.h"
 #include "solar_os_storage.h"
+#include "solar_os_remote_files.h"
 
 #define SOLAR_OS_SFTP_DEFAULT_PORT 22U
-#define SOLAR_OS_SFTP_NAME_MAX 96U
-#define SOLAR_OS_SFTP_ERROR_MAX 192U
-#define SOLAR_OS_SFTP_DEFAULT_TIMEOUT_MS 10000U
+#define SOLAR_OS_SFTP_NAME_MAX SOLAR_OS_REMOTE_FILE_NAME_MAX
+#define SOLAR_OS_SFTP_ERROR_MAX SOLAR_OS_REMOTE_FILE_ERROR_MAX
+#define SOLAR_OS_SFTP_DEFAULT_TIMEOUT_MS SOLAR_OS_REMOTE_FILE_TIMEOUT_MS
 
 typedef struct solar_os_sftp_session solar_os_sftp_session_t;
 
@@ -22,16 +23,10 @@ typedef struct {
     uint32_t timeout_ms;
 } solar_os_sftp_options_t;
 
-typedef struct {
-    char name[SOLAR_OS_SFTP_NAME_MAX];
-    uint64_t size;
-    bool is_directory;
-} solar_os_sftp_entry_t;
-
-typedef bool (*solar_os_sftp_entry_fn_t)(const solar_os_sftp_entry_t *entry,
-                                         void *user);
-typedef bool (*solar_os_sftp_cancel_fn_t)(void *user);
-typedef void (*solar_os_sftp_progress_fn_t)(uint64_t bytes, void *user);
+typedef solar_os_remote_file_entry_t solar_os_sftp_entry_t;
+typedef solar_os_remote_file_entry_fn solar_os_sftp_entry_fn_t;
+typedef solar_os_remote_file_cancel_fn solar_os_sftp_cancel_fn_t;
+typedef solar_os_remote_file_progress_fn solar_os_sftp_progress_fn_t;
 
 esp_err_t solar_os_sftp_connect(const solar_os_sftp_options_t *options,
                                 solar_os_sftp_cancel_fn_t should_cancel,

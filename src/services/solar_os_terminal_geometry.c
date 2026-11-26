@@ -1,4 +1,5 @@
 #include "solar_os_terminal_geometry.h"
+#include <limits.h>
 
 size_t solar_os_terminal_columns_compute(int display_width,
                                          int horizontal_margin,
@@ -9,7 +10,8 @@ size_t solar_os_terminal_columns_compute(int display_width,
         return 0U;
     }
 
-    const int content_width = display_width - (horizontal_margin * 2);
+    const int content_width = horizontal_margin > display_width / 2 ? 0 :
+        display_width - horizontal_margin * 2;
     size_t cols = content_width >= cell_width ?
         (size_t)(content_width / cell_width) : 1U;
     if (cols > max_cols) {
@@ -28,7 +30,7 @@ bool solar_os_terminal_geometry_compute(int display_height,
 {
     if (geometry == NULL || display_height <= 0 || status_bar_height < 0 ||
         footer_height < 0 || line_height <= 0 || cell_ascent <= 0 ||
-        cell_ascent > line_height || max_rows == 0) {
+        cell_ascent > line_height || status_bar_height > INT_MAX - cell_ascent || max_rows == 0) {
         return false;
     }
     int content_bottom = display_height - footer_height;

@@ -7,29 +7,6 @@
 #include "esp_err.h"
 #include "solar_os_rtp.h"
 
-#define SOLAR_OS_RTP_JPEG_HEADER_BYTES 8U
-#define SOLAR_OS_RTP_JPEG_HEADER_RESERVE 1024U
-#define SOLAR_OS_RTP_JPEG_QUANT_BYTES 128U
-
-typedef struct {
-    const uint8_t *scan;
-    size_t scan_len;
-    uint16_t width;
-    uint16_t height;
-    uint16_t restart_interval;
-    uint8_t type;
-    uint8_t quant_tables[SOLAR_OS_RTP_JPEG_QUANT_BYTES];
-} solar_os_rtp_jpeg_view_t;
-
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-    uint16_t width;
-    uint16_t height;
-    uint32_t timestamp;
-    uint32_t ssrc;
-} solar_os_rtp_jpeg_frame_t;
-
 typedef struct {
     uint8_t *buffer;
     size_t capacity;

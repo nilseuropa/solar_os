@@ -19,6 +19,7 @@ class UsbSerialTest(unittest.TestCase):
                 "-I" + str(ROOT / "tests/host/usb_serial_stubs"),
                 "-I" + str(ROOT / "tests/host/registry_stubs"),
                 "-I" + str(ROOT / "tests/host/usb_storage_stubs"),
+                "-I" + str(ROOT / "include"),
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
                 "-I" + str(ROOT / "src/drivers"), "-I" + str(ROOT / "src"),
                 str(ROOT / "tests/host/usb_serial_test.c"),
@@ -33,6 +34,7 @@ class UsbSerialTest(unittest.TestCase):
             (path / "test.c").write_text(source)
             subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
                             "-I" + str(ROOT / "tests/host"),
+                            "-I" + str(ROOT / "include"),
                             "-I" + str(ROOT / "src/services"),
                             "-I" + str(ROOT / "src/drivers"),
                             str(path / "test.c"), "-o", str(path / "test")], check=True)

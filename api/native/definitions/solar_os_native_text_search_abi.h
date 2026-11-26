@@ -1,0 +1,56 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_TEXT_SEARCH_SERVICE "text.search"
+#define SOLAR_OS_NATIVE_TEXT_SEARCH_ABI 1U
+
+#define SOLAR_OS_TEXT_SEARCH_QUERY_MAX 64U
+
+typedef enum {
+    SOLAR_OS_TEXT_SEARCH_FORWARD,
+    SOLAR_OS_TEXT_SEARCH_BACKWARD,
+} solar_os_text_search_direction_t;
+
+typedef struct {
+    size_t segment_index;
+    size_t offset;
+    size_t length;
+    bool wrapped;
+} solar_os_text_search_match_t;
+
+typedef struct {
+    bool input_active;
+    bool match_valid;
+    size_t input_len;
+    size_t query_len;
+    char input[SOLAR_OS_TEXT_SEARCH_QUERY_MAX];
+    char query[SOLAR_OS_TEXT_SEARCH_QUERY_MAX];
+    solar_os_text_search_match_t match;
+} solar_os_text_search_state_t;
+
+typedef bool (*solar_os_text_search_segment_fn)(void *user,
+                                                size_t segment_index,
+                                                const char **text,
+                                                size_t *text_len);
+
+/* Initialize caller-owned state with reset before use. Offsets and lengths are
+ * bytes. Searches ignore ASCII letter case and wrap once. Segment callbacks
+ * are synchronous. The returned characters must remain valid until the next
+ * callback or the end of the search, whichever comes first. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    void (*reset)(solar_os_text_search_state_t *state);
+    void (*begin_input)(solar_os_text_search_state_t *state);
+    void (*cancel_input)(solar_os_text_search_state_t *state);
+    bool (*input_append)(solar_os_text_search_state_t *state, char ch);
+    bool (*input_backspace)(solar_os_text_search_state_t *state);
+    bool (*submit_input)(solar_os_text_search_state_t *state);
+    bool (*set_query)(solar_os_text_search_state_t *state, const char *query);
+    bool (*find)(const char *text, size_t text_len, const char *query,
+        size_t anchor_offset, bool skip_anchor, solar_os_text_search_direction_t direction,
+        solar_os_text_search_match_t *match);
+    bool (*find_segments)(size_t segment_count, solar_os_text_search_segment_fn segment,
+        void *user, const char *query, size_t anchor_segment, size_t anchor_offset,
+        bool skip_anchor, solar_os_text_search_direction_t direction, solar_os_text_search_match_t *match);
+} solar_os_native_text_search_api_v1_t;

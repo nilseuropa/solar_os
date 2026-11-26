@@ -43,10 +43,26 @@ class AudioPDMTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             tmp = Path(directory)
             (tmp / "audio_capture_level.inc").write_text(production_functions(source,
-                ("clamp_percent_u32", "audio_abs_i16", "audio_measure_capture_stream")))
+                ("clamp_percent_u32", "audio_abs_i16", "audio_capture_format_supported",
+                 "solar_os_audio_measure_stream", "audio_measure_capture_stream", "audio_measure_level_locked")))
             binary = tmp / "level"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-I", str(tmp), "-I", str(ROOT / "tests/host"),
-                "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "src/services"), "-I", str(ROOT / "include"),
                 str(ROOT / "tests/host/audio_capture_level_test.c"), "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True)
+
+    def test_board_stream_close_preserves_the_lease_on_wrong_task_or_lock_failure(self):
+        source = (ROOT / "src/services/solar_os_audio.c").read_text()
+        with tempfile.TemporaryDirectory() as directory:
+            tmp = Path(directory)
+            (tmp / "audio_stream_close.inc").write_text(production_functions(source,
+                ("audio_close_playback", "audio_close_capture", "audio_playback_stream_close",
+                 "audio_capture_stream_close")))
+            binary = tmp / "audio-close"
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-pie", "-no-pie", "-I", str(tmp),
+                "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"), str(ROOT / "tests/host/audio_stream_close_test.c"),
+                "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

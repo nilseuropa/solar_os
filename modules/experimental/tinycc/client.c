@@ -269,7 +269,10 @@ int app_main(int argc, char **argv)
         return 0;
     }
     const void *table = NULL; uint32_t lease = 0;
-    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
+    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_PACKED_ABI,
+        sizeof(solar_os_cc_api_v2_t), &lease, &table);
+    if (code == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED)
+        code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
     if (code) { print("CC_ERROR acquire=%d\n", code); return code; }
     compiler = table;
     if(equal(argv[1],"sdk")) {

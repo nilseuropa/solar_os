@@ -11,6 +11,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_rtc.h"
 #include "solar_os_schedule.h"
+#include "solar_os_native_schedule.h"
 #include "solar_os_storage.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
@@ -278,13 +279,25 @@ int main(int argc, char **argv)
     assert(solar_os_schedule_init() == ESP_OK);
     assert(solar_os_schedule_count() == 0);
 
-    assert(solar_os_schedule_add_relative("tea", 2,
-        SOLAR_OS_SCHEDULE_ACTION_ALARM, NULL, false) == ESP_OK);
+    const solar_os_native_schedule_api_v1_t *api =
+        solar_os_native_schedule_get_service("time.schedule", 1, sizeof(*api));
+    assert(api && !solar_os_native_schedule_get_service("time.schedule", 2, 8));
+    assert(!solar_os_native_schedule_get_service("time.schedule", 1, sizeof(*api) + 1));
+    solar_os_schedule_request_v1_t request = {
+        .name = "tea", .kind = SOLAR_OS_SCHEDULE_ONCE_RELATIVE,
+        .action = SOLAR_OS_SCHEDULE_ACTION_ALARM,
+    };
+    assert(api->add(&request) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && api->count() == 0);
+    request.delay_seconds = 2;
+    assert(api->add(&request) == SOLAR_OS_NATIVE_OK && api->count() == 1);
+    solar_os_schedule_entry_v1_t copied;
+    assert(api->info(0, &copied) == SOLAR_OS_NATIVE_OK);
+    assert(!strcmp(copied.name, "tea") && !copied.persistent && copied.enabled);
     uint64_t wake_us = 0;
     assert(solar_os_schedule_next_wake_us(&wake_us));
     assert(wake_us == 2000000ULL);
     uint32_t remaining = 0;
-    assert(solar_os_schedule_remaining_seconds("tea", &remaining) == ESP_OK);
+    assert(api->remaining_seconds("tea", &remaining) == SOLAR_OS_NATIVE_OK);
     assert(remaining == 2);
     fake_uptime_ms = 1999;
     solar_os_schedule_poll();
@@ -292,15 +305,15 @@ int main(int argc, char **argv)
     fake_uptime_ms = 2000;
     solar_os_schedule_poll();
     char alarm_name[SOLAR_OS_SCHEDULE_NAME_MAX];
-    assert(solar_os_schedule_alarm_active(alarm_name, sizeof(alarm_name)));
+    assert(api->alarm_active(alarm_name, sizeof(alarm_name)));
     assert(strcmp(alarm_name, "tea") == 0);
-    solar_os_schedule_stop_alarm();
+    api->stop_alarm();
 
     assert(solar_os_schedule_add_interval("hourly", 3600,
         SOLAR_OS_SCHEDULE_ACTION_ALARM, NULL) == ESP_OK);
     assert(storage_writes == 1);
     assert(access(TEST_SCHEDULE_FILE, F_OK) == 0);
-    assert(solar_os_schedule_set_enabled("hourly", false) == ESP_OK);
+    assert(api->set_enabled("hourly", false) == SOLAR_OS_NATIVE_OK);
 
     fake_time_valid = true;
     fake_rtc_available = true;
@@ -309,7 +322,7 @@ int main(int argc, char **argv)
         SOLAR_OS_SCHEDULE_ACTION_ALARM, NULL) == ESP_OK);
     solar_os_schedule_poll();
     solar_os_schedule_entry_t wake;
-    assert(solar_os_schedule_get_by_name("wake", &wake) == ESP_OK);
+    assert(api->find("wake", &wake) == SOLAR_OS_NATIVE_OK);
     assert(wake.next_utc_seconds == utc_ms(2026, 9, 2, 7, 0, 0) / 1000ULL);
     assert(rtc_alarm_sets == 1);
     assert(fake_rtc_alarm.hour == 7 && fake_rtc_alarm.day == 2);

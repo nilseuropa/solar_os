@@ -8,6 +8,7 @@
 #include "driver/spi_master.h"
 #include "esp_err.h"
 #include "solar_os_bus_types.h"
+#include "solar_os_native_bus_abi.h"
 
 typedef struct {
     uint32_t baud_rate;
@@ -87,6 +88,8 @@ esp_err_t solar_os_bus_uart_read(const char *name,
 esp_err_t solar_os_bus_uart_set_baud_rate(const char *name,
                                           uint32_t baud_rate,
                                           const char *owner);
+esp_err_t solar_os_bus_uart_set_mode(const char *name, solar_os_uart_mode_t mode,
+                                    const char *owner);
 esp_err_t solar_os_bus_uart_autobaud_start(const char *name, const char *owner);
 esp_err_t solar_os_bus_uart_autobaud_finish(const char *name,
                                             const char *owner,

@@ -24,6 +24,9 @@ typedef int portMUX_TYPE;
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
+#define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_NO_MEM 0x101
+#define ESP_ERR_NOT_SUPPORTED 0x106
 
 static unsigned locks;
 #define portENTER_CRITICAL(lock) ((void)(lock), assert(locks++ == 0))
@@ -165,9 +168,9 @@ int main(void)
     }
     assert(scans == 1 && file_checks == 3);
     commands = 0;
-    solar_os_app_registry_foreach_module(stop_visit, NULL);
+    assert(solar_os_app_registry_foreach_module(stop_visit, NULL) == ESP_OK);
     assert(commands == 1);
-    solar_os_app_registry_foreach_module(NULL, NULL);
+    assert(solar_os_app_registry_foreach_module(NULL, NULL) == ESP_ERR_INVALID_ARG);
 
     apple2_installed = false; tiny386_installed = true; revision++;
     assert(solar_os_app_registry_count() == 3);

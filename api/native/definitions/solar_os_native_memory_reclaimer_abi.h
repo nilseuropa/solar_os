@@ -1,0 +1,36 @@
+#pragma once
+
+#include "solar_os_native_memory_status_abi.h"
+
+#define SOLAR_OS_NATIVE_MEMORY_RECLAIMER_SERVICE "memory.reclaimer"
+#define SOLAR_OS_NATIVE_MEMORY_RECLAIMER_ABI 1U
+
+#define SOLAR_OS_NATIVE_MEMORY_REQUIRE_INTERNAL (1U << 0)
+#define SOLAR_OS_NATIVE_MEMORY_REQUIRE_EXTERNAL (1U << 1)
+#define SOLAR_OS_NATIVE_MEMORY_REQUIRE_DMA (1U << 2)
+#define SOLAR_OS_NATIVE_MEMORY_REQUIRE_BYTE_ACCESS (1U << 3)
+#define SOLAR_OS_NATIVE_MEMORY_REQUIRE_VECTOR_ACCESS (1U << 4)
+
+typedef struct {
+    size_t size, alignment;
+    uint32_t requirements;
+    solar_os_memory_class_t memory_class;
+    const char *tag;
+} solar_os_native_memory_reclaim_request_v1_t;
+
+typedef size_t (*solar_os_native_memory_reclaim_fn)(
+    void *user, const solar_os_native_memory_reclaim_request_v1_t *request);
+
+/* A registration copies its owner name and retains the callback's library.
+ * Lower priorities run first. A NULL request asks the callback to reclaim any
+ * recoverable cache. The request and tag are borrowed for the call. Callbacks
+ * must use try-locks, avoid allocation, and release only data they can rebuild.
+ * A close can return BUSY during a reclamation pass. Keep callback state alive
+ * until close succeeds. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*register_cache)(solar_os_native_handle_t library_lease, const char *owner,
+        uint8_t priority, solar_os_native_memory_reclaim_fn callback, void *user,
+        solar_os_native_handle_t *registration);
+    int (*close)(solar_os_native_handle_t registration);
+} solar_os_native_memory_reclaimer_api_v1_t;

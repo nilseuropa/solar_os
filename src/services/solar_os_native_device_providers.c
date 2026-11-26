@@ -4,10 +4,23 @@
 #include "solar_os_native.h"
 #include "solar_os_memory.h"
 #include "solar_os_config.h"
+#include <stdatomic.h>
 #include <string.h>
-#if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_HAPTIC || SOLAR_OS_PACKAGE_SERVICE_CHARGER
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_HAPTIC || \
+    SOLAR_OS_PACKAGE_SERVICE_CHARGER || SOLAR_OS_PACKAGE_SERVICE_RTC || SOLAR_OS_PACKAGE_SERVICE_RADIO || \
+    SOLAR_OS_PACKAGE_SERVICE_EXPANSION || SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || \
+    SOLAR_OS_PACKAGE_SERVICE_GNSS || SOLAR_OS_PACKAGE_SERVICE_CAMERA || SOLAR_OS_PACKAGE_SERVICE_NFC
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
 #include "solar_os_backlight.h"
+#endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_RTC
+#include "solar_os_native_clock_values.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+#include "solar_os_rtc.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+#include "solar_os_radio.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 #include "solar_os_haptic.h"
@@ -15,14 +28,61 @@
 #if SOLAR_OS_PACKAGE_SERVICE_CHARGER
 #include "solar_os_charger.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+#include "solar_os_gpio_controller.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+#include "solar_os_sensors.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CAMERA
+#include "solar_os_camera_stream.h"
+#include "solar_os_stream.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+#include "solar_os_nfc.h"
+#endif
 /* OS registries pin callbacks while invoking them. Unregister must finish (or
  * return busy) before this state and its code lease can be released. */
 typedef struct {
     uint32_t kind, lease;
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    void *driver_pin;
+#endif
     solar_os_native_handle_t handle;
     bool registered;
+    atomic_bool opening;
     union {
         solar_os_native_backlight_provider_v1_t backlight;
+        solar_os_native_clock_provider_v1_t clock;
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+        solar_os_native_rtc_provider_v1_t rtc;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+        solar_os_native_radio_callbacks_v1_t radio;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+        solar_os_native_gpio_controller_provider_v1_t gpio;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || SOLAR_OS_PACKAGE_SERVICE_GNSS
+        solar_os_native_sensor_provider_v1_t sensor;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CAMERA
+        struct {
+            solar_os_native_camera_provider_v1_t descriptor;
+            solar_os_camera_backend_ops_t ops;
+            solar_os_camera_config_t config;
+            char stream[SOLAR_OS_STREAM_DEVICE_MAX];
+        } camera;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+        solar_os_native_nfc_provider_v1_t nfc;
+#endif
         solar_os_native_haptic_provider_v1_t haptic;
         solar_os_native_charger_provider_v1_t charger;
     } callbacks;
@@ -35,15 +95,50 @@ static esp_err_t provider_callback_leave(native_device_provider_t *state, bool h
     if (held) solar_os_native_handle_release(state->handle);
     return solar_os_native_callback_result(result);
 }
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || SOLAR_OS_PACKAGE_SERVICE_GNSS
+static esp_err_t provider_sensor_unregister(native_device_provider_t *state)
+{
+    switch (state->callbacks.sensor.kind) {
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    case SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT: return solar_os_sensors_unregister_owned(state->name, state);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    case SOLAR_OS_NATIVE_SENSOR_IMU: return solar_os_imu_unregister_owned(state->name, state);
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    case SOLAR_OS_NATIVE_SENSOR_GNSS: return solar_os_gnss_unregister_owned(state->name, state);
+#endif
+    default: return ESP_ERR_NOT_SUPPORTED;
+    }
+}
+#endif
+
 static int provider_destroy(void *opaque)
 {
     native_device_provider_t *state = opaque;
+    if (atomic_load(&state->opening)) return SOLAR_OS_NATIVE_ERROR_BUSY;
     if (state->registered) {
         esp_err_t error = ESP_ERR_NOT_SUPPORTED;
         switch (state->kind) {
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
         case SOLAR_OS_NATIVE_HANDLE_BACKLIGHT_PROVIDER:
             solar_os_backlight_unregister(state); error = ESP_OK; break;
+        case SOLAR_OS_NATIVE_HANDLE_CLOCK_PROVIDER:
+            error = solar_os_time_unregister_provider_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+        case SOLAR_OS_NATIVE_HANDLE_RTC_PROVIDER:
+            error = solar_os_rtc_unregister_provider_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+        case SOLAR_OS_NATIVE_HANDLE_RADIO_PROVIDER:
+            error = solar_os_radio_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
         case SOLAR_OS_NATIVE_HANDLE_HAPTIC_PROVIDER:
@@ -52,6 +147,30 @@ static int provider_destroy(void *opaque)
 #if SOLAR_OS_PACKAGE_SERVICE_CHARGER
         case SOLAR_OS_NATIVE_HANDLE_CHARGER_PROVIDER:
             error = solar_os_charger_unregister_owned(state->name, state); break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+        case SOLAR_OS_NATIVE_HANDLE_GPIO_CONTROLLER_PROVIDER:
+            error = solar_os_gpio_controller_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || SOLAR_OS_PACKAGE_SERVICE_GNSS
+        case SOLAR_OS_NATIVE_HANDLE_SENSOR_PROVIDER:
+            error = provider_sensor_unregister(state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CAMERA
+        case SOLAR_OS_NATIVE_HANDLE_CAMERA_PROVIDER:
+            error = solar_os_camera_unregister_backend_owned(state->driver, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+        case SOLAR_OS_NATIVE_HANDLE_NFC_PROVIDER:
+            error = solar_os_nfc_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
 #endif
         default: break;
         }
@@ -63,28 +182,61 @@ static int provider_destroy(void *opaque)
         if (result && result != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
         state->lease = 0;
     }
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (state->driver_pin) solar_os_native_driver_unpin(state->driver_pin);
+#endif
     solar_os_memory_free(state); return SOLAR_OS_NATIVE_OK;
 }
+static int provider_finish(native_device_provider_t *state, solar_os_native_handle_t *out, int result)
+{
+    const uint32_t kind = state->kind;
+    state->registered = result == SOLAR_OS_NATIVE_OK;
+    atomic_store(&state->opening, false);
+    if (result) {
+        const int close_result = solar_os_native_handle_close_kind(*out, kind);
+        if (close_result == SOLAR_OS_NATIVE_OK || close_result == SOLAR_OS_NATIVE_ERROR_NOT_FOUND)
+            *out = 0;
+    }
+    return result;
+}
+
 static int provider_create(uint32_t kind, uint32_t lease, const char *name, const char *driver,
     solar_os_native_handle_t *out, native_device_provider_t **state)
 {
-    *out = 0; *state = NULL;
-    if (!lease || (name && (!*name || strlen(name) >= 20)) || (driver && strlen(driver) >= 24))
+    *out = 0;
+    *state = NULL;
+#if !SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (!lease) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+#endif
+    if ((name && (!*name || strlen(name) >= 20)) || (driver && strlen(driver) >= 24))
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    native_device_provider_t *value = solar_os_memory_calloc(1, sizeof(*value), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.provider");
+    native_device_provider_t *value = solar_os_memory_calloc(1, sizeof(*value),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.provider");
     if (!value) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
     value->kind = kind;
-    if (name) memcpy(value->name, name, strlen(name) + 1);
-    if (driver) memcpy(value->driver, driver, strlen(driver) + 1);
-    int result = solar_os_native_library_retain(lease, &value->lease);
-    if (!result) result = solar_os_native_handle_create(kind, value, provider_destroy, out);
-    if (result) { (void)provider_destroy(value); return result; }
-    /* Registration can synchronously invoke a provider. Prevent recursive close
-     * from reclaiming this state before the registry has published ownership. */
+    if (name) strcpy(value->name, name);
+    if (driver) strcpy(value->driver, driver);
+    atomic_init(&value->opening, true);
+    int result = solar_os_native_handle_create(kind, value, provider_destroy, out);
+    if (result) {
+        solar_os_memory_free(value);
+        return result;
+    }
     value->handle = *out;
-    (void)solar_os_native_handle_acquire(*out, kind);
-    *state = value; return SOLAR_OS_NATIVE_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (!lease) {
+        value->driver_pin = solar_os_native_driver_pin();
+        result = value->driver_pin ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    } else
+#endif
+    {
+        result = solar_os_native_library_retain(lease, &value->lease);
+    }
+    if (result) return provider_finish(value, out, result);
+    *state = value;
+    return SOLAR_OS_NATIVE_OK;
 }
+
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
 static esp_err_t backlight_set(void *user, uint8_t percent)
 {
@@ -103,14 +255,315 @@ int solar_os_native_backlight_provider_register(const solar_os_native_backlight_
     if (result) return result;
     state->callbacks.backlight = *in;
     result = solar_os_native_result(solar_os_backlight_register(backlight_set, state));
-    state->registered = !result;
-    solar_os_native_handle_release(*out);
-    if (result) { (void)solar_os_native_handle_close_kind(*out, state->kind); *out = 0; }
-    return result;
+    return provider_finish(state, out, result);
 }
 int solar_os_native_backlight_provider_close(solar_os_native_handle_t handle)
 { return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_BACKLIGHT_PROVIDER); }
+
 #endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_RTC
+static const solar_os_native_clock_provider_v1_t *clock_callbacks(const native_device_provider_t *state)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+    if (state->kind == SOLAR_OS_NATIVE_HANDLE_RTC_PROVIDER) return &state->callbacks.rtc.calendar;
+#endif
+    return &state->callbacks.clock;
+}
+
+static esp_err_t clock_provider_get(void *user, solar_os_datetime_t *out)
+{
+    native_device_provider_t *state = user;
+    solar_os_native_datetime_v1_t value = {0};
+    const bool held = provider_callback_enter(state);
+    const solar_os_native_clock_provider_v1_t *callbacks = clock_callbacks(state);
+    const int result = callbacks->get_utc(callbacks->user, &value);
+    const esp_err_t error = provider_callback_leave(state, held, result);
+    if (error != ESP_OK) return error;
+    if (!solar_os_native_datetime_in(&value, out) || !solar_os_time_datetime_is_valid(out))
+        return ESP_ERR_INVALID_ARG;
+    return ESP_OK;
+}
+
+static esp_err_t clock_provider_set(void *user, const solar_os_datetime_t *in)
+{
+    if (!solar_os_time_datetime_is_valid(in)) return ESP_ERR_INVALID_ARG;
+    native_device_provider_t *state = user;
+    solar_os_native_datetime_v1_t value;
+    solar_os_native_datetime_out(in, &value);
+    const bool held = provider_callback_enter(state);
+    const solar_os_native_clock_provider_v1_t *callbacks = clock_callbacks(state);
+    const int result = callbacks->set_utc(callbacks->user, &value);
+    return provider_callback_leave(state, held, result);
+}
+
+#endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
+int solar_os_native_clock_provider_register(const solar_os_native_clock_provider_v1_t *in,
+                                             solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->get_utc || !in->set_utc) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_CLOCK_PROVIDER, in->library_lease,
+        in->name, NULL, out, &state);
+    if (result) return result;
+    state->callbacks.clock = *in;
+    state->callbacks.clock.name = state->name;
+    const solar_os_time_provider_t provider = {
+        .get_utc_datetime = clock_provider_get, .set_utc_datetime = clock_provider_set, .user = state,
+    };
+    result = solar_os_native_result(solar_os_time_register_provider(state->name, &provider));
+    return provider_finish(state, out, result);
+}
+
+int solar_os_native_clock_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_CLOCK_PROVIDER);
+}
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+static esp_err_t rtc_program_callback(native_device_provider_t *state,
+                                      const solar_os_rtc_timer_request_v1_t *request)
+{
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.rtc.program_timer(state->callbacks.rtc.calendar.user, request);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t rtc_set_alarm(void *user, const solar_os_rtc_alarm_t *alarm)
+{
+    const solar_os_rtc_timer_request_v1_t request = {
+        .kind = SOLAR_OS_RTC_TIMER_ALARM, .configuration.alarm = *alarm,
+    };
+    return rtc_program_callback(user, &request);
+}
+
+static esp_err_t rtc_set_countdown(void *user, uint32_t seconds, bool repeat)
+{
+    const solar_os_rtc_timer_request_v1_t request = {
+        .kind = SOLAR_OS_RTC_TIMER_COUNTDOWN, .configuration.countdown = {seconds, repeat},
+    };
+    return rtc_program_callback(user, &request);
+}
+
+static esp_err_t rtc_cancel_callback(native_device_provider_t *state, solar_os_rtc_timer_kind_t kind)
+{
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.rtc.cancel_timer(state->callbacks.rtc.calendar.user, kind);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t rtc_disable_alarm(void *user)
+{
+    return rtc_cancel_callback(user, SOLAR_OS_RTC_TIMER_ALARM);
+}
+
+static esp_err_t rtc_disable_countdown(void *user)
+{
+    return rtc_cancel_callback(user, SOLAR_OS_RTC_TIMER_COUNTDOWN);
+}
+
+static esp_err_t rtc_interrupt_status(void *user, uint32_t *pending)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.rtc.interrupt_status(state->callbacks.rtc.calendar.user, pending);
+    const esp_err_t error = provider_callback_leave(state, held, result);
+    if (error == ESP_OK && (*pending & ~(SOLAR_OS_RTC_INTERRUPT_ALARM | SOLAR_OS_RTC_INTERRUPT_COUNTDOWN)))
+        return ESP_ERR_INVALID_ARG;
+    return error;
+}
+
+static esp_err_t rtc_interrupt_clear(void *user, uint32_t pending)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.rtc.interrupt_clear(state->callbacks.rtc.calendar.user, pending);
+    return provider_callback_leave(state, held, result);
+}
+
+int solar_os_native_rtc_provider_register(const solar_os_native_rtc_provider_v1_t *in,
+                                           solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->calendar.name || !in->calendar.get_utc || !in->calendar.set_utc)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const uint32_t timers = SOLAR_OS_RTC_CAP_ALARM | SOLAR_OS_RTC_CAP_COUNTDOWN;
+    const uint32_t supported = SOLAR_OS_RTC_CAP_CALENDAR | timers | SOLAR_OS_RTC_CAP_INTERRUPT_STATUS;
+    const bool has_timers = (in->capabilities & timers) != 0;
+    const bool has_interrupts = (in->capabilities & SOLAR_OS_RTC_CAP_INTERRUPT_STATUS) != 0;
+    if ((in->capabilities & ~supported) || !(in->capabilities & SOLAR_OS_RTC_CAP_CALENDAR) ||
+        has_timers != (in->program_timer != NULL) || has_timers != (in->cancel_timer != NULL) ||
+        has_interrupts != (in->interrupt_status != NULL) || has_interrupts != (in->interrupt_clear != NULL))
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_RTC_PROVIDER, in->calendar.library_lease,
+        in->calendar.name, NULL, out, &state);
+    if (result) return result;
+    state->callbacks.rtc = *in;
+    state->callbacks.rtc.calendar.name = state->name;
+    const bool has_alarm = (in->capabilities & SOLAR_OS_RTC_CAP_ALARM) != 0;
+    const bool has_countdown = (in->capabilities & SOLAR_OS_RTC_CAP_COUNTDOWN) != 0;
+    const solar_os_rtc_provider_t provider = {
+        .get_utc_datetime = clock_provider_get,
+        .set_utc_datetime = clock_provider_set,
+        .set_alarm = has_alarm ? rtc_set_alarm : NULL,
+        .disable_alarm = has_alarm ? rtc_disable_alarm : NULL,
+        .set_countdown = has_countdown ? rtc_set_countdown : NULL,
+        .disable_countdown = has_countdown ? rtc_disable_countdown : NULL,
+        .get_interrupt_status = has_interrupts ? rtc_interrupt_status : NULL,
+        .clear_interrupt_status = has_interrupts ? rtc_interrupt_clear : NULL,
+        .user = state,
+        .interrupt_gpio = in->interrupt_gpio,
+        .interrupt_active_level = in->interrupt_active_level,
+    };
+    result = solar_os_native_result(solar_os_rtc_register_provider(state->name, &provider));
+    return provider_finish(state, out, result);
+}
+
+int solar_os_native_rtc_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_RTC_PROVIDER);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_RADIO
+static esp_err_t radio_provider_configure(void *opaque, const solar_os_radio_config_t *config)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->configure) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->configure(provider->user, config);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_set_state(void *opaque, solar_os_radio_state_t mode)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->set_state) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->set_state(provider->user, mode);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_get_status(void *opaque, solar_os_radio_status_t *status)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->get_status) return ESP_OK;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->get_status(provider->user, status);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_send(void *opaque, const solar_os_radio_packet_t *packet, uint32_t timeout)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->send) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->send(provider->user, packet, timeout);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_send_stream(void *opaque, const uint8_t *bytes, size_t size, uint32_t timeout)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->send_stream) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->send_stream(provider->user, bytes, size, timeout);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_receive(void *opaque, solar_os_radio_packet_t *packet, uint32_t timeout)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->receive) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->receive(provider->user, packet, timeout);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_read_rssi(void *opaque, int16_t *dbm)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->read_rssi) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->read_rssi(provider->user, dbm);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t radio_provider_tune_rx(void *opaque, uint32_t frequency, uint32_t *settle_ms)
+{
+    native_device_provider_t *state = opaque;
+    const solar_os_native_radio_callbacks_v1_t *provider = &state->callbacks.radio;
+    if (!provider->tune_rx) return ESP_ERR_NOT_SUPPORTED;
+    const bool held = provider_callback_enter(state);
+    const int result = provider->tune_rx(provider->user, frequency, settle_ms);
+    return provider_callback_leave(state, held, result);
+}
+
+static const solar_os_radio_ops_t radio_provider_ops = {
+    .configure = radio_provider_configure,
+    .set_state = radio_provider_set_state,
+    .get_status = radio_provider_get_status,
+    .send = radio_provider_send,
+    .send_stream = radio_provider_send_stream,
+    .receive = radio_provider_receive,
+    .read_rssi = radio_provider_read_rssi,
+    .tune_rx = radio_provider_tune_rx,
+};
+
+int solar_os_native_radio_provider_register(const solar_os_native_radio_provider_v1_t *in,
+                                             solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || !*in->driver ||
+        in->initial_state > SOLAR_OS_RADIO_STATE_TX ||
+        strnlen(in->driver, SOLAR_OS_RADIO_DRIVER_MAX) >= SOLAR_OS_RADIO_DRIVER_MAX ||
+        ((in->features & SOLAR_OS_RADIO_FEATURE_PACKET) && (!in->callbacks.send || !in->callbacks.receive)) ||
+        ((in->features & SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX) && !in->callbacks.send_stream) ||
+        ((in->features & SOLAR_OS_RADIO_FEATURE_LIVE_RSSI) && !in->callbacks.read_rssi) ||
+        ((in->features & SOLAR_OS_RADIO_FEATURE_FAST_TUNE) && !in->callbacks.tune_rx))
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_RADIO_PROVIDER, in->library_lease,
+        in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.radio = in->callbacks;
+    const solar_os_radio_registration_t registration = {
+        .name = state->name,
+        .driver = state->driver,
+        .summary = in->summary,
+        .modulations = in->modulations,
+        .features = in->features,
+        .rx_gain_modes = in->rx_gain_modes,
+        .max_packet_len = in->max_packet_len,
+        .default_config = in->default_config,
+        .initial_state = in->initial_state,
+        .ops = &radio_provider_ops,
+        .ctx = state,
+    };
+    result = solar_os_native_result(solar_os_radio_register(&registration));
+    return provider_finish(state, out, result);
+}
+
+int solar_os_native_radio_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_RADIO_PROVIDER);
+}
+#endif
+
 #if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
 static esp_err_t haptic_play(void *user, uint16_t effect)
 {
@@ -141,10 +594,7 @@ int solar_os_native_haptic_provider_register(const solar_os_native_haptic_provid
     const solar_os_haptic_registration_t registration = {.name = state->name, .driver = state->driver,
         .effect_count = (uint16_t)in->effect_count, .ops = &ops, .ctx = state};
     result = solar_os_native_result(solar_os_haptic_register(&registration));
-    state->registered = !result;
-    solar_os_native_handle_release(*out);
-    if (result) { (void)solar_os_native_handle_close_kind(*out, state->kind); *out = 0; }
-    return result;
+    return provider_finish(state, out, result);
 }
 int solar_os_native_haptic_provider_close(solar_os_native_handle_t handle)
 { return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_HAPTIC_PROVIDER); }
@@ -212,12 +662,371 @@ int solar_os_native_charger_provider_register(const solar_os_native_charger_prov
         .set_input_current_limit = charger_set_input_current_limit, .set_charge_current = charger_set_charge_current, .set_charge_voltage = charger_set_charge_voltage};
     registration.name = state->name; registration.driver = state->driver; registration.ops = &ops; registration.ctx = state;
     result = solar_os_native_result(solar_os_charger_register(&registration));
-    state->registered = !result;
-    solar_os_native_handle_release(*out);
-    if (result) { (void)solar_os_native_handle_close_kind(*out, state->kind); *out = 0; }
-    return result;
+    return provider_finish(state, out, result);
 }
 int solar_os_native_charger_provider_close(solar_os_native_handle_t handle)
 { return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_CHARGER_PROVIDER); }
 #endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+static esp_err_t provider_gpio_configure(void *user, uint8_t line,
+    solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.gpio.configure(state->callbacks.gpio.user, line, mode, pull);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t provider_gpio_read(void *user, uint8_t line, bool *level)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.gpio.read(state->callbacks.gpio.user, line, level);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t provider_gpio_write(void *user, uint8_t line, bool level)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.gpio.write(state->callbacks.gpio.user, line, level);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t provider_gpio_acknowledge(void *user)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.gpio.acknowledge_interrupt(state->callbacks.gpio.user);
+    return provider_callback_leave(state, held, result);
+}
+
+int solar_os_native_gpio_controller_register(const solar_os_native_gpio_controller_provider_v1_t *in,
+    solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->line_count || !in->configure || !in->read || !in->write ||
+        strnlen(in->name, SOLAR_OS_GPIO_CONTROLLER_NAME_MAX) >= SOLAR_OS_GPIO_CONTROLLER_NAME_MAX)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_GPIO_CONTROLLER_PROVIDER,
+        in->library_lease, in->name, NULL, out, &state);
+    if (result) return result;
+    state->callbacks.gpio = *in;
+    static const solar_os_gpio_controller_ops_t basic_ops = {
+        .configure = provider_gpio_configure, .read = provider_gpio_read, .write = provider_gpio_write};
+    static const solar_os_gpio_controller_ops_t interrupt_ops = {
+        .configure = provider_gpio_configure, .read = provider_gpio_read, .write = provider_gpio_write,
+        .acknowledge_interrupt = provider_gpio_acknowledge};
+    const solar_os_gpio_controller_registration_t registration = {.name = state->name,
+        .line_count = in->line_count, .ctx = state,
+        .ops = in->acknowledge_interrupt ? &interrupt_ops : &basic_ops};
+    result = solar_os_native_result(solar_os_gpio_controller_register(&registration));
+    return provider_finish(state, out, result);
+}
+
+int solar_os_native_gpio_controller_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_GPIO_CONTROLLER_PROVIDER);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || SOLAR_OS_PACKAGE_SERVICE_GNSS
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+static esp_err_t provider_environment_read(void *user, solar_os_environment_t *sample)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.environment.read(state->callbacks.sensor.user, sample);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_temperature(void *user, float *value)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.environment.temperature(state->callbacks.sensor.user, value);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_humidity(void *user, float *value)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.environment.humidity(state->callbacks.sensor.user, value);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_register_environment(native_device_provider_t *state)
+{
+    const solar_os_native_sensor_provider_v1_t *sensor = &state->callbacks.sensor;
+    const solar_os_sensors_ops_t ops = {
+        .read_environment = sensor->ops.environment.read ? provider_environment_read : NULL,
+        .read_temperature = sensor->ops.environment.temperature ? provider_temperature : NULL,
+        .read_humidity = sensor->ops.environment.humidity ? provider_humidity : NULL,
+    };
+    const solar_os_sensors_registration_t registration = {
+        .name = state->name, .driver = state->driver, .ops = &ops, .ctx = state,
+    };
+    return solar_os_sensors_register(&registration);
+}
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+static esp_err_t provider_imu_read(void *user, uint32_t timeout, solar_os_imu_sample_t *sample)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.imu.read(state->callbacks.sensor.user, timeout, sample);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_register_imu(native_device_provider_t *state)
+{
+    if (!state->callbacks.sensor.ops.imu.read) return ESP_ERR_INVALID_ARG;
+    static const solar_os_imu_ops_t ops = {.read_sample = provider_imu_read};
+    const solar_os_imu_registration_t registration = {.name = state->name, .driver = state->driver,
+        .capabilities = state->callbacks.sensor.ops.imu.capabilities, .ops = &ops, .ctx = state};
+    return solar_os_imu_register(&registration);
+}
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+static esp_err_t provider_gnss_read(void *user, uint32_t timeout, solar_os_gnss_fix_t *fix)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.gnss.read(state->callbacks.sensor.user, timeout, fix);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_gnss_power(void *user, bool on)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.gnss.set_power(state->callbacks.sensor.user, on);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_gnss_enable(void *user, bool on)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.sensor.ops.gnss.set_enabled(state->callbacks.sensor.user, on);
+    return provider_callback_leave(state, held, result);
+}
+static esp_err_t provider_register_gnss(native_device_provider_t *state)
+{
+    const solar_os_native_sensor_provider_v1_t *sensor = &state->callbacks.sensor;
+    if (!sensor->ops.gnss.read) return ESP_ERR_INVALID_ARG;
+    static const solar_os_gnss_ops_t ops[] = {
+        {.read_fix = provider_gnss_read},
+        {.read_fix = provider_gnss_read, .set_power = provider_gnss_power},
+        {.read_fix = provider_gnss_read, .set_enabled = provider_gnss_enable},
+        {.read_fix = provider_gnss_read, .set_power = provider_gnss_power, .set_enabled = provider_gnss_enable},
+    };
+    const unsigned methods = (sensor->ops.gnss.set_power ? 1U : 0U) | (sensor->ops.gnss.set_enabled ? 2U : 0U);
+    const solar_os_gnss_registration_t registration = {.name = state->name, .driver = state->driver,
+        .ops = &ops[methods], .ctx = state, .powered = sensor->ops.gnss.powered};
+    return solar_os_gnss_register(&registration);
+}
+#endif
+
+int solar_os_native_sensor_provider_register(const solar_os_native_sensor_provider_v1_t *in, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || in->kind < SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT || in->kind > SOLAR_OS_NATIVE_SENSOR_GNSS)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    esp_err_t (*register_sensor)(native_device_provider_t *) = NULL;
+    switch (in->kind) {
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    case SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT: register_sensor = provider_register_environment; break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    case SOLAR_OS_NATIVE_SENSOR_IMU: register_sensor = provider_register_imu; break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    case SOLAR_OS_NATIVE_SENSOR_GNSS: register_sensor = provider_register_gnss; break;
+#endif
+    default: return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    }
+    native_device_provider_t *state;
+    const int result = provider_create(SOLAR_OS_NATIVE_HANDLE_SENSOR_PROVIDER, in->library_lease,
+        in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.sensor = *in;
+    return provider_finish(state, out, solar_os_native_result(register_sensor(state)));
+}
+int solar_os_native_sensor_provider_close(solar_os_native_handle_t handle)
+{ return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_SENSOR_PROVIDER); }
+
+int solar_os_native_sensor_provider_report(solar_os_native_handle_t handle, uint32_t property, bool enabled)
+{
+    native_device_provider_t *state = solar_os_native_handle_acquire(handle, SOLAR_OS_NATIVE_HANDLE_SENSOR_PROVIDER);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    if (state->callbacks.sensor.kind == SOLAR_OS_NATIVE_SENSOR_GNSS)
+        error = solar_os_gnss_notify_state_owned(state->name, state, property, enabled);
+#else
+    (void)property;
+    (void)enabled;
+#endif
+    solar_os_native_handle_release(handle);
+    return solar_os_native_result(error);
+}
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_CAMERA
+static esp_err_t publish_camera_stream(void *user)
+{
+    native_device_provider_t *state = user;
+    return solar_os_camera_stream_register_owned(state->callbacks.camera.stream,
+        &state->callbacks.camera.config, state);
+}
+
+static esp_err_t unpublish_camera_stream(void *user)
+{
+    native_device_provider_t *state = user;
+    return solar_os_camera_stream_unregister_owned(state->callbacks.camera.stream, state);
+}
+
+static esp_err_t camera_provider_start(void *user, const solar_os_camera_config_t *config,
+    solar_os_camera_orientation_t orientation, solar_os_camera_sensor_info_t *sensor)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->start(provider->user, config, orientation, sensor));
+}
+
+static esp_err_t camera_provider_stop(void *user)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->stop(provider->user));
+}
+
+static esp_err_t camera_provider_capture(void *user, solar_os_camera_backend_frame_t *frame)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->capture(provider->user, frame));
+}
+
+static void camera_provider_release(void *user, void *token)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    provider->release(provider->user, token);
+    if (held) solar_os_native_handle_release(state->handle);
+}
+
+static esp_err_t camera_provider_resolutions(void *user, solar_os_camera_resolution_t *out, size_t capacity, size_t *count)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->get_resolutions(provider->user, out, capacity, count));
+}
+
+static esp_err_t camera_provider_orientation(void *user, solar_os_camera_orientation_t orientation,
+    solar_os_camera_orientation_t *applied)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->set_orientation(provider->user, orientation, applied));
+}
+
+static void camera_provider_invalidate(void *user)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_camera_provider_v1_t *provider = &state->callbacks.camera.descriptor;
+    const bool held = provider_callback_enter(state);
+    provider->invalidate(provider->user);
+    if (held) solar_os_native_handle_release(state->handle);
+}
+
+int solar_os_native_camera_provider_register(const solar_os_native_camera_provider_v1_t *in, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->driver || !*in->driver || !in->start || !in->stop || !in->capture || !in->release ||
+        (in->stream_name && (!*in->stream_name || strlen(in->stream_name) >= SOLAR_OS_STREAM_DEVICE_MAX)))
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_CAMERA_PROVIDER, in->library_lease, NULL, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.camera.descriptor = *in;
+    state->callbacks.camera.config = in->default_config ? *in->default_config : solar_os_camera_default_config();
+    if (in->stream_name) strcpy(state->callbacks.camera.stream, in->stream_name);
+    state->callbacks.camera.ops = (solar_os_camera_backend_ops_t){
+        .start = camera_provider_start, .stop = camera_provider_stop,
+        .capture = camera_provider_capture, .release = camera_provider_release,
+        .set_orientation = in->set_orientation ? camera_provider_orientation : NULL,
+        .get_resolutions = in->get_resolutions ? camera_provider_resolutions : NULL,
+        .invalidate = in->invalidate ? camera_provider_invalidate : NULL,
+        .publish = in->stream_name ? publish_camera_stream : NULL,
+        .unpublish = in->stream_name ? unpublish_camera_stream : NULL,
+    };
+    const solar_os_camera_backend_t backend = {
+        .driver = state->driver, .ops = &state->callbacks.camera.ops, .ctx = state,
+        .default_config = &state->callbacks.camera.config,
+        .processor = in->processor, .processor_source = in->processor_source,
+    };
+    result = solar_os_native_result(solar_os_camera_register_backend(&backend));
+    return provider_finish(state, out, result);
+}
+
+int solar_os_native_camera_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_CAMERA_PROVIDER);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+static esp_err_t nfc_provider_scan(void *user, uint32_t timeout_ms, solar_os_nfc_tag_t *tag)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_nfc_provider_v1_t *provider = &state->callbacks.nfc;
+    const bool held = provider_callback_enter(state);
+    solar_os_nfc_tag_t read = {0};
+    const int result = provider->scan(provider->user, timeout_ms, &read);
+    const esp_err_t error = provider_callback_leave(state, held, result);
+    if (error) return error;
+    if (read.technology != SOLAR_OS_NFC_TECHNOLOGY_NFCA || !read.uid_len || read.uid_len > sizeof(read.uid))
+        return ESP_ERR_INVALID_RESPONSE;
+    *tag = read;
+    return ESP_OK;
+}
+
+static esp_err_t nfc_provider_set_power(void *user, bool enabled)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_nfc_provider_v1_t *provider = &state->callbacks.nfc;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->set_power(provider->user, enabled));
+}
+
+int solar_os_native_nfc_provider_register(const solar_os_native_nfc_provider_v1_t *in, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || !*in->driver || !in->scan)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_device_provider_t *state;
+    const int result = provider_create(SOLAR_OS_NATIVE_HANDLE_NFC_PROVIDER, in->library_lease, in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.nfc = *in;
+    static const solar_os_nfc_ops_t scan_only = {.scan = nfc_provider_scan};
+    static const solar_os_nfc_ops_t power_control = {.scan = nfc_provider_scan, .set_power = nfc_provider_set_power};
+    const solar_os_nfc_registration_t registration = {.name = state->name, .driver = state->driver,
+        .ops = in->set_power ? &power_control : &scan_only, .ctx = state, .powered = in->powered};
+    return provider_finish(state, out, solar_os_native_result(solar_os_nfc_register(&registration)));
+}
+
+int solar_os_native_nfc_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_NFC_PROVIDER);
+}
+#endif
+
 #endif

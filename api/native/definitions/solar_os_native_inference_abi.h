@@ -36,6 +36,11 @@ typedef struct {
     int (*retain)(uint32_t model);
     int (*release)(uint32_t model);
     void (*result_free)(solar_os_inference_result_t *result);
+    const char *(*mode_name)(solar_os_inference_mode_t mode);
+    int (*mode_parse)(const char *name, solar_os_inference_mode_t *mode);
+    const char *(*dtype_name)(solar_os_tensor_dtype_t dtype);
+    int (*dtype_parse)(const char *name, solar_os_tensor_dtype_t *dtype);
+    size_t (*dtype_bytes)(solar_os_tensor_dtype_t dtype);
 } solar_os_native_inference_api_v1_t;
 
 /* Pixel views/ports are borrowed. Caller owns destination storage. */

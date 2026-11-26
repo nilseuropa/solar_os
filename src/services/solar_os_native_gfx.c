@@ -73,6 +73,7 @@ static const solar_os_native_gfx_api_v1_t gfx_api = {
     .text_advance = solar_os_gfx_text_advance, .text_fit = solar_os_gfx_text_fit,
     .text_span = solar_os_gfx_text_span,
     .text_tail = solar_os_gfx_text_tail,
+    .present_regions = solar_os_gfx_present_regions,
 };
 #endif
 

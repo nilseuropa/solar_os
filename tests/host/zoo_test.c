@@ -129,7 +129,7 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http
     solar_os_http_event_t header={.type=SOLAR_OS_HTTP_EVENT_HEADER,.status_code=-1,
         .header_name="Content-Type",.header_value="application/octet-stream"};
     error=r->options.event_handler(&header,r->options.user_data);
-    solar_os_http_event_t response={.type=SOLAR_OS_HTTP_EVENT_RESPONSE,.status_code=out->status_code};
+    solar_os_http_event_t response={.type=SOLAR_OS_HTTP_EVENT_RESPONSE,.status_code=out->status_code,.content_length=-1};
     if(!error)error=r->options.event_handler(&response,r->options.user_data);
     const size_t fragments[] = {37, 509, 3, 1023, 7}; size_t chunk = 0;
     while(!error && (n=fread(buffer,1,!strcmp(mode,"fragmented") ?

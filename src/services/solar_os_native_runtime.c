@@ -7,6 +7,7 @@
 #include "solar_os_config.h"
 #include "solar_os_jobs.h"
 #include "solar_os_memory.h"
+#include "solar_os_native_support.h"
 #if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 #include "solar_os_native_image.h"
 #endif
@@ -47,9 +48,11 @@ typedef struct native_resident_slot {
     solar_os_native_driver_descriptor_v1_t driver_descriptor;
     solar_os_native_library_descriptor_v1_t library_descriptor;
     solar_os_native_library_api_header_v1_t library_api_header;
+    solar_os_native_library_select_api_fn library_select_api;
     solar_os_job_t job;
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     solar_os_expansion_driver_t driver;
+    solar_os_native_bound_driver_descriptor_v1_t bound_driver;
 #endif
 } native_resident_slot_t;
 
@@ -57,6 +60,15 @@ static native_resident_slot_t *native_resident_slots;
 /* Registration belongs to the entry task. Other tasks cannot register against
  * an in-progress component or race a shared initialization pointer. */
 static _Thread_local native_resident_slot_t *native_registering_slot;
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+typedef struct {
+    native_resident_slot_t *slot;
+    const char *name;
+    const solar_os_expansion_binding_t *bindings;
+    size_t count;
+} native_driver_attach_scope_t;
+static _Thread_local const native_driver_attach_scope_t *native_driver_scope;
+#endif
 static portMUX_TYPE native_resident_lock = portMUX_INITIALIZER_UNLOCKED;
 
 typedef struct native_library_lease {
@@ -124,6 +136,10 @@ int solar_os_native_register_library(const solar_os_native_library_descriptor_v1
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     slot->library_descriptor = *descriptor;
     slot->library_api_header = header;
+    if (descriptor->struct_size >= sizeof(solar_os_native_library_versioned_descriptor_v1_t)) {
+        const solar_os_native_library_versioned_descriptor_v1_t *versioned = (const void *)descriptor;
+        slot->library_select_api = versioned->select_api;
+    }
     snprintf(slot->summary, sizeof(slot->summary), "%s", descriptor->summary);
     slot->registered = true;
     return SOLAR_OS_NATIVE_OK;
@@ -162,19 +178,24 @@ static int native_library_link_lease(native_library_lease_t *lease,
 
 static int native_library_acquire_loaded(const char *id, uint32_t abi_version,
     uint32_t minimum_struct_size, native_library_lease_t *lease,
-    uint32_t *token, const void **api)
+    uint32_t *token, const void **api, solar_os_native_library_select_api_fn *select_api)
 {
     int result = SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     portENTER_CRITICAL(&native_resident_lock);
     for (native_resident_slot_t *slot = native_resident_slots; slot; slot = slot->next) {
         if (slot->type != SOLAR_OS_MODULE_TYPE_LIBRARY || strcmp(slot->id, id)) continue;
         if (!slot->active || slot->deactivating) result = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
-        else if (slot->library_api_header.abi_version != abi_version ||
-                 slot->library_api_header.struct_size < minimum_struct_size)
-            result = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
         else {
-            result = native_library_link_lease(lease, slot, token);
-            if (result == SOLAR_OS_NATIVE_OK) *api = slot->library_descriptor.api;
+            const bool default_matches = slot->library_api_header.abi_version == abi_version &&
+                slot->library_api_header.struct_size >= minimum_struct_size;
+            result = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+            if (default_matches || slot->library_select_api) {
+                result = native_library_link_lease(lease, slot, token);
+                if (result == SOLAR_OS_NATIVE_OK) {
+                    if (default_matches) *api = slot->library_descriptor.api;
+                    else *select_api = slot->library_select_api;
+                }
+            }
         }
         break;
     }
@@ -204,8 +225,9 @@ int solar_os_native_library_acquire(const char *id, uint32_t abi_version,
     native_library_lease_t *lease = solar_os_memory_calloc(1, sizeof(*lease),
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.library.lease");
     if (!lease) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    solar_os_native_library_select_api_fn select_api = NULL;
     int result = native_library_acquire_loaded(id, abi_version, minimum_struct_size,
-                                              lease, token, api);
+                                              lease, token, api, &select_api);
     if (result == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) {
         esp_err_t err;
         if (solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, id)) {
@@ -221,9 +243,25 @@ int solar_os_native_library_acquire(const char *id, uint32_t abi_version,
 #endif
         }
         result = err == ESP_OK ? native_library_acquire_loaded(id, abi_version,
-            minimum_struct_size, lease, token, api) : native_library_result(err);
+            minimum_struct_size, lease, token, api, &select_api) : native_library_result(err);
     }
-    if (result != SOLAR_OS_NATIVE_OK) solar_os_memory_free(lease);
+    if (result != SOLAR_OS_NATIVE_OK) {
+        solar_os_memory_free(lease);
+    } else if (select_api) {
+        const void *selected = NULL;
+        result = select_api(abi_version, minimum_struct_size, &selected);
+        if (result == SOLAR_OS_NATIVE_OK) {
+            solar_os_native_library_api_header_v1_t header = {0};
+            if (selected) memcpy(&header, selected, sizeof(header));
+            if (header.abi_version != abi_version || header.struct_size < minimum_struct_size)
+                result = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+        }
+        if (result == SOLAR_OS_NATIVE_OK) *api = selected;
+        else {
+            (void)solar_os_native_library_release(*token);
+            *token = 0;
+        }
+    }
     return result;
 }
 
@@ -344,6 +382,31 @@ int solar_os_native_register_driver(
     return ESP_OK;
 }
 
+int solar_os_native_register_bound_driver(
+    const solar_os_native_bound_driver_descriptor_v1_t *descriptor)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    native_resident_slot_t *slot = native_registering_slot;
+    if (slot == NULL || slot->type != SOLAR_OS_MODULE_TYPE_DRIVER || slot->registered ||
+        descriptor == NULL || descriptor->abi_version != SOLAR_OS_NATIVE_DRIVER_REGISTRATION_ABI ||
+        descriptor->struct_size < sizeof(*descriptor) ||
+        !native_descriptor_text_valid(descriptor->id, SOLAR_OS_MODULE_PACKAGE_ID_MAX) ||
+        strcmp(descriptor->id, slot->id) != 0 ||
+        !native_descriptor_text_valid(descriptor->summary, SOLAR_OS_NATIVE_SUMMARY_MAX) ||
+        (unsigned)descriptor->category >= SOLAR_OS_EXPANSION_CATEGORY_COUNT ||
+        descriptor->binding_spec_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
+        (descriptor->binding_spec_count && !descriptor->binding_specs) ||
+        !descriptor->attach || !descriptor->detach) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    slot->bound_driver = *descriptor;
+    snprintf(slot->summary, sizeof(slot->summary), "%s", descriptor->summary);
+    slot->registered = true;
+    return SOLAR_OS_NATIVE_OK;
+#else
+    (void)descriptor;
+    return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+#endif
+}
+
 static bool native_slot_acquire(native_resident_slot_t *slot)
 {
     bool acquired = false;
@@ -364,6 +427,28 @@ static void native_slot_release(native_resident_slot_t *slot)
     }
     portEXIT_CRITICAL(&native_resident_lock);
 }
+
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+void *solar_os_native_driver_pin(void)
+{
+    return native_driver_scope && native_slot_acquire(native_driver_scope->slot) ? native_driver_scope->slot : NULL;
+}
+
+void solar_os_native_driver_unpin(void *pin)
+{
+    native_slot_release(pin);
+}
+
+bool solar_os_native_driver_has_binding(const char *owner, solar_os_expansion_binding_kind_t kind, const char *target)
+{
+    const native_driver_attach_scope_t *scope = native_driver_scope;
+    if (!scope || strcmp(scope->name, owner)) return false;
+    for (size_t i = 0; i < scope->count; ++i) {
+        if (scope->bindings[i].kind == kind && !strcmp(scope->bindings[i].target, target)) return true;
+    }
+    return false;
+}
+#endif
 
 static esp_err_t native_job_start_callback(void *user,
                                            solar_os_context_t *ctx,
@@ -412,27 +497,36 @@ static esp_err_t native_driver_attach_callback(
     void *user,
     const char *name,
     const solar_os_expansion_binding_t *bindings,
-    size_t binding_count)
+    size_t binding_count,
+    void **instance)
 {
-    (void)bindings;
-    native_resident_slot_t *slot = (native_resident_slot_t *)user;
-    if (binding_count != 0U || !native_slot_acquire(slot)) {
-        return ESP_ERR_INVALID_STATE;
+    native_resident_slot_t *slot = user;
+    if (!native_slot_acquire(slot)) return ESP_ERR_INVALID_STATE;
+    esp_err_t result;
+    if (slot->bound_driver.attach) {
+        const native_driver_attach_scope_t scope = {slot, name, bindings, binding_count};
+        const native_driver_attach_scope_t *previous = native_driver_scope;
+        native_driver_scope = &scope;
+        result = solar_os_native_callback_result(slot->bound_driver.attach(name, bindings, binding_count, instance));
+        native_driver_scope = previous;
+    } else {
+        result = binding_count == 0 ? (esp_err_t)slot->driver_descriptor.attach(name) : ESP_ERR_INVALID_ARG;
     }
-    const int result = slot->driver_descriptor.attach(name);
     native_slot_release(slot);
-    return (esp_err_t)result;
+    return result;
 }
 
-static esp_err_t native_driver_detach_callback(void *user, const char *name)
+static esp_err_t native_driver_detach_callback(void *user, const char *name, void *instance)
 {
     native_resident_slot_t *slot = (native_resident_slot_t *)user;
     if (!native_slot_acquire(slot)) {
         return ESP_ERR_INVALID_STATE;
     }
-    const int result = slot->driver_descriptor.detach(name);
+    const esp_err_t result = slot->bound_driver.detach ?
+        solar_os_native_callback_result(slot->bound_driver.detach(instance)) :
+        (esp_err_t)slot->driver_descriptor.detach(name);
     native_slot_release(slot);
-    return (esp_err_t)result;
+    return result;
 }
 #endif
 
@@ -589,7 +683,9 @@ static esp_err_t native_register_resident(native_resident_slot_t *slot)
         slot->driver = (solar_os_expansion_driver_t) {
             .name = slot->id,
             .summary = slot->summary,
-            .category = SOLAR_OS_EXPANSION_CATEGORY_UTILITY,
+            .category = slot->bound_driver.attach ? slot->bound_driver.category : SOLAR_OS_EXPANSION_CATEGORY_UTILITY,
+            .binding_specs = slot->bound_driver.binding_specs,
+            .binding_spec_count = slot->bound_driver.binding_spec_count,
             .callback_user = slot,
             .attach_with_user = native_driver_attach_callback,
             .detach_with_user = native_driver_detach_callback,
@@ -734,9 +830,11 @@ static esp_err_t native_module_deactivate_locked(solar_os_module_type_t type,
     }
 
     portENTER_CRITICAL(&native_resident_lock);
-    if (type == SOLAR_OS_MODULE_TYPE_LIBRARY && slot->callback_refs != 0U) {
+    if ((type == SOLAR_OS_MODULE_TYPE_LIBRARY || type == SOLAR_OS_MODULE_TYPE_DRIVER) && slot->callback_refs != 0U) {
         portEXIT_CRITICAL(&native_resident_lock);
-        native_set_detail(detail, detail_len, "library is in use; release all clients and workers before unloading");
+        native_set_detail(detail, detail_len, type == SOLAR_OS_MODULE_TYPE_DRIVER ?
+            "detach all devices and close their providers before unloading" :
+            "library is in use; release all clients and workers before unloading");
         return ESP_ERR_INVALID_STATE;
     }
     slot->deactivating = true;

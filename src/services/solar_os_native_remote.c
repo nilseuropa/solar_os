@@ -1,6 +1,6 @@
 #include "solar_os_native_remote.h"
 #include "solar_os_native_ssh_abi.h"
-#include "solar_os_native_sftp_abi.h"
+#include "solar_os_native_remote_files_abi.h"
 #include "solar_os_native_handles.h"
 #include "solar_os_native_support.h"
 #include "solar_os_config.h"
@@ -225,126 +225,184 @@ static const solar_os_native_ssh_api_v1_t ssh_api = {
 #endif
 };
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_SFTP
-#include "solar_os_sftp.h"
-typedef struct { solar_os_sftp_session_t *session; atomic_bool cancelled; } native_sftp_t;
-static bool sftp_cancelled(void *user)
+#if SOLAR_OS_PACKAGE_SERVICE_REMOTE_FILES
+#include "solar_os.h"
+#include "solar_os_remote_files.h"
+typedef struct { solar_os_remote_files_t session; atomic_bool cancelled; } native_remote_files_t;
+static bool files_cancelled(void *user)
 {
     uint32_t id = (uint32_t)(uintptr_t)user;
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return true;
     bool result = atomic_load(&state->cancelled); solar_os_native_handle_release(id); return result;
 }
-static int sftp_result(native_sftp_t *state, esp_err_t error)
+static int files_result(native_remote_files_t *state, esp_err_t error)
 { return error && atomic_load(&state->cancelled) ? SOLAR_OS_NATIVE_ERROR_CANCELLED : solar_os_native_result(error); }
-static int sftp_destroy(void *value)
+static int files_destroy(void *value)
 {
-    native_sftp_t *state = value; atomic_store(&state->cancelled, true);
-    if (state->session) solar_os_sftp_disconnect(state->session);
+    native_remote_files_t *state = value; atomic_store(&state->cancelled, true);
+    solar_os_remote_files_disconnect(&state->session);
     solar_os_memory_free(state); return SOLAR_OS_NATIVE_OK;
 }
-static int sftp_create(solar_os_native_handle_t *out)
+static int files_create(uint32_t protocol, solar_os_native_handle_t *out)
 {
     if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     *out = 0;
-    native_sftp_t *state = solar_os_memory_calloc(1, sizeof(*state), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.sftp");
+    if (protocol > SOLAR_OS_NATIVE_REMOTE_FILES_SFTP) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_remote_files_t *state = solar_os_memory_calloc(1, sizeof(*state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.remote.files");
     if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    state->session.protocol = protocol == SOLAR_OS_NATIVE_REMOTE_FILES_FTP ?
+        SOLAR_OS_REMOTE_FILE_FTP : SOLAR_OS_REMOTE_FILE_SFTP;
     atomic_init(&state->cancelled, false);
-    int result = solar_os_native_handle_create(SOLAR_OS_NATIVE_HANDLE_SFTP, state, sftp_destroy, out);
-    if (result) sftp_destroy(state);
+    const solar_os_app_t *owner = solar_os_application_descriptor();
+    const uint32_t kind = SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES;
+    int result = owner ? solar_os_native_handle_create_owned(kind, state, files_destroy, owner, out) :
+        solar_os_native_handle_create(kind, state, files_destroy, out);
+    if (result) files_destroy(state);
     return result;
 }
-static int sftp_close(solar_os_native_handle_t id) { return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_SFTP); }
-static int sftp_cancel(solar_os_native_handle_t id, bool requested)
+
+static int sftp_create(solar_os_native_handle_t *out)
+{ return files_create(SOLAR_OS_NATIVE_REMOTE_FILES_SFTP, out); }
+static int files_close(solar_os_native_handle_t id) { return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES); }
+static int files_cancel(solar_os_native_handle_t id, bool requested)
 {
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     atomic_store(&state->cancelled, requested); solar_os_native_handle_release(id); return SOLAR_OS_NATIVE_OK;
 }
+static int files_connect(solar_os_native_handle_t id, const solar_os_native_remote_file_options_v1_t *in,
+    char *diagnostic, size_t capacity)
+{
+    if ((diagnostic == NULL) != (capacity == 0)) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (diagnostic) *diagnostic = '\0';
+    if (!in || !in->host || !*in->host || !in->username || in->port > UINT16_MAX)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    if (state->session.connection) {
+        solar_os_native_handle_release(id);
+        return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    }
+    if (state->session.protocol == SOLAR_OS_REMOTE_FILE_SFTP &&
+        (!text_fits(in->host, SOLAR_OS_SSH_HOST_MAX, true) ||
+         !text_fits(in->username, SOLAR_OS_SSH_USERNAME_MAX, true) ||
+         !text_fits(in->password, SOLAR_OS_SSH_PASSWORD_MAX, false))) {
+        solar_os_native_handle_release(id);
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    const solar_os_remote_file_options_t options = {
+        .host = in->host, .port = (uint16_t)in->port, .username = in->username,
+        .password = !in->password && state->session.protocol == SOLAR_OS_REMOTE_FILE_FTP ? "" : in->password,
+        .timeout_ms = in->timeout_ms,
+        .error = diagnostic, .error_len = capacity,
+    };
+    const esp_err_t error = solar_os_remote_files_connect(&state->session, state->session.protocol,
+        &options, files_cancelled, (void *)(uintptr_t)id);
+    int result = files_result(state, error);
+    solar_os_native_handle_release(id);
+    return result;
+}
+
 static int sftp_connect(solar_os_native_handle_t id, const solar_os_native_ssh_options_v1_t *in, uint32_t timeout)
 {
-    solar_os_ssh_config_t ssh; int result = ssh_options(in, &ssh); if (result) return result;
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
-    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
-    if (state->session) result = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
-    else {
-        solar_os_sftp_options_t options = {ssh.host, ssh.port, ssh.username, ssh.password, timeout};
-        result = sftp_result(state, solar_os_sftp_connect(&options, sftp_cancelled, (void *)(uintptr_t)id, &state->session));
-    }
-    solar_os_native_handle_release(id); return result;
+    solar_os_ssh_config_t ssh;
+    int result = ssh_options(in, &ssh);
+    if (result) return result;
+    const solar_os_native_remote_file_options_v1_t options = {
+        .host = ssh.host, .port = ssh.port, .username = ssh.username, .password = ssh.password, .timeout_ms = timeout,
+    };
+    return files_connect(id, &options, NULL, 0);
 }
-static int sftp_disconnect(solar_os_native_handle_t id)
+static int files_disconnect(solar_os_native_handle_t id)
 {
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     bool cancelled = atomic_exchange(&state->cancelled, true);
-    if (state->session) solar_os_sftp_disconnect(state->session);
-    state->session = NULL; atomic_store(&state->cancelled, cancelled);
+    solar_os_remote_files_disconnect(&state->session);
+    atomic_store(&state->cancelled, cancelled);
     solar_os_native_handle_release(id); return SOLAR_OS_NATIVE_OK;
 }
-static int sftp_last_error(solar_os_native_handle_t id, char *text, size_t capacity)
+static int files_last_error(solar_os_native_handle_t id, char *text, size_t capacity)
 {
     if (!text || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    *text = 0; native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    *text = 0; native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
-    const char *error = solar_os_sftp_last_error(state->session); size_t size = strlen(error) + 1;
+    const char *error = solar_os_remote_files_error(&state->session); size_t size = strlen(error) + 1;
     int result = size <= capacity ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     if (!result) memcpy(text, error, size);
     solar_os_native_handle_release(id); return result;
 }
-typedef struct { solar_os_native_sftp_entry_fn visitor; void *user; } native_sftp_visitor_t;
-static bool sftp_entry(const solar_os_sftp_entry_t *in, void *user)
+typedef struct { solar_os_native_remote_file_entry_fn visitor; void *user; } native_file_visitor_t;
+static bool files_entry(const solar_os_remote_file_entry_t *in, void *user)
 {
-    native_sftp_visitor_t *bridge = user;
-    solar_os_native_sftp_entry_v1_t out = {.size = in->size, .is_directory = in->is_directory};
-    _Static_assert(sizeof(out.name) == sizeof(in->name), "SFTP name capacity"); memcpy(out.name, in->name, sizeof(out.name));
+    native_file_visitor_t *bridge = user;
+    solar_os_native_remote_file_entry_v1_t out = {.size = in->size, .is_directory = in->is_directory};
+    _Static_assert(sizeof(out.name) == sizeof(in->name), "remote file name capacity");
+    memcpy(out.name, in->name, sizeof(out.name));
     return bridge->visitor(&out, bridge->user);
 }
-static int sftp_list(solar_os_native_handle_t id, const char *path, solar_os_native_sftp_entry_fn visitor, void *user)
+static int files_list(solar_os_native_handle_t id, const char *path,
+    solar_os_native_remote_file_entry_fn visitor, void *user)
 {
     if (!visitor) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
-    native_sftp_visitor_t bridge = {visitor, user};
-    int result = state->session ? sftp_result(state, solar_os_sftp_list(state->session, path, sftp_entry, &bridge)) : SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    native_file_visitor_t bridge = {visitor, user};
+    int result = state->session.connection ?
+        files_result(state, solar_os_remote_files_list(&state->session, path, files_entry, &bridge)) :
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     solar_os_native_handle_release(id); return result;
 }
-static int sftp_transfer(solar_os_native_handle_t id, const char *first, const char *second,
+static int files_transfer(solar_os_native_handle_t id, const char *first, const char *second,
     solar_os_native_transfer_progress_fn progress, void *user, bool upload)
 {
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     int result = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
-    if (state->session) result = sftp_result(state, upload ? solar_os_sftp_upload(state->session, first, second, progress, user) :
-        solar_os_sftp_download(state->session, first, second, progress, user));
+    if (state->session.connection) {
+        const esp_err_t error = upload ? solar_os_remote_files_upload(&state->session, first, second, progress, user) :
+            solar_os_remote_files_download(&state->session, first, second, progress, user);
+        result = files_result(state, error);
+    }
     solar_os_native_handle_release(id); return result;
 }
-static int sftp_download(solar_os_native_handle_t id, const char *remote, const char *local, solar_os_native_transfer_progress_fn progress, void *user)
-{ return sftp_transfer(id, remote, local, progress, user, false); }
-static int sftp_upload(solar_os_native_handle_t id, const char *local, const char *remote, solar_os_native_transfer_progress_fn progress, void *user)
-{ return sftp_transfer(id, local, remote, progress, user, true); }
-#define SFTP_PATH_OPERATION(name) \
-static int sftp_##name(solar_os_native_handle_t id, const char *path) { \
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP); \
+static int files_download(solar_os_native_handle_t id, const char *remote, const char *local, solar_os_native_transfer_progress_fn progress, void *user)
+{ return files_transfer(id, remote, local, progress, user, false); }
+static int files_upload(solar_os_native_handle_t id, const char *local, const char *remote, solar_os_native_transfer_progress_fn progress, void *user)
+{ return files_transfer(id, local, remote, progress, user, true); }
+#define FILES_PATH_OPERATION(name) \
+static int files_##name(solar_os_native_handle_t id, const char *path) { \
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES); \
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND; \
-    int result = state->session ? sftp_result(state, solar_os_sftp_##name(state->session, path)) : SOLAR_OS_NATIVE_ERROR_INVALID_STATE; \
+    int result = state->session.connection ? files_result(state, solar_os_remote_files_##name(&state->session, path)) : \
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE; \
     solar_os_native_handle_release(id); return result; \
 }
-SFTP_PATH_OPERATION(mkdir)
-SFTP_PATH_OPERATION(rmdir)
-SFTP_PATH_OPERATION(remove)
-#undef SFTP_PATH_OPERATION
-static int sftp_rename(solar_os_native_handle_t id, const char *first, const char *second)
+FILES_PATH_OPERATION(mkdir)
+FILES_PATH_OPERATION(rmdir)
+FILES_PATH_OPERATION(remove)
+#undef FILES_PATH_OPERATION
+static int files_rename(solar_os_native_handle_t id, const char *first, const char *second)
 {
-    native_sftp_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_SFTP);
+    native_remote_files_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_REMOTE_FILES);
     if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
-    int result = state->session ? sftp_result(state, solar_os_sftp_rename(state->session, first, second)) : SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    int result = state->session.connection ?
+        files_result(state, solar_os_remote_files_rename(&state->session, first, second)) :
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     solar_os_native_handle_release(id); return result;
 }
+static const solar_os_native_remote_files_api_v1_t files_api = {
+    .abi_version = SOLAR_OS_NATIVE_REMOTE_FILES_ABI, .struct_size = sizeof(files_api), .create = files_create,
+    .close = files_close, .cancel = files_cancel, .connect = files_connect, .disconnect = files_disconnect,
+    .last_error = files_last_error, .list = files_list, .download = files_download, .upload = files_upload,
+    .mkdir = files_mkdir, .rmdir = files_rmdir, .remove = files_remove, .rename = files_rename,
+};
 static const solar_os_native_sftp_api_v1_t sftp_api = {
-    .abi_version = SOLAR_OS_NATIVE_SFTP_ABI, .struct_size = sizeof(sftp_api), .create = sftp_create, .close = sftp_close,
-    .cancel = sftp_cancel, .connect = sftp_connect, .disconnect = sftp_disconnect, .last_error = sftp_last_error,
-    .list = sftp_list, .download = sftp_download, .upload = sftp_upload, .mkdir = sftp_mkdir, .rmdir = sftp_rmdir, .remove = sftp_remove, .rename = sftp_rename,
+    .abi_version = SOLAR_OS_NATIVE_SFTP_ABI, .struct_size = sizeof(sftp_api), .create = sftp_create, .close = files_close,
+    .cancel = files_cancel, .connect = sftp_connect, .disconnect = files_disconnect, .last_error = files_last_error,
+    .list = files_list, .download = files_download, .upload = files_upload, .mkdir = files_mkdir, .rmdir = files_rmdir, .remove = files_remove, .rename = files_rename,
 };
 #endif
 const void *solar_os_native_remote_get_service(const char *name, uint32_t abi, uint32_t minimum)

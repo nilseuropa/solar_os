@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_manual_abi.h"
 
 typedef struct {
     const char *id;
@@ -20,14 +21,19 @@ typedef struct {
 } solar_os_manual_page_t;
 
 typedef struct {
-    const char *page_id;
-    const char *topic;
-    const char *section;
-    uint32_t offset;
-    uint32_t length;
-    uint16_t part;
-    uint16_t parts;
-} solar_os_manual_reference_t;
+    const solar_os_manual_page_t *pages;
+    size_t count;
+    void *pin;
+} solar_os_manual_catalog_t;
+
+/* Retain one catalog through all uses of its borrowed pages. A NULL catalog
+ * in find or search uses the current legacy view. */
+void solar_os_manual_catalog_acquire(bool bundled, solar_os_manual_catalog_t *catalog);
+void solar_os_manual_catalog_release(solar_os_manual_catalog_t *catalog);
+const solar_os_manual_page_t *solar_os_manual_catalog_find(const solar_os_manual_catalog_t *catalog,
+                                                           const char *name);
+size_t solar_os_manual_catalog_search(const solar_os_manual_catalog_t *catalog, const char *query,
+                                      const solar_os_manual_page_t **results, size_t capacity);
 
 esp_err_t solar_os_manual_load_markdown(const solar_os_manual_page_t *page,
                                         const char **markdown,

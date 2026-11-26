@@ -45,7 +45,10 @@ class NativeModulePackagesTest(unittest.TestCase):
         ble_header = (ROOT / "include" / "solar_os_native_ble_abi.h").read_text(
             encoding="utf-8"
         )
-        native = (ROOT / "src/services/solar_os_system_api.c").read_text() + (ROOT / "src/services/solar_os_native.c").read_text()
+        native = (ROOT / "src/services/solar_os_system_api.c").read_text()
+        ble = (ROOT / "src/services/solar_os_native_ble.c").read_text()
+        dispatch = (ROOT / "src/services/generated/native_ble_dispatch.inc").read_text()
+        providers = (ROOT / "src/services/generated/native_root_providers.inc").read_text()
 
         self.assertGreater(job_header.index("get_service"), job_header.index("register_job"))
         self.assertIn('SOLAR_OS_NATIVE_BLE_CLIENT_SERVICE "ble.client"', ble_header)
@@ -68,12 +71,15 @@ class NativeModulePackagesTest(unittest.TestCase):
             "peer_write",
         ):
             self.assertIn(f"(*{operation})", ble_header)
-        self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_BLE", native)
+        self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_BLE", dispatch)
+        self.assertIn('!strcmp(name, "ble.client")', dispatch)
+        self.assertIn('include "generated/native_ble_dispatch.inc"', ble)
+        self.assertIn("solar_os_native_ble_get_service", providers)
         self.assertIn(".get_service = native_job_get_service", native)
-        self.assertIn("SOLAR_OS_MEMORY_TRANSIENT", native)
+        self.assertIn("SOLAR_OS_MEMORY_TRANSIENT", ble)
 
-    def test_resident_slots_are_allocated_lazily_in_external_memory(self):
-        native = (ROOT / "src/services/solar_os_native.c").read_text(
+    def test_resident_slots_are_allocated_lazily_with_external_memory_preferred(self):
+        native = (ROOT / "src/services/solar_os_native_runtime.c").read_text(
             encoding="utf-8"
         )
 
@@ -83,7 +89,7 @@ class NativeModulePackagesTest(unittest.TestCase):
         allocation_start = native.index("slot = solar_os_memory_calloc(")
         allocation_end = native.index("slot->type = type;", allocation_start)
         allocation = native[allocation_start:allocation_end]
-        self.assertIn("SOLAR_OS_MEMORY_EXTERNAL_REQUIRED", allocation)
+        self.assertIn("SOLAR_OS_MEMORY_EXTERNAL_PREFERRED", allocation)
         self.assertIn('"native.resident.slot"', allocation)
 
         deactivation_start = native.index(

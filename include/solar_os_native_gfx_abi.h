@@ -6,7 +6,7 @@
 #define SOLAR_OS_NATIVE_GFX_SERVICE "gfx"
 #define SOLAR_OS_NATIVE_GFX_ABI 1U
 
-/* Borrow a rendering reference from application.gfx inside its owning scope.
+/* Borrow a rendering reference from application.gfx or display.lease.
  * Serialize drawing and do not use a reference on another task, beyond its
  * scope, or while a streaming presenter owns that surface. Drawing coordinates,
  * target extents and radii must fit signed 16-bit values. Drawing retains no
@@ -76,4 +76,11 @@ typedef struct {
      * passes; no string copies, per-character host calls or retained state. */
     size_t (*text_tail)(solar_os_gfx_t *gfx, const char *text, size_t length,
                         size_t max_pixels, size_t *advance);
+    /* Damage rectangles use oriented, scaled panel pixels, measured
+     * from the panel's top-left corner. Subtract panel_bounds.x/y from
+     * canvas-relative positions. NULL or zero selects the usual
+     * presentation path. Indexed canvases use their tracked changes.
+     * A display may update a larger area when needed for composition. */
+    void (*present_regions)(solar_os_gfx_t *gfx,
+                            const solar_os_display_rect_t *areas, size_t count);
 } solar_os_native_gfx_api_v1_t;

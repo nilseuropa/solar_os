@@ -1,12 +1,16 @@
 #include "solar_os_native_device.h"
 #include "solar_os_native_device_providers.h"
 #include "solar_os_native_device_abi.h"
+#include "solar_os_native_identity_abi.h"
+#include "solar_os_native_rtc_abi.h"
 #include "solar_os_native_power_abi.h"
 #include "solar_os_native_support.h"
 #include "solar_os_config.h"
+#include "solar_os_native_sensors_abi.h"
 #include <string.h>
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
 #include "solar_os_board_caps.h"
+#include "solar_os_identity.h"
 #include "solar_os_backlight.h"
 #include "solar_os_power.h"
 #include "solar_os_shutdown.h"
@@ -384,6 +388,26 @@ static int power_parse_key_action(const char *text, uint32_t *out)
     *out = 0; solar_os_power_key_action_t value;
     return solar_os_power_parse_key_action(text, &value) ? key_action_out(value, out) : SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
 }
+static int identity_get(solar_os_identity_v1_t *identity)
+{
+    if (!identity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    solar_os_identity_get(identity);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int identity_set(solar_os_identity_field_t field, const char *value)
+{
+    return solar_os_native_result(solar_os_identity_set(field, value));
+}
+
+static const solar_os_native_identity_api_v1_t identity_api = {
+    .abi_version = SOLAR_OS_NATIVE_IDENTITY_ABI,
+    .struct_size = sizeof(identity_api),
+    .get = identity_get,
+    .set = identity_set,
+    .format = solar_os_identity_format,
+};
+
 static const solar_os_native_board_api_v1_t board_api = {
     .abi_version = SOLAR_OS_NATIVE_BOARD_ABI, .struct_size = sizeof(board_api),
     .info = board_info,
@@ -637,6 +661,326 @@ static const solar_os_native_haptic_api_v1_t haptic_api = {
     .count = solar_os_haptic_count,
 };
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+#include "solar_os.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_rtc.h"
+#include <stdatomic.h>
+#include <stdio.h>
+
+typedef struct {
+    char owner[SOLAR_OS_RTC_OWNER_NAME_MAX];
+    atomic_bool ready;
+} native_rtc_lease_t;
+
+static int rtc_info(solar_os_rtc_info_t *info)
+{
+    if (!info) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *info = (solar_os_rtc_info_t){0};
+    return solar_os_native_result(solar_os_rtc_get_info(info));
+}
+
+static int rtc_lease_destroy(void *opaque)
+{
+    native_rtc_lease_t *state = opaque;
+    if (!atomic_load(&state->ready)) return SOLAR_OS_NATIVE_ERROR_BUSY;
+    const int result = solar_os_native_result(solar_os_rtc_release_owner_checked(state->owner));
+    if (result) return result;
+    solar_os_memory_free(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int rtc_lease_open(const char *label, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!label || !*label) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    solar_os_rtc_info_t info;
+    int result = rtc_info(&info);
+    if (result) return result;
+    if (!(info.capabilities & (SOLAR_OS_RTC_CAP_ALARM | SOLAR_OS_RTC_CAP_COUNTDOWN)))
+        return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+
+    native_rtc_lease_t *state = solar_os_memory_calloc(1, sizeof(*state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.rtc.lease");
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    atomic_init(&state->ready, false);
+    const uint32_t kind = SOLAR_OS_NATIVE_HANDLE_RTC_LEASE;
+    const solar_os_app_t *app = solar_os_application_descriptor();
+    solar_os_native_handle_t handle;
+    result = app ? solar_os_native_handle_create_owned(kind, state, rtc_lease_destroy, app, &handle) :
+        solar_os_native_handle_create(kind, state, rtc_lease_destroy, &handle);
+    if (result) {
+        solar_os_memory_free(state);
+        return result;
+    }
+    snprintf(state->owner, sizeof(state->owner), "%08lx/%.14s", (unsigned long)handle, label);
+    atomic_store(&state->ready, true);
+    *out = handle;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int rtc_lease_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_RTC_LEASE);
+}
+
+static int rtc_program(solar_os_native_handle_t handle, const solar_os_rtc_timer_request_v1_t *request)
+{
+    if (!request) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_rtc_lease_t *state = solar_os_native_handle_acquire(handle, SOLAR_OS_NATIVE_HANDLE_RTC_LEASE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    const int result = atomic_load(&state->ready) ?
+        solar_os_native_result(solar_os_rtc_program_timer(state->owner, request)) : SOLAR_OS_NATIVE_ERROR_BUSY;
+    solar_os_native_handle_release(handle);
+    return result;
+}
+
+static int rtc_cancel(solar_os_native_handle_t handle, solar_os_rtc_timer_kind_t kind)
+{
+    native_rtc_lease_t *state = solar_os_native_handle_acquire(handle, SOLAR_OS_NATIVE_HANDLE_RTC_LEASE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    const int result = atomic_load(&state->ready) ?
+        solar_os_native_result(solar_os_rtc_cancel_timer(state->owner, kind)) : SOLAR_OS_NATIVE_ERROR_BUSY;
+    solar_os_native_handle_release(handle);
+    return result;
+}
+
+static int rtc_interrupt_status(uint32_t *pending)
+{
+    if (!pending) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *pending = 0;
+    uint32_t bits = 0;
+    const int result = solar_os_native_result(solar_os_rtc_get_interrupt_status(&bits));
+    if (!result) *pending = bits;
+    return result;
+}
+
+static int rtc_interrupt_clear(uint32_t pending)
+{
+    return solar_os_native_result(solar_os_rtc_clear_interrupt_status(pending));
+}
+
+static const solar_os_native_rtc_api_v1_t rtc_api = {
+    .abi_version = SOLAR_OS_NATIVE_RTC_ABI,
+    .struct_size = sizeof(rtc_api),
+    .available = solar_os_rtc_has_provider,
+    .info = rtc_info,
+    .lease_open = rtc_lease_open,
+    .program = rtc_program,
+    .cancel = rtc_cancel,
+    .lease_close = rtc_lease_close,
+    .interrupt_status = rtc_interrupt_status,
+    .interrupt_clear = rtc_interrupt_clear,
+};
+static const solar_os_native_rtc_provider_api_v1_t rtc_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_RTC_PROVIDER_ABI,
+    .struct_size = sizeof(rtc_provider_api),
+    .provider_register = solar_os_native_rtc_provider_register,
+    .provider_close = solar_os_native_rtc_provider_close,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+#include "solar_os_sensors.h"
+static int sensors_environment(const char *name, uint32_t fields, solar_os_native_environment_v1_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    solar_os_native_environment_v1_t value = {0};
+    esp_err_t error;
+    switch (fields) {
+    case SOLAR_OS_SENSOR_CAP_TEMPERATURE:
+        error = solar_os_sensors_read_temperature(name, &value.temperature_c);
+        break;
+    case SOLAR_OS_SENSOR_CAP_HUMIDITY:
+        error = solar_os_sensors_read_humidity(name, &value.humidity_percent);
+        break;
+    case SOLAR_OS_SENSOR_CAP_TEMPERATURE | SOLAR_OS_SENSOR_CAP_HUMIDITY:
+        error = name ? solar_os_sensors_read_environment_from(name, &value) :
+                       solar_os_sensors_read_environment(&value);
+        break;
+    default:
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    if (error == ESP_OK) *out = value;
+    return solar_os_native_result(error);
+}
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+static int sensors_imu(const char *name, uint32_t timeout_ms, solar_os_native_imu_sample_v1_t *sample)
+{ return solar_os_native_result(solar_os_imu_read_sample(name, timeout_ms, sample)); }
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+static int sensors_gnss_fix(const char *name, uint32_t timeout_ms, solar_os_native_gnss_fix_v1_t *fix)
+{ return solar_os_native_result(solar_os_gnss_read_fix(name, timeout_ms, fix)); }
+static int sensors_gnss_status(const char *name, uint32_t timeout_ms, solar_os_native_gnss_status_v1_t *status)
+{ return solar_os_native_result(solar_os_gnss_get_status(name, timeout_ms, status)); }
+static int sensors_gnss_set(const char *name, uint32_t property, bool enabled)
+{
+    if (property == SOLAR_OS_NATIVE_GNSS_POWER_CONTROL)
+        return solar_os_native_result(solar_os_gnss_set_power(name, enabled));
+    if (property == SOLAR_OS_NATIVE_GNSS_ENABLE_CONTROL)
+        return solar_os_native_result(solar_os_gnss_set_enabled(name, enabled));
+    return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+}
+#endif
+
+static size_t sensors_count(uint32_t kind)
+{
+    switch (kind) {
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    case SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT: return solar_os_sensors_count();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    case SOLAR_OS_NATIVE_SENSOR_IMU: return solar_os_imu_count();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    case SOLAR_OS_NATIVE_SENSOR_GNSS: return solar_os_gnss_count();
+#endif
+    default: return 0;
+    }
+}
+
+static int sensors_info(uint32_t kind, size_t index, solar_os_native_sensor_info_v1_t *info)
+{
+    (void)index;
+    if (!info) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    switch (kind) {
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    case SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT:
+        if (solar_os_sensors_get(index, info)) return SOLAR_OS_NATIVE_OK;
+        break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    case SOLAR_OS_NATIVE_SENSOR_IMU:
+        if (solar_os_imu_get(index, info)) return SOLAR_OS_NATIVE_OK;
+        break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    case SOLAR_OS_NATIVE_SENSOR_GNSS: {
+        solar_os_gnss_info_t receiver;
+        _Static_assert(sizeof(info->name) == sizeof(receiver.name) &&
+                       sizeof(info->driver) == sizeof(receiver.driver), "GNSS metadata capacity matches the ABI");
+        if (!solar_os_gnss_get(index, &receiver)) break;
+        memcpy(info->name, receiver.name, sizeof(info->name));
+        memcpy(info->driver, receiver.driver, sizeof(info->driver));
+        info->capabilities = (receiver.power_control ? SOLAR_OS_NATIVE_GNSS_POWER_CONTROL : 0U) |
+            (receiver.enable_control ? SOLAR_OS_NATIVE_GNSS_ENABLE_CONTROL : 0U);
+        info->state = (receiver.powered ? SOLAR_OS_NATIVE_GNSS_POWERED : 0U) |
+            (receiver.enabled ? SOLAR_OS_NATIVE_GNSS_ENABLED : 0U);
+        return SOLAR_OS_NATIVE_OK;
+    }
+#endif
+    default: return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    }
+    return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+}
+
+static const solar_os_native_sensors_api_v1_t sensors_api = {
+    .abi_version = SOLAR_OS_NATIVE_SENSORS_ABI, .struct_size = sizeof(sensors_api),
+    .count = sensors_count, .info = sensors_info,
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    .environment = sensors_environment,
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    .imu = sensors_imu,
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    .gnss_fix = sensors_gnss_fix, .gnss_status = sensors_gnss_status, .gnss_set = sensors_gnss_set,
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || SOLAR_OS_PACKAGE_SERVICE_GNSS
+    .provider_register = solar_os_native_sensor_provider_register,
+    .provider_close = solar_os_native_sensor_provider_close,
+    .provider_report = solar_os_native_sensor_provider_report,
+#endif
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+#include "solar_os_modem.h"
+
+static int modem_info(size_t index, solar_os_native_modem_info_v1_t *info)
+{
+    if (!info) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    return solar_os_modem_get(index, info) ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+}
+static int modem_status(const char *name, solar_os_native_modem_status_v1_t *status)
+{ return solar_os_native_result(solar_os_modem_get_status(name, status)); }
+static int modem_set_active(const char *name, uint32_t target, bool active)
+{
+    if (target == SOLAR_OS_MODEM_SUPPLY)
+        return solar_os_native_result(solar_os_modem_set_power(name, active));
+    if (target == SOLAR_OS_MODEM_PACKET_DATA)
+        return solar_os_native_result(solar_os_modem_set_data_active(name, active));
+    return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+}
+static int modem_reset(const char *name)
+{ return solar_os_native_result(solar_os_modem_reset(name)); }
+static int modem_profile_read(const char *name, solar_os_native_modem_profile_v1_t *profile)
+{ return solar_os_native_result(solar_os_modem_profile_get(name, profile)); }
+static int modem_profile_write(const char *name, const solar_os_native_modem_profile_v1_t *profile)
+{ return solar_os_native_result(profile ? solar_os_modem_profile_set(name, profile) : solar_os_modem_profile_clear(name)); }
+static int modem_profile_validate(const solar_os_native_modem_profile_v1_t *profile)
+{ return solar_os_native_result(solar_os_modem_profile_validate(profile)); }
+static int modem_rate_read(const char *name, solar_os_native_modem_transport_rate_info_v1_t *info)
+{ return solar_os_native_result(solar_os_modem_transport_rate_get(name, info)); }
+static int modem_rate_write(const char *name, uint32_t rate)
+{ return solar_os_native_result(solar_os_modem_transport_rate_set(name, rate)); }
+static int modem_unlock(const char *name, const char *pin)
+{ return solar_os_native_result(solar_os_modem_unlock_sim(name, pin)); }
+static int modem_command(const char *name, const char *command, uint32_t timeout_ms, char *response, size_t capacity)
+{ return solar_os_native_result(solar_os_modem_command(name, command, timeout_ms, response, capacity)); }
+
+static int modem_parse(uint32_t kind, const char *text, uint32_t *value)
+{
+    if (kind == SOLAR_OS_MODEM_LABEL_IP_TYPE && solar_os_modem_ip_type_parse(text, value)) return SOLAR_OS_NATIVE_OK;
+    if (kind == SOLAR_OS_MODEM_LABEL_AUTH && solar_os_modem_auth_parse(text, value)) return SOLAR_OS_NATIVE_OK;
+    return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+}
+static const char *modem_label(uint32_t kind, uint32_t value)
+{
+    switch (kind) {
+    case SOLAR_OS_MODEM_LABEL_IP_TYPE: return solar_os_modem_ip_type_name(value);
+    case SOLAR_OS_MODEM_LABEL_AUTH: return solar_os_modem_auth_name(value);
+    case SOLAR_OS_MODEM_LABEL_REGISTRATION: return solar_os_modem_registration_name(value);
+    case SOLAR_OS_MODEM_LABEL_NETWORK_STATE: return solar_os_modem_network_state_name(value);
+    default: return NULL;
+    }
+}
+static const solar_os_native_modem_api_v1_t modem_api = {
+    .abi_version = SOLAR_OS_NATIVE_MODEM_ABI, .struct_size = sizeof(modem_api),
+    .count = solar_os_modem_count, .info = modem_info, .status = modem_status,
+    .set_active = modem_set_active, .reset = modem_reset, .profile_read = modem_profile_read,
+    .profile_write = modem_profile_write, .profile_validate = modem_profile_validate,
+    .transport_rate_read = modem_rate_read, .transport_rate_write = modem_rate_write,
+    .unlock_sim = modem_unlock, .command = modem_command, .parse = modem_parse, .label = modem_label,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_NFC
+#include "solar_os_nfc.h"
+
+static int nfc_set_power(const char *name, bool enabled)
+{ return solar_os_native_result(solar_os_nfc_set_power(name, enabled)); }
+
+static int nfc_scan(const char *name, uint32_t timeout_ms, solar_os_nfc_tag_t *tag)
+{
+    if (!tag) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *tag = (solar_os_nfc_tag_t){0};
+    return solar_os_native_result(solar_os_nfc_scan(name, timeout_ms, tag));
+}
+
+static const solar_os_native_nfc_api_v1_t nfc_api = {
+    .abi_version = SOLAR_OS_NATIVE_NFC_ABI, .struct_size = sizeof(nfc_api),
+    .count = solar_os_nfc_count, .info = solar_os_nfc_get, .set_power = nfc_set_power, .scan = nfc_scan,
+    .provider_register = solar_os_native_nfc_provider_register, .provider_close = solar_os_native_nfc_provider_close,
+};
+#endif
+
 const void *solar_os_native_device_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
 #include "generated/native_device_dispatch.inc"

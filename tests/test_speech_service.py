@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 
@@ -14,6 +16,8 @@ sys.modules[SPEC.name] = generate_flavor_config
 SPEC.loader.exec_module(generate_flavor_config)
 
 SERVICE_HEADER = (REPOSITORY / "src/services/solar_os_speech.h").read_text(
+    encoding="utf-8"
+) + (REPOSITORY / "include/solar_os_native_speech_abi.h").read_text(
     encoding="utf-8"
 )
 SERVICE_SOURCE = (REPOSITORY / "src/services/solar_os_speech.c").read_text(
@@ -59,6 +63,24 @@ class SpeechServiceTest(unittest.TestCase):
             REPOSITORY / "packages" / "solar_os_packages.toml"
         )
 
+    def test_native_worker_claim_stream_and_stop(self):
+        host = REPOSITORY / "tests/host"
+        src = REPOSITORY / "src"
+        services = src / "services"
+        include = [f"-I{directory}" for directory in (host / "speech_stubs", host / "native_abi_stubs",
+                   host, REPOSITORY / "include", src, services)]
+        flags = ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", *include]
+        subprocess.run([*flags, "-DSOLAR_OS_PACKAGE_SERVICE_SPEECH=0", "-fsyntax-only",
+                        str(services / "solar_os_native_speech.c")], check=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary) / "native-speech"
+            subprocess.run([*flags, "-DSOLAR_OS_PACKAGE_SERVICE_SPEECH=1", "-include", str(host / "compat.h"),
+                            "-pthread", "-fsanitize=address,undefined", "-no-pie",
+                            *(str(services / file) for file in ("solar_os_speech.c", "solar_os_native_speech.c",
+                               "solar_os_native_handles.c")), str(host / "native_speech_test.c"),
+                            "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=10)
+
     def test_full_enables_optional_speech_job_and_dependencies(self):
         _, _, groups, packages = generate_flavor_config.load_flavor(
             REPOSITORY / "flavors/full.toml", self.catalog
@@ -85,7 +107,7 @@ class SpeechServiceTest(unittest.TestCase):
         enqueue = enqueue.split("esp_err_t solar_os_speech_cancel(", 1)[0]
         self.assertIn("memcpy(entry->text, request->text, request->text_len)", enqueue)
         self.assertIn("speech.queue_count >= SOLAR_OS_SPEECH_QUEUE_CAPACITY", enqueue)
-        self.assertIn("xTaskNotifyGive(worker)", enqueue)
+        self.assertIn("xSemaphoreGive(speech.wake)", enqueue)
 
     def test_streaming_request_uses_one_bounded_chunk_slot(self):
         self.assertIn("solar_os_speech_stream_begin", SERVICE_HEADER)
@@ -98,7 +120,7 @@ class SpeechServiceTest(unittest.TestCase):
         )[1].split("esp_err_t solar_os_speech_cancel(", 1)[0]
         self.assertIn("speech.stream_chunk_ready", stream_write)
         self.assertIn("speech.stream_final_submitted", stream_write)
-        self.assertIn("xTaskNotifyGive(worker)", stream_write)
+        self.assertIn("xSemaphoreGive(speech.wake)", stream_write)
 
     def test_job_uses_selected_audio_player_and_pcm_converter(self):
         self.assertIn('.owner = "job:speechd"', JOB_SOURCE)

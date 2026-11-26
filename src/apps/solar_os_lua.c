@@ -451,13 +451,7 @@ static bool solua_set_tick_interval_ms(uint32_t interval_ms)
 
 static solar_os_shell_io_t *solua_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL) {
-        solar_os_shell_io_init_terminal(&solua.fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &solua.fallback_io);
-        io = &solua.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &solua.fallback_io, false);
 }
 
 static void solua_return_to_shell(solar_os_context_t *ctx,
@@ -1035,7 +1029,7 @@ static void solua_push_mqtt_status(lua_State *L, const solar_os_mqtt_status_t *s
     solua_set_str(L, -1, "username", status->username);
     solua_set_str(L, -1, "client_id", status->client_id);
     solua_set_str(L, -1, "last_error", status->last_error);
-    solua_set_int(L, -1, "last_esp_error", status->last_esp_error);
+    solua_set_int(L, -1, "last_esp_error", status->error);
     solua_set_int(L, -1, "last_msg_id", status->last_msg_id);
     solua_set_int(L, -1, "rx_count", status->rx_count);
     solua_set_int(L, -1, "tx_count", status->tx_count);
@@ -4313,8 +4307,8 @@ static int solua_expansion_drivers(lua_State *L)
     lua_newtable(L);
     int out = 1;
     for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
-        solar_os_expansion_driver_t driver;
-        if (!solar_os_expansion_get_driver(i, &driver)) {
+        solar_os_expansion_driver_info_t driver;
+        if (solar_os_expansion_get_driver_info(i, &driver) != ESP_OK) {
             continue;
         }
         lua_newtable(L);

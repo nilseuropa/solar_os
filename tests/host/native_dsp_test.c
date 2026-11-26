@@ -6,6 +6,9 @@
 #include "solar_os_native_client.h"
 #include "solar_os_native_dsp.h"
 #include "solar_os_native_handles.h"
+#include "solar_os_native_media_widgets.h"
+#include "solar_os_signal_widgets.h"
+#include "solar_os_memory.h"
 
 static unsigned allocations;
 static int fail_after = -1;
@@ -25,8 +28,79 @@ void __wrap_free(void *pointer)
     __real_free(pointer);
 }
 
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{ (void)cls; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *p) { free(p); }
+
+static const solar_os_native_signal_widget_api_v1_t *signal_api;
+static solar_os_native_handle_t drawing;
+static unsigned lines, fills;
+static solar_os_gfx_color_t color = SOLAR_OS_GFX_COLOR_BLACK;
+static solar_os_gfx_line_style_t style = SOLAR_OS_GFX_LINE_DOTTED;
+solar_os_gfx_color_t solar_os_gfx_color(const solar_os_gfx_t *gfx) { assert(gfx); return color; }
+void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t next) { assert(gfx); color = next; }
+solar_os_gfx_line_style_t solar_os_gfx_line_style(const solar_os_gfx_t *gfx) { assert(gfx); return style; }
+void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t next) { assert(gfx); style = next; }
+void solar_os_gfx_line(solar_os_gfx_t *gfx, int x0, int y0, int x1, int y1)
+{
+    assert(gfx && x0 >= 0 && x1 < 64 && y0 >= 0 && y1 < 32);
+    ++lines;
+}
+void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    assert(gfx && x >= 0 && y >= 0 && x + width <= 64 && y + height <= 32);
+    if (drawing) assert(signal_api->close(drawing) == SOLAR_OS_NATIVE_ERROR_BUSY);
+}
+void solar_os_gfx_fill_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    solar_os_gfx_rect(gfx, x, y, width, height);
+    ++fills;
+}
+
+static void verify_signal_widgets(void)
+{
+    signal_api = solar_os_native_signal_widget_get(solar_os_native_media_widgets_get_service, sizeof(*signal_api));
+#if SOLAR_OS_PACKAGE_SERVICE_SIGNAL_WIDGETS
+    assert(signal_api);
+    char widget_display;
+    solar_os_gfx_t *gfx = (solar_os_gfx_t *)&widget_display;
+    solar_os_native_handle_t waveform, spectrum;
+    assert(signal_api->create(SOLAR_OS_SIGNAL_SPECTRUM, 65, &spectrum) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !spectrum);
+    fail_after = 1;
+    assert(signal_api->create(SOLAR_OS_SIGNAL_WAVEFORM, 64, &waveform) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !waveform);
+    fail_after = -1;
+    assert(!allocations);
+    assert(!signal_api->create(SOLAR_OS_SIGNAL_WAVEFORM, 64, &waveform));
+    assert(!signal_api->create(SOLAR_OS_SIGNAL_SPECTRUM, 64, &spectrum));
+    int16_t pcm[128];
+    for (size_t i = 0; i < 128; ++i) pcm[i] = i % 8 < 4 ? 24000 : -24000;
+    assert(!signal_api->submit_s16(waveform, pcm, 64, 2));
+    assert(!signal_api->submit_s16(spectrum, pcm, 64, 2));
+    memset(pcm, 0, sizeof(pcm));
+    drawing = waveform;
+    assert(!signal_api->draw(waveform, gfx, 0, 0, 64, 32) && lines > 1);
+    assert(color == SOLAR_OS_GFX_COLOR_BLACK && style == SOLAR_OS_GFX_LINE_DOTTED);
+    assert(!signal_api->reset(waveform));
+    lines = 0;
+    assert(!signal_api->draw(waveform, gfx, 0, 0, 64, 32) && lines == 1);
+    drawing = spectrum;
+    fills = 0;
+    assert(!signal_api->draw(spectrum, gfx, 0, 0, 64, 32) && fills > 1);
+    assert(!signal_api->reset(spectrum));
+    fills = 0;
+    assert(!signal_api->draw(spectrum, gfx, 0, 0, 64, 32) && fills == 1);
+    drawing = 0;
+    assert(!signal_api->close(waveform) && !signal_api->close(spectrum));
+    assert(signal_api->reset(waveform) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!allocations && !solar_os_native_handle_count());
+#else
+    assert(!signal_api);
+#endif
+}
+
 int main(void)
 {
+    verify_signal_widgets();
     const solar_os_native_dsp_api_v1_t *api = solar_os_native_dsp_get(solar_os_native_dsp_get_service, sizeof(*api));
 #if SOLAR_OS_PACKAGE_SERVICE_DSP
     assert(api && api->backend() && api->capabilities() && !api->accelerated_capabilities());

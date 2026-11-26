@@ -18,5 +18,6 @@ class AudioPlayerTest(unittest.TestCase):
                 '-I' + str(ROOT / 'tests/host/audio_player_stubs'),
                 '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src'),
                 '-I' + str(ROOT / 'src/services'),
+                '-I' + str(ROOT / 'include'),
                 str(source), str(ROOT / 'tests/host/audio_player_test.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)

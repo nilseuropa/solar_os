@@ -35,7 +35,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(keymap, "input.keymap", solar_os_native_keymap_api_v
     M(provider_process) \
     M(provider_press_priority) \
     M(provider_release_all) \
-    M(provider_close)
+    M(provider_close) \
+    M(init_matrix)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -85,7 +86,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(gfx, "gfx", solar_os_native_gfx_api_v1_t, 1U)
     M(text_advance) \
     M(text_fit) \
     M(text_span) \
-    M(text_tail)
+    M(text_tail) \
+    M(present_regions)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -252,7 +254,14 @@ SOLAR_OS_NATIVE_DECLARE_GET(terminal, "terminal", solar_os_native_terminal_api_v
     M(apply_profile_transient) \
     M(needs_draw) \
     M(invalidate_render) \
-    M(draw)
+    M(draw) \
+    M(columns_for_width) \
+    M(geometry_for_height) \
+    M(profile_valid) \
+    M(load_saved_profile) \
+    M(load_display_preferences) \
+    M(save_preference) \
+    M(cursor_preference_for_panel)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -477,6 +486,194 @@ SOLAR_OS_NATIVE_DECLARE_GET(media_widgets, "ui.media", solar_os_native_media_wid
     M(cassette_reset) \
     M(cassette_update) \
     M(cassette_draw)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(signal_widget, "ui.signal", solar_os_native_signal_widget_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(signal_widget, solar_os_native_signal_widget_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(close) \
+    M(reset) \
+    M(submit_s16) \
+    M(draw)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display, "display", solar_os_native_display_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display, solar_os_native_display_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(get_profile) \
+    M(set_profile) \
+    M(set_canvas) \
+    M(export_open) \
+    M(frame_acquire) \
+    M(frame_release) \
+    M(export_close) \
+    M(get_mode) \
+    M(set_mode) \
+    M(get_theme) \
+    M(set_theme_color)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_layout, "display.layout", solar_os_native_display_layout_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_layout, solar_os_native_display_layout_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(create) \
+    M(remove) \
+    M(axis_name)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_lease, "display.lease", solar_os_native_display_lease_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_lease, solar_os_native_display_lease_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(gfx_acquire) \
+    M(gfx_release) \
+    M(set_policy) \
+    M(close) \
+    M(relax) \
+    M(frames_open) \
+    M(frames_suspend) \
+    M(frames_resume) \
+    M(frames_close) \
+    M(frames_submit) \
+    M(frames_acquire) \
+    M(frames_exchange) \
+    M(frames_release) \
+    M(frames_redraw) \
+    M(frames_take_stats)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_layer, "display.layer", solar_os_native_display_layer_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_layer, solar_os_native_display_layer_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(show) \
+    M(visible) \
+    M(clear) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_provider, "display.provider", solar_os_native_display_provider_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_provider, solar_os_native_display_provider_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(register_display) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_link, "display.link", solar_os_native_display_link_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_link, solar_os_native_display_link_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(info) \
+    M(present) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(font_packs, "display.fonts", solar_os_native_font_packs_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(font_packs, solar_os_native_font_packs_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(generation) \
+    M(name_valid) \
+    M(load) \
+    M(unload) \
+    M(save_selection) \
+    M(saved_selection) \
+    M(directory) \
+    M(visit_files)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(text_search, "text.search", solar_os_native_text_search_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(text_search, solar_os_native_text_search_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(reset) \
+    M(begin_input) \
+    M(cancel_input) \
+    M(input_append) \
+    M(input_backspace) \
+    M(submit_input) \
+    M(set_query) \
+    M(find) \
+    M(find_segments)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(gesture, "input.gesture", solar_os_native_gesture_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(gesture, solar_os_native_gesture_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(defaults) \
+    M(prepare) \
+    M(recognize) \
+    M(graffiti_context_size) \
+    M(graffiti_context_alignment) \
+    M(graffiti_init) \
+    M(graffiti_template_count) \
+    M(graffiti_zone) \
+    M(graffiti_recognize) \
+    M(graffiti_apply)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(emotion, "emotion", solar_os_native_emotion_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(emotion, solar_os_native_emotion_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(close) \
+    M(set_suspended) \
+    M(set) \
+    M(react) \
+    M(look) \
+    M(blink) \
+    M(status) \
+    M(uses_foreground)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(jet, "jet.scene", solar_os_native_jet_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(jet, solar_os_native_jet_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(close) \
+    M(set_suspended) \
+    M(uses_foreground) \
+    M(background) \
+    M(camera) \
+    M(light) \
+    M(cube) \
+    M(mesh) \
+    M(transform) \
+    M(remove) \
+    M(render) \
+    M(status) \
+    M(execute)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

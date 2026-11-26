@@ -94,14 +94,14 @@ void solar_os_media_transport_button_draw(solar_os_gfx_t *gfx, int x, int y, int
     buttons++; button_x = x; button_y = y; button_width = width;
     if (buttons % 3 == 2) button_icon = icon;
 }
-void solar_os_oscilloscope_widget_draw(solar_os_oscilloscope_widget_t *widget,
+void solar_os_signal_widget_draw(solar_os_signal_widget_t *widget,
     solar_os_gfx_t *gfx, int x, int y, int width, int height)
 {
     (void)widget; solar_os_gfx_rect(gfx, x, y, width, height);
     scopes++; scope_x = x; scope_y = y; scope_width = width; scope_height = height;
 }
-esp_err_t solar_os_oscilloscope_widget_create(size_t capacity, solar_os_oscilloscope_widget_t **out)
-{ (void)capacity; *out = (solar_os_oscilloscope_widget_t *)1; return ESP_OK; }
+esp_err_t solar_os_signal_widget_create(uint32_t kind, size_t capacity, solar_os_signal_widget_t **out)
+{ assert(kind == SOLAR_OS_SIGNAL_WAVEFORM); (void)capacity; *out = (solar_os_signal_widget_t *)1; return ESP_OK; }
 void solar_os_rtsp_client_status(solar_os_rtsp_client_t *c, solar_os_rtsp_client_status_t *status)
 { assert(c); *status = c->status; }
 void solar_os_rtsp_client_cancel(solar_os_rtsp_client_t *c) { assert(c); cancellations++; }

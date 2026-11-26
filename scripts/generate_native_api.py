@@ -338,11 +338,22 @@ static inline bool solar_os_native_##id##_has_##method(const type *api) \
         parents.setdefault(provider['parent'], []).append(provider)
     for parent, entries in parents.items():
         source = [BANNER]
-        for entry in entries:
+        if len(entries) == 1:
+            entry = entries[0]
             if entry.get('gate'): source.append(f"#if {entry['gate']}\n")
             source.append(f'{{\n    const void *provided = {entry["getter"]}(name, abi, minimum);\n'
                           '    if (provided) return provided;\n}\n')
             if entry.get('gate'): source.append('#endif\n')
+        elif entries:
+            source.append('static const void *(*const providers[])(const char *, uint32_t, uint32_t) = {\n')
+            for entry in entries:
+                if entry.get('gate'): source.append(f"#if {entry['gate']}\n")
+                source.append(f'    {entry["getter"]},\n')
+                if entry.get('gate'): source.append('#endif\n')
+            source.append('    NULL,\n};\n'
+                          'for (size_t i = 0; providers[i]; ++i) {\n'
+                          '    const void *provided = providers[i](name, abi, minimum);\n'
+                          '    if (provided) return provided;\n}\n')
         result[Path(f'src/services/generated/native_{parent}_providers.inc')] = ''.join(source)
     root_headers = [BANNER, '/* Root provider declarations follow the same registry as dispatch. */\n']
     for entry in parents['root']:
@@ -382,7 +393,15 @@ def main(argv=None):
     if args.check and args.update_lock:
         parser.error('--check and --update-lock cannot be combined')
     stale = []
-    for relative, source in outputs(root, headers, services).items():
+    generated = outputs(root, headers, services)
+    for path in (root / 'include').glob('solar_os_native_client_*.h'):
+        relative = path.relative_to(root)
+        if relative not in generated and path.read_text().startswith(BANNER):
+            if args.check:
+                stale.append(str(relative))
+            else:
+                path.unlink()
+    for relative, source in generated.items():
         path = root / relative
         if path.is_file() and path.read_text() == source:
             continue

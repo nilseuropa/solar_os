@@ -13,11 +13,28 @@ class NativeRemoteApiTest(unittest.TestCase):
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
                 '-fsanitize=address,undefined', '-fno-pie', '-no-pie',
                 '-DSOLAR_OS_PACKAGE_SERVICE_SSH=1', '-DSOLAR_OS_PACKAGE_SERVICE_SFTP=1', '-DSOLAR_OS_PACKAGE_SERVICE_SFTPSYNC=1',
+                '-DSOLAR_OS_PACKAGE_SERVICE_REMOTE_FILES=1',
                 '-I', str(ROOT / 'tests/host/native_abi_stubs'), '-I', str(ROOT / 'tests/host'),
                 '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
                 str(ROOT / 'tests/host/native_remote_api_test.c'),
                 str(ROOT / 'src/services/solar_os_native_handles.c'),
+                str(ROOT / 'src/services/solar_os_remote_files.c'),
                 str(ROOT / 'src/services/solar_os_native_remote.c'), '-o', str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=20)
+
+    def test_ssh_command_channel_binary_io_and_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = Path(tmp) / 'ssh-exec'
+            subprocess.run(['cc', '-std=c11', '-D_POSIX_C_SOURCE=200809L',
+                '-Wall', '-Wextra', '-Werror', '-pthread',
+                '-fsanitize=address,undefined', '-fno-pie', '-no-pie',
+                '-DSOLAR_OS_PACKAGE_SERVICE_SSH=1',
+                '-I', str(ROOT / 'tests/host/native_abi_stubs'),
+                '-I', str(ROOT / 'tests/host/ssh_exec_stubs'), '-I', str(ROOT / 'tests/host'),
+                '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
+                str(ROOT / 'tests/host/ssh_exec_test.c'),
+                str(ROOT / 'src/services/solar_os_native_handles.c'),
+                str(ROOT / 'src/services/solar_os_native_ssh_exec.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)
 
     def test_strict_ssh_scp_and_sync_stop_preserves_worker_on_timeout(self):

@@ -3,6 +3,7 @@
 #include "solar_os_components.h"
 #include "solar_os_module_packages.h"
 #include "solar_os_system_api.h"
+#include "solar_os_expansion_types_v1.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,6 +22,12 @@ esp_err_t solar_os_native_module_deactivate(solar_os_module_type_t type,
                                             size_t detail_len);
 bool solar_os_native_module_active(solar_os_module_type_t type,
                                    const char *id);
+
+/* Available during a bound driver's attach callback. Retain code until a
+ * native provider or retained bus handle has been closed. */
+void *solar_os_native_driver_pin(void);
+void solar_os_native_driver_unpin(void *pin);
+bool solar_os_native_driver_has_binding(const char *owner, solar_os_expansion_binding_kind_t kind, const char *target);
 
 /* Stable native service results, usable by firmware consumers as well. */
 int solar_os_native_library_acquire(const char *id, uint32_t abi_version,

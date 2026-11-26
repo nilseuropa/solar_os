@@ -10,6 +10,7 @@
 #include "solar_os_native_client.h"
 #include "solar_os_native_fs.h"
 #include "solar_os_storage.h"
+#include "storage_labels.inc"
 #include "solar_os_memory.h"
 
 static const char *root;
@@ -176,6 +177,9 @@ int main(int argc,char **argv)
     assert(!pthread_mutexattr_settype(&attr,PTHREAD_MUTEX_RECURSIVE));
     assert(!pthread_mutex_init(&topology_lock,&attr));pthread_mutexattr_destroy(&attr);
     const solar_os_native_fs_api_v1_t *fs=solar_os_native_fs_get_service("fs",1,sizeof(*fs));assert(fs);
+    assert(!strcmp(fs->entry_type_name(SOLAR_OS_NATIVE_FS_FILE), "file"));
+    assert(!strcmp(fs->entry_type_name(SOLAR_OS_NATIVE_FS_DIRECTORY), "directory"));
+    assert(!strcmp(fs->entry_type_name(UINT32_MAX), "other"));
     const solar_os_native_volumes_api_v1_t *volumes=solar_os_native_fs_get_service("storage.volumes",1,sizeof(*volumes));assert(volumes);
     char path[160],renamed[160];assert(!fs->join(root,"file",path,sizeof(path)));
     size_t size=0;assert(!fs->write(path,"abcdef",6,false));

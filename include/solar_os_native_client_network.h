@@ -37,6 +37,28 @@ SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
 
+SOLAR_OS_NATIVE_DECLARE_GET(osc, "osc", solar_os_native_osc_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(osc, solar_os_native_osc_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(bind) \
+    M(unbind) \
+    M(clear) \
+    M(count) \
+    M(info) \
+    M(dispatch) \
+    M(encode_floats) \
+    M(encode_integer) \
+    M(source_name) \
+    M(value_name) \
+    M(edge_name) \
+    M(due) \
+    M(prepare) \
+    M(report) \
+    M(release_receivers)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
 SOLAR_OS_NATIVE_DECLARE_GET(net, "net", solar_os_native_net_api_v1_t, 1U)
 #define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(net, solar_os_native_net_api_v1_t, 1U, method)
 #define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
@@ -54,7 +76,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(net, "net", solar_os_native_net_api_v1_t, 1U)
     M(channel_close) \
     M(close_all) \
     M(status) \
-    M(websocket_opcode_name)
+    M(websocket_opcode_name) \
+    M(tls_connect)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -82,7 +105,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(http, "http", solar_os_native_http_api_v1_t, 1U)
     M(origin_parse) \
     M(same_origin) \
     M(redirect_status) \
-    M(redirect_url)
+    M(redirect_url) \
+    M(download)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -133,7 +157,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(wifi, "wifi", solar_os_native_wifi_api_v1_t, 1U)
     M(latency_acquire) \
     M(lease_close) \
     M(status) \
-    M(status_text)
+    M(status_text) \
+    M(state_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -201,7 +226,12 @@ SOLAR_OS_NATIVE_DECLARE_GET(stream, "stream", solar_os_native_stream_api_v1_t, 1
     M(csv_header) \
     M(read_csv) \
     M(frame_acquire) \
-    M(frame_release)
+    M(frame_release) \
+    M(handle_info) \
+    M(type_name) \
+    M(direction_name) \
+    M(sharing_name) \
+    M(audio_format_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -323,6 +353,167 @@ SOLAR_OS_NATIVE_DECLARE_GET(ble_stream, "stream.ble", solar_os_native_ble_stream
     M(connect) \
     M(remove) \
     M(status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(stream_provider, "stream.provider", solar_os_native_stream_provider_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(stream_provider, solar_os_native_stream_provider_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(provider_register) \
+    M(provider_close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(messages, "messages", solar_os_native_messages_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(messages, solar_os_native_messages_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(provider_next) \
+    M(provider_info) \
+    M(provider_find) \
+    M(provider_is_class) \
+    M(class_next) \
+    M(provider_add) \
+    M(provider_configure) \
+    M(provider_remove) \
+    M(connect) \
+    M(join) \
+    M(leave) \
+    M(room_left) \
+    M(open_direct) \
+    M(open_contact) \
+    M(conversation_snapshot) \
+    M(conversation_get) \
+    M(conversation_label) \
+    M(mark_read) \
+    M(message_page) \
+    M(message_visit) \
+    M(message_get) \
+    M(message_delete) \
+    M(clear) \
+    M(send) \
+    M(cancel) \
+    M(event_next) \
+    M(outbox_snapshot) \
+    M(provider_name) \
+    M(contact_trust_name) \
+    M(conversation_kind_name) \
+    M(delivery_name) \
+    M(settings_read) \
+    M(settings_write) \
+    M(provider_claim) \
+    M(provider_set_status) \
+    M(provider_context) \
+    M(provider_cursor) \
+    M(publish_inbound) \
+    M(conversation_upsert) \
+    M(conversation_remove) \
+    M(groups_begin_sync) \
+    M(join_update) \
+    M(outbox_peek) \
+    M(outbox_update)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(contacts, "contacts", solar_os_native_contacts_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(contacts, solar_os_native_contacts_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(snapshot) \
+    M(get) \
+    M(endpoints) \
+    M(endpoint_get) \
+    M(endpoint_find) \
+    M(upsert_discovered) \
+    M(flush) \
+    M(rename) \
+    M(set_trust) \
+    M(remove) \
+    M(link)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(inbox, "inbox", solar_os_native_inbox_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(inbox, solar_os_native_inbox_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(publish) \
+    M(snapshot) \
+    M(get) \
+    M(mark_read) \
+    M(matches_source_id) \
+    M(delete_entry) \
+    M(delete_many) \
+    M(delete_sources) \
+    M(clear) \
+    M(set_sound) \
+    M(test_sound) \
+    M(priority_name)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(remote_files, "remote.files", solar_os_native_remote_files_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(remote_files, solar_os_native_remote_files_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(close) \
+    M(cancel) \
+    M(connect) \
+    M(disconnect) \
+    M(last_error) \
+    M(list) \
+    M(download) \
+    M(upload) \
+    M(mkdir) \
+    M(rmdir) \
+    M(remove) \
+    M(rename)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(ssh_exec, "ssh.exec", solar_os_native_ssh_exec_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(ssh_exec, solar_os_native_ssh_exec_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(start) \
+    M(read) \
+    M(write) \
+    M(finish_input) \
+    M(status) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(mqtt, "network.mqtt", solar_os_native_mqtt_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(mqtt, solar_os_native_mqtt_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(connect) \
+    M(disconnect) \
+    M(publish) \
+    M(subscribe) \
+    M(read) \
+    M(status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(wireguard, "network.wireguard", solar_os_native_wireguard_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(wireguard, solar_os_native_wireguard_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(import_profile) \
+    M(forget) \
+    M(up) \
+    M(down) \
+    M(status) \
+    M(state_name) \
+    M(policy_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

@@ -133,20 +133,15 @@ Package source ownership and service internals are documented in the
 SolarOS provides four firmware profiles. `core` supplies the services, shell,
 package installer on supported targets, and required board hardware. It selects
 no additional apps, workers or expansion-driver collections. `full` adds the
-broad application and driver selection. `classic` is a compact
-profile with ADC D-pad support for ODROID-GO, the I/O app, control bindings,
-and 1-Wire. It is the default for all classic ESP32 targets, including boards
-with 4 MiB flash.
+broad application and driver selection. `classic` is the default profile for
+classic ESP32 targets, including boards with 4 MiB flash.
 `writerdeck` is the compact profile used by e-paper boards with smaller
 application partitions.
 
-`classic` retains Python, Playground, Editor, Pager, Files, Launcher, the I/O
-app, the serial terminal, Clock, Calculator and file-transfer clients. It keeps
-every eligible core service and the selected board's required hardware drivers.
-Reader, Writer, Notes, media and web apps, Agent, Chat, the legacy chat workers,
-network server workers, and the speech worker are omitted to fit 4 MiB boards.
-Lua, built-in games, video playback and pipeline workers are also omitted. ODROID-GO retains its buttons and
-ADC D-pad; VGA32 retains its default PS/2 keyboard attachment.
+`classic` includes Python, Playground, Editor, Pager, and every eligible core
+service. Its smaller selection leaves space for required board drivers and the
+PSRAM cache workaround on older ESP32 revisions. ODROID-GO includes its buttons
+and ADC D-pad. VGA32 includes its default PS/2 keyboard attachment.
 
 `writerdeck` includes Python, Playground, editing, Files, Reader, Writer, Notes,
 View, audio playback, recording, Web, Agent, WireGuard, SC2 messaging, and file

@@ -32,18 +32,18 @@ static int solua_dlp_connection_close(lua_State *L)
 static int solua_dlp_connection_info(lua_State *L)
 {
     solar_os_display_link_t *link = solua_dlp_link(L);
-    const sdlp_info_t *info = solar_os_display_link_info(link);
-    unsigned format = solar_os_display_link_format(link);
+    solar_os_native_display_link_info_v1_t info;
+    solua_check_esp(L, solar_os_display_link_copy_info(link, &info));
     lua_newtable(L);
-    solua_set_int(L, -1, "width", info->width);
-    solua_set_int(L, -1, "height", info->height);
-    solua_set_int(L, -1, "format", format);
-    solua_set_int(L, -1, "stride", sdlp_row_bytes(info->width, format));
-    solua_set_int(L, -1, "frame_bytes", sdlp_row_bytes(info->width, format) * info->height);
-    solua_set_int(L, -1, "formats", info->formats);
-    solua_set_int(L, -1, "capabilities", info->capabilities);
-    solua_set_str(L, -1, "model", info->model);
-    solua_set_str(L, -1, "firmware", info->firmware);
+    solua_set_int(L, -1, "width", info.width);
+    solua_set_int(L, -1, "height", info.height);
+    solua_set_int(L, -1, "format", info.format);
+    solua_set_int(L, -1, "stride", info.stride);
+    solua_set_int(L, -1, "frame_bytes", info.frame_bytes);
+    solua_set_int(L, -1, "formats", info.formats);
+    solua_set_int(L, -1, "capabilities", info.capabilities);
+    solua_set_str(L, -1, "model", info.model);
+    solua_set_str(L, -1, "firmware", info.firmware);
     return 1;
 }
 static int solua_dlp_connection_present(lua_State *L)

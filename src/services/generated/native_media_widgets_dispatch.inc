@@ -5,3 +5,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(media_widgets_api), const
 if (name && !strcmp(name, "ui.media") && abi == 1U &&
     minimum <= sizeof(media_widgets_api)) return &media_widgets_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_SIGNAL_WIDGETS
+_Static_assert(__builtin_types_compatible_p(__typeof__(signal_widget_api), const solar_os_native_signal_widget_api_v1_t), "native service table type");
+if (name && !strcmp(name, "ui.signal") && abi == 1U &&
+    minimum <= sizeof(signal_widget_api)) return &signal_widget_api;
+#endif

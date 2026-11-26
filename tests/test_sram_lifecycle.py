@@ -465,7 +465,7 @@ int main(void) {
 
         headers = "#include <limits.h>\n#include <math.h>\n#define SOLAR_OS_STREAM_ID_MAX 32\n"
         for path in ("src/services/solar_os_synth.h", "src/services/solar_os_synth_voice.h",
-                     "src/services/solar_os_dsp.h"):
+                     "include/solar_os_dsp_types_v1.h", "src/services/solar_os_dsp.h"):
             headers += without_includes(source(path))
         providers = r"""
 static solar_os_synth_status_t publisher;

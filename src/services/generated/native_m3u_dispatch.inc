@@ -5,3 +5,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(m3u_api), const solar_os_
 if (name && !strcmp(name, "media.m3u") && abi == 1U &&
     minimum <= sizeof(m3u_api)) return &m3u_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MEDIA_PLAYLIST
+_Static_assert(__builtin_types_compatible_p(__typeof__(playlist_api), const solar_os_native_playlist_api_v1_t), "native service table type");
+if (name && !strcmp(name, "media.playlist") && abi == 1U &&
+    minimum <= sizeof(playlist_api)) return &playlist_api;
+#endif

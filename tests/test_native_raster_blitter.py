@@ -4,6 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 GFX_HEADER = (ROOT / "src/services/solar_os_gfx.h").read_text(encoding="utf-8")
+GFX_TYPES = (ROOT / "include/solar_os_gfx_types_v1.h").read_text(encoding="utf-8")
 GFX_SOURCE = (ROOT / "src/services/solar_os_gfx.c").read_text(encoding="utf-8")
 RASTER_IMAGE = (ROOT / "src/services/solar_os_raster_image.c").read_text(
     encoding="utf-8"
@@ -17,8 +18,8 @@ SKETCH = (ROOT / "src/apps/solar_os_sketch.c").read_text(encoding="utf-8")
 
 class NativeRasterBlitterTest(unittest.TestCase):
     def test_shared_blitter_supports_gray_and_rgb(self):
-        self.assertIn("SOLAR_OS_GFX_RASTER_GRAY8", GFX_HEADER)
-        self.assertIn("SOLAR_OS_GFX_RASTER_RGB888", GFX_HEADER)
+        self.assertIn("SOLAR_OS_GFX_RASTER_GRAY8", GFX_TYPES)
+        self.assertIn("SOLAR_OS_GFX_RASTER_RGB888", GFX_TYPES)
         self.assertIn("solar_os_gfx_blit_raster", GFX_HEADER)
         self.assertIn("gfx_index8_for_rgb888", GFX_SOURCE)
         self.assertIn("gfx_pattern_draw_color", GFX_SOURCE)

@@ -175,7 +175,8 @@ int main(void) {
                     compiled = subprocess.run([
                         "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                         f"-DSOLAR_OS_BOARD_HAS_DISPLAY={has_display}",
-                        "-I", str(ROOT / "src/services"), str(path / "test.c"),
+                        "-I", str(ROOT / "src/services"), "-I", str(ROOT / "include"),
+                        str(path / "test.c"),
                         "-o", str(path / "test"),
                     ], capture_output=True, text=True)
                     self.assertEqual(compiled.returncode, 0, compiled.stderr)

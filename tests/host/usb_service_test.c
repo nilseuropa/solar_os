@@ -7,8 +7,13 @@
 #include "solar_os_cdc.h"
 #include "solar_os_resources.h"
 #include "solar_os_usb_hid_input.h"
+#include "solar_os_native_usb.h"
+#include "solar_os_native_usb_serial_abi.h"
 #include "driver/gpio.h"
 #include "solar_os_board_caps.h"
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+#include "solar_os_usb_serial.h"
+#endif
 
 struct usb_test_pm_lock { bool held; };
 static unsigned pm_locks;
@@ -79,6 +84,11 @@ esp_err_t solar_os_usb_storage_stop(void)
     storage_active = false;
     return ESP_OK;
 }
+void solar_os_usb_storage_get_status(solar_os_usb_storage_status_t *status)
+{
+    *status = (solar_os_usb_storage_status_t){.connected = storage_active, .address = 4,
+        .sector_size = 512, .sector_count = 2880, .last_error = storage_stop_error};
+}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
@@ -91,6 +101,19 @@ esp_err_t solar_os_usb_serial_prepare_stop(void)
 void solar_os_usb_serial_cancel_stop(void) { serial_accepting = serial_active; }
 esp_err_t solar_os_usb_serial_stop(void)
 { serial_active = serial_accepting = false; return ESP_OK; }
+size_t solar_os_usb_serial_list(solar_os_usb_serial_info_t *out, size_t capacity)
+{
+    if (!serial_active) return 0;
+    if (out && capacity) out[0] = (solar_os_usb_serial_info_t){
+        .port = "usbser0", .device = {.vid = 0x10c4, .pid = 0xea60, .address = 4,
+            .interface = 1, .kind = SOLAR_OS_USB_SERIAL_CP210X},
+        .config = {.baud_rate = 115200, .data_bits = 8, .dtr = true}, .connected = true,
+        .received = 42, .transmitted = 10, .dropped = 3, .last_error = ESP_ERR_TIMEOUT,
+    };
+    if (out && capacity > 1) out[1] = (solar_os_usb_serial_info_t){.port = "usbser1"};
+    return 2;
+}
+esp_err_t solar_os_usb_serial_last_error(void) { return ESP_ERR_NO_MEM; }
 #endif
 
 esp_err_t esp_pm_lock_create(esp_pm_lock_type_t type, int arg, const char *name,
@@ -165,8 +188,14 @@ esp_err_t usb_host_port_enable(void)
     return enable_error;
 }
 bool usb_host_port_is_active(void) { return active; }
-size_t usb_host_port_interfaces(usb_host_port_interface_t *out, size_t capacity)
-{ (void)out; (void)capacity; return 0; }
+size_t usb_host_port_interfaces(solar_os_usb_interface_status_t *out, size_t capacity)
+{
+    if (!active || !capacity) return 0;
+    out[0] = (solar_os_usb_interface_status_t){.address = 3, .vendor_id = 0x1234,
+        .protocol = SOLAR_OS_NATIVE_USB_HID_MOUSE, .ready = true, .reports = 42,
+        .protocol_error = ESP_ERR_NOT_SUPPORTED, .last_error = ESP_ERR_TIMEOUT};
+    return 1;
+}
 
 esp_err_t solar_os_usb_hid_input_open(solar_os_usb_hid_input_t *input, const char *name, uint8_t protocol)
 { (void)name; memset(input, 0, sizeof(*input)); input->protocol = protocol; opened_input = input; return ESP_OK; }
@@ -208,6 +237,10 @@ static bool device_ready(void)
 
 int main(void)
 {
+    const solar_os_native_usb_api_v1_t *api = solar_os_native_usb_get_service(
+        SOLAR_OS_NATIVE_USB_SERVICE, SOLAR_OS_NATIVE_USB_ABI, sizeof(*api));
+    assert(api && api->set_mode(SOLAR_OS_USB_MODE_SUSPENDED) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!strcmp(api->mode_name(SOLAR_OS_USB_MODE_HOST), "host"));
 #if SOLAR_OS_BOARD_HAS_CDC && !SOLAR_OS_BOARD_USB_DEFAULT_OFF
     cdc_error = ESP_ERR_NO_MEM;
     assert(solar_os_usb_init() == ESP_ERR_NO_MEM);
@@ -229,8 +262,15 @@ int main(void)
     status(SOLAR_OS_USB_MODE_OFF);
     assert(!pads_enabled && !cdc_ready && solar_os_resource_claim_count() == 0);
 #endif
-    assert(solar_os_usb_set_mode(SOLAR_OS_USB_MODE_DEVICE) == ESP_OK);
+    assert(api->set_mode(SOLAR_OS_USB_MODE_DEVICE) == SOLAR_OS_NATIVE_OK);
     status(SOLAR_OS_USB_MODE_DEVICE);
+    solar_os_cdc_status_t cdc;
+#if SOLAR_OS_BOARD_HAS_CDC
+    assert((api->capabilities & SOLAR_OS_NATIVE_USB_CAP_CDC) && !api->cdc_status(&cdc) && cdc.driver_installed);
+#else
+    assert(!(api->capabilities & SOLAR_OS_NATIVE_USB_CAP_CDC));
+    assert(api->cdc_status(&cdc) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !cdc.driver_installed);
+#endif
     assert(pm_locks == 0 && starts == 0);
 #if SOLAR_OS_BOARD_HAS_CDC
     cdc_busy = true;
@@ -432,6 +472,47 @@ int main(void)
 #endif
     assert(solar_os_usb_init() == ESP_OK); /* Repeated init never changes a user-selected mode. */
     status(SOLAR_OS_USB_MODE_OFF);
-    puts("USB service lifecycle tests: ok");
+    assert(!api->set_mode(SOLAR_OS_USB_MODE_HOST));
+    solar_os_usb_status_t snapshot;
+    assert(!api->status(&snapshot) && snapshot.mode == SOLAR_OS_USB_MODE_HOST);
+    assert(snapshot.interface_count == 1 && snapshot.interfaces[0].address == 3);
+    assert(snapshot.interfaces[0].ready && snapshot.interfaces[0].reports == 42);
+    assert(snapshot.interfaces[0].last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(snapshot.interfaces[0].protocol_error == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    solar_os_usb_storage_status_t storage;
+#if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
+    assert((api->capabilities & SOLAR_OS_NATIVE_USB_CAP_STORAGE) && !api->storage_status(&storage));
+    assert(storage.connected && storage.sector_count == 2880);
+#else
+    assert(!(api->capabilities & SOLAR_OS_NATIVE_USB_CAP_STORAGE));
+    assert(api->storage_status(&storage) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !storage.connected);
+#endif
+    const solar_os_native_usb_serial_api_v1_t *serial_api = solar_os_native_usb_get_service(
+        SOLAR_OS_NATIVE_USB_SERIAL_SERVICE, SOLAR_OS_NATIVE_USB_SERIAL_ABI, sizeof(*serial_api));
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    assert(serial_api && (api->capabilities & SOLAR_OS_NATIVE_USB_CAP_SERIAL));
+    size_t serial_total = 99;
+    int serial_error = 99;
+    solar_os_native_usb_serial_info_v1_t serial;
+    assert(serial_api->snapshot(NULL, 1, &serial_total, &serial_error) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!serial_total && !serial_error);
+    assert(!serial_api->snapshot(NULL, 0, &serial_total, &serial_error) && serial_total == 2);
+    assert(serial_error == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(!serial_api->snapshot(&serial, 1, &serial_total, NULL) && serial_total == 2);
+    assert(!strcmp(serial.port, "usbser0") && serial.kind == SOLAR_OS_USB_SERIAL_CP210X);
+    assert(serial.address == 4 && serial.interface == 1 && serial.vendor_id == 0x10c4);
+    assert(serial.config.baud_rate == 115200 && serial.config.data_bits == 8 && serial.config.dtr);
+    assert(serial.received == 42 && serial.transmitted == 10 && serial.dropped == 3);
+    assert(serial.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+#else
+    assert(!serial_api && !(api->capabilities & SOLAR_OS_NATIVE_USB_CAP_SERIAL));
+#endif
+    assert(!api->set_mode(SOLAR_OS_USB_MODE_OFF));
+    assert(!api->status(&snapshot) && !snapshot.interface_count);
+#if SOLAR_OS_PACKAGE_SERVICE_USB_SERIAL
+    assert(!serial_api->snapshot(NULL, 0, &serial_total, NULL) && !serial_total);
+    assert(!strcmp(serial.port, "usbser0") && serial.connected);
+#endif
+    puts("USB service lifecycle and copied ABI status: ok");
     return 0;
 }

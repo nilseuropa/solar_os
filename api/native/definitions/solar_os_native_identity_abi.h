@@ -1,0 +1,18 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+#include "solar_os_identity_types_v1.h"
+
+#define SOLAR_OS_NATIVE_IDENTITY_SERVICE "device.identity"
+#define SOLAR_OS_NATIVE_IDENTITY_ABI 1U
+
+/* get copies the configured user and hostname, or the boot defaults if the
+ * stored settings are unavailable. set persists one field. The new prompt
+ * identity is visible immediately; Wi-Fi uses the hostname after reboot.
+ * format writes a NUL-terminated user@hostname string and may truncate it. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*get)(solar_os_identity_v1_t *identity);
+    int (*set)(solar_os_identity_field_t field, const char *value);
+    void (*format)(char *buffer, size_t capacity);
+} solar_os_native_identity_api_v1_t;

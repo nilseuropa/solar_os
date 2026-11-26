@@ -1,6 +1,7 @@
 #include "solar_os_native_io.h"
 #include "solar_os_native_io_abi.h"
 #include "solar_os_native_handles.h"
+#include "solar_os_native_device_providers.h"
 #include "solar_os_native_support.h"
 #include "solar_os_memory.h"
 #include "solar_os_config.h"
@@ -175,18 +176,52 @@ static int connector_find(size_t row, size_t column, solar_os_native_connector_p
     memset(out, 0, sizeof(*out)); *index = 0; solar_os_connector_pin_info_t value = {0};
     return solar_os_connector_pin_find(row, column, &value, index) ? connector_out(&value, out) : SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
 }
+static const char *resource_kind_name(uint32_t kind)
+{
+    solar_os_resource_kind_t native;
+    return resource_kind_in(kind, &native) == SOLAR_OS_NATIVE_OK ?
+        solar_os_resource_kind_name(native) : "unknown";
+}
+
+static const char *pin_policy_name(uint32_t policy)
+{
+    switch (policy) {
+    case SOLAR_OS_NATIVE_PIN_FIXED: return solar_os_pin_policy_name(SOLAR_OS_PIN_POLICY_FIXED);
+    case SOLAR_OS_NATIVE_PIN_RELEASABLE: return solar_os_pin_policy_name(SOLAR_OS_PIN_POLICY_RELEASABLE);
+    case SOLAR_OS_NATIVE_PIN_FREE: return solar_os_pin_policy_name(SOLAR_OS_PIN_POLICY_FREE);
+    default: return "unknown";
+    }
+}
+
+static const char *connector_kind_name(uint32_t kind)
+{
+    switch (kind) {
+    case SOLAR_OS_NATIVE_PIN_GPIO: return solar_os_connector_pin_kind_name(SOLAR_OS_CONNECTOR_PIN_GPIO);
+    case SOLAR_OS_NATIVE_PIN_POWER: return solar_os_connector_pin_kind_name(SOLAR_OS_CONNECTOR_PIN_POWER);
+    case SOLAR_OS_NATIVE_PIN_GROUND: return solar_os_connector_pin_kind_name(SOLAR_OS_CONNECTOR_PIN_GROUND);
+    case SOLAR_OS_NATIVE_PIN_CONTROL: return solar_os_connector_pin_kind_name(SOLAR_OS_CONNECTOR_PIN_CONTROL);
+    case SOLAR_OS_NATIVE_PIN_NC: return solar_os_connector_pin_kind_name(SOLAR_OS_CONNECTOR_PIN_NC);
+    default: return "unknown";
+    }
+}
+
 static const solar_os_native_resources_api_v1_t resources_api = {
     .abi_version = SOLAR_OS_NATIVE_RESOURCES_ABI, .struct_size = sizeof(resources_api), .count = solar_os_resource_claim_count,
     .info = resources_info, .find = resources_find, .claim = resources_claim, .close = resources_close,
+    .kind_name = resource_kind_name,
 };
 static const solar_os_native_pins_api_v1_t pins_api = {
     .abi_version = SOLAR_OS_NATIVE_PINS_ABI, .struct_size = sizeof(pins_api), .count = solar_os_pin_count, .info = pins_info, .find = pins_find,
     .is_expansion = pins_expansion, .is_direct_gpio = pins_direct, .is_routable = pins_routable, .connector_layout = connector_layout,
     .connector_count = solar_os_connector_pin_count, .connector_info = connector_info, .connector_find = connector_find, .connector_exists = solar_os_connector_exists,
+    .policy_name = pin_policy_name, .kind_name = connector_kind_name,
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
 #include "solar_os_gpio.h"
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+#include "solar_os_gpio_controller.h"
+#endif
 typedef struct { int pins[24]; bool released[24], acquired; size_t count; char owner[24]; } native_gpio_t;
 static int gpio_mode_in(uint32_t value, solar_os_gpio_mode_t *out)
 {
@@ -205,15 +240,57 @@ static int gpio_pull_in(uint32_t value, solar_os_gpio_pull_t *out)
     }
     return SOLAR_OS_NATIVE_OK;
 }
+static uint32_t gpio_mode_out(solar_os_gpio_mode_t value)
+{
+    switch (value) {
+    case SOLAR_OS_GPIO_MODE_INPUT: return SOLAR_OS_NATIVE_GPIO_INPUT;
+    case SOLAR_OS_GPIO_MODE_OUTPUT: return SOLAR_OS_NATIVE_GPIO_OUTPUT;
+    default: return UINT32_MAX;
+    }
+}
+static uint32_t gpio_pull_out(solar_os_gpio_pull_t value)
+{
+    switch (value) {
+    case SOLAR_OS_GPIO_PULL_NONE: return SOLAR_OS_NATIVE_GPIO_PULL_NONE;
+    case SOLAR_OS_GPIO_PULL_UP: return SOLAR_OS_NATIVE_GPIO_PULL_UP;
+    case SOLAR_OS_GPIO_PULL_DOWN: return SOLAR_OS_NATIVE_GPIO_PULL_DOWN;
+    default: return UINT32_MAX;
+    }
+}
+static const char *gpio_label(uint32_t field, uint32_t value)
+{
+    if (field == SOLAR_OS_NATIVE_GPIO_LABEL_MODE) {
+        solar_os_gpio_mode_t mode;
+        return gpio_mode_in(value, &mode) == SOLAR_OS_NATIVE_OK ? solar_os_gpio_mode_name(mode) : NULL;
+    }
+    if (field == SOLAR_OS_NATIVE_GPIO_LABEL_PULL) {
+        solar_os_gpio_pull_t pull;
+        return gpio_pull_in(value, &pull) == SOLAR_OS_NATIVE_OK ? solar_os_gpio_pull_name(pull) : NULL;
+    }
+    return NULL;
+}
+static bool gpio_parse(uint32_t field, const char *text, uint32_t *out)
+{
+    if (!out) return false;
+    uint32_t value = UINT32_MAX;
+    if (field == SOLAR_OS_NATIVE_GPIO_LABEL_MODE) {
+        solar_os_gpio_mode_t mode;
+        if (solar_os_gpio_parse_mode(text, &mode)) value = gpio_mode_out(mode);
+    } else if (field == SOLAR_OS_NATIVE_GPIO_LABEL_PULL) {
+        solar_os_gpio_pull_t pull;
+        if (solar_os_gpio_parse_pull(text, &pull)) value = gpio_pull_out(pull);
+    }
+    if (value == UINT32_MAX) return false;
+    *out = value;
+    return true;
+}
 static int gpio_out(const solar_os_gpio_pin_info_t *in, solar_os_native_gpio_info_v1_t *out)
 {
     memset(out, 0, sizeof(*out)); out->pin = in->pin; out->expansion = in->expansion; out->runtime_allowed = in->runtime_allowed;
     out->available = in->available; out->claimed = in->claimed; out->configured = in->configured; out->level = in->level; out->level_valid = in->level_valid;
-    switch (in->mode) { case SOLAR_OS_GPIO_MODE_INPUT: out->mode = SOLAR_OS_NATIVE_GPIO_INPUT; break;
-    case SOLAR_OS_GPIO_MODE_OUTPUT: out->mode = SOLAR_OS_NATIVE_GPIO_OUTPUT; break; default: return SOLAR_OS_NATIVE_ERROR_INVALID_STATE; }
-    switch (in->pull) { case SOLAR_OS_GPIO_PULL_NONE: out->pull = SOLAR_OS_NATIVE_GPIO_PULL_NONE; break;
-    case SOLAR_OS_GPIO_PULL_UP: out->pull = SOLAR_OS_NATIVE_GPIO_PULL_UP; break; case SOLAR_OS_GPIO_PULL_DOWN: out->pull = SOLAR_OS_NATIVE_GPIO_PULL_DOWN; break;
-    default: return SOLAR_OS_NATIVE_ERROR_INVALID_STATE; }
+    out->mode = gpio_mode_out(in->mode);
+    out->pull = gpio_pull_out(in->pull);
+    if (out->mode == UINT32_MAX || out->pull == UINT32_MAX) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     COPY_FIELD(out, in, owner); int result = policy_out(in->policy, &out->policy); return result ? result : copy_text(out->role, sizeof(out->role), in->role);
 }
 static int gpio_info(size_t index, solar_os_native_gpio_info_v1_t *out)
@@ -290,10 +367,139 @@ static int gpio_write_owned(solar_os_native_handle_t id, int32_t pin, bool level
     int result = solar_os_native_result(solar_os_gpio_write_owned(pin, state->owner, level)); solar_os_native_handle_release(id); return result;
 }
 static int gpio_close(solar_os_native_handle_t id) { return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_GPIO); }
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+typedef struct {
+    solar_os_gpio_line_ref_t line;
+    uint8_t controller_id;
+    bool acquired;
+    char owner[SOLAR_OS_GPIO_OWNER_MAX];
+} native_gpio_line_t;
+
+static int gpio_line_destroy(void *opaque)
+{
+    native_gpio_line_t *state = opaque;
+    if (state->acquired) {
+        esp_err_t error = state->line.controller[0] ? solar_os_resource_release(SOLAR_OS_RESOURCE_GPIO_LINE,
+            state->controller_id, state->line.line, state->owner) :
+            solar_os_gpio_release_owned(state->line.line, state->owner);
+        if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return solar_os_native_result(error);
+    }
+    solar_os_memory_free(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int gpio_line_open(const solar_os_native_gpio_line_v1_t *line, const char *owner,
+    solar_os_native_handle_t *id)
+{
+    if (!id) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *id = 0;
+    if (!line || !owner || !*owner || strlen(owner) >= SOLAR_OS_GPIO_OWNER_MAX ||
+        strnlen(line->controller, sizeof(line->controller)) == sizeof(line->controller))
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_gpio_line_t *state = solar_os_memory_calloc(1, sizeof(*state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.gpio.line");
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    state->line = *line;
+    int result = solar_os_native_handle_create(SOLAR_OS_NATIVE_HANDLE_GPIO_LINE, state, gpio_line_destroy, id);
+    if (result) {
+        solar_os_memory_free(state);
+        return result;
+    }
+    snprintf(state->owner, sizeof(state->owner), "%08lx/%.14s", (unsigned long)*id, owner);
+
+    esp_err_t error;
+    if (line->controller[0]) {
+        error = solar_os_gpio_line_claim_controller(line, state->owner, &state->controller_id);
+    } else {
+        int pin = line->line;
+        const char *label = "gpio line";
+        error = solar_os_gpio_claim_pins(&pin, &label, 1, state->owner, NULL);
+    }
+    if (error == ESP_OK) state->acquired = true;
+    else {
+        (void)solar_os_native_handle_close_kind(*id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE);
+        *id = 0;
+    }
+    return solar_os_native_result(error);
+}
+
+static int gpio_line_configure(solar_os_native_handle_t id, uint32_t mode, uint32_t pull)
+{
+    solar_os_gpio_mode_t m;
+    solar_os_gpio_pull_t p;
+    int result = gpio_mode_in(mode, &m);
+    if (!result) result = gpio_pull_in(pull, &p);
+    if (result) return result;
+
+    native_gpio_line_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    _Static_assert((int)SOLAR_OS_GPIO_MODE_INPUT == (int)SOLAR_OS_GPIO_LINE_MODE_INPUT &&
+        (int)SOLAR_OS_GPIO_MODE_OUTPUT == (int)SOLAR_OS_GPIO_LINE_MODE_OUTPUT, "GPIO line mode mapping");
+    _Static_assert((int)SOLAR_OS_GPIO_PULL_NONE == (int)SOLAR_OS_GPIO_LINE_PULL_NONE &&
+        (int)SOLAR_OS_GPIO_PULL_UP == (int)SOLAR_OS_GPIO_LINE_PULL_UP &&
+        (int)SOLAR_OS_GPIO_PULL_DOWN == (int)SOLAR_OS_GPIO_LINE_PULL_DOWN, "GPIO line pull mapping");
+    esp_err_t error = state->line.controller[0] ?
+        solar_os_gpio_line_configure(&state->line, (solar_os_gpio_line_mode_t)m, (solar_os_gpio_line_pull_t)p) :
+        solar_os_gpio_configure_owned(state->line.line, m, p, state->owner);
+    solar_os_native_handle_release(id);
+    return solar_os_native_result(error);
+}
+
+static int gpio_line_read(solar_os_native_handle_t id, bool *level)
+{
+    if (!level) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    native_gpio_line_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    esp_err_t error = state->line.controller[0] ? solar_os_gpio_line_read(&state->line, level) :
+        solar_os_gpio_read_owned(state->line.line, state->owner, level);
+    solar_os_native_handle_release(id);
+    return solar_os_native_result(error);
+}
+
+static int gpio_line_write(solar_os_native_handle_t id, bool level)
+{
+    native_gpio_line_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    esp_err_t error = state->line.controller[0] ? solar_os_gpio_line_write(&state->line, level) :
+        solar_os_gpio_write_owned(state->line.line, state->owner, level);
+    solar_os_native_handle_release(id);
+    return solar_os_native_result(error);
+}
+
+static int gpio_line_acknowledge(solar_os_native_handle_t id)
+{
+    native_gpio_line_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    esp_err_t error = solar_os_gpio_line_acknowledge_interrupt(&state->line);
+    solar_os_native_handle_release(id);
+    return solar_os_native_result(error);
+}
+
+static int gpio_line_close(solar_os_native_handle_t id)
+{ return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_GPIO_LINE); }
+#endif
+
 static const solar_os_native_gpio_api_v1_t gpio_api = {
     .abi_version = SOLAR_OS_NATIVE_GPIO_ABI, .struct_size = sizeof(gpio_api), .count = solar_os_gpio_pin_count, .info = gpio_info, .find = gpio_find,
     .runtime_allowed = gpio_allowed, .configure = gpio_configure, .read = gpio_read, .write = gpio_write, .release = gpio_release,
     .claim = gpio_claim, .configure_owned = gpio_configure_owned, .read_owned = gpio_read_owned, .write_owned = gpio_write_owned, .close = gpio_close,
+    .label = gpio_label, .parse = gpio_parse,
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    .line_parse = solar_os_gpio_line_parse,
+    .line_is_native = solar_os_gpio_line_is_native,
+    .controller_count = solar_os_gpio_controller_count,
+    .controller_info = solar_os_gpio_controller_get,
+    .controller_find = solar_os_gpio_controller_find,
+    .line_open = gpio_line_open,
+    .line_configure = gpio_line_configure,
+    .line_read = gpio_line_read,
+    .line_write = gpio_line_write,
+    .line_acknowledge_interrupt = gpio_line_acknowledge,
+    .line_close = gpio_line_close,
+    .controller_register = solar_os_native_gpio_controller_register,
+    .controller_close = solar_os_native_gpio_controller_close,
+#endif
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_ADC

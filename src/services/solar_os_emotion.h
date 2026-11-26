@@ -2,24 +2,9 @@
 #include "esp_err.h"
 #include "solar_os_emotion_abi.h"
 #include "solar_os_gfx.h"
+#include "solar_os_native_emotion_abi.h"
 
 typedef struct solar_os_emotion solar_os_emotion_t;
-typedef struct {
-    const char *display; /* NULL borrows the calling foreground surface. */
-    /* Unspecified colors use the terminal settings at open. */
-    uint32_t foreground_rgb888, background_rgb888;
-    bool foreground_set, background_set;
-    bool sound;
-    uint16_t fps;        /* 0 uses the target's rate, capped at 25. */
-    int motion;          /* -1 automatic, 0 still poses, 1 animation. */
-    bool fullscreen;     /* Use the panel without changing the display canvas. */
-} solar_os_emotion_options_t;
-typedef struct {
-    uint32_t frames, dropped, audio_skipped;
-    esp_err_t error, audio_error;
-    uint16_t fps, width, height;
-    bool sound, motion;
-} solar_os_emotion_status_t;
 
 /* Each instance has an independent worker and an eight-command queue.
  * Foreground surfaces retain a display claim while running; suspension joins

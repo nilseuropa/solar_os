@@ -102,17 +102,22 @@ def lifecycle_bypasses(repository: Path) -> list[str]:
         receivers = [r"\w+->app", r"\w+\.foreground_app", "app", "foreground_app"]
         receivers.extend(re.escape(name) for name in descriptors)
         scoped_callback = re.compile(r"\b(?:" + "|".join(receivers) + r")->(?:event|suspend|resume|title)\s*\(")
-        backend_tables = re.findall(
-            r"\bconst\s+solar_os_\w+_backend_t\s*\*\s*(\w+)\b", source
-        )
+        operation_tables = set(re.findall(
+            r"\bconst\s+solar_os_(?:\w+_backend_t|native_\w+_api_v\d+_t"
+            r"|native_camera_provider_v1_t)\s*\*\s*(\w+)\b",
+            source,
+        ))
         for line_number, line in enumerate(source.splitlines(), start=1):
-            # Device/service operation tables also conventionally expose
-            # start/stop hooks. They are not foreground app descriptors.
-            backend_call = any(
-                re.search(rf"\b{re.escape(name)}->(?:start|stop)\s*\(", line)
-                for name in backend_tables
-            )
-            if (callback.search(line) or scoped_callback.search(line)) and ".ops->" not in line and not backend_call:
+            # Check each call so a service operation cannot hide an app callback
+            # written on the same line.
+            unscoped = False
+            for match in callback.finditer(line):
+                receiver = line[:match.start()]
+                name = re.search(r"\b(\w+)$", receiver)
+                if not receiver.endswith(".ops") and (not name or name[1] not in operation_tables):
+                    unscoped = True
+                    break
+            if unscoped or scoped_callback.search(line):
                 errors.append(
                     f"{path.relative_to(repository)}:{line_number}: "
                     "foreground callback bypasses the shared application scope"

@@ -10,7 +10,9 @@
  * run synchronously on the calling task and must return normally. Interpreter
  * exceptions stay inside package bindings. No callback or user data survives
  * a read/write call. Writers copy records through the synchronous get callback,
- * validate their strings and use Core's persistent file replacement. */
+ * validate their strings and use Core's persistent file replacement.
+ * Concurrent or nested writes return SOLAR_OS_NATIVE_ERROR_INVALID_STATE
+ * before invoking get. */
 typedef int (*solar_os_native_m3u_accept_fn)(const solar_os_m3u_entry_t *entry, void *user);
 typedef struct {
     uint32_t abi_version, struct_size;
@@ -18,3 +20,33 @@ typedef struct {
     int (*read)(const char *path, solar_os_native_m3u_accept_fn accept, void *user);
     int (*write)(const char *path, size_t count, solar_os_m3u_get_fn get, void *user);
 } solar_os_native_m3u_api_v1_t;
+
+#define SOLAR_OS_NATIVE_PLAYLIST_SERVICE "media.playlist"
+#define SOLAR_OS_NATIVE_PLAYLIST_ABI 1U
+#define SOLAR_OS_MEDIA_PLAYLIST_CAPACITY 32U
+
+typedef enum {
+    SOLAR_OS_MEDIA_PLAYLIST_AUDIO,
+    SOLAR_OS_MEDIA_PLAYLIST_VIDEO,
+    SOLAR_OS_MEDIA_PLAYLIST_RTSP,
+} solar_os_media_playlist_kind_t;
+
+/* The playlist shares the saved list used by the corresponding Core player.
+ * Open with NULL for the saved list, an M3U path to import, or a media source
+ * to add. RTSP also supports an in-memory list when storage is unavailable.
+ * Entries are copied out. Edits are persisted before returning success.
+ * If a saved list changed in another session, edits fail with INVALID_STATE.
+ * Refresh, review the current entries and retry with the current index. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(solar_os_media_playlist_kind_t kind, const char *source,
+        solar_os_native_handle_t *playlist, size_t *selected);
+    int (*close)(solar_os_native_handle_t playlist);
+    int (*info)(solar_os_native_handle_t playlist, size_t *count, uint32_t *revision);
+    int (*get)(solar_os_native_handle_t playlist, size_t index, solar_os_m3u_entry_t *entry);
+    int (*refresh)(solar_os_native_handle_t playlist);
+    int (*import_m3u)(solar_os_native_handle_t playlist, const char *path);
+    int (*add)(solar_os_native_handle_t playlist, const char *source, size_t *index);
+    int (*set)(solar_os_native_handle_t playlist, size_t index, const solar_os_m3u_entry_t *entry);
+    int (*remove)(solar_os_native_handle_t playlist, size_t index);
+} solar_os_native_playlist_api_v1_t;

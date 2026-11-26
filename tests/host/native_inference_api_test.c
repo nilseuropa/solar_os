@@ -9,6 +9,13 @@ int main(void)
     const solar_os_native_inference_api_v1_t *api = solar_os_native_media_get_service("inference", 1, sizeof(*api));
     const solar_os_native_tensor_image_api_v1_t *prepare = solar_os_native_media_get_service("tensor.image", 1, sizeof(*prepare));
     assert(api && prepare && !solar_os_native_media_get_service("image", 1, 0));
+    solar_os_inference_mode_t mode;
+    assert(!api->mode_parse(api->mode_name(SOLAR_OS_INFERENCE_DUAL), &mode) && mode == SOLAR_OS_INFERENCE_DUAL);
+    assert(api->mode_parse("unsupported", &mode) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    solar_os_tensor_dtype_t dtype;
+    assert(!api->dtype_parse(api->dtype_name(SOLAR_OS_TENSOR_INT8), &dtype) && dtype == SOLAR_OS_TENSOR_INT8);
+    assert(api->dtype_bytes(dtype) == 1 && api->dtype_bytes((solar_os_tensor_dtype_t)-1) == 0);
+    assert(api->dtype_parse(NULL, &dtype) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     solar_os_inference_t *client = NULL; uint32_t model, found;
     atomic_int cancellation = 0;
     assert(!api->create(cancelled, &cancellation, &client));

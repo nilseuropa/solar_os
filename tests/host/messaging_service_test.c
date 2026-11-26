@@ -5,6 +5,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include "solar_os_native_messages.h"
+#include "solar_os_native_contacts.h"
 
 /* Model an embedded filesystem that cannot transfer a whole snapshot at
  * once. Apply the restriction to Contacts, including legacy-file reads. */
@@ -217,6 +219,9 @@ static void assert_legacy_contact(void)
 
 static void test_contacts_migration_and_import(void)
 {
+    const solar_os_native_contacts_api_v1_t *api =
+        solar_os_native_contacts_get_service("contacts", 1, sizeof(*api));
+    assert(api && !solar_os_native_contacts_get_service("contacts", 2, 8));
     legacy_contacts_fixture();
     assert(solar_os_contacts_init() == ESP_OK);
     assert(contacts_store.legacy_format);
@@ -238,11 +243,15 @@ static void test_contacts_migration_and_import(void)
     assert(contacts_store.legacy_format);
     assert_legacy_contact();
     uint32_t disk_generation = contacts_store.disk_generation;
+    solar_os_contact_discovery_v1_t discovery = {
+        .provider = SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
+        .address.length = 32, .display_name = "Companion",
+        .capabilities = SOLAR_OS_ENDPOINT_CAP_DIRECT,
+    };
     for (unsigned i = 0; i < SOLAR_OS_CONTACT_CAPACITY - 1; i++) {
-        uint8_t key[32] = {0}; memcpy(key, &i, sizeof(i));
-        assert(solar_os_contacts_import_discovered(SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
-            key, sizeof(key), "Companion", SOLAR_OS_ENDPOINT_CAP_DIRECT, i + 300,
-            NULL, 0, NULL, NULL) == ESP_OK);
+        memcpy(discovery.address.bytes, &i, sizeof(i));
+        discovery.last_seen_ms = i + 300;
+        assert(api->upsert_discovered(&discovery, true, NULL, NULL) == SOLAR_OS_NATIVE_OK);
     }
     assert(contacts_store.disk_generation == disk_generation); /* One batch, no per-contact writes. */
     uint8_t overflow_key[32]; memset(overflow_key, 0xff, sizeof(overflow_key));
@@ -251,7 +260,7 @@ static void test_contacts_migration_and_import(void)
         9000, NULL, 0, NULL, NULL) == ESP_ERR_NO_MEM);
     assert(contacts_store.evicted == 0 && contacts_store.contact_count == SOLAR_OS_CONTACT_CAPACITY);
     assert_legacy_contact();
-    assert(solar_os_contacts_flush() == ESP_OK);
+    assert(api->flush() == SOLAR_OS_NATIVE_OK);
     assert(!contacts_store.legacy_format && contacts_store.disk_generation == disk_generation + 1);
     restart_contacts(); assert_legacy_contact();
     assert(contacts_store.contact_count == SOLAR_OS_CONTACT_CAPACITY);
@@ -270,6 +279,12 @@ static void test_contacts_migration_and_import(void)
     assert(solar_os_contacts_find_endpoint(SOLAR_OS_MESSAGING_PROVIDER_MESHCORE,
         existing_key, 32, &after) == ESP_OK);
     assert(before.id == after.id && after.last_seen_ms == 10000);
+    solar_os_messaging_address_t address = {.length = 32};
+    assert(api->endpoint_find(SOLAR_OS_MESSAGING_PROVIDER_MESHCORE, &address, &before) == SOLAR_OS_NATIVE_OK);
+    assert(before.id == after.id && api->get(before.contact_id, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    solar_os_contacts_status_t status;
+    assert(api->status(&status) == SOLAR_OS_NATIVE_OK && status.persistent &&
+           !status.evicted && status.contact_count == SOLAR_OS_CONTACT_CAPACITY);
 }
 
 static solar_os_conversation_id_t group(const char *key, uint32_t ref)
@@ -335,6 +350,7 @@ static bool reject_join, reject_leave;
 static unsigned remove_prepares, remove_commits, remove_aborts;
 static bool reject_remove_prepare;
 static solar_os_messaging_provider_id_t remove_inside_join;
+static solar_os_messaging_provider_id_t settings_provider;
 static esp_err_t test_normalize(void *context, const char *target, char *out, size_t size)
 {
     assert(context == &test_joins);
@@ -364,14 +380,49 @@ static void test_remove_finish(void *context, bool removed)
     assert(context == &test_joins);
     if (removed) remove_commits++; else remove_aborts++;
 }
+static const solar_os_messaging_setting_t test_fields[] = {
+    {.label = "Endpoint", .hint = "hostname", .capacity = 64, .required = true},
+    {.label = "Token", .capacity = 48, .secret = true},
+};
+static esp_err_t test_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
+{
+    if (form) return ESP_ERR_NOT_FOUND;
+    assert(!context || context == &test_joins);
+    settings->label = "Network";
+    settings->fields = test_fields;
+    settings->count = sizeof(test_fields) / sizeof(test_fields[0]);
+    strlcpy(settings->worker, "test-worker", sizeof(settings->worker));
+    strlcpy(settings->values[0], "example.test", sizeof(settings->values[0]));
+    /* Even a transport that supplies a value must never read secrets back. */
+    if (context) {
+        strlcpy(settings->values[1], "stored-token", sizeof(settings->values[1]));
+        settings->present[1] = true;
+    }
+    return ESP_OK;
+}
+static esp_err_t test_settings_write(void *context, unsigned form, const char *name,
+                                    const solar_os_messaging_settings_t *settings,
+                                    solar_os_messaging_provider_id_t *id)
+{
+    assert(context == &test_joins && form == 0 && !name);
+    assert(settings->count == 2 && !settings->changed[0] && settings->changed[1]);
+    assert(!strcmp(settings->values[0], "example.test") && !strcmp(settings->values[1], "replacement"));
+    *id = settings_provider;
+    return ESP_OK;
+}
 static const solar_os_messaging_provider_class_t test_class = {
     .name = "test-net", .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM, .join = test_join,
     .leave = test_leave,
     .normalize_target = test_normalize,
     .remove_prepare = test_remove_prepare, .remove_finish = test_remove_finish,
+    .settings_read = test_settings_read, .settings_write = test_settings_write,
 };
 static void test_provider_instances(void)
 {
+    const solar_os_native_messages_api_v1_t *api =
+        solar_os_native_messages_get_service("messages", 1, sizeof(*api));
+    assert(api && !solar_os_native_messages_get_service("messages", 2, 8));
+    assert(!solar_os_native_messages_get_service("messages", 1, sizeof(*api) + 1));
     assert(solar_os_messaging_class_register(&test_class) == ESP_OK);
     unsigned config = 0x12345678;
     solar_os_messaging_provider_id_t a, b;
@@ -380,8 +431,27 @@ static void test_provider_instances(void)
     assert(a > 3 && b > a);
     assert(solar_os_messaging_instance_register(a, "test-net", "network-a", &test_joins) == ESP_OK);
     assert(solar_os_messaging_instance_register(b, "test-net", "network-b", &test_joins) == ESP_OK);
+    assert(api->provider_claim(a, "starting test worker") == SOLAR_OS_NATIVE_OK);
+    assert(api->provider_claim(a, "another worker") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->provider_set_status(a, true, false, SOLAR_OS_NATIVE_ERROR_TIMEOUT, "waiting") == SOLAR_OS_NATIVE_OK);
+    solar_os_messaging_provider_status_t transport;
+    assert(api->provider_info(a, &transport) == SOLAR_OS_NATIVE_OK);
+    assert(transport.running && !transport.connected && transport.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    settings_provider = a;
+    solar_os_message_settings_v1_t *form = calloc(1, sizeof(*form)); assert(form);
+    assert(api->settings_read("test-net", a, 1, form) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->settings_read("test-net", a, 0, form) == SOLAR_OS_NATIVE_OK);
+    assert(form->data.count == 2 && form->fields[1].secret &&
+           form->data.present[1] && !form->data.values[1][0]);
+    assert(!strcmp(form->label, "Network") && !strcmp(form->data.values[0], "example.test"));
+    strlcpy(form->data.values[1], "replacement", sizeof(form->data.values[1]));
+    form->data.changed[1] = true;
+    solar_os_messaging_provider_id_t configured;
+    assert(api->settings_write("test-net", a, 0, NULL, &form->data, &configured) == SOLAR_OS_NATIVE_OK);
+    assert(configured == a);
+    free(form);
     solar_os_conversation_id_t room_a, room_b;
-    assert(solar_os_messaging_join(a, "ROOM:#same", &room_a) == ESP_OK);
+    assert(api->join(a, "ROOM:#same", &room_a) == SOLAR_OS_NATIVE_OK);
     assert(solar_os_messaging_join(b, "#same", &room_b) == ESP_OK);
     assert(room_a != room_b && test_joins == 2);
     assert(solar_os_messaging_join_update(a, "#same", SOLAR_OS_MESSAGING_JOIN_JOINED, NULL) == ESP_OK);
@@ -399,13 +469,18 @@ static void test_provider_instances(void)
     assert(solar_os_messaging_conversation_get(room_a, &room) == ESP_OK && !room.left);
     reject_leave = false;
     solar_os_message_key_t key_a, key_b;
-    assert(solar_os_messaging_send(room_a, "only A", false, &key_a) == ESP_OK);
-    assert(solar_os_messaging_send(room_b, "only B", false, &key_b) == ESP_OK);
+    assert(api->send(room_a, "only A", false, &key_a) == SOLAR_OS_NATIVE_OK);
+    assert(api->send(room_b, "only B", false, &key_b) == SOLAR_OS_NATIVE_OK);
+    solar_os_messaging_message_t *page = calloc(2, sizeof(*page)); assert(page);
+    size_t page_count; bool more;
+    assert(api->message_page(room_a, a, false, 0, page, 2, &page_count, &more) == SOLAR_OS_NATIVE_OK);
+    assert(page_count == 1 && !more && page[0].key == key_a && !strcmp(page[0].body, "only A"));
+    free(page);
     solar_os_messaging_outbound_t *out = calloc(1, sizeof(*out)); assert(out);
-    assert(solar_os_messaging_outbox_peek(a, out) == ESP_OK && out->message_key == key_a);
-    assert(solar_os_messaging_outbox_update(out->id, SOLAR_OS_DELIVERY_SENT, NULL) == ESP_OK);
-    assert(solar_os_messaging_outbox_peek(b, out) == ESP_OK && out->message_key == key_b);
-    assert(solar_os_messaging_outbox_update(out->id, SOLAR_OS_DELIVERY_FAILED, "test") == ESP_OK);
+    assert(api->outbox_peek(a, out) == SOLAR_OS_NATIVE_OK && out->message_key == key_a);
+    assert(api->outbox_update(out->id, SOLAR_OS_DELIVERY_SENT, NULL) == SOLAR_OS_NATIVE_OK);
+    assert(api->outbox_peek(b, out) == SOLAR_OS_NATIVE_OK && out->message_key == key_b);
+    assert(api->outbox_update(out->id, SOLAR_OS_DELIVERY_FAILED, "test") == SOLAR_OS_NATIVE_OK);
     free(out);
     unsigned restored = 0;
     assert(solar_os_messaging_profile_load(a, &restored, sizeof(restored)) == ESP_OK && restored == config);
@@ -865,6 +940,9 @@ static void test_history_navigation_io(void)
 
 static void test_masked_provider_cursor(void)
 {
+    const solar_os_native_messages_api_v1_t *api =
+        solar_os_native_messages_get_service("messages", 1, sizeof(*api));
+    assert(api);
     const uint64_t mask = UINT64_C(0xf) << 60;
     const uint64_t first = UINT64_C(1) << 60;
     const uint64_t second = UINT64_C(2) << 60;
@@ -872,17 +950,17 @@ static void test_masked_provider_cursor(void)
         .conversation_key = "relay-cursors", .conversation_title = "Relays",
         .conversation_kind = SOLAR_OS_CONVERSATION_ROOM, .sender = "peer", .body = "history"};
     in.provider_message_key = first | 999;
-    assert(solar_os_messaging_publish_inbound(&in, NULL, NULL) == ESP_OK);
+    assert(api->publish_inbound(&in, NULL, NULL) == SOLAR_OS_NATIVE_OK);
     for (unsigned i = 1; i <= SOLAR_OS_MESSAGING_MESSAGE_CAPACITY + 10; i++) {
         in.provider_message_key = second | i;
-        assert(solar_os_messaging_publish_inbound(&in, NULL, NULL) == ESP_OK);
+        assert(api->publish_inbound(&in, NULL, NULL) == SOLAR_OS_NATIVE_OK);
     }
     for (unsigned restart = 0; restart < 2; restart++) {
-        assert(solar_os_messaging_provider_cursor_masked(4, "relay-cursors", mask, first) == 999);
-        assert(solar_os_messaging_provider_cursor_masked(4, "relay-cursors", mask, second) ==
+        assert(api->provider_cursor(4, "relay-cursors", mask, first) == 999);
+        assert(api->provider_cursor(4, "relay-cursors", mask, second) ==
             SOLAR_OS_MESSAGING_MESSAGE_CAPACITY + 10);
-        assert(solar_os_messaging_provider_cursor_masked(4, "relay-cursors", mask, 0) == 0);
-        assert(solar_os_messaging_provider_cursor_masked(1, "relay-cursors", mask, first) == 0);
+        assert(api->provider_cursor(4, "relay-cursors", mask, 0) == 0);
+        assert(api->provider_cursor(1, "relay-cursors", mask, first) == 0);
         restart_messages();
     }
     assert(solar_os_messaging_clear(0, NULL) == ESP_OK);

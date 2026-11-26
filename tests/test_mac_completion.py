@@ -17,6 +17,8 @@ class MacCompletionTest(unittest.TestCase):
         rules = "\n".join(re.findall(
             r"^    (?:SHELL_COMPLETION_(?:OPTIONS|PATH|STATIC)\(path_mac[^\n]+|"
             r"\{\.path = path_mac_floppy[^\n]+)", source, re.M))
+        rule_layout = re.search(r"enum \{\n    SHELL_COMPLETION_FLAG_PATH.*?} shell_completion_rule_t;",
+                                source, re.S).group()
         macros = []
         lines = source.splitlines()
         for name in ("SHELL_COMPLETION_OPTIONS", "SHELL_COMPLETION_PATH", "SHELL_COMPLETION_STATIC"):
@@ -29,20 +31,15 @@ class MacCompletionTest(unittest.TestCase):
         code = r'''
 #include <assert.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include "solar_os_shell_completion.h"
 #define SHELL_ARRAY_COUNT(a) (sizeof(a)/sizeof(a[0]))
 #define SHELL_COMPLETION_ANY "*"
-#define SHELL_COMPLETION_FLAG_PATH 1U
-#define SHELL_COMPLETION_FLAG_DIRS_ONLY 2U
-typedef struct {
-    const char * const *path; size_t path_count;
-    const char * const *values; size_t value_count;
-    const char *required_prefix; unsigned flags;
-} shell_completion_rule_t;
-''' + "\n".join(macros) + "\n" + arrays + "\nstatic const shell_completion_rule_t rules[] = {\n" + rules + "\n};\n"
+''' + rule_layout + "\n" + "\n".join(macros) + "\n" + arrays + "\nstatic const shell_completion_rule_t rules[] = {\n" + rules + "\n};\n"
         code += production_functions(source, (
+            "starts_with", "shell_completion_prefix_matches",
             "shell_completion_path_matches", "shell_completion_normalize_mac_arguments"))
         code += r'''
 static void check(const char *input, bool expect_path, const char *expect_values) {
@@ -61,7 +58,7 @@ static void check(const char *input, bool expect_path, const char *expect_values
         size_t wildcards;
         if (!shell_completion_path_matches(rule, tokens, completed, &wildcards)) continue;
         if (rule->flags & SHELL_COMPLETION_FLAG_PATH) { path = !speed_value; continue; }
-        if (rule->required_prefix && strncmp(prefix, rule->required_prefix, strlen(rule->required_prefix))) continue;
+        if (!shell_completion_prefix_matches(rule, prefix)) continue;
         if (wildcards < best) best = wildcards;
     }
     for (size_t i = 0; i < SHELL_ARRAY_COUNT(rules); ++i) {
@@ -69,7 +66,7 @@ static void check(const char *input, bool expect_path, const char *expect_values
         size_t wildcards;
         if (rule->flags & SHELL_COMPLETION_FLAG_PATH) continue;
         if (!shell_completion_path_matches(rule, tokens, completed, &wildcards) || wildcards != best) continue;
-        if (rule->required_prefix && strncmp(prefix, rule->required_prefix, strlen(rule->required_prefix))) continue;
+        if (!shell_completion_prefix_matches(rule, prefix)) continue;
         for (size_t j = 0; j < rule->value_count; ++j) {
             assert(strcmp(rule->values[j], "--self-test"));
             if (strncmp(rule->values[j], prefix, strlen(prefix))) continue;
@@ -83,6 +80,12 @@ static void check(const char *input, bool expect_path, const char *expect_values
     }
 }
 int main(void) {
+    const shell_completion_rule_t manual = {.flags = SHELL_COMPLETION_FLAG_MANUAL_PREFIX};
+    assert(!shell_completion_prefix_matches(&manual, NULL));
+    assert(!shell_completion_prefix_matches(&manual, ""));
+    assert(!shell_completion_prefix_matches(&manual, "main"));
+    assert(shell_completion_prefix_matches(&manual, "man:") &&
+           shell_completion_prefix_matches(&manual, "man:help"));
     check("mac ", true, "");
     check("mac --", true, "--pointer-speed");
     check("mac --self", true, "");

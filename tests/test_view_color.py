@@ -23,7 +23,6 @@ class ViewColorTest(unittest.TestCase):
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
 struct solar_os_gfx { solar_os_display_rect_t panel, canvas; };
-struct solar_os_context { solar_os_gfx_t *gfx; };
 static bool color = true, fail_alloc;
 static esp_err_t present_error;
 static unsigned direct, indexed, backgrounds, allocations;

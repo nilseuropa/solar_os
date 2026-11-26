@@ -29,6 +29,8 @@ def configure_builtin_cc():
         'modules/cc/module.toml', 'modules/tinycc/module.toml',
         'modules/examples/hello-library/main/hello_library_api.h',
         'src/services/solar_os_native_elf.c', 'src/services/solar_os_native_elf.h',
+        'protocol/display_link/include/sdlp_lz4_block.h', 'scripts/pack_lz4.py',
+        'scripts/generate_native_api.py',
         'scripts/platformio_cc.py'))
     output = build / 'tinycc'
     archive = output / 'libsolar_os_cc.a'

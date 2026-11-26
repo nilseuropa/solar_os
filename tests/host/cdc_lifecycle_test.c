@@ -5,6 +5,7 @@
 #include "cdc_port.h"
 #include "solar_os_cdc.h"
 #include "solar_os_log.h"
+#include "solar_os_native_usb.h"
 #include "solar_os_stream.h"
 #include "solar_os_resources.h"
 
@@ -50,6 +51,11 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 
 int main(void)
 {
+    const solar_os_native_usb_cdc_api_v1_t *api = solar_os_native_usb_get_service(
+        SOLAR_OS_NATIVE_USB_CDC_SERVICE, SOLAR_OS_NATIVE_USB_CDC_ABI, sizeof(*api));
+    assert(api && api->struct_size == sizeof(*api));
+    assert(!solar_os_native_usb_get_service(SOLAR_OS_NATIVE_USB_SERVICE, SOLAR_OS_NATIVE_USB_ABI, 8));
+    assert(api->status(NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(solar_os_port_init() == ESP_OK);
     assert(solar_os_cdc_deinit() == ESP_OK && !solar_os_resource_claim_count());
     for (int pin = 19; pin <= 20; pin++) {
@@ -70,7 +76,7 @@ int main(void)
     assert(solar_os_port_claim("cdc0", "job:log", &owner) == ESP_OK);
     assert(solar_os_cdc_deinit() == ESP_ERR_INVALID_STATE);
     solar_os_cdc_status_t status;
-    solar_os_cdc_get_status(&status);
+    assert(api->status(&status) == SOLAR_OS_NATIVE_OK);
     assert(status.initialized && status.port_claimed && !strcmp(status.port_owner, "job:log"));
     assert(solar_os_resource_claim_count() == 3);
     assert(solar_os_port_release(&owner) == ESP_OK);
@@ -78,6 +84,7 @@ int main(void)
     /* A new port claim cannot slip between stream and port unregister. */
     race_open = true;
     assert(solar_os_cdc_deinit() == ESP_OK && !installed && !stream_registered);
+    assert(!api->status(&status) && !status.initialized && !status.port_claimed);
     assert(!solar_os_resource_claim_count());
     assert(solar_os_port_claim("cdc0", "shell", &owner) == ESP_ERR_NOT_FOUND);
     assert(solar_os_cdc_init() == ESP_OK);

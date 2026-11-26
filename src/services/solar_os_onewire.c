@@ -17,6 +17,7 @@
 
 #define ONEWIRE_SERVICE_OWNER "service-onewire"
 
+static portMUX_TYPE onewire_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t onewire_mutex;
 static StaticSemaphore_t onewire_mutex_buffer;
 
@@ -35,10 +36,13 @@ static esp_err_t onewire_finish_operation(const char *name, esp_err_t operation_
 
 static esp_err_t onewire_ensure_init(void)
 {
+    portENTER_CRITICAL(&onewire_init_lock);
     if (onewire_mutex == NULL) {
         onewire_mutex = xSemaphoreCreateMutexStatic(&onewire_mutex_buffer);
     }
-    return onewire_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    bool initialized = onewire_mutex != NULL;
+    portEXIT_CRITICAL(&onewire_init_lock);
+    return initialized ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static esp_err_t onewire_validate_pin(int pin)
@@ -97,24 +101,10 @@ static esp_err_t onewire_open(int pin, onewire_bus_handle_t *bus)
     return onewire_new_bus_rmt(&bus_config, &rmt_config, bus);
 }
 
-static esp_err_t onewire_close(int pin,
-                               bool restore_runtime_pin,
-                               onewire_bus_handle_t bus,
-                               esp_err_t operation_err)
+static esp_err_t onewire_close(onewire_bus_handle_t bus, esp_err_t operation_err)
 {
     const esp_err_t close_err = onewire_bus_del(bus);
-    const esp_err_t gpio_err = restore_runtime_pin
-        ? solar_os_gpio_configure(pin,
-                                  SOLAR_OS_GPIO_MODE_INPUT,
-                                  SOLAR_OS_GPIO_PULL_UP)
-        : ESP_OK;
-    if (operation_err != ESP_OK) {
-        return operation_err;
-    }
-    if (close_err != ESP_OK) {
-        return close_err;
-    }
-    return gpio_err;
+    return operation_err == ESP_OK ? close_err : operation_err;
 }
 
 esp_err_t solar_os_onewire_init(void)
@@ -127,7 +117,7 @@ bool solar_os_onewire_pin_allowed(int pin)
     return solar_os_gpio_is_runtime_allowed(pin);
 }
 
-static esp_err_t onewire_reset(int pin, bool restore_runtime_pin, bool *present)
+static esp_err_t onewire_reset(int pin, bool *present)
 {
     if (present == NULL) {
         return ESP_ERR_INVALID_ARG;
@@ -137,12 +127,6 @@ static esp_err_t onewire_reset(int pin, bool restore_runtime_pin, bool *present)
     esp_err_t err = onewire_ensure_init();
     if (err != ESP_OK) {
         return err;
-    }
-    if (restore_runtime_pin) {
-        err = onewire_validate_pin(pin);
-        if (err != ESP_OK) {
-            return err;
-        }
     }
 
     xSemaphoreTake(onewire_mutex, portMAX_DELAY);
@@ -155,7 +139,7 @@ static esp_err_t onewire_reset(int pin, bool restore_runtime_pin, bool *present)
         } else if (err == ESP_ERR_NOT_FOUND) {
             err = ESP_OK;
         }
-        err = onewire_close(pin, restore_runtime_pin, bus, err);
+        err = onewire_close(bus, err);
     }
     xSemaphoreGive(onewire_mutex);
     return err;
@@ -168,17 +152,16 @@ esp_err_t solar_os_onewire_reset(int pin, bool *present)
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = onewire_reset(pin, false, present);
+    ret = onewire_reset(pin, present);
     return onewire_release_direct_pin(pin, owner, ret);
 }
 
 esp_err_t solar_os_onewire_reset_configured(int pin, bool *present)
 {
-    return onewire_reset(pin, false, present);
+    return onewire_reset(pin, present);
 }
 
 static esp_err_t onewire_scan(int pin,
-                              bool restore_runtime_pin,
                               uint64_t *addresses,
                               size_t max_addresses,
                               size_t *address_count)
@@ -192,12 +175,6 @@ static esp_err_t onewire_scan(int pin,
     esp_err_t err = onewire_ensure_init();
     if (err != ESP_OK) {
         return err;
-    }
-    if (restore_runtime_pin) {
-        err = onewire_validate_pin(pin);
-        if (err != ESP_OK) {
-            return err;
-        }
     }
 
     xSemaphoreTake(onewire_mutex, portMAX_DELAY);
@@ -224,7 +201,7 @@ static esp_err_t onewire_scan(int pin,
         }
     }
     if (bus != NULL) {
-        err = onewire_close(pin, restore_runtime_pin, bus, err);
+        err = onewire_close(bus, err);
     }
     xSemaphoreGive(onewire_mutex);
     return err;
@@ -240,7 +217,7 @@ esp_err_t solar_os_onewire_scan(int pin,
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = onewire_scan(pin, false, addresses, max_addresses, address_count);
+    ret = onewire_scan(pin, addresses, max_addresses, address_count);
     return onewire_release_direct_pin(pin, owner, ret);
 }
 
@@ -249,11 +226,10 @@ esp_err_t solar_os_onewire_scan_configured(int pin,
                                            size_t max_addresses,
                                            size_t *address_count)
 {
-    return onewire_scan(pin, false, addresses, max_addresses, address_count);
+    return onewire_scan(pin, addresses, max_addresses, address_count);
 }
 
 static esp_err_t onewire_transfer(int pin,
-                                  bool restore_runtime_pin,
                                   const uint8_t *tx_data,
                                   size_t tx_len,
                                   uint8_t *rx_data,
@@ -269,12 +245,6 @@ static esp_err_t onewire_transfer(int pin,
     if (err != ESP_OK) {
         return err;
     }
-    if (restore_runtime_pin) {
-        err = onewire_validate_pin(pin);
-        if (err != ESP_OK) {
-            return err;
-        }
-    }
 
     xSemaphoreTake(onewire_mutex, portMAX_DELAY);
     onewire_bus_handle_t bus = NULL;
@@ -289,7 +259,7 @@ static esp_err_t onewire_transfer(int pin,
         err = onewire_bus_read_bytes(bus, rx_data, rx_len);
     }
     if (bus != NULL) {
-        err = onewire_close(pin, restore_runtime_pin, bus, err);
+        err = onewire_close(bus, err);
     }
     xSemaphoreGive(onewire_mutex);
     return err;
@@ -306,7 +276,7 @@ esp_err_t solar_os_onewire_transfer(int pin,
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = onewire_transfer(pin, false, tx_data, tx_len, rx_data, rx_len);
+    ret = onewire_transfer(pin, tx_data, tx_len, rx_data, rx_len);
     return onewire_release_direct_pin(pin, owner, ret);
 }
 
@@ -316,7 +286,7 @@ esp_err_t solar_os_onewire_transfer_configured(int pin,
                                                uint8_t *rx_data,
                                                size_t rx_len)
 {
-    return onewire_transfer(pin, false, tx_data, tx_len, rx_data, rx_len);
+    return onewire_transfer(pin, tx_data, tx_len, rx_data, rx_len);
 }
 
 esp_err_t solar_os_onewire_bus_reset(const char *name, bool *present)

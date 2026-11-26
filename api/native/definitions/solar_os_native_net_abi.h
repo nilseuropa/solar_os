@@ -6,9 +6,11 @@
 #define SOLAR_OS_NATIVE_NET_PING 2U
 #define SOLAR_OS_NATIVE_NET_HOSTS 4U
 #define SOLAR_OS_NATIVE_NET_CHANNELS 8U
+#define SOLAR_OS_NATIVE_NET_TLS_CHANNELS 16U
 #define SOLAR_OS_NATIVE_NET_TCP 1U
 #define SOLAR_OS_NATIVE_NET_UDP 2U
 #define SOLAR_OS_NATIVE_NET_WEBSOCKET 3U
+#define SOLAR_OS_NATIVE_NET_TLS 4U
 #define SOLAR_OS_NATIVE_NET_TIMED_OUT 1U
 #define SOLAR_OS_NATIVE_NET_CLOSED 2U
 #define SOLAR_OS_NATIVE_NET_TRUNCATED 4U
@@ -70,4 +72,10 @@ typedef struct {
     int (*close_all)(solar_os_native_handle_t context);
     int (*status)(solar_os_native_handle_t context, solar_os_native_net_status_v1_t *status);
     const char *(*websocket_opcode_name)(uint32_t opcode);
+    /* Open a verified TLS byte stream using the firmware trust bundle and
+     * hostname verification. Zero selects the default connect timeout.
+     * Use TLS as the send/receive type. A failed or incomplete write may
+     * close its channel. Reopen the connection before retrying a write. */
+    int (*tls_connect)(solar_os_native_handle_t context, const char *host, uint16_t port,
+        uint32_t timeout_ms, uint32_t *channel);
 } solar_os_native_net_api_v1_t;

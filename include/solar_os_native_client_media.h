@@ -11,7 +11,9 @@ SOLAR_OS_NATIVE_DECLARE_GET(image, "image", solar_os_native_image_api_v1_t, 1U)
     M(retain) \
     M(release) \
     M(pixels) \
-    M(convert)
+    M(convert) \
+    M(draw) \
+    M(present)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -29,7 +31,14 @@ SOLAR_OS_NATIVE_DECLARE_GET(media, "media.video", solar_os_native_media_api_v1_t
     M(snapshot) \
     M(rtsp_open) \
     M(rtsp_read) \
-    M(rtsp_ended)
+    M(rtsp_ended) \
+    M(reset) \
+    M(save_frame) \
+    M(rtsp_open_tracks) \
+    M(rtsp_status) \
+    M(rtsp_lateness) \
+    M(rtsp_normalize_url) \
+    M(rtsp_redact_url)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -48,7 +57,10 @@ SOLAR_OS_NATIVE_DECLARE_GET(imlib, "vision.imlib", solar_os_native_imlib_api_v1_
 #define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
     M(defaults) \
     M(run) \
-    M(result_free)
+    M(result_free) \
+    M(operation_name) \
+    M(is_transform) \
+    M(option_allowed)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -71,7 +83,12 @@ SOLAR_OS_NATIVE_DECLARE_GET(inference, "inference", solar_os_native_inference_ap
     M(unload_all) \
     M(retain) \
     M(release) \
-    M(result_free)
+    M(result_free) \
+    M(mode_name) \
+    M(mode_parse) \
+    M(dtype_name) \
+    M(dtype_parse) \
+    M(dtype_bytes)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -123,6 +140,286 @@ SOLAR_OS_NATIVE_DECLARE_GET(m3u, "media.m3u", solar_os_native_m3u_api_v1_t, 1U)
     M(path) \
     M(read) \
     M(write)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(playlist, "media.playlist", solar_os_native_playlist_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(playlist, solar_os_native_playlist_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(close) \
+    M(info) \
+    M(get) \
+    M(refresh) \
+    M(import_m3u) \
+    M(add) \
+    M(set) \
+    M(remove)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(audio, "media.audio", solar_os_native_audio_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(audio, solar_os_native_audio_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(probe) \
+    M(play) \
+    M(record) \
+    M(monitor) \
+    M(play_tone) \
+    M(enqueue_tone) \
+    M(cancel_tone) \
+    M(tone_status) \
+    M(prepare_board) \
+    M(release_idle_board) \
+    M(loopback)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(audio_pcm, "media.audio.pcm", solar_os_native_audio_pcm_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(audio_pcm, solar_os_native_audio_pcm_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(reset) \
+    M(convert) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(audio_decoder, "media.audio.decoder", solar_os_native_audio_decoder_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(audio_decoder, solar_os_native_audio_decoder_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(limits) \
+    M(probe) \
+    M(open) \
+    M(reset) \
+    M(process) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(audio_routes, "media.audio.routes", solar_os_native_audio_routes_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(audio_routes, solar_os_native_audio_routes_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(output_available) \
+    M(get_default_output) \
+    M(set_default_output) \
+    M(get_volume) \
+    M(set_volume) \
+    M(toggle_mute) \
+    M(open_default) \
+    M(capture_frames) \
+    M(measure_level) \
+    M(board_status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(midi, "midi", solar_os_native_midi_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(midi, solar_os_native_midi_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(subscribe) \
+    M(unsubscribe) \
+    M(receive) \
+    M(send) \
+    M(status) \
+    M(cc_add) \
+    M(cc_remove) \
+    M(cc_clear) \
+    M(cc_count) \
+    M(cc_info) \
+    M(decoder_reset) \
+    M(decode_byte) \
+    M(message_length) \
+    M(message_valid) \
+    M(encode) \
+    M(format_monitor)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(engines, "engines", solar_os_native_engines_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(engines, solar_os_native_engines_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(measure) \
+    M(record) \
+    M(reset)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(media_sample, "media.sample", solar_os_native_media_sample_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(media_sample, solar_os_native_media_sample_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(copy) \
+    M(open) \
+    M(read_source) \
+    M(visit) \
+    M(retain) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(processor, "processor", solar_os_native_processor_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(processor, solar_os_native_processor_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(kind_valid) \
+    M(query) \
+    M(select) \
+    M(upload) \
+    M(create) \
+    M(captures) \
+    M(bind_source) \
+    M(capture) \
+    M(run_image) \
+    M(run_sample) \
+    M(cancel) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(pipeline, "pipeline", solar_os_native_pipeline_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(pipeline, solar_os_native_pipeline_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(start) \
+    M(list) \
+    M(status) \
+    M(result) \
+    M(stop) \
+    M(destroy)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(mpeg, "media.mpeg", solar_os_native_mpeg_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(mpeg, solar_os_native_mpeg_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(close) \
+    M(info) \
+    M(error_detail) \
+    M(seek) \
+    M(video) \
+    M(audio) \
+    M(raster) \
+    M(simd_available) \
+    M(simd_selftest)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(speech, "speech", solar_os_native_speech_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(speech, solar_os_native_speech_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(enqueue) \
+    M(stream_begin) \
+    M(stream_write) \
+    M(cancel) \
+    M(request_status) \
+    M(queue_status) \
+    M(state_name)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(speech_worker, "speech.worker", solar_os_native_speech_worker_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(speech_worker, solar_os_native_speech_worker_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(stop) \
+    M(close) \
+    M(take) \
+    M(stream_take) \
+    M(set_state) \
+    M(set_progress) \
+    M(finish) \
+    M(cancelled)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtp, "media.rtp", solar_os_native_rtp_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtp, solar_os_native_rtp_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(track_valid) \
+    M(clock_init) \
+    M(clock_map) \
+    M(header_encode) \
+    M(header_decode) \
+    M(sender_valid) \
+    M(l16_packetize) \
+    M(sender_report) \
+    M(bye) \
+    M(jpeg_parse) \
+    M(jpeg_packetize) \
+    M(jpeg_receiver_open) \
+    M(jpeg_receiver_close) \
+    M(jpeg_receiver_reset) \
+    M(jpeg_receiver_feed) \
+    M(jpeg_receiver_status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtsp_protocol, "media.rtsp.protocol", solar_os_native_rtsp_protocol_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtsp_protocol, solar_os_native_rtsp_protocol_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(header_length) \
+    M(parse_request) \
+    M(method_name)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtsp_client, "media.rtsp.client", solar_os_native_rtsp_client_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtsp_client, solar_os_native_rtsp_client_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(run) \
+    M(cancel) \
+    M(set_paused) \
+    M(status) \
+    M(visit_video) \
+    M(video_lateness) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(mjpeg, "media.mjpeg", solar_os_native_mjpeg_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(mjpeg, solar_os_native_mjpeg_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(feed) \
+    M(reset) \
+    M(status) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtsp_auth, "media.rtsp.auth", solar_os_native_rtsp_auth_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtsp_auth, solar_os_native_rtsp_auth_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(parse_challenge) \
+    M(authorization) \
+    M(set_account) \
+    M(get_account) \
+    M(remove_account) \
+    M(clear_accounts) \
+    M(list_accounts)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

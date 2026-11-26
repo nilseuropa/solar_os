@@ -1,15 +1,30 @@
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
 
 from tests.test_foreground_presenter import production_functions
+from tests.test_shutdown_policy import run_c
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class DisplayLayoutPresentTest(unittest.TestCase):
+    def test_layout_changes_follow_the_session_owner_and_allow_cleanup_retry(self):
+        source = (ROOT / "src/services/solar_os_sessions.c").read_text()
+        records = [re.search(r"^typedef struct \{[^}]*\} " + name + ";", source, re.M).group()
+                   for name in ("session_layout_create_t", "session_layout_remove_t")]
+        functions = production_functions(source, (
+            "session_builtin_shell_on_target", "session_layout_create_on_owner",
+            "solar_os_sessions_create_display_layout", "session_layout_remove_on_owner",
+            "solar_os_sessions_remove_display_layout",
+        ))
+        fixture = (ROOT / "tests/host/display_layout_sessions_test.inc").read_text()
+        run_c(fixture.replace("/* FUNCTIONS */", "\n".join(records) + "\n" + functions),
+              "-fsanitize=address,undefined", "-no-pie")
+
     def test_streaming_frames_with_real_u8g2(self):
         source = (ROOT / "src/services/solar_os_display_layout.c").read_text()
         types = source[source.index("typedef struct solar_os_display_layout_runtime"):
@@ -31,6 +46,7 @@ class DisplayLayoutPresentTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-I" + directory, "-I" + str(ROOT / "tests/host"),
                 "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"),
+                "-idirafter", str(ROOT / "include"),
                 "-I" + str(ROOT / "components/u8g2/src/clib"),
                 *map(str, sources), "-Wl,--gc-sections", "-o", str(path / "test"),
             ], check=True)
@@ -122,7 +138,7 @@ int main(void)
             subprocess.run([
                 "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-I" + str(ROOT / "src/services"), str(path / "test.c"),
+                "-I" + str(ROOT / "src/services"), "-idirafter", str(ROOT / "include"), str(path / "test.c"),
                 str(ROOT / "src/services/solar_os_display_layout_core.c"),
                 "-o", str(path / "test"),
             ], check=True)

@@ -48,6 +48,7 @@ class SleepWakeTest(unittest.TestCase):
                     "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                     "-I", tmp, "-I", str(ROOT / "tests/host"),
                     "-I", str(ROOT / "src/services"),
+                    "-I", str(ROOT / "include"),
                     str(ROOT / "tests/host/sleep_wake_test.c"), "-o", str(binary),
                 ], check=True)
                 subprocess.run([str(binary)], check=True)

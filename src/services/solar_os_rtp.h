@@ -7,24 +7,6 @@
 #include "esp_err.h"
 #include "solar_os_media.h"
 
-#define SOLAR_OS_RTP_HEADER_BYTES 12U
-
-typedef struct {
-    bool marker;
-    uint8_t payload_type;
-    uint16_t sequence;
-    uint32_t timestamp;
-    uint32_t ssrc;
-} solar_os_rtp_header_t;
-
-typedef struct {
-    uint8_t payload_type;
-    uint16_t sequence;
-    uint32_t timestamp;
-    uint32_t ssrc;
-    size_t max_packet_bytes;
-} solar_os_rtp_sender_t;
-
 typedef esp_err_t (*solar_os_rtp_packet_fn)(const uint8_t *packet,
                                             size_t packet_len,
                                             void *user);

@@ -392,8 +392,7 @@ static void display_print_layout_error(solar_os_shell_io_t *term,
                              solar_os_shell_error_text(err));
 }
 
-static void display_cmd_join(solar_os_context_t *ctx,
-                             solar_os_shell_io_t *term,
+static void display_cmd_join(solar_os_shell_io_t *term,
                              int argc,
                              char **argv)
 {
@@ -409,35 +408,22 @@ static void display_cmd_join(solar_os_context_t *ctx,
         return;
     }
     char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
-    esp_err_t err = solar_os_display_layout_join(
-        argv[2], axis, (size_t)(argc - 4), (const char *const *)&argv[4],
-        busy_owner, sizeof(busy_owner));
+    const solar_os_display_layout_request_v1_t request = {
+        .kind = SOLAR_OS_DISPLAY_LAYOUT_JOIN, .axis = axis, .name = argv[2],
+        .member_count = (size_t)(argc - 4), .members = (const char *const *)&argv[4],
+    };
+    const esp_err_t err = solar_os_sessions_create_display_layout(&request, busy_owner, sizeof(busy_owner));
     if (err != ESP_OK) {
         display_print_layout_error(term, "join", err, busy_owner);
         return;
     }
-    for (int i = 4; i < argc; i++) {
-        if (!solar_os_sessions_builtin_shell_uses_display(ctx, argv[i])) {
-            continue;
-        }
-        err = solar_os_sessions_rebind_builtin_shell_display(
-            ctx, argv[i], argv[2]);
-        if (err != ESP_OK) {
-            (void)solar_os_display_layout_unjoin(argv[2]);
-            display_print_layout_error(term, "join session handoff", err,
-                                       NULL);
-            return;
-        }
-        break;
-    }
-    solar_os_display_target_t target;
+    solar_os_display_target_t target = {0};
     (void)solar_os_display_find_target(argv[2], &target);
     solar_os_shell_io_printf(term, "display join: %s %ux%u\n", argv[2],
                              (unsigned)target.width, (unsigned)target.height);
 }
 
-static void display_cmd_split(solar_os_context_t *ctx,
-                              solar_os_shell_io_t *term,
+static void display_cmd_split(solar_os_shell_io_t *term,
                               int argc,
                               char **argv)
 {
@@ -453,24 +439,18 @@ static void display_cmd_split(solar_os_context_t *ctx,
         return;
     }
     char busy_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
-    esp_err_t err = solar_os_display_layout_split(
-        argv[2], axis, argv[4], argv[5], busy_owner, sizeof(busy_owner));
+    const char *const members[] = {argv[4], argv[5]};
+    const solar_os_display_layout_request_v1_t request = {
+        .kind = SOLAR_OS_DISPLAY_LAYOUT_SPLIT, .axis = axis, .name = argv[2],
+        .member_count = 2, .members = members,
+    };
+    const esp_err_t err = solar_os_sessions_create_display_layout(&request, busy_owner, sizeof(busy_owner));
     if (err != ESP_OK) {
         display_print_layout_error(term, "split", err, busy_owner);
         return;
     }
-    if (solar_os_sessions_builtin_shell_uses_display(ctx, argv[2])) {
-        err = solar_os_sessions_rebind_builtin_shell_display(
-            ctx, argv[2], argv[4]);
-        if (err != ESP_OK) {
-            (void)solar_os_display_layout_unsplit(argv[2]);
-            display_print_layout_error(term, "split session handoff", err,
-                                       NULL);
-            return;
-        }
-    }
-    solar_os_display_target_t first;
-    solar_os_display_target_t second;
+    solar_os_display_target_t first = {0};
+    solar_os_display_target_t second = {0};
     (void)solar_os_display_find_target(argv[4], &first);
     (void)solar_os_display_find_target(argv[5], &second);
     solar_os_shell_io_printf(term,
@@ -480,25 +460,7 @@ static void display_cmd_split(solar_os_context_t *ctx,
                              (unsigned)second.width, (unsigned)second.height);
 }
 
-static bool display_find_layout(solar_os_display_layout_kind_t kind,
-                                const char *name,
-                                solar_os_display_layout_info_t *info)
-{
-    if (name == NULL || info == NULL) {
-        return false;
-    }
-    const size_t count = solar_os_display_layout_count();
-    for (size_t i = 0U; i < count; i++) {
-        if (solar_os_display_layout_get(i, info) && info->kind == kind &&
-            strcmp(info->name, name) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static void display_cmd_destroy_layout(solar_os_context_t *ctx,
-                                       solar_os_shell_io_t *term,
+static void display_cmd_destroy_layout(solar_os_shell_io_t *term,
                                        int argc,
                                        char **argv,
                                        bool split)
@@ -507,68 +469,15 @@ static void display_cmd_destroy_layout(solar_os_context_t *ctx,
         display_print_usage(term);
         return;
     }
-    solar_os_display_layout_info_t info;
     const solar_os_display_layout_kind_t kind = split ?
         SOLAR_OS_DISPLAY_LAYOUT_SPLIT : SOLAR_OS_DISPLAY_LAYOUT_JOIN;
-    const bool found = display_find_layout(kind, argv[2], &info);
-    const char *handoff_from = NULL;
-    if (found) {
-        for (size_t i = 0U; i < info.logical_count; i++) {
-            if (solar_os_sessions_builtin_shell_uses_display(
-                    ctx, info.logical[i])) {
-                handoff_from = info.logical[i];
-                break;
-            }
-        }
-    }
-
-    char handoff_to[SOLAR_OS_DISPLAY_TARGET_NAME_MAX] = {0};
-    if (handoff_from != NULL) {
-        (void)solar_os_sessions_builtin_display_base(
-            ctx, handoff_to, sizeof(handoff_to));
-        bool base_is_backing = false;
-        for (size_t i = 0U; i < info.backing_count; i++) {
-            if (strcmp(info.backing[i], handoff_to) == 0) {
-                base_is_backing = true;
-                break;
-            }
-        }
-        if (!base_is_backing && info.backing_count > 0U) {
-            strlcpy(handoff_to, info.backing[0], sizeof(handoff_to));
-        }
-        solar_os_display_target_t target;
-        if (handoff_to[0] == '\0' ||
-            !solar_os_display_find_target(handoff_to, &target) ||
-            !target.ready || target.u8g2 == NULL) {
-            display_print_layout_error(term,
-                                       split ? "unsplit" : "unjoin",
-                                       ESP_ERR_INVALID_STATE,
-                                       NULL);
-            return;
-        }
-    }
-
-    esp_err_t err = split ? solar_os_display_layout_unsplit(argv[2]) :
-        solar_os_display_layout_unjoin(argv[2]);
+    const char *operation = split ? "unsplit" : "unjoin";
+    const esp_err_t err = solar_os_sessions_remove_display_layout(kind, argv[2]);
     if (err != ESP_OK) {
-        display_print_layout_error(term, split ? "unsplit" : "unjoin", err,
-                                   NULL);
+        display_print_layout_error(term, operation, err, NULL);
         return;
     }
-    if (handoff_from != NULL) {
-        err = solar_os_sessions_rebind_builtin_shell_display(
-            ctx, handoff_from, handoff_to);
-        if (err != ESP_OK) {
-            display_print_layout_error(term,
-                                       split ? "unsplit session handoff" :
-                                               "unjoin session handoff",
-                                       err,
-                                       NULL);
-            return;
-        }
-    }
-    solar_os_shell_io_printf(term, "display %s: %s removed\n",
-                             split ? "unsplit" : "unjoin", argv[2]);
+    solar_os_shell_io_printf(term, "display %s: %s removed\n", operation, argv[2]);
 }
 
 static void display_draw_test_pattern(u8g2_t *u8g2, const char *name)
@@ -659,9 +568,10 @@ static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
 
-    const char *current = NULL;
-    const char *values = NULL;
-    esp_err_t err = solar_os_display_get_controller_mode(argv[2], &current, &values);
+    char current[SOLAR_OS_DISPLAY_MODE_TEXT_MAX];
+    char values[SOLAR_OS_DISPLAY_MODE_CHOICES_MAX];
+    esp_err_t err = solar_os_display_get_controller_mode(argv[2], argc == 3 ? current : NULL,
+                                                         sizeof(current), values, sizeof(values));
     if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_printf(term, "display mode: %s not found\n", argv[2]);
         return;
@@ -680,9 +590,9 @@ static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
 
     if (argc == 3) {
         solar_os_shell_io_write(term, "mode: ");
-        solar_os_shell_io_writeln(term, current != NULL ? current : "unknown");
+        solar_os_shell_io_writeln(term, current);
         solar_os_shell_io_write(term, "values: ");
-        solar_os_shell_io_writeln(term, values != NULL ? values : "-");
+        solar_os_shell_io_writeln(term, values);
         return;
     }
 
@@ -690,7 +600,7 @@ static void display_cmd_mode(solar_os_shell_io_t *term, int argc, char **argv)
     if (err == ESP_ERR_NOT_FOUND) {
         solar_os_shell_io_printf(term, "display mode: unknown mode %s\n", argv[3]);
         solar_os_shell_io_write(term, "values: ");
-        solar_os_shell_io_writeln(term, values != NULL ? values : "-");
+        solar_os_shell_io_writeln(term, values);
         return;
     }
     if (err != ESP_OK) {
@@ -783,27 +693,6 @@ static void display_cmd_relax(solar_os_context_t *ctx, solar_os_shell_io_t *term
                              result.cancelled ? "stopped" : "done", (unsigned)result.cycles);
 }
 
-typedef struct {
-    const char *name;
-    solar_os_display_rect_t canvas;
-    bool reset;
-} display_canvas_request_t;
-
-static esp_err_t display_apply_canvas(void *context)
-{
-    const display_canvas_request_t *request = context;
-    solar_os_display_target_t previous;
-    solar_os_terminal_profile_t profile;
-    if (!solar_os_display_find_target(request->name, &previous)) return ESP_ERR_NOT_FOUND;
-    esp_err_t err = solar_os_display_get_terminal_profile(request->name, &profile);
-    if (err != ESP_OK) return err;
-    err = solar_os_display_set_canvas(request->name, request->reset ? NULL : &request->canvas);
-    if (err != ESP_OK) return err;
-    err = solar_os_sessions_set_display_terminal_profile(request->name, &profile);
-    if (err != ESP_OK) (void)solar_os_display_set_canvas(request->name, &previous.canvas);
-    return err;
-}
-
 static void display_cmd_canvas(solar_os_shell_io_t *term, int argc, char **argv)
 {
     const char *usage = "display canvas <target> [default|full|x y width height]";
@@ -817,10 +706,11 @@ static void display_cmd_canvas(solar_os_shell_io_t *term, int argc, char **argv)
         return;
     }
     if (argc > 3) {
-        display_canvas_request_t request = {.name = argv[2], .canvas = target.panel};
+        solar_os_display_rect_t canvas = target.panel;
+        bool reset = false;
         if (argc == 4) {
-            request.reset = strcmp(argv[3], "default") == 0;
-            if (!request.reset && strcmp(argv[3], "full") != 0) {
+            reset = strcmp(argv[3], "default") == 0;
+            if (!reset && strcmp(argv[3], "full") != 0) {
                 solar_os_shell_io_printf(term, "usage: %s\n", usage);
                 return;
             }
@@ -832,9 +722,9 @@ static void display_cmd_canvas(solar_os_shell_io_t *term, int argc, char **argv)
                     return;
                 }
             }
-            request.canvas = (solar_os_display_rect_t){values[0], values[1], values[2], values[3]};
+            canvas = (solar_os_display_rect_t){values[0], values[1], values[2], values[3]};
         }
-        const esp_err_t err = solar_os_sessions_run_on_owner(display_apply_canvas, &request);
+        const esp_err_t err = solar_os_sessions_set_display_canvas(argv[2], reset ? NULL : &canvas);
         if (err != ESP_OK) {
             solar_os_shell_diag_esp(term, "display canvas", err, NULL, NULL);
             return;
@@ -919,19 +809,19 @@ void solar_os_shell_cmd_display(solar_os_context_t *ctx, int argc, char **argv)
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "join") == 0) {
-        display_cmd_join(ctx, term, argc, argv);
+        display_cmd_join(term, argc, argv);
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "split") == 0) {
-        display_cmd_split(ctx, term, argc, argv);
+        display_cmd_split(term, argc, argv);
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "unjoin") == 0) {
-        display_cmd_destroy_layout(ctx, term, argc, argv, false);
+        display_cmd_destroy_layout(term, argc, argv, false);
         return;
     }
     if (argc >= 2 && strcmp(argv[1], "unsplit") == 0) {
-        display_cmd_destroy_layout(ctx, term, argc, argv, true);
+        display_cmd_destroy_layout(term, argc, argv, true);
         return;
     }
 
@@ -1600,12 +1490,10 @@ void solar_os_shell_cmd_identity(solar_os_context_t *ctx, int argc, char **argv)
     solar_os_shell_io_t *term = terminal(ctx);
 
     if (argc == 1 || (argc == 2 && strcmp(argv[1], "status") == 0)) {
-        char user[SOLAR_OS_IDENTITY_USER_MAX];
-        char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
-        solar_os_identity_get_user(user, sizeof(user));
-        solar_os_identity_get_hostname(hostname, sizeof(hostname));
-        solar_os_shell_io_printf(term, "User: %s\n", user);
-        solar_os_shell_io_printf(term, "Hostname: %s\n", hostname);
+        solar_os_identity_v1_t identity;
+        solar_os_identity_get(&identity);
+        solar_os_shell_io_printf(term, "User: %s\n", identity.user);
+        solar_os_shell_io_printf(term, "Hostname: %s\n", identity.hostname);
         return;
     }
 
@@ -1695,7 +1583,7 @@ static void job_print_status(solar_os_shell_io_t *term,
     if (status->state == SOLAR_OS_JOB_RUNNING) {
         solar_os_shell_io_table_printf_bold(term,
                                       format,
-                                      status->name != NULL ? status->name : "?",
+                                      status->name[0] ? status->name : "?",
                                       solar_os_job_state_name(status->state),
                                       stack_bytes,
                                       solar_os_job_kind_name(status->kind),
@@ -1705,7 +1593,7 @@ static void job_print_status(solar_os_shell_io_t *term,
     } else {
         solar_os_shell_io_table_printf(term,
                                  format,
-                                 status->name != NULL ? status->name : "?",
+                                 status->name[0] ? status->name : "?",
                                  solar_os_job_state_name(status->state),
                                  stack_bytes,
                                  solar_os_job_kind_name(status->kind),
@@ -1729,12 +1617,12 @@ static void job_print_status(solar_os_shell_io_t *term,
 
     solar_os_shell_io_table_printf(term,
                              "  summary: %s\n",
-                             status->summary != NULL ? status->summary : "job");
+                             status->summary[0] ? status->summary : "job");
     solar_os_shell_io_table_printf(term,
                              "  owner: %s\n",
                              status->owner[0] != '\0' ? status->owner : "-");
     solar_os_job_inspection_t inspection;
-    if (status->name != NULL &&
+    if (status->name[0] &&
         solar_os_jobs_inspect_by_name(status->name, &inspection)) {
         solar_os_shell_io_table_printf(
             term,
@@ -1823,7 +1711,7 @@ static bool job_print_single_port_error(solar_os_shell_io_t *term,
         if (owner_is_job) {
             solar_os_shell_io_printf(term,
                                      "job start failed: job %s owns %s\n",
-                                     owner_job.name != NULL ? owner_job.name : "?",
+                                     owner_job.name[0] ? owner_job.name : "?",
                                      info.name);
         } else {
             solar_os_shell_io_printf(term,
@@ -1933,8 +1821,8 @@ void solar_os_shell_cmd_job(solar_os_context_t *ctx, int argc, char **argv)
         }
         solar_os_shell_io_table_writeln(term, "NAME         STATE    STACK KIND        EVT  TICKS RES");
         job_print_status(term, &status, true);
-        if (status.detail != NULL) {
-            status.detail(ctx);
+        if (status.has_detail) {
+            (void)solar_os_jobs_print_detail(ctx, status.name);
         }
         return;
     }

@@ -172,7 +172,7 @@ esp_err_t solar_os_camera_register_backend(
     return ESP_OK;
 }
 
-esp_err_t solar_os_camera_unregister_backend(const char *driver)
+esp_err_t solar_os_camera_unregister_backend_owned(const char *driver, const void *context)
 {
     if (driver == NULL || driver[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
@@ -184,7 +184,7 @@ esp_err_t solar_os_camera_unregister_backend(const char *driver)
 
     xSemaphoreTake(camera_mutex, portMAX_DELAY);
     if (!camera_state.backend_registered ||
-        strcmp(camera_state.driver, driver) != 0) {
+        strcmp(camera_state.driver, driver) != 0 || (context && camera_state.backend.ctx != context)) {
         xSemaphoreGive(camera_mutex);
         return ESP_ERR_NOT_FOUND;
     }
@@ -204,6 +204,11 @@ esp_err_t solar_os_camera_unregister_backend(const char *driver)
     memset(&camera_state, 0, sizeof(camera_state));
     xSemaphoreGive(camera_mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_camera_unregister_backend(const char *driver)
+{
+    return solar_os_camera_unregister_backend_owned(driver, NULL);
 }
 
 esp_err_t solar_os_camera_acquire(const char *owner,

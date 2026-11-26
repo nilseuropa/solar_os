@@ -38,3 +38,18 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(tensor_image_api), const 
 if (name && !strcmp(name, "tensor.image") && abi == 1U &&
     minimum <= sizeof(tensor_image_api)) return &tensor_image_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE
+_Static_assert(__builtin_types_compatible_p(__typeof__(media_sample_api), const solar_os_native_media_sample_api_v1_t), "native service table type");
+if (name && !strcmp(name, "media.sample") && abi == 1U &&
+    minimum <= sizeof(media_sample_api)) return &media_sample_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+_Static_assert(__builtin_types_compatible_p(__typeof__(processor_api), const solar_os_native_processor_api_v1_t), "native service table type");
+if (name && !strcmp(name, "processor") && abi == 1U &&
+    minimum <= sizeof(processor_api)) return &processor_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+_Static_assert(__builtin_types_compatible_p(__typeof__(pipeline_api), const solar_os_native_pipeline_api_v1_t), "native service table type");
+if (name && !strcmp(name, "pipeline") && abi == 1U &&
+    minimum <= sizeof(pipeline_api)) return &pipeline_api;
+#endif

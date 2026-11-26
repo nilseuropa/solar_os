@@ -26,4 +26,6 @@ typedef struct {
     int (*base64_decode)(const char *text, uint8_t *bytes, size_t capacity, size_t *size);
     int (*verify_p256_sha256)(const char *pem, const void *data, size_t size,
         const uint8_t *signature, size_t signature_size);
+    /* Overwrite secret material before the caller releases its buffer. */
+    void (*wipe)(void *bytes, size_t size);
 } solar_os_native_crypto_api_v1_t;

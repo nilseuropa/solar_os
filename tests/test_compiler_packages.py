@@ -38,7 +38,12 @@ class CompilerPackagesTest(unittest.TestCase):
             for service in meta['required_services']:
                 name=service['name']
                 typename='solar_os_native_'+('library_service' if name=='library' else name)+'_api_v1_t'
-                size=f'offsetof({typename},parse_float)' if module=='cc' and name=='libc' else f'sizeof({typename})'
+                if name == 'memory':
+                    size = f'offsetof({typename},buffer_destroy)+sizeof((({typename} *)0)->buffer_destroy)'
+                elif module == 'cc' and name == 'libc':
+                    size = f'offsetof({typename},parse_float)'
+                else:
+                    size = f'sizeof({typename})'
                 code.append(f'_Static_assert({size}=={service["minimum_struct_size"]},"{module}: {name} requirement drift");')
         with tempfile.TemporaryDirectory() as temp:
             source=Path(temp)/'services.c';source.write_text('\n'.join(code)+'\n')

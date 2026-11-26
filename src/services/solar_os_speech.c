@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_attr.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_audio.h"
 
@@ -19,7 +20,9 @@ typedef struct {
 typedef struct {
     SemaphoreHandle_t mutex;
     StaticSemaphore_t mutex_storage;
-    TaskHandle_t worker;
+    SemaphoreHandle_t wake;
+    StaticSemaphore_t wake_storage;
+    const void *worker;
     bool running;
     speech_queue_entry_t queue[SOLAR_OS_SPEECH_QUEUE_CAPACITY];
     size_t queue_count;
@@ -70,7 +73,8 @@ static bool speech_speed_valid(uint16_t speed)
 static esp_err_t speech_ensure_mutex(void)
 {
     portENTER_CRITICAL(&speech_init_lock);
-    if (speech.mutex == NULL) {
+    if (speech.wake == NULL) speech.wake = xSemaphoreCreateBinaryStatic(&speech.wake_storage);
+    if (speech.mutex == NULL && speech.wake != NULL) {
         speech.mutex = xSemaphoreCreateMutexStatic(&speech.mutex_storage);
         speech.next_id = 1U;
     }
@@ -145,7 +149,6 @@ esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
         return err;
     }
 
-    TaskHandle_t worker = NULL;
     speech_lock();
     if (!speech.running || speech.worker == NULL) {
         speech_unlock();
@@ -180,9 +183,8 @@ esp_err_t solar_os_speech_enqueue(const solar_os_speech_request_t *request,
     if (request_id != NULL) {
         *request_id = entry->id;
     }
-    worker = speech.worker;
     speech_unlock();
-    xTaskNotifyGive(worker);
+    (void)xSemaphoreGive(speech.wake);
     return ESP_OK;
 }
 
@@ -203,7 +205,6 @@ esp_err_t solar_os_speech_stream_begin(
         return err;
     }
 
-    TaskHandle_t worker = NULL;
     speech_lock();
     if (!speech.running || speech.worker == NULL) {
         speech_unlock();
@@ -246,9 +247,8 @@ esp_err_t solar_os_speech_stream_begin(
     if (request_id != NULL) {
         *request_id = entry->id;
     }
-    worker = speech.worker;
     speech_unlock();
-    xTaskNotifyGive(worker);
+    (void)xSemaphoreGive(speech.wake);
     return ESP_OK;
 }
 
@@ -265,7 +265,6 @@ esp_err_t solar_os_speech_stream_write(uint32_t request_id,
         return ESP_ERR_INVALID_ARG;
     }
 
-    TaskHandle_t worker = NULL;
     speech_lock();
     if (!speech.running || speech.stream_id != request_id ||
         speech.stream_final_submitted ||
@@ -285,11 +284,8 @@ esp_err_t solar_os_speech_stream_write(uint32_t request_id,
     speech.stream_chunk_final = final;
     speech.stream_chunk_ready = true;
     speech.stream_final_submitted = final;
-    worker = speech.worker;
     speech_unlock();
-    if (worker != NULL) {
-        xTaskNotifyGive(worker);
-    }
+    (void)xSemaphoreGive(speech.wake);
     return ESP_OK;
 }
 
@@ -302,7 +298,6 @@ esp_err_t solar_os_speech_cancel(uint32_t request_id)
         return ESP_ERR_NO_MEM;
     }
 
-    TaskHandle_t worker = NULL;
     speech_lock();
     if (speech.current_id == request_id) {
         speech.cancel_current = true;
@@ -310,11 +305,8 @@ esp_err_t solar_os_speech_cancel(uint32_t request_id)
             speech.stream_chunk_ready = false;
             speech.stream_chunk_len = 0U;
         }
-        worker = speech.worker;
         speech_unlock();
-        if (worker != NULL) {
-            xTaskNotifyGive(worker);
-        }
+        (void)xSemaphoreGive(speech.wake);
         return ESP_OK;
     }
     for (size_t i = 0U; i < speech.queue_count; i++) {
@@ -436,9 +428,9 @@ const char *solar_os_speech_request_state_name(
     }
 }
 
-esp_err_t solar_os_speech_worker_start(TaskHandle_t task)
+esp_err_t solar_os_speech_worker_start(const void *owner)
 {
-    if (task == NULL) {
+    if (owner == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     esp_err_t err = speech_ensure_mutex();
@@ -446,11 +438,12 @@ esp_err_t solar_os_speech_worker_start(TaskHandle_t task)
         return err;
     }
     speech_lock();
-    if (speech.running) {
+    if (speech.worker != NULL) {
         speech_unlock();
         return ESP_ERR_INVALID_STATE;
     }
-    speech.worker = task;
+    (void)xSemaphoreTake(speech.wake, 0);
+    speech.worker = owner;
     speech.running = true;
     speech.queue_count = 0U;
     speech.result_count = 0U;
@@ -474,13 +467,8 @@ esp_err_t solar_os_speech_worker_start(TaskHandle_t task)
     return ESP_OK;
 }
 
-void solar_os_speech_worker_stop(void)
+static void speech_worker_stop_locked(void)
 {
-    if (speech_ensure_mutex() != ESP_OK) {
-        return;
-    }
-    TaskHandle_t worker = NULL;
-    speech_lock();
     speech.running = false;
     speech.cancel_current = speech.current_id != 0U;
     for (size_t i = 0U; i < speech.queue_count; i++) {
@@ -496,11 +484,43 @@ void solar_os_speech_worker_stop(void)
     speech.stream_chunk_final = false;
     speech.stream_final_submitted = false;
     speech.stream_chunk_len = 0U;
-    worker = speech.worker;
-    speech_unlock();
-    if (worker != NULL) {
-        xTaskNotifyGive(worker);
+}
+
+esp_err_t solar_os_speech_worker_stop(const void *owner)
+{
+    if (!owner) return ESP_ERR_INVALID_ARG;
+    if (speech_ensure_mutex() != ESP_OK) return ESP_ERR_NO_MEM;
+    speech_lock();
+    if (owner != speech.worker) {
+        speech_unlock();
+        return ESP_ERR_NOT_FOUND;
     }
+    speech_worker_stop_locked();
+    speech_unlock();
+    (void)xSemaphoreGive(speech.wake);
+    return ESP_OK;
+}
+
+esp_err_t solar_os_speech_worker_detach(const void *owner)
+{
+    if (!owner) return ESP_ERR_INVALID_ARG;
+    if (speech_ensure_mutex() != ESP_OK) return ESP_ERR_NO_MEM;
+    speech_lock();
+    if (owner != speech.worker) {
+        speech_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    speech_worker_stop_locked();
+    if (speech.current_id) {
+        speech_store_result_locked(speech.current_id, SOLAR_OS_SPEECH_REQUEST_CANCELLED,
+            ESP_ERR_TIMEOUT, speech.current_progress_done, speech.current_progress_total);
+        speech.current_id = 0;
+    }
+    speech.current_state = SOLAR_OS_SPEECH_REQUEST_QUEUED;
+    speech.current_streaming = false;
+    speech.worker = NULL;
+    speech_unlock();
+    return ESP_OK;
 }
 
 esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
@@ -514,6 +534,10 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
 
     for (;;) {
         speech_lock();
+        if (!speech.running || speech.current_id) {
+            speech_unlock();
+            return ESP_ERR_INVALID_STATE;
+        }
         if (speech.queue_count > 0U) {
             const speech_queue_entry_t entry = speech.queue[0];
             for (size_t i = 1U; i < speech.queue_count; i++) {
@@ -539,16 +563,8 @@ esp_err_t solar_os_speech_worker_take(solar_os_speech_work_t *work,
             speech_unlock();
             return ESP_OK;
         }
-        const bool running = speech.running;
-        const TaskHandle_t worker = speech.worker;
         speech_unlock();
-        if (!running) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (worker != xTaskGetCurrentTaskHandle()) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (ulTaskNotifyTake(pdTRUE, wait) == 0U) {
+        if (xSemaphoreTake(speech.wake, wait) != pdTRUE) {
             return ESP_ERR_TIMEOUT;
         }
     }
@@ -589,12 +605,8 @@ esp_err_t solar_os_speech_worker_stream_take(uint32_t request_id,
             speech_unlock();
             return ESP_OK;
         }
-        const TaskHandle_t worker = speech.worker;
         speech_unlock();
-        if (worker != xTaskGetCurrentTaskHandle()) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (ulTaskNotifyTake(pdTRUE, wait) == 0U) {
+        if (xSemaphoreTake(speech.wake, wait) != pdTRUE) {
             return ESP_ERR_TIMEOUT;
         }
     }
@@ -682,4 +694,13 @@ const volatile bool *solar_os_speech_worker_cancel_flag(uint32_t request_id)
         return NULL;
     }
     return &speech.cancel_current;
+}
+
+bool solar_os_speech_worker_cancelled(uint32_t request_id)
+{
+    if (!request_id || speech_ensure_mutex() != ESP_OK) return false;
+    speech_lock();
+    const bool cancelled = speech.current_id == request_id && speech.cancel_current;
+    speech_unlock();
+    return cancelled;
 }

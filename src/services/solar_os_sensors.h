@@ -5,21 +5,12 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_sensors_abi.h"
 
 #define SOLAR_OS_SENSOR_NAME_MAX 20
 #define SOLAR_OS_SENSOR_DRIVER_MAX 24
 
-typedef uint32_t solar_os_sensor_capabilities_t;
-
-typedef enum {
-    SOLAR_OS_SENSOR_CAP_TEMPERATURE = 1U << 0,
-    SOLAR_OS_SENSOR_CAP_HUMIDITY = 1U << 1,
-} solar_os_sensor_capability_t;
-
-typedef struct {
-    float temperature_c;
-    float humidity_percent;
-} solar_os_environment_t;
+typedef solar_os_native_environment_v1_t solar_os_environment_t;
 
 typedef esp_err_t (*solar_os_sensors_provider_read_fn_t)(
     void *user,
@@ -44,16 +35,13 @@ typedef struct {
     void *ctx;
 } solar_os_sensors_registration_t;
 
-typedef struct {
-    char name[SOLAR_OS_SENSOR_NAME_MAX];
-    char driver[SOLAR_OS_SENSOR_DRIVER_MAX];
-    solar_os_sensor_capabilities_t capabilities;
-} solar_os_sensor_info_t;
+typedef solar_os_native_sensor_info_v1_t solar_os_sensor_info_t;
 
 esp_err_t solar_os_sensors_init(void);
 esp_err_t solar_os_sensors_register(
     const solar_os_sensors_registration_t *registration);
 esp_err_t solar_os_sensors_unregister(const char *name);
+esp_err_t solar_os_sensors_unregister_owned(const char *name, const void *context);
 size_t solar_os_sensors_count(void);
 bool solar_os_sensors_get(size_t index, solar_os_sensor_info_t *info);
 bool solar_os_sensors_has_provider(void);

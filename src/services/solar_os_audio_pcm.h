@@ -19,7 +19,8 @@ void solar_os_audio_s16_converter_reset(
 /*
  * Convert one complete signed 16-bit PCM source block. Call repeatedly with
  * the same source block until source_done is true when the output buffer is
- * smaller than the converted block.
+ * smaller than the converted block. Downsampling may consume a block with
+ * zero output samples.
  */
 esp_err_t solar_os_audio_s16_convert(
     solar_os_audio_s16_converter_t *converter,

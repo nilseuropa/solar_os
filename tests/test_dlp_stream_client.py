@@ -15,7 +15,8 @@ class DlpStreamClientTest(unittest.TestCase):
         core = state + "\n" + production_functions(source, (
             "result", "now_us", "connect_endpoint", "solar_os_display_link_open_transport",
             "solar_os_display_link_open_transport_with_options",
-            "solar_os_display_link_destroy", "solar_os_display_link_info",
+            "solar_os_display_link_destroy", "solar_os_display_link_close",
+            "solar_os_display_link_info", "solar_os_display_link_copy_info",
             "solar_os_display_link_format", "solar_os_display_link_present",
             "solar_os_display_link_present_with_options",
             "ensure_graphics", "solar_os_display_link_u8g2"))
@@ -41,7 +42,8 @@ class DlpStreamClientTest(unittest.TestCase):
             (path / "dlp_client_core.inc").write_text(core)
             binary = path / "test"
             subprocess.run(["cc", "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-DSOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT=1",
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + directory, "-I" + str(ROOT / "tests/host"),
                 "-I" + str(ROOT / "src/drivers"), "-I" + str(ROOT / "src/services"),
@@ -52,6 +54,8 @@ class DlpStreamClientTest(unittest.TestCase):
                 str(ROOT / "src/services/solar_os_dlp_receiver.c"),
                 str(ROOT / "src/services/solar_os_port.c"),
                 str(ROOT / "src/services/solar_os_stream.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
+                str(ROOT / "src/services/solar_os_native_display_link.c"),
                 str(ROOT / "protocol/display_link/src/sdlp.c"), "-o", str(binary)], check=True)
             # Measure optimized, uninstrumented frames separately: ASan adds
             # its own stack overhead. Discovery nests these frames below the

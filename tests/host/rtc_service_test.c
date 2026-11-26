@@ -11,6 +11,7 @@ static uint32_t last_countdown_seconds;
 static uint32_t last_cleared_interrupts;
 static bool last_countdown_repeat;
 static bool alarm_disabled;
+static bool initializing_rtc, fail_initialization, clock_busy;
 static bool countdown_disabled;
 static int user_token;
 
@@ -42,9 +43,16 @@ esp_err_t solar_os_time_unregister_provider(const char *owner)
     if (strcmp(registered_time_owner, owner) != 0) {
         return ESP_ERR_NOT_FOUND;
     }
+    if (clock_busy) return ESP_ERR_INVALID_STATE;
     registered_time_owner[0] = '\0';
     memset(&registered_time_provider, 0, sizeof(registered_time_provider));
     return ESP_OK;
+}
+
+esp_err_t solar_os_time_unregister_provider_owned(const char *owner, const void *user)
+{
+    if (user != registered_time_provider.user) return ESP_ERR_NOT_FOUND;
+    return solar_os_time_unregister_provider(owner);
 }
 
 static esp_err_t get_time(void *user, solar_os_datetime_t *datetime)
@@ -64,6 +72,7 @@ static esp_err_t set_time(void *user, const solar_os_datetime_t *datetime)
 static esp_err_t set_alarm(void *user, const solar_os_rtc_alarm_t *alarm)
 {
     assert(user == &user_token);
+    assert(solar_os_rtc_unregister_provider("rtc0") == ESP_ERR_INVALID_STATE);
     last_alarm = *alarm;
     alarm_disabled = false;
     return ESP_OK;
@@ -72,6 +81,10 @@ static esp_err_t set_alarm(void *user, const solar_os_rtc_alarm_t *alarm)
 static esp_err_t disable_alarm(void *user)
 {
     assert(user == &user_token);
+    if (initializing_rtc) {
+        assert(!solar_os_rtc_has_provider() && !registered_time_owner[0]);
+        if (fail_initialization) return ESP_FAIL;
+    }
     alarm_disabled = true;
     return ESP_OK;
 }
@@ -140,7 +153,13 @@ int main(void)
         .interrupt_gpio = 15,
         .interrupt_active_level = 0,
     };
+    initializing_rtc = true;
+    fail_initialization = true;
+    assert(solar_os_rtc_register_provider("rtc0", &waveshare) == ESP_FAIL);
+    assert(!solar_os_rtc_has_provider() && !registered_time_owner[0]);
+    fail_initialization = false;
     assert(solar_os_rtc_register_provider("rtc0", &waveshare) == ESP_OK);
+    initializing_rtc = false;
     assert(solar_os_rtc_get_info(&info) == ESP_OK);
     assert(strcmp(info.provider, "rtc0") == 0);
     assert(info.capabilities == (SOLAR_OS_RTC_CAP_CALENDAR |
@@ -188,6 +207,11 @@ int main(void)
         SOLAR_OS_RTC_INTERRUPT_ALARM | SOLAR_OS_RTC_INTERRUPT_COUNTDOWN) == ESP_OK);
     assert(last_cleared_interrupts == (SOLAR_OS_RTC_INTERRUPT_ALARM |
                                        SOLAR_OS_RTC_INTERRUPT_COUNTDOWN));
+    clock_busy = true;
+    assert(solar_os_rtc_unregister_provider("rtc0") == ESP_ERR_INVALID_STATE);
+    assert(solar_os_rtc_has_provider() && registered_time_owner[0]);
+    assert(solar_os_rtc_get_interrupt_status(&interrupts) == ESP_OK);
+    clock_busy = false;
     assert(solar_os_rtc_unregister_provider("rtc0") == ESP_OK);
     assert(!solar_os_rtc_has_provider());
 

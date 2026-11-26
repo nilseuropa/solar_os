@@ -18,7 +18,8 @@ class NativeStreamApiTest(unittest.TestCase):
     def test_native_values_and_frame_lifetime_with_the_real_stream_registry(self):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / 'native'
-            self.compile('native_stream_api_test.c', ['solar_os_stream.c', 'solar_os_native_handles.c', 'solar_os_native_stream.c'], binary)
+            self.compile('native_stream_api_test.c', ['solar_os_stream.c', 'solar_os_native_handles.c',
+                'solar_os_native_stream.c', 'solar_os_native_stream_provider.c'], binary)
             subprocess.run([str(binary)], check=True, timeout=20)
 
     def test_existing_registry_behavior_and_typed_open(self):
@@ -31,5 +32,5 @@ class NativeStreamApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp) / 'port-stream'
             self.compile('native_port_stream_test.c', ['solar_os_stream.c', 'solar_os_port.c',
-                'solar_os_native_handles.c', 'solar_os_native_stream.c'], binary)
+                'solar_os_native_handles.c', 'solar_os_native_stream.c', 'solar_os_native_stream_provider.c'], binary)
             subprocess.run([str(binary)], check=True, timeout=20)

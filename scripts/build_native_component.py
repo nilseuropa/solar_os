@@ -113,7 +113,7 @@ def load_spec(manifest):
 def sdk_headers():
     headers = {}
     for pattern in ('solar_os_native*abi.h', 'solar_os_native_client*.h', 'solar_os_*_types_v1.h',
-                    'solar_os_key_codes.h'):
+                    'solar_os_key_codes.h', 'solar_os_robot*.h'):
         headers.update((path.name, path) for path in (ROOT / 'include').glob(pattern))
     return headers
 

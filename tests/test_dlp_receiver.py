@@ -24,6 +24,7 @@ class DlpReceiverTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I" + directory, "-I" + str(ROOT / "src/services"),
                 "-I" + str(ROOT / "protocol/display_link/include"),
+                "-I", str(ROOT / "include"),
                 str(ROOT / "tests/host/dlp_presentation_stats_test.c"),
                 str(ROOT / "src/services/solar_os_dlp_raster.c"),
                 str(ROOT / "protocol/display_link/src/sdlp.c"), "-o", str(binary),

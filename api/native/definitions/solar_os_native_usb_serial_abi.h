@@ -1,0 +1,33 @@
+#pragma once
+
+#include "solar_os_native_ports_abi.h"
+
+#define SOLAR_OS_NATIVE_USB_SERIAL_SERVICE "usb.serial"
+#define SOLAR_OS_NATIVE_USB_SERIAL_ABI 1U
+
+typedef enum {
+    SOLAR_OS_USB_SERIAL_ACM,
+    SOLAR_OS_USB_SERIAL_JTAG,
+    SOLAR_OS_USB_SERIAL_CP210X,
+    SOLAR_OS_USB_SERIAL_CH34X,
+} solar_os_usb_serial_kind_t;
+
+typedef struct {
+    char port[16];
+    uint16_t vendor_id, product_id;
+    uint8_t address, interface;
+    solar_os_usb_serial_kind_t kind;
+    solar_os_native_serial_config_v1_t config;
+    bool connected;
+    uint32_t received, transmitted, dropped;
+    int32_t last_error;
+} solar_os_native_usb_serial_info_v1_t;
+
+/* Use io.ports to claim and configure a discovered serial port. Snapshot
+ * includes the count beyond capacity. Use zero capacity for count only.
+ * The optional last_error receives the latest discovery/host error. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*snapshot)(solar_os_native_usb_serial_info_v1_t *ports, size_t capacity,
+        size_t *total, int *last_error);
+} solar_os_native_usb_serial_api_v1_t;

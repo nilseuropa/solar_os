@@ -70,6 +70,7 @@ static void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *
 static void restore_foreground_context(void) { restored++; }
 static void solar_os_sessions_process_requests(void) { requests++; }
 static void resume_legacy(void *ctx) { assert(ctx == &legacy && restored); legacy++; }
+static void solar_os_app_resume(const app_t *app, void *ctx) { app->resume(ctx); }
 ''' + function("src/services/solar_os_sessions.c", "solar_os_sessions_dispatch_resume") + r'''
 int main(void) {
     int terminal[3] = {0};

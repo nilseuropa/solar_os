@@ -12,7 +12,9 @@ class ControllerBindingsTest(unittest.TestCase):
     def run_bindings(self, runtime):
         lua_dir = ROOT / "components/lua/lua/src"
         sources = [ROOT / "src/services" / name for name in (
-            "solar_os_controllers.c", "solar_os_controller_math.c", "solar_os_controller_tuning.c", "solar_os_parameters.c", "solar_os_stream.c", "solar_os_motor.c", "solar_os_encoder.c")]
+            "solar_os_controllers.c", "solar_os_controller_math.c", "solar_os_controller_tuning.c",
+            "solar_os_native_controllers.c", "solar_os_parameters.c", "solar_os_stream.c",
+            "solar_os_motor.c", "solar_os_encoder.c")]
         if runtime == "lua":
             sources += [p for p in lua_dir.glob("*.c") if p.name not in {"lua.c", "luac.c"}]
         with tempfile.TemporaryDirectory() as directory:

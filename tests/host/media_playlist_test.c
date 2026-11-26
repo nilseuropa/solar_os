@@ -1,4 +1,10 @@
 #include "media_storage_fixture.h"
+#include "solar_os.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_m3u.h"
+
+static const solar_os_app_t app;
+const solar_os_app_t *solar_os_application_descriptor(void) { return &app; }
 
 static void parsing_and_rollback(void)
 {
@@ -53,10 +59,15 @@ static void legacy_player(void)
     char path[160]; snprintf(path, sizeof(path), "%s/.player/playlist.m3u", root); assert(!unlink(path));
     snprintf(path, sizeof(path), "%s/.player/playlist.bin", root);
     FILE *file = fopen(path, "wb"); assert(file);
-    player_playlist_store_t store = {.magic = 0x50534f53U, .version = 1, .count = 1, .generation = 42};
+    const struct { uint32_t magic; uint16_t version, count; uint32_t generation; } store = {
+        .magic = 0x50534f53U, .version = 1, .count = 1, .generation = 42,
+    };
     char track[SOLAR_OS_STORAGE_PATH_MAX] = {0}; snprintf(track, sizeof(track), "%s/legacy.mp3", root);
     assert(fwrite(&store, sizeof(store), 1, file) == 1);
     assert(fwrite(track, sizeof(track), 1, file) == 1); assert(!fclose(file));
+    solar_os_media_playlist_t other;
+    assert(solar_os_media_playlist_open(&other, SOLAR_OS_MEDIA_PLAYLIST_AUDIO, NULL, NULL) == ESP_OK);
+    assert(other.count == 1 && !strcmp(other.entries[0].path, track));
     assert(solar_os_player_playlist_init() == ESP_OK);
     solar_os_player_track_t loaded;
     assert(solar_os_player_playlist_count() == 1 && solar_os_player_playlist_get(0, &loaded));
@@ -68,6 +79,13 @@ static void legacy_player(void)
     fail_save = false;
     assert(solar_os_player_playlist_add(text_fixture("#EXTINF:4,Imported\nnew.wav\n"), NULL) == ESP_OK);
     assert(solar_os_player_playlist_get(0, &loaded) && !strcmp(loaded.title, "Imported"));
+    assert(solar_os_media_playlist_remove(&other, 0) == ESP_ERR_INVALID_STATE);
+    assert(other.count == 1 && !strcmp(other.entries[0].path, track));
+    assert(solar_os_media_playlist_refresh(&other) == ESP_OK);
+    assert(other.count == 1 && !strcmp(other.entries[0].title, "Imported"));
+    assert(solar_os_media_playlist_remove(&other, 0) == ESP_OK);
+    assert(solar_os_player_playlist_init() == ESP_OK && solar_os_player_playlist_count() == 0);
+    solar_os_media_playlist_close(&other);
     solar_os_media_playlist_close(&playlist);
 }
 
@@ -108,10 +126,42 @@ static void video_and_rtsp(void)
     solar_os_media_playlist_close(&list); mounted = true;
 }
 
+static void native_playlist(void)
+{
+    const solar_os_native_playlist_api_v1_t *api = solar_os_native_m3u_get_service(
+        SOLAR_OS_NATIVE_PLAYLIST_SERVICE, 1, sizeof(*api));
+    assert(api && api->abi_version == 1 && api->struct_size == sizeof(*api));
+    solar_os_native_handle_t handle = 1, other;
+    assert(api->open((solar_os_media_playlist_kind_t)-1, NULL, &handle, NULL) ==
+        SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !handle && !solar_os_native_handle_count());
+    assert(!api->open(SOLAR_OS_MEDIA_PLAYLIST_VIDEO, text_fixture("a.mpg\nb.mpg\n"), &handle, NULL));
+    assert(!api->open(SOLAR_OS_MEDIA_PLAYLIST_VIDEO, NULL, &other, NULL));
+    size_t count;
+    uint32_t revision, updated;
+    assert(!api->info(other, &count, &revision) && count == 2);
+    assert(!api->remove(handle, 0));
+    assert(api->remove(other, 0) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->refresh(other));
+    assert(!api->info(other, &count, &updated) && count == 1 && updated != revision);
+    solar_os_m3u_entry_t entry;
+    assert(!api->get(other, 0, &entry) && strstr(entry.path, "/b.mpg"));
+    strlcpy(entry.title, "Updated title", sizeof(entry.title));
+    assert(!api->set(other, 0, &entry));
+    assert(!api->add(other, "c.mpeg", NULL));
+    assert(!api->import_m3u(other, text_fixture("#EXTINF:3,Replacement\nc.mpeg\n")));
+    assert(!api->info(other, &count, NULL) && count == 1);
+    assert(!api->get(other, 0, &entry) && !strcmp(entry.title, "Replacement"));
+    assert(!api->close(other));
+    assert(api->get(other, 0, &entry) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(solar_os_native_handle_count() == 1);
+    assert(!solar_os_native_handle_close_owner(&app) && !solar_os_native_handle_count());
+    assert(api->refresh(handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+}
+
 int main(void)
 {
     assert(mkdtemp(root));
-    parsing_and_rollback(); legacy_player(); video_and_rtsp();
+    parsing_and_rollback(); legacy_player(); video_and_rtsp(); native_playlist();
     const char *files[] = {"input.m3u", ".player/playlist.m3u", ".player/playlist.bin",
         ".vplay/playlist.m3u", ".rtsp/playlist.m3u"};
     char path[160];

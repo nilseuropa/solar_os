@@ -4,16 +4,35 @@
 #include <string.h>
 #include <freertos/semphr.h>
 
-static SemaphoreHandle_t xSemaphoreCreateMutex(void)
-{
-    static StaticSemaphore_t mutexes[8];
-    static unsigned count;
-    assert(count < 8);
-    return xSemaphoreCreateMutexStatic(&mutexes[count++]);
-}
-
 #include "../../src/services/solar_os_radio.c"
 #include "../../src/services/solar_os_radio_scan.c"
+#include "solar_os.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_radio.h"
+#include "solar_os_native_radio_provider_abi.h"
+
+
+static const solar_os_app_t radio_app = {.name = "radio-test"};
+static const solar_os_app_t *active_app;
+
+const solar_os_app_t *solar_os_application_descriptor(void) { return active_app; }
+
+static unsigned retained_provider_leases;
+
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained)
+{
+    if (lease != 14) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    retained_provider_leases++;
+    *retained = 15;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(uint32_t retained)
+{
+    assert(retained == 15 && retained_provider_leases);
+    retained_provider_leases--;
+    return SOLAR_OS_NATIVE_OK;
+}
 
 static const char *settings_dir;
 static unsigned configure_calls;
@@ -21,6 +40,8 @@ static TickType_t ticks;
 static solar_os_radio_status_t fake_status;
 static unsigned fail_configure;
 static bool fail_sample;
+static bool test_callback_lifetime;
+static unsigned stream_writes;
 static unsigned samples;
 static unsigned retunes;
 static int64_t timer_offset_us;
@@ -50,20 +71,32 @@ esp_err_t nvs_erase_key(nvs_handle_t h, const char *key)
 { (void)h; (void)key; return ESP_OK; }
 esp_err_t nvs_commit(nvs_handle_t h) { (void)h; return ESP_OK; }
 void nvs_close(nvs_handle_t h) { (void)h; }
+static void check_registration_busy(void)
+{
+    if (!test_callback_lifetime) return;
+    assert(solar_os_radio_unregister("radio0") == ESP_ERR_INVALID_STATE);
+}
+
 static esp_err_t configure(void *ctx, const solar_os_radio_config_t *config)
 {
     (void)ctx; configure_calls++;
+    check_registration_busy();
+    if (test_callback_lifetime) {
+        solar_os_radio_handle_t busy = SOLAR_OS_RADIO_HANDLE_INIT;
+        assert(solar_os_radio_claim("radio0", "contender", &busy) == ESP_ERR_INVALID_STATE);
+    }
     if (fail_configure && --fail_configure == 0) return ESP_FAIL;
     fake_status.config = *config; fake_status.state = SOLAR_OS_RADIO_STATE_STANDBY;
     return ESP_OK;
 }
 static esp_err_t status(void *ctx, solar_os_radio_status_t *out)
-{ (void)ctx; *out = fake_status; return ESP_OK; }
+{ (void)ctx; check_registration_busy(); *out = fake_status; return ESP_OK; }
 static esp_err_t set_state(void *ctx, solar_os_radio_state_t state)
 { (void)ctx; fake_status.state = state; return ESP_OK; }
 static esp_err_t read_rssi(void *ctx, int16_t *dbm)
 {
     (void)ctx;
+    check_registration_busy();
     if (fail_sample) return ESP_FAIL;
     if (fake_status.state != SOLAR_OS_RADIO_STATE_RX) return ESP_ERR_INVALID_STATE;
     *dbm = -105 + (samples++ % 10); return ESP_OK;
@@ -76,6 +109,52 @@ static esp_err_t tune_rx(void *ctx, uint32_t frequency, uint32_t *settle_ms)
     fake_status.state = SOLAR_OS_RADIO_STATE_RX;
     *settle_ms = 2;
     return ESP_OK;
+}
+
+static esp_err_t send_stream(void *ctx, const uint8_t *data, size_t len, uint32_t timeout)
+{
+    (void)ctx;
+    check_registration_busy();
+    assert(len == 2 && data[0] == 1 && data[1] == 2 && timeout == 50);
+    stream_writes++;
+    return ESP_OK;
+}
+
+static esp_err_t send_packet(void *ctx, const solar_os_radio_packet_t *packet, uint32_t timeout)
+{
+    (void)ctx;
+    check_registration_busy();
+    assert(packet->len == 2 && packet->data[0] == 1 && packet->data[1] == 2 && timeout == 50);
+    return ESP_OK;
+}
+
+static esp_err_t receive_packet(void *ctx, solar_os_radio_packet_t *packet, uint32_t timeout)
+{
+    (void)ctx;
+    check_registration_busy();
+    assert(timeout == 50 && !packet->len);
+    *packet = (solar_os_radio_packet_t){.len = 2, .data = {3, 4}, .has_source = true, .source = 42, .crc_ok = true};
+    return ESP_OK;
+}
+
+static void test_radio_operations(const solar_os_radio_config_t *config)
+{
+    test_callback_lifetime = true;
+    assert(solar_os_radio_configure("radio0", config) == ESP_OK);
+    solar_os_radio_status_t radio_status;
+    assert(solar_os_radio_get_status("radio0", &radio_status) == ESP_OK);
+    const uint8_t data[] = {1, 2};
+    assert(solar_os_radio_send_stream("radio0", data, sizeof(data), 50) == ESP_OK);
+
+    solar_os_radio_handle_t owner = SOLAR_OS_RADIO_HANDLE_INIT;
+    assert(solar_os_radio_claim("radio0", "streaming", &owner) == ESP_OK);
+    assert(solar_os_radio_send_stream("radio0", data, sizeof(data), 50) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_radio_handle_send_stream(&owner, data, sizeof(data), 50) == ESP_OK);
+    assert(solar_os_radio_handle_get_status(&owner, &radio_status) == ESP_OK && stream_writes == 2);
+    assert(solar_os_radio_release(&owner) == ESP_OK);
+    assert(solar_os_radio_handle_send_stream(&owner, data, sizeof(data), 50) == ESP_ERR_INVALID_ARG);
+    test_callback_lifetime = false;
+    puts("radio operations: registration pinning and continuous TX ownership passed");
 }
 
 static void test_scanner(void)
@@ -185,6 +264,129 @@ static void test_scanner(void)
     puts("radio scan: shared observation, settling, sweeps, ownership and failure restoration: ok");
 }
 
+static void test_native_radio(void)
+{
+    const solar_os_native_radio_api_v1_t *api = solar_os_native_radio_get_service("radio", 1, sizeof(*api));
+    assert(api && api->count() == 3);
+    assert(!solar_os_native_radio_get_service("radio", 1, sizeof(*api) + 1));
+    solar_os_radio_info_t info;
+    assert(api->info(0, &info) == SOLAR_OS_NATIVE_OK && !strcmp(info.name, "radio0"));
+    assert(api->find("fast-radio", &info) == SOLAR_OS_NATIVE_OK);
+    assert((info.features & SOLAR_OS_RADIO_FEATURE_FAST_TUNE) && !info.claimed);
+    active_app = &radio_app;
+    solar_os_native_handle_t handle = 0, another = 0;
+    assert(api->open("fast-radio", "radio-test", &handle) == SOLAR_OS_NATIVE_OK && handle);
+    assert(api->open("fast-radio", "contender", &another) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !another);
+    active_app = NULL;
+    assert(api->valid(handle));
+    assert(api->find("fast-radio", &info) == SOLAR_OS_NATIVE_OK && info.claimed && !strcmp(info.owner, "radio-test"));
+    uint32_t settle_ms;
+    assert(api->tune_rx(handle, 868100000, &settle_ms) == SOLAR_OS_NATIVE_OK && settle_ms == 2);
+    solar_os_radio_status_t value;
+    assert(api->observe("fast-radio", &value) == SOLAR_OS_NATIVE_OK);
+    assert(value.config.frequency_hz == 868100000 && value.state == SOLAR_OS_RADIO_STATE_RX);
+    int16_t dbm;
+    assert(api->read_rssi("fast-radio", &dbm) == SOLAR_OS_NATIVE_OK && dbm < 0);
+    assert(api->status(handle, &value) == SOLAR_OS_NATIVE_OK);
+    solar_os_radio_packet_t packet = {.len = 2, .data = {1, 2}};
+    assert(api->send(handle, &packet, 50) == SOLAR_OS_NATIVE_OK);
+    assert(api->receive(handle, &packet, 50) == SOLAR_OS_NATIVE_OK);
+    assert(packet.len == 2 && packet.data[0] == 3 && packet.has_source && packet.source == 42);
+    packet.len = SOLAR_OS_RADIO_PACKET_MAX + 1;
+    assert(api->send(handle, &packet, 50) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+
+    assert(api->profile_save("fast-radio", "native") == SOLAR_OS_NATIVE_OK);
+    solar_os_radio_profile_t profile;
+    assert(api->profile_get("native", &profile) == SOLAR_OS_NATIVE_OK && !profile.builtin);
+    assert(api->profile_apply(handle, "native") == SOLAR_OS_NATIVE_OK);
+    assert(api->profile_remove("native") == SOLAR_OS_NATIVE_OK);
+    assert(solar_os_native_handle_close_owner(&radio_app) == SOLAR_OS_NATIVE_OK);
+    assert(!api->valid(handle) && api->close(handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!solar_os_native_handle_count());
+    assert(api->find("fast-radio", &info) == SOLAR_OS_NATIVE_OK && !info.claimed);
+    puts("Radio ABI: observation, owned leases, tuning, packets and saved profiles passed");
+}
+
+typedef struct {
+    const solar_os_native_radio_provider_api_v1_t *api;
+    solar_os_native_handle_t registration;
+    solar_os_radio_status_t status;
+} radio_provider_fixture_t;
+
+static int provider_status(void *user, solar_os_radio_status_t *out)
+{
+    radio_provider_fixture_t *fixture = user;
+    assert(retained_provider_leases == 1);
+    assert(fixture->api->provider_close(fixture->registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    *out = fixture->status;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int provider_configure(void *user, const solar_os_radio_config_t *config)
+{
+    radio_provider_fixture_t *fixture = user;
+    fixture->status.config = *config;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void test_radio_provider(void)
+{
+    const solar_os_native_radio_provider_api_v1_t *providers = solar_os_native_radio_get_service(
+        SOLAR_OS_NATIVE_RADIO_PROVIDER_SERVICE, SOLAR_OS_NATIVE_RADIO_PROVIDER_ABI, sizeof(*providers));
+    const solar_os_native_radio_api_v1_t *radio = solar_os_native_radio_get_service("radio", 1, sizeof(*radio));
+    assert(providers && radio);
+    radio_provider_fixture_t fixture = {.api = providers,
+        .status = {.state = SOLAR_OS_RADIO_STATE_STANDBY,
+            .config = {.frequency_hz = 868100000, .modulation = SOLAR_OS_RADIO_MODULATION_LORA}}};
+    char summary[] = "Leased radio provider";
+    solar_os_native_radio_provider_v1_t provider = {
+        .library_lease = 14,
+        .name = "module-radio", .driver = "module", .summary = summary,
+        .modulations = SOLAR_OS_RADIO_MODULATION_LORA, .features = SOLAR_OS_RADIO_FEATURE_LIVE_RSSI,
+        .max_packet_len = 64, .default_config = fixture.status.config, .initial_state = fixture.status.state,
+        .callbacks = {.user = &fixture, .get_status = provider_status, .configure = provider_configure},
+    };
+    assert(providers->provider_register(&provider, &fixture.registration) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!retained_provider_leases && !fixture.registration);
+    provider.features = 0;
+    assert(providers->provider_register(&provider, &fixture.registration) == SOLAR_OS_NATIVE_OK);
+    assert(retained_provider_leases == 1);
+    summary[0] = 'X';
+    solar_os_radio_info_t info;
+    assert(radio->find("module-radio", &info) == SOLAR_OS_NATIVE_OK);
+    assert(!strcmp(info.summary, "Leased radio provider"));
+    solar_os_radio_status_t observed;
+    assert(radio->observe("module-radio", &observed) == SOLAR_OS_NATIVE_OK);
+    assert(observed.config.frequency_hz == fixture.status.config.frequency_hz);
+
+    solar_os_native_handle_t claim;
+    assert(radio->open("module-radio", "guest", &claim) == SOLAR_OS_NATIVE_OK);
+    assert(providers->provider_close(fixture.registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(retained_provider_leases == 1);
+    solar_os_radio_config_t changed = observed.config;
+    changed.frequency_hz += 100000;
+    assert(radio->configure(claim, &changed) == SOLAR_OS_NATIVE_OK);
+    assert(fixture.status.config.frequency_hz == changed.frequency_hz);
+    assert(radio->close(claim) == SOLAR_OS_NATIVE_OK);
+    assert(providers->provider_close(fixture.registration) == SOLAR_OS_NATIVE_OK);
+    assert(!retained_provider_leases && !solar_os_native_handle_count());
+    assert(radio->find("module-radio", &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+
+    assert(providers->provider_register(&provider, &fixture.registration) == SOLAR_OS_NATIVE_OK);
+    assert(solar_os_radio_unregister("module-radio") == ESP_OK);
+    const solar_os_radio_registration_t replacement = {
+        .name = "module-radio", .driver = "replacement",
+        .modulations = SOLAR_OS_RADIO_MODULATION_LORA, .max_packet_len = 64, .default_config = changed,
+    };
+    assert(solar_os_radio_register(&replacement) == ESP_OK);
+    assert(providers->provider_close(fixture.registration) == SOLAR_OS_NATIVE_OK);
+    assert(!retained_provider_leases && !solar_os_native_handle_count());
+    assert(radio->find("module-radio", &info) == SOLAR_OS_NATIVE_OK);
+    assert(!strcmp(info.driver, "replacement"));
+    assert(solar_os_radio_unregister("module-radio") == ESP_OK);
+    puts("Radio provider ABI: callback lease, active claims, copied metadata and ownership passed");
+}
+
 int main(int argc, char **argv)
 {
     assert(argc == 2); settings_dir = argv[1];
@@ -192,12 +394,16 @@ int main(int argc, char **argv)
         .modulation = SOLAR_OS_RADIO_MODULATION_LORA};
     fake_status.config = config;
     const solar_os_radio_ops_t ops = {.configure = configure, .get_status = status,
-        .set_state = set_state, .read_rssi = read_rssi};
+        .set_state = set_state, .read_rssi = read_rssi, .send_stream = send_stream,
+        .send = send_packet, .receive = receive_packet};
     solar_os_radio_registration_t registration = {.name = "radio0", .driver = "future-radio", .max_packet_len = 255,
         .modulations = SOLAR_OS_RADIO_MODULATION_LORA, .default_config = config,
-        .features = SOLAR_OS_RADIO_FEATURE_RX_GAIN | SOLAR_OS_RADIO_FEATURE_LIVE_RSSI,
+        .features = SOLAR_OS_RADIO_FEATURE_RX_GAIN | SOLAR_OS_RADIO_FEATURE_LIVE_RSSI |
+                    SOLAR_OS_RADIO_FEATURE_CONTINUOUS_TX,
         .rx_gain_modes = SOLAR_OS_RADIO_RX_GAIN_BOOST_MODES, .ops = &ops};
     assert(solar_os_radio_register(&registration) == ESP_OK);
+    test_radio_operations(&config);
+    configure_calls = 0;
     solar_os_radio_info_t info;
     assert(solar_os_radio_get_info("radio0", &info) == ESP_OK);
     assert(info.rx_gain_modes == SOLAR_OS_RADIO_RX_GAIN_BOOST_MODES);
@@ -317,6 +523,8 @@ int main(int argc, char **argv)
     assert(fast.sweeps == 1 && fast.last_sweep_ms > 0);
     assert(configure_calls == configured + 1 && retunes == 5);
     assert(solar_os_radio_scan_stop(&fast) == ESP_OK && configure_calls == configured + 2);
+    test_native_radio();
+    test_radio_provider();
     puts("radio RX gain and low-data-rate settings, ownership, profiles and v1/v2 migration: ok");
     return 0;
 }

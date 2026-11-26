@@ -3,7 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include "solar_os.h"
 #include "solar_os_media_sample_source.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_media.h"
 #include "solar_os_script_media.h"
 #include "solar_os_pipeline.h"
 #include "solar_os_memory.h"
@@ -18,6 +21,17 @@ void *solar_os_memory_alloc(size_t n,solar_os_memory_class_t kind,const char *ta
 void *solar_os_memory_calloc(size_t n,size_t s,solar_os_memory_class_t kind,const char *tag)
 { void *p=solar_os_memory_alloc(n*s,kind,tag);if(p)memset(p,0,n*s);return p; }
 void solar_os_memory_free(void *p) { if(p){assert(allocations>0);allocations--;free(p);} }
+void *solar_os_memory_realloc(void *p, size_t size, solar_os_memory_class_t kind, const char *tag)
+{ return p ? realloc(p, size) : solar_os_memory_alloc(size, kind, tag); }
+bool solar_os_memory_is_external(const void *p) { return p != NULL; }
+void solar_os_memory_get_status(solar_os_memory_status_t *out) { *out = (solar_os_memory_status_t){0}; }
+solar_os_memory_buffer_t *solar_os_memory_buffer_create(size_t size, const char *owner)
+{ (void)size; (void)owner; return NULL; }
+void *solar_os_memory_buffer_pin(solar_os_memory_buffer_t *buffer) { (void)buffer; return NULL; }
+bool solar_os_memory_buffer_unpin(solar_os_memory_buffer_t *buffer) { (void)buffer; return false; }
+bool solar_os_memory_buffer_destroy(solar_os_memory_buffer_t *buffer) { (void)buffer; return false; }
+static const solar_os_app_t owner = {.name = "media-test"};
+const solar_os_app_t *solar_os_application_descriptor(void) { return &owner; }
 int64_t esp_timer_get_time(void) { return clock_us+=10000; }
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 static bool cancel(void *user) { assert(!user);return cancel_now; }
@@ -45,6 +59,69 @@ esp_err_t solar_os_script_media_rtsp_status(solar_os_script_media_t *m,uint32_t 
 esp_err_t solar_os_pipeline_result_sample(uint32_t id,uint64_t after,char **json,solar_os_media_sample_t **out)
 { assert(id==1 && !after && !json);*out=NULL;return no_result?ESP_OK:solar_os_media_sample_copy_image(jpeg,sizeof(jpeg),NULL,out); }
 #endif
+
+typedef struct {
+    const solar_os_native_media_sample_api_v1_t *api;
+    solar_os_native_handle_t handle;
+    const uint8_t *data;
+    size_t size;
+    const char *source, *encoding;
+    uint32_t kind, width;
+} expected_sample_t;
+
+static int check_sample(const solar_os_native_media_sample_view_v1_t *view, void *user)
+{
+    const expected_sample_t *expected = user;
+    assert(view->kind == expected->kind && view->metadata.width == expected->width);
+    assert(view->length == expected->size && !memcmp(view->data, expected->data, expected->size));
+    assert(!strcmp(view->encoding, expected->encoding) && !strcmp(view->metadata.source, expected->source));
+    assert(expected->api->close(expected->handle) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void test_native_samples(const char *path, const solar_os_media_sample_source_options_t *options)
+{
+    const solar_os_native_media_sample_api_v1_t *api = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_MEDIA_SAMPLE_SERVICE, SOLAR_OS_NATIVE_MEDIA_SAMPLE_ABI, sizeof(*api));
+    assert(api);
+    solar_os_native_handle_t id = 0;
+    assert(!api->open(SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE, path, sizeof(jpeg), cancel, NULL, &id));
+    expected_sample_t expected = {.api = api, .handle = id, .data = jpeg, .size = sizeof(jpeg),
+        .source = path, .encoding = "image/jpeg", .kind = SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE};
+    assert(!api->visit(id, check_sample, &expected));
+    solar_os_native_handle_t copy = 0;
+    assert(!api->retain(id, &copy) && copy != id && allocations == 1);
+    assert(!api->close(id));
+    assert(api->visit(id, check_sample, &expected) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    expected.handle = copy;
+    assert(!api->visit(copy, check_sample, &expected));
+    assert(!api->close(copy) && !allocations);
+    assert(api->open(SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE, path, 1, NULL, NULL, &id) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    cancel_now = true;
+    assert(api->open(SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE, path, sizeof(jpeg), cancel, NULL, &id) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    cancel_now = false;
+
+    char source[] = "copied";
+    uint8_t wav[] = "RIFF\0\0\0\0WAVE";
+    const uint8_t expected_wav[] = "RIFF\0\0\0\0WAVE";
+    const solar_os_media_sample_metadata_t metadata = {.source = source};
+    assert(!api->copy(SOLAR_OS_NATIVE_MEDIA_SAMPLE_AUDIO, wav, sizeof(wav), &metadata, &id));
+    wav[0] = 0;
+    source[0] = 0;
+    expected = (expected_sample_t){.api = api, .handle = id, .data = expected_wav, .size = sizeof(expected_wav),
+        .source = "copied", .encoding = "wav", .kind = SOLAR_OS_NATIVE_MEDIA_SAMPLE_AUDIO};
+    assert(!api->visit(id, check_sample, &expected));
+    assert(!solar_os_native_handle_close_owner(&owner) && !allocations);
+    assert(api->close(id) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+
+    stop_failures = 1;
+    assert(!api->read_source("stream:camera0", options, &id) && !leased && !active);
+    expected = (expected_sample_t){.api = api, .handle = id, .data = jpeg, .size = sizeof(jpeg),
+        .source = "stream:camera0", .encoding = "image/jpeg", .kind = SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE, .width = 640};
+    assert(!api->visit(id, check_sample, &expected));
+    assert(!api->close(id));
+}
+
 int main(void)
 {
     (void)timeout_source; (void)no_result; (void)cancel_after_read;
@@ -52,6 +129,7 @@ int main(void)
     solar_os_media_sample_t *sample=NULL;
     char path[128];snprintf(path,sizeof(path),"/tmp/solaros-source-%ld.jpg",(long)getpid());
     FILE *file=fopen(path,"wb");assert(file && fwrite(jpeg,1,sizeof(jpeg),file)==sizeof(jpeg));fclose(file);
+    test_native_samples(path, &options);
     assert(!solar_os_media_sample_source_read(path,&options,&sample));
     assert(!memcmp(solar_os_media_sample_image(sample)->data,jpeg,sizeof(jpeg)));solar_os_media_sample_release(sample);
     options.max_bytes=1;assert(solar_os_media_sample_source_read(path,&options,&sample)==ESP_ERR_INVALID_SIZE && !sample && !allocations);

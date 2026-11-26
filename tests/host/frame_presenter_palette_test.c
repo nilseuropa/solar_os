@@ -5,7 +5,8 @@
 #include "solar_os_frame_presenter.h"
 
 struct solar_os_frame_presenter {
-    solar_os_frame_presenter_config_t config;
+    solar_os_gfx_t *gfx;
+    solar_os_frame_presenter_options_v1_t config;
     uint8_t *presenting, *mono;
     size_t source_size, mono_size;
     uint16_t output_x, output_y, output_width, output_height, output_stride;
@@ -104,7 +105,8 @@ static void compare_rgb565_conversion(void)
         memset(pixels, 0xda, stride * sh);
         memset(guard, 0xa5, bytes + 16);
         solar_os_frame_presenter_t p = {
-            .config = {.gfx = (solar_os_gfx_t *)&captured,
+            .gfx = (solar_os_gfx_t *)&captured,
+            .config = {
                 .format = SOLAR_OS_DISPLAY_FORMAT_RGB565, .width = sw, .height = sh,
                 .stride = stride, .literal_mono_palette = true},
             .presenting = pixels, .mono = guard + 8, .mono_size = bytes,
@@ -171,7 +173,8 @@ int main(void)
             for (unsigned reverse = 0; reverse < 2; reverse++) {
                 inverted = polarity;
                 solar_os_frame_presenter_t p = {
-                    .config = {.gfx = (solar_os_gfx_t *)&captured,
+                    .gfx = (solar_os_gfx_t *)&captured,
+                    .config = {
                         .format = SOLAR_OS_DISPLAY_FORMAT_RGB565, .width = 2,
                         .height = 2, .stride = 4, .literal_direct_palette = literal,
                         .reverse_direct_palette = reverse, .background_rgb565 = 0x1234},
@@ -190,7 +193,8 @@ int main(void)
     for (unsigned format = SOLAR_OS_DISPLAY_FORMAT_INDEX8;
          format <= SOLAR_OS_DISPLAY_FORMAT_INDEX2; ++format) {
         solar_os_frame_presenter_t p = {
-            .config = {.gfx = (solar_os_gfx_t *)&captured, .format = format,
+            .gfx = (solar_os_gfx_t *)&captured,
+            .config = {.format = format,
                 .width = 8, .height = 4, .stride = format == SOLAR_OS_DISPLAY_FORMAT_INDEX8 ? 8 : 2,
                 .palette_rgb565 = palette, .palette_size = 256, .background_index = 33},
             .presenting = pixels, .mono = mono, .source_size = sizeof(pixels), .mono_size = sizeof(mono),
@@ -229,7 +233,8 @@ int main(void)
     uint8_t eyes[8];
     memset(eyes, 0xcc, sizeof(eyes));
     solar_os_frame_presenter_t face = {
-        .config = {.gfx = (solar_os_gfx_t *)&captured, .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
+        .gfx = (solar_os_gfx_t *)&captured,
+        .config = {.format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
             .width = 8, .height = 4, .stride = 2, .palette_rgb565 = eye_palette, .palette_size = 4,
             .literal_mono_palette = true},
         .presenting = eyes, .mono = mono, .source_size = sizeof(eyes), .mono_size = sizeof(mono),

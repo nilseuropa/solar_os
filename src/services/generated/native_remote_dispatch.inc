@@ -5,8 +5,13 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(ssh_api), const solar_os_
 if (name && !strcmp(name, "ssh") && abi == 1U &&
     minimum <= sizeof(ssh_api)) return &ssh_api;
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_SFTP
+#if SOLAR_OS_PACKAGE_SERVICE_REMOTE_FILES
 _Static_assert(__builtin_types_compatible_p(__typeof__(sftp_api), const solar_os_native_sftp_api_v1_t), "native service table type");
 if (name && !strcmp(name, "sftp") && abi == 1U &&
     minimum <= sizeof(sftp_api)) return &sftp_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_REMOTE_FILES
+_Static_assert(__builtin_types_compatible_p(__typeof__(files_api), const solar_os_native_remote_files_api_v1_t), "native service table type");
+if (name && !strcmp(name, "remote.files") && abi == 1U &&
+    minimum <= sizeof(files_api)) return &files_api;
 #endif

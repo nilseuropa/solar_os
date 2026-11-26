@@ -70,6 +70,7 @@ static size_t inbox_bytes;
 static uint32_t inbox_next_id = 1;
 static uint32_t inbox_dropped;
 static bool inbox_initialized;
+static bool inbox_initializing;
 static bool inbox_ring_in_psram;
 static bool inbox_persistent;
 static uint32_t inbox_store_generation;
@@ -601,14 +602,24 @@ esp_err_t solar_os_inbox_init(void)
     }
 
     inbox_lock();
-    const bool initialized = inbox_initialized;
-    inbox_unlock();
-    if (initialized) {
+    if (inbox_initialized) {
+        inbox_unlock();
         return ESP_OK;
     }
+    if (inbox_initializing) {
+        inbox_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    /* Allocation can reclaim caches outside this service. Concurrent or
+     * reentrant initialization must retry instead of publishing a second ring. */
+    inbox_initializing = true;
+    inbox_unlock();
 
     err = inbox_allocate_ring();
     if (err != ESP_OK) {
+        inbox_lock();
+        inbox_initializing = false;
+        inbox_unlock();
         return err;
     }
     inbox_load_sound_setting();
@@ -619,6 +630,7 @@ esp_err_t solar_os_inbox_init(void)
         SOLAR_OS_LOGW(TAG, "persistent store unavailable: %s", esp_err_to_name(store_err));
     }
     inbox_initialized = true;
+    inbox_initializing = false;
     inbox_unlock();
     return ESP_OK;
 }

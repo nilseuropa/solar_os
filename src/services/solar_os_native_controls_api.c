@@ -12,6 +12,8 @@
     memcpy((out)->field, (in)->field, sizeof((out)->field)); \
 } while (0)
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
+#include "solar_os.h"
+#include "solar_os_native_runtime.h"
 #include "solar_os_parameters.h"
 static int parameter_info_out(const solar_os_parameter_info_t *in, solar_os_native_parameter_info_v1_t *out)
 {
@@ -80,10 +82,142 @@ static int parameter_set_owned(solar_os_native_handle_t id, float value)
     int result = solar_os_native_result(solar_os_parameter_set_owned(state->path, state->writer, value));
     solar_os_native_handle_release(id); return result;
 }
+static int parameter_resource_path(const char *kind, const char *id, const char *name,
+                                   char *path, size_t capacity)
+{
+    return solar_os_native_result(solar_os_parameter_resource_path(kind, id, name, path, capacity));
+}
+
+typedef struct {
+    int (*get)(void *user, float *value);
+    int (*set)(void *user, float value);
+    void *user;
+} native_parameter_callbacks_t;
+
+typedef struct {
+    solar_os_parameter_registration_t registration;
+    uint32_t lease;
+    native_parameter_callbacks_t callbacks[];
+} native_parameter_provider_t;
+
+static esp_err_t parameter_provider_get(void *user, float *value)
+{
+    native_parameter_callbacks_t *callbacks = user;
+    return solar_os_native_callback_result(callbacks->get(callbacks->user, value));
+}
+
+static esp_err_t parameter_provider_set(void *user, float value)
+{
+    native_parameter_callbacks_t *callbacks = user;
+    return solar_os_native_callback_result(callbacks->set(callbacks->user, value));
+}
+
+static int parameter_provider_destroy(void *value)
+{
+    native_parameter_provider_t *state = value;
+    if (state->registration.token) {
+        esp_err_t error = solar_os_parameters_unregister(&state->registration);
+        if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+        if (error != ESP_OK) return solar_os_native_result(error);
+    }
+    if (state->lease) {
+        int result = solar_os_native_library_release(state->lease);
+        if (result && result != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
+    }
+    solar_os_memory_free(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int parameter_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_PARAMETER_PROVIDER);
+}
+
+static int parameter_provider_register(const char *owner, uint32_t lease,
+    const solar_os_native_parameter_definition_v1_t *definitions, size_t count,
+    solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!owner || !definitions || !count || count > SOLAR_OS_PARAMETER_MAX)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const solar_os_app_t *app = lease ? NULL : solar_os_application_descriptor();
+    if (!lease && !app) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+
+    native_parameter_provider_t *state = solar_os_memory_calloc(1,
+        sizeof(*state) + count * sizeof(state->callbacks[0]),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.parameters.provider");
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    solar_os_parameter_definition_t *core = solar_os_memory_calloc(count, sizeof(*core),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.parameters.definitions");
+    int result = core ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    for (size_t i = 0; !result && i < count; i++) {
+        const solar_os_native_parameter_definition_v1_t *in = &definitions[i];
+        if (!in->get || !in->set || in->curve > SOLAR_OS_NATIVE_PARAMETER_LOGARITHMIC) {
+            result = SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+            break;
+        }
+        state->callbacks[i] = (native_parameter_callbacks_t){in->get, in->set, in->user};
+        core[i] = (solar_os_parameter_definition_t){
+            .name = in->name, .label = in->label, .unit = in->unit,
+            .minimum = in->minimum, .maximum = in->maximum, .step = in->step,
+            .curve = in->curve == SOLAR_OS_NATIVE_PARAMETER_LINEAR ?
+                SOLAR_OS_PARAMETER_CURVE_LINEAR : SOLAR_OS_PARAMETER_CURVE_LOGARITHMIC,
+            .get = parameter_provider_get, .set = parameter_provider_set, .user = &state->callbacks[i],
+        };
+    }
+    if (!result && lease) result = solar_os_native_library_retain(lease, &state->lease);
+    if (!result) {
+        const uint32_t kind = SOLAR_OS_NATIVE_HANDLE_PARAMETER_PROVIDER;
+        result = app ? solar_os_native_handle_create_owned(kind, state, parameter_provider_destroy, app, out) :
+            solar_os_native_handle_create(kind, state, parameter_provider_destroy, out);
+    }
+    if (!result) {
+        (void)solar_os_native_handle_acquire(*out, SOLAR_OS_NATIVE_HANDLE_PARAMETER_PROVIDER);
+        result = solar_os_native_result(solar_os_parameters_register(owner, core, count, &state->registration));
+        solar_os_native_handle_release(*out);
+    }
+    solar_os_memory_free(core);
+    if (result) {
+        if (*out) {
+            if (!parameter_provider_close(*out)) *out = 0;
+        } else {
+            (void)parameter_provider_destroy(state);
+        }
+    }
+    return result;
+}
+
+static int parameter_provider_update_range(solar_os_native_handle_t handle,
+    const char *name, float minimum, float maximum)
+{
+    native_parameter_provider_t *state =
+        solar_os_native_handle_acquire(handle, SOLAR_OS_NATIVE_HANDLE_PARAMETER_PROVIDER);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    int result = solar_os_native_result(
+        solar_os_parameters_update_range(&state->registration, name, minimum, maximum));
+    solar_os_native_handle_release(handle);
+    return result;
+}
+
+static const char *parameter_curve_name(uint32_t curve)
+{
+    switch (curve) {
+    case SOLAR_OS_NATIVE_PARAMETER_LINEAR: return solar_os_parameter_curve_name(SOLAR_OS_PARAMETER_CURVE_LINEAR);
+    case SOLAR_OS_NATIVE_PARAMETER_LOGARITHMIC: return solar_os_parameter_curve_name(SOLAR_OS_PARAMETER_CURVE_LOGARITHMIC);
+    default: return NULL;
+    }
+}
+
 static const solar_os_native_parameters_api_v1_t parameters_api = {
     .abi_version = SOLAR_OS_NATIVE_PARAMETERS_ABI, .struct_size = sizeof(parameters_api), .count = solar_os_parameter_count,
     .info = parameter_info, .find = parameter_find, .get = parameter_get, .set = parameter_set,
     .get_normalized = parameter_get_normalized, .set_normalized = parameter_set_normalized, .claim = parameter_claim, .release = parameter_release, .set_owned = parameter_set_owned,
+    .resource_path = parameter_resource_path,
+    .provider_register = parameter_provider_register,
+    .provider_update_range = parameter_provider_update_range,
+    .provider_close = parameter_provider_close,
+    .curve_name = parameter_curve_name,
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS

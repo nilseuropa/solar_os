@@ -90,7 +90,7 @@ typedef struct {
     funcgen_mode_t mode;
     solar_os_tui_t tui;
     solar_os_shell_io_t fallback_io;
-    solar_os_oscilloscope_widget_t *scope;
+    solar_os_signal_widget_t *scope;
     solar_os_parameter_registration_t parameter_registration;
     funcgen_output_t outputs[FUNCGEN_OUTPUT_MAX];
     size_t output_count;
@@ -145,15 +145,7 @@ static const char *const funcgen_wave_names[] = {
 
 static solar_os_shell_io_t *funcgen_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL ||
-        solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&funcgen.fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &funcgen.fallback_io);
-        io = &funcgen.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &funcgen.fallback_io, true);
 }
 
 static bool funcgen_graphical_session(solar_os_context_t *ctx)
@@ -308,7 +300,7 @@ static void funcgen_render_pcm(int16_t *samples, size_t frames,
     portEXIT_CRITICAL(&funcgen_render_lock);
 
     if (funcgen.scope != NULL) {
-        (void)solar_os_oscilloscope_widget_submit_s16(funcgen.scope, samples,
+        (void)solar_os_signal_widget_submit_s16(funcgen.scope, samples,
                                                       frames, 2U);
     }
     funcgen.redraw = true;
@@ -706,7 +698,7 @@ static void funcgen_render_compact(solar_os_gfx_t *gfx, int width, int height)
         const int scope_y = info_y + 8;
         const int scope_height = label_y - (micro ? 8 : 12) - 6 - scope_y;
         if (scope_height >= 24 && content_width >= 5)
-            solar_os_oscilloscope_widget_draw(funcgen.scope, gfx, margin, scope_y,
+            solar_os_signal_widget_draw(funcgen.scope, gfx, margin, scope_y,
                                               content_width, scope_height);
     }
     solar_os_gfx_set_font(gfx, micro ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD_12);
@@ -755,7 +747,7 @@ static void funcgen_render_graphics(solar_os_context_t *ctx)
 
     const int scope_y = 28;
     const int scope_height = height >= 280 ? 78 : 58;
-    solar_os_oscilloscope_widget_draw(funcgen.scope, gfx, 6, scope_y,
+    solar_os_signal_widget_draw(funcgen.scope, gfx, 6, scope_y,
                                       width - 12, scope_height);
 
     const int controls_top = scope_y + scope_height + 4;
@@ -1012,7 +1004,7 @@ static esp_err_t funcgen_start(solar_os_context_t *ctx)
     if (funcgen.mode == FUNCGEN_MODE_TUI) {
         err = solar_os_tui_screen_begin(&funcgen.tui, ctx);
     } else {
-        err = solar_os_oscilloscope_widget_create(FUNCGEN_SCOPE_SAMPLES,
+        err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_WAVEFORM, FUNCGEN_SCOPE_SAMPLES,
                                                   &funcgen.scope);
         if (err == ESP_OK) {
             funcgen_enable_high_refresh(ctx);
@@ -1035,7 +1027,7 @@ static void funcgen_stop(solar_os_context_t *ctx)
     (void)funcgen_set_enabled(false);
     if (funcgen.mode == FUNCGEN_MODE_GRAPHICS) {
         funcgen_disable_high_refresh();
-        solar_os_oscilloscope_widget_destroy(funcgen.scope);
+        solar_os_signal_widget_destroy(funcgen.scope);
         funcgen.scope = NULL;
         solar_os_context_set_graphics_active(ctx, false);
     } else if (funcgen.ui_started) {

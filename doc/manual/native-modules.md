@@ -49,8 +49,9 @@ API size. Signed types select `/modules/apps/<module>.elf`, `/modules/jobs`,
 
 Application lifecycle ABI 1 runs synchronous `main(argc, argv)` and unloads on
 return. Job ABI 1 registers start/stop/tick callbacks; its ELF remains until
-the stopped job is removed. Driver ABI 1 registers a zero-binding utility
-driver and remains until its devices are detached and the module removed.
+the stopped job is removed. Driver ABI 1 supports utility drivers and bound
+hardware drivers. Drivers remain loaded until their devices are detached and
+their providers and resource handles are closed.
 Library ABI 1 supplies a versioned API protected by consumer leases. Libraries
 load on demand; `pkg unload ID` releases an unused image while keeping its file.
 See [Native libraries](native-library.md).

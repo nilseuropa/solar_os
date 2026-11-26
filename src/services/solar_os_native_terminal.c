@@ -2,10 +2,12 @@
 #include <string.h>
 #include "solar_os_config.h"
 #include "solar_os_terminal.h"
+#include "solar_os_terminal_geometry.h"
 #include "solar_os_native_terminal_abi.h"
 #include "solar_os_native_support.h"
 
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
+#include "solar_os_terminal_preferences.h"
 static int terminal_set_status_bar_preference(bool visible)
 { return solar_os_native_result(solar_os_terminal_set_status_bar_preference(visible)); }
 static int terminal_set_status_bar_visible(solar_os_terminal_t *terminal, bool visible)
@@ -36,6 +38,45 @@ static int terminal_set_text_size_transient(solar_os_terminal_t *terminal, solar
 { return solar_os_native_result(solar_os_terminal_set_text_size_transient(terminal, text_size)); }
 static int terminal_apply_profile_transient(solar_os_terminal_t *terminal, const solar_os_terminal_profile_t *profile)
 { return solar_os_native_result(solar_os_terminal_apply_profile_transient(terminal, profile)); }
+
+static int terminal_load_display_preferences(const char *display, uint16_t fallback,
+    solar_os_native_terminal_display_preferences_v1_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = (solar_os_native_terminal_display_preferences_v1_t){0};
+    if (!display || !*display || strlen(display) > 15 || fallback >= 360 || fallback % 90)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    out->orientation_degrees = solar_os_terminal_profile_load_display_orientation(display, fallback);
+    out->scale = solar_os_terminal_profile_load_scale(display);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int terminal_save_preference(const char *display, uint32_t field, uint32_t value)
+{
+    if (value > UINT16_MAX) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (display) {
+        if (field == SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_ORIENTATION)
+            return solar_os_native_result(solar_os_terminal_profile_save_display_orientation(display, (uint16_t)value));
+        if (field == SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_SCALE && value <= UINT8_MAX)
+            return solar_os_native_result(solar_os_terminal_profile_save_scale(display, (uint8_t)value));
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    switch (field) {
+    case SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_ORIENTATION:
+        return solar_os_native_result(solar_os_terminal_profile_save_orientation((uint16_t)value));
+    case SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_FONT:
+        return solar_os_native_result(solar_os_terminal_profile_save_font((solar_os_terminal_font_t)value));
+    case SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_TEXT_SIZE:
+        return solar_os_native_result(solar_os_terminal_profile_save_text_size((solar_os_terminal_text_size_t)value));
+    case SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_PALETTE:
+        if (value <= 1) return solar_os_native_result(solar_os_terminal_profile_save_palette(value));
+        break;
+    case SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_STATUS_BAR:
+        if (value <= 1) return solar_os_native_result(solar_os_terminal_profile_save_status_bar(value));
+        break;
+    }
+    return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+}
 
 static const solar_os_native_terminal_api_v1_t terminal_api = {
     .abi_version = SOLAR_OS_NATIVE_TERMINAL_ABI, .struct_size = sizeof(terminal_api),
@@ -112,6 +153,13 @@ static const solar_os_native_terminal_api_v1_t terminal_api = {
     .needs_draw = solar_os_terminal_needs_draw,
     .invalidate_render = solar_os_terminal_invalidate_render,
     .draw = solar_os_terminal_draw,
+    .columns_for_width = solar_os_terminal_columns_compute,
+    .geometry_for_height = solar_os_terminal_geometry_compute,
+    .profile_valid = solar_os_terminal_profile_is_valid,
+    .load_saved_profile = solar_os_terminal_profile_load_preferences,
+    .load_display_preferences = terminal_load_display_preferences,
+    .save_preference = terminal_save_preference,
+    .cursor_preference_for_panel = solar_os_terminal_get_cursor_preference_for_panel,
 };
 #endif
 

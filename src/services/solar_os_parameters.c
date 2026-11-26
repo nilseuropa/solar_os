@@ -58,6 +58,52 @@ static bool parameter_component_valid(const char *text, size_t maximum)
     return true;
 }
 
+esp_err_t solar_os_parameter_resource_path(const char *kind, const char *id,
+                                            const char *name, char *path, size_t capacity)
+{
+    if (!path || !capacity) return ESP_ERR_INVALID_ARG;
+    path[0] = '\0';
+    if (!parameter_component_valid(kind, SOLAR_OS_PARAMETER_OWNER_MAX) ||
+        strchr(kind, '.') || !id || !*id ||
+        (name && (!parameter_component_valid(name, SOLAR_OS_PARAMETER_NAME_MAX) ||
+                  strchr(name, '.')))) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    char owner[SOLAR_OS_PARAMETER_OWNER_MAX];
+    const size_t length = strnlen(id, sizeof(owner));
+    if (length == sizeof(owner)) return ESP_ERR_INVALID_SIZE;
+    size_t used = strlen(kind);
+    memcpy(owner, kind, used);
+    owner[used++] = '.';
+    if (parameter_component_valid(id, sizeof(owner)) && !strchr(id, '.')) {
+        if (length >= sizeof(owner) - used) return ESP_ERR_INVALID_SIZE;
+        memcpy(owner + used, id, length);
+        used += length;
+    } else {
+        /* The extra dot distinguishes hex-encoded IDs from plain IDs. */
+        static const char hex[] = "0123456789abcdef";
+        if (1U + 2U * length >= sizeof(owner) - used) return ESP_ERR_INVALID_SIZE;
+        owner[used++] = '.';
+        for (size_t i = 0; i < length; i++) {
+            const unsigned char byte = (unsigned char)id[i];
+            owner[used++] = hex[byte >> 4];
+            owner[used++] = hex[byte & 15U];
+        }
+    }
+    const size_t total = used + (name ? 1U + strlen(name) : 0U);
+    if (total >= capacity || total >= SOLAR_OS_PARAMETER_PATH_MAX) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    memcpy(path, owner, used);
+    if (name) {
+        path[used++] = '.';
+        memcpy(path + used, name, total - used);
+    }
+    path[total] = '\0';
+    return ESP_OK;
+}
+
 static bool parameter_definition_valid(
     const solar_os_parameter_definition_t *definition)
 {
@@ -106,7 +152,7 @@ esp_err_t solar_os_parameters_register(
         if (!parameter_definition_valid(&definitions[i])) {
             return ESP_ERR_INVALID_ARG;
         }
-        for (size_t j = i + 1U; j < count; j++) {
+        for (size_t j = 0; j < i; j++) {
             if (strcmp(definitions[i].name, definitions[j].name) == 0) {
                 return ESP_ERR_INVALID_ARG;
             }
@@ -129,23 +175,18 @@ esp_err_t solar_os_parameters_register(
         return ESP_ERR_NO_MEM;
     }
 
-    char paths[SOLAR_OS_PARAMETER_MAX][SOLAR_OS_PARAMETER_PATH_MAX];
+    char path[SOLAR_OS_PARAMETER_PATH_MAX];
     for (size_t i = 0; i < count; i++) {
-        const int written = snprintf(paths[i], sizeof(paths[i]), "%s.%s",
+        const int written = snprintf(path, sizeof(path), "%s.%s",
                                      owner, definitions[i].name);
-        if (written < 0 || (size_t)written >= sizeof(paths[i]) ||
-            parameter_find_locked(paths[i]) >= 0) {
+        if (written < 0 || (size_t)written >= sizeof(path)) {
             xSemaphoreGive(parameter_mutex);
-            return written < 0 || (size_t)written >= sizeof(paths[i]) ?
-                ESP_ERR_INVALID_SIZE : ESP_ERR_INVALID_STATE;
+            return ESP_ERR_INVALID_SIZE;
         }
-    }
-
-    /* Retiring paths remain reserved until every borrowed callback returns. */
-    for (size_t i = 0; i < count; ++i) {
+        /* Retiring paths remain reserved until every borrowed callback returns. */
         for (size_t j = 0; j < SOLAR_OS_PARAMETER_MAX; ++j) {
             if (parameter_slots[j].active &&
-                strcmp(parameter_slots[j].info.path, paths[i]) == 0) {
+                strcmp(parameter_slots[j].info.path, path) == 0) {
                 xSemaphoreGive(parameter_mutex);
                 return ESP_ERR_INVALID_STATE;
             }
@@ -166,8 +207,8 @@ esp_err_t solar_os_parameters_register(
         memset(slot, 0, sizeof(*slot));
         slot->active = true;
         slot->token = token;
-        strlcpy(slot->info.path, paths[definition_index],
-                sizeof(slot->info.path));
+        snprintf(slot->info.path, sizeof(slot->info.path), "%s.%s",
+                 owner, definition->name);
         strlcpy(slot->info.owner, owner, sizeof(slot->info.owner));
         strlcpy(slot->info.name, definition->name,
                 sizeof(slot->info.name));

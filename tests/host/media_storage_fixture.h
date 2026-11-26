@@ -14,7 +14,7 @@
 static char root[] = "/tmp/solaros-playlist-XXXXXX";
 static bool mounted = true, fail_save;
 static SemaphoreHandle_t xSemaphoreCreateMutex(void) { static int mutex; return &mutex; }
-#include "../../src/services/solar_os_player_playlist.c"
+#include "../../src/apps/solar_os_player_playlist.c"
 
 size_t strlcpy(char *out, const char *text, size_t size)
 {

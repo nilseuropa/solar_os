@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_storage.h"
@@ -20,6 +21,8 @@
 static const char *TAG = "identity";
 static portMUX_TYPE identity_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool identity_initialized;
+static SemaphoreHandle_t identity_mutex;
+static StaticSemaphore_t identity_mutex_storage;
 static char identity_user[SOLAR_OS_IDENTITY_USER_MAX] =
     SOLAR_OS_IDENTITY_DEFAULT_USER;
 static char identity_hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX] =
@@ -33,7 +36,7 @@ static bool identity_char_is_valid(char ch)
 
 static bool identity_value_is_valid(const char *value, size_t max_len)
 {
-    if (value == NULL || value[0] == '\0' || strlen(value) >= max_len) {
+    if (value == NULL || value[0] == '\0' || strnlen(value, max_len) >= max_len) {
         return false;
     }
 
@@ -107,9 +110,13 @@ static bool identity_read_nvs(nvs_handle_t nvs,
                               char *buffer,
                               size_t len)
 {
-    size_t stored_len = len;
-    return nvs_get_str(nvs, key, buffer, &stored_len) == ESP_OK &&
-        identity_value_is_valid(buffer, len);
+    char value[SOLAR_OS_IDENTITY_USER_MAX > SOLAR_OS_IDENTITY_HOSTNAME_MAX ?
+               SOLAR_OS_IDENTITY_USER_MAX : SOLAR_OS_IDENTITY_HOSTNAME_MAX];
+    size_t stored_len = sizeof(value);
+    if (nvs_get_str(nvs, key, value, &stored_len) != ESP_OK ||
+        !identity_value_is_valid(value, len)) return false;
+    strlcpy(buffer, value, len);
+    return true;
 }
 
 static esp_err_t identity_write_nvs(nvs_handle_t nvs,
@@ -120,15 +127,9 @@ static esp_err_t identity_write_nvs(nvs_handle_t nvs,
     return ret == ESP_OK ? nvs_commit(nvs) : ret;
 }
 
-esp_err_t solar_os_identity_init(void)
+static esp_err_t identity_load(void)
 {
-    portENTER_CRITICAL(&identity_lock);
-    const bool already_initialized = identity_initialized;
-    portEXIT_CRITICAL(&identity_lock);
-    if (already_initialized) {
-        return ESP_OK;
-    }
-
+    if (identity_initialized) return ESP_OK;
     char user[SOLAR_OS_IDENTITY_USER_MAX] = SOLAR_OS_IDENTITY_DEFAULT_USER;
     char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX] =
         SOLAR_OS_IDENTITY_DEFAULT_HOSTNAME;
@@ -183,86 +184,115 @@ esp_err_t solar_os_identity_init(void)
     return ESP_OK;
 }
 
-void solar_os_identity_get_user(char *buffer, size_t len)
+static SemaphoreHandle_t identity_update_mutex(void)
 {
-    if (buffer == NULL || len == 0) {
-        return;
-    }
+    portENTER_CRITICAL(&identity_lock);
+    if (!identity_mutex) identity_mutex = xSemaphoreCreateMutexStatic(&identity_mutex_storage);
+    const SemaphoreHandle_t mutex = identity_mutex;
+    portEXIT_CRITICAL(&identity_lock);
+    return mutex;
+}
+
+esp_err_t solar_os_identity_init(void)
+{
+    portENTER_CRITICAL(&identity_lock);
+    const bool already_initialized = identity_initialized;
+    portEXIT_CRITICAL(&identity_lock);
+    if (already_initialized) return ESP_OK;
+
+    const SemaphoreHandle_t mutex = identity_update_mutex();
+    if (!mutex || xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
+    const esp_err_t error = identity_load();
+    xSemaphoreGive(mutex);
+    return error;
+}
+
+void solar_os_identity_get(solar_os_identity_v1_t *identity)
+{
+    if (!identity) return;
     (void)solar_os_identity_init();
     portENTER_CRITICAL(&identity_lock);
-    strlcpy(buffer, identity_user, len);
+    memcpy(identity->user, identity_user, sizeof(identity->user));
+    memcpy(identity->hostname, identity_hostname, sizeof(identity->hostname));
     portEXIT_CRITICAL(&identity_lock);
+}
+
+void solar_os_identity_get_user(char *buffer, size_t len)
+{
+    if (!buffer || !len) return;
+    solar_os_identity_v1_t identity;
+    solar_os_identity_get(&identity);
+    strlcpy(buffer, identity.user, len);
 }
 
 void solar_os_identity_get_hostname(char *buffer, size_t len)
 {
-    if (buffer == NULL || len == 0) {
-        return;
-    }
-    (void)solar_os_identity_init();
-    portENTER_CRITICAL(&identity_lock);
-    strlcpy(buffer, identity_hostname, len);
-    portEXIT_CRITICAL(&identity_lock);
+    if (!buffer || !len) return;
+    solar_os_identity_v1_t identity;
+    solar_os_identity_get(&identity);
+    strlcpy(buffer, identity.hostname, len);
 }
 
-static esp_err_t identity_set_value(const char *key,
-                                    const char *value,
-                                    size_t max_len,
-                                    char *cached,
-                                    size_t cached_len)
+esp_err_t solar_os_identity_set(solar_os_identity_field_t field, const char *value)
 {
-    if (!identity_value_is_valid(value, max_len)) {
+    const char *key;
+    char *cached;
+    size_t capacity;
+    switch (field) {
+    case SOLAR_OS_IDENTITY_USER:
+        key = SOLAR_OS_IDENTITY_USER_KEY;
+        cached = identity_user;
+        capacity = sizeof(identity_user);
+        break;
+    case SOLAR_OS_IDENTITY_HOSTNAME:
+        key = SOLAR_OS_IDENTITY_HOSTNAME_KEY;
+        cached = identity_hostname;
+        capacity = sizeof(identity_hostname);
+        break;
+    default:
         return ESP_ERR_INVALID_ARG;
     }
+    const size_t length = value ? strnlen(value, capacity) : 0;
+    if (!length || length == capacity) return ESP_ERR_INVALID_ARG;
+    /* Use one validated copy for both persistence and the live value. */
+    char text[SOLAR_OS_IDENTITY_USER_MAX > SOLAR_OS_IDENTITY_HOSTNAME_MAX ?
+              SOLAR_OS_IDENTITY_USER_MAX : SOLAR_OS_IDENTITY_HOSTNAME_MAX] = {0};
+    memcpy(text, value, length);
+    if (!identity_value_is_valid(text, capacity)) return ESP_ERR_INVALID_ARG;
 
-    esp_err_t ret = solar_os_identity_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
+    esp_err_t error = solar_os_identity_init();
+    if (error != ESP_OK) return error;
+    const SemaphoreHandle_t mutex = identity_update_mutex();
+    if (!mutex || xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_INVALID_STATE;
     nvs_handle_t nvs;
-    ret = nvs_open(SOLAR_OS_IDENTITY_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret == ESP_OK) {
-        ret = identity_write_nvs(nvs, key, value);
+    error = nvs_open(SOLAR_OS_IDENTITY_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (error == ESP_OK) {
+        error = identity_write_nvs(nvs, key, text);
         nvs_close(nvs);
     }
-    if (ret != ESP_OK) {
-        return ret;
+    if (error == ESP_OK) {
+        portENTER_CRITICAL(&identity_lock);
+        memcpy(cached, text, capacity);
+        portEXIT_CRITICAL(&identity_lock);
     }
-
-    portENTER_CRITICAL(&identity_lock);
-    strlcpy(cached, value, cached_len);
-    portEXIT_CRITICAL(&identity_lock);
-    return ESP_OK;
+    xSemaphoreGive(mutex);
+    return error;
 }
 
 esp_err_t solar_os_identity_set_user(const char *user)
 {
-    return identity_set_value(SOLAR_OS_IDENTITY_USER_KEY,
-                              user,
-                              SOLAR_OS_IDENTITY_USER_MAX,
-                              identity_user,
-                              sizeof(identity_user));
+    return solar_os_identity_set(SOLAR_OS_IDENTITY_USER, user);
 }
 
 esp_err_t solar_os_identity_set_hostname(const char *hostname)
 {
-    return identity_set_value(SOLAR_OS_IDENTITY_HOSTNAME_KEY,
-                              hostname,
-                              SOLAR_OS_IDENTITY_HOSTNAME_MAX,
-                              identity_hostname,
-                              sizeof(identity_hostname));
+    return solar_os_identity_set(SOLAR_OS_IDENTITY_HOSTNAME, hostname);
 }
 
 void solar_os_identity_format(char *buffer, size_t len)
 {
-    if (buffer == NULL || len == 0) {
-        return;
-    }
-
-    char user[SOLAR_OS_IDENTITY_USER_MAX];
-    char hostname[SOLAR_OS_IDENTITY_HOSTNAME_MAX];
-    solar_os_identity_get_user(user, sizeof(user));
-    solar_os_identity_get_hostname(hostname, sizeof(hostname));
-    snprintf(buffer, len, "%s@%s", user, hostname);
+    if (!buffer || !len) return;
+    solar_os_identity_v1_t identity;
+    solar_os_identity_get(&identity);
+    snprintf(buffer, len, "%s@%s", identity.user, identity.hostname);
 }

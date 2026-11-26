@@ -8,6 +8,7 @@
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_job_abi.h"
 #include "solar_os_native_driver_abi.h"
+#include "solar_os_native_bound_driver_abi.h"
 #include "solar_os_components.h"
 #ifdef __cplusplus
 extern "C" {
@@ -44,6 +45,7 @@ void solar_os_system_scope_leave(native_run_scope_t *scope);
 /* Core lifecycle registration endpoints, shared by compiled and loaded components. */
 int solar_os_native_register_job(const solar_os_native_job_descriptor_v1_t *descriptor);
 int solar_os_native_register_driver(const solar_os_native_driver_descriptor_v1_t *descriptor);
+int solar_os_native_register_bound_driver(const solar_os_native_bound_driver_descriptor_v1_t *descriptor);
 int solar_os_native_register_library(const solar_os_native_library_descriptor_v1_t *descriptor);
 int solar_os_native_library_acquire(const char *id, uint32_t abi, uint32_t size, uint32_t *lease, const void **api);
 int solar_os_native_library_retain(uint32_t lease, uint32_t *retained);

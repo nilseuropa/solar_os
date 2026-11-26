@@ -34,7 +34,7 @@ esp_err_t solar_os_media_sample_source_read(const char *source,
         return ESP_ERR_NOT_SUPPORTED;
 #endif
     } else if (strncmp(source,"stream:",7) && strncmp(source,"rtsp://",7)) {
-        error=solar_os_media_sample_open_image_bounded(source,options->max_bytes,out);
+        error=solar_os_media_sample_open_image_cancellable(source,options->max_bytes,options->cancel,options->user,out);
     } else {
         solar_os_script_media_t *media=NULL;
         error=solar_os_script_media_create(options->owner,options->cancel,options->user,&media);

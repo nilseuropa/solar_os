@@ -88,6 +88,7 @@ esp_err_t solar_os_rtp_l16_packetize(solar_os_rtp_sender_t *sender,
 {
     if (!solar_os_rtp_sender_valid(sender) || samples == NULL ||
         frame_count == 0U || channels == 0U || channels > 2U ||
+        frame_count > SIZE_MAX / ((size_t)channels * sizeof(*samples)) ||
         packet == NULL || packet_capacity < sender->max_packet_bytes ||
         write_packet == NULL) {
         return ESP_ERR_INVALID_ARG;

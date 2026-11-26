@@ -227,18 +227,16 @@ static int wifi_connectionless_acquire(const char *owner, uint32_t channel, uint
 { return wifi_acquire(owner, channel, actual, false, out); }
 static int wifi_latency_acquire(const char *owner, solar_os_native_handle_t *out) { return wifi_acquire(owner, 0, NULL, true, out); }
 static int wifi_lease_close(solar_os_native_handle_t id) { return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_WIFI_LEASE); }
+#define WIFI_STATES(X) \
+    X(OFF) X(IDLE) X(SCANNING) X(CONNECTING) X(CONNECTED) X(DISCONNECTED) X(FAILED)
 static int wifi_status(solar_os_native_wifi_status_v1_t *out)
 {
     if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     memset(out, 0, sizeof(*out)); solar_os_wifi_status_t value = {0}; solar_os_wifi_get_status(&value);
     switch (value.state) {
-    case SOLAR_OS_WIFI_STATE_OFF: out->state = SOLAR_OS_NATIVE_WIFI_OFF; break;
-    case SOLAR_OS_WIFI_STATE_IDLE: out->state = SOLAR_OS_NATIVE_WIFI_IDLE; break;
-    case SOLAR_OS_WIFI_STATE_SCANNING: out->state = SOLAR_OS_NATIVE_WIFI_SCANNING; break;
-    case SOLAR_OS_WIFI_STATE_CONNECTING: out->state = SOLAR_OS_NATIVE_WIFI_CONNECTING; break;
-    case SOLAR_OS_WIFI_STATE_CONNECTED: out->state = SOLAR_OS_NATIVE_WIFI_CONNECTED; break;
-    case SOLAR_OS_WIFI_STATE_DISCONNECTED: out->state = SOLAR_OS_NATIVE_WIFI_DISCONNECTED; break;
-    case SOLAR_OS_WIFI_STATE_FAILED: out->state = SOLAR_OS_NATIVE_WIFI_FAILED; break;
+#define STATE_OUT(name) case SOLAR_OS_WIFI_STATE_##name: out->state = SOLAR_OS_NATIVE_WIFI_##name; break;
+    WIFI_STATES(STATE_OUT)
+#undef STATE_OUT
     default: return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     }
 #define FLAG(field, bit) if (value.field) out->flags |= SOLAR_OS_NATIVE_WIFI_##bit
@@ -263,6 +261,17 @@ static int wifi_status_text(char *out, size_t capacity)
     if (!out || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     *out = 0; solar_os_wifi_get_status_text(out, capacity); return SOLAR_OS_NATIVE_OK;
 }
+static const char *wifi_state_name(uint32_t state)
+{
+    switch (state) {
+#define STATE_NAME(name) case SOLAR_OS_NATIVE_WIFI_##name: return solar_os_wifi_state_name(SOLAR_OS_WIFI_STATE_##name);
+    WIFI_STATES(STATE_NAME)
+#undef STATE_NAME
+    default: return "unknown";
+    }
+}
+
+#undef WIFI_STATES
 static const solar_os_native_wifi_api_v1_t wifi_api = {
     .abi_version = SOLAR_OS_NATIVE_WIFI_ABI, .struct_size = sizeof(wifi_api), .boot_enabled = wifi_boot_enabled, .boot_enable = wifi_boot_enable,
     .start = wifi_start, .stop = wifi_stop, .connect = wifi_connect, .connect_saved = wifi_connect_saved, .disconnect = wifi_disconnect,
@@ -271,7 +280,7 @@ static const solar_os_native_wifi_api_v1_t wifi_api = {
     .nat_set = wifi_nat_set, .repeater_start = wifi_repeater_start, .repeater_stop = wifi_repeater_stop,
     .scan = wifi_scan, .scan_start = wifi_scan_start, .scan_results = wifi_scan_results, .scan_cancel = wifi_scan_cancel,
     .connectionless_acquire = wifi_connectionless_acquire, .latency_acquire = wifi_latency_acquire, .lease_close = wifi_lease_close,
-    .status = wifi_status, .status_text = wifi_status_text,
+    .status = wifi_status, .status_text = wifi_status_text, .state_name = wifi_state_name,
 };
 #endif
 const void *solar_os_native_routing_get_service(const char *name, uint32_t abi, uint32_t minimum)

@@ -8,18 +8,13 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_bus_types.h"
+#include "solar_os_native_bus_abi.h"
 
 #define SOLAR_OS_PS2_RX_BUFFER_SIZE 32U
 
-typedef struct {
-    uint32_t bytes;
-    uint32_t commands;
-    uint32_t frame_errors;
-    uint32_t overruns;
-    uint32_t command_errors;
-} solar_os_ps2_bus_stats_t;
+typedef solar_os_native_ps2_stats_v1_t solar_os_ps2_bus_stats_t;
 
-typedef struct {
+typedef struct solar_os_ps2_bus {
     int clock_pin;
     int data_pin;
     volatile bool running;
@@ -38,10 +33,17 @@ typedef struct {
     uint8_t rx_buffer[SOLAR_OS_PS2_RX_BUFFER_SIZE];
     solar_os_ps2_bus_stats_t stats;
     portMUX_TYPE lock;
+    struct solar_os_ps2_bus *next;
+    uint32_t interrupt_id;
+    bool handler_attached;
+    bool lines_pending;
 } solar_os_ps2_bus_t;
 
+/* Zero-initialize the storage before its first start. */
 esp_err_t solar_os_ps2_bus_start(solar_os_ps2_bus_t *bus,
                                  const solar_os_bus_ps2_config_t *config);
+/* The checked stop retains the cleanup state on a hardware failure. */
+esp_err_t solar_os_ps2_bus_stop_checked(solar_os_ps2_bus_t *bus);
 void solar_os_ps2_bus_stop(solar_os_ps2_bus_t *bus);
 size_t solar_os_ps2_bus_read(solar_os_ps2_bus_t *bus,
                              uint8_t *data,

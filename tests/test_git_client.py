@@ -94,7 +94,7 @@ class GitClientTest(unittest.TestCase):
             + "static bool copy_part" + parser)
         cls.binary = cls.work / "git-client"
         subprocess.run(["cc", "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
-            "-I" + str(state_include),
+            "-I" + str(state_include), "-I" + str(REPO / "include"),
             "-I" + str(REPO / "src/apps"), "-I" + str(REPO / "src/services"), "-I" + str(REPO / "src"),
             "-I" + str(cls.source / "include"), "-I" + str(cls.build / "include"),
             str(REPO / "src/apps/solar_os_git.c"), str(REPO / "tests/host/git_client_test.c"),

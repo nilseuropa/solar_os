@@ -464,13 +464,7 @@ static bool python_set_tick_interval_ms(uint32_t interval_ms)
 
 static solar_os_shell_io_t *python_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&python_fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &python_fallback_io);
-        io = &python_fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &python_fallback_io, true);
 }
 
 static solar_os_shell_io_t *python_current_io(void)
@@ -1111,7 +1105,7 @@ static mp_obj_t python_mqtt_status_to_dict(const solar_os_mqtt_status_t *status)
     python_dict_store_cstr(dict, "username", status->username);
     python_dict_store_cstr(dict, "client_id", status->client_id);
     python_dict_store_cstr(dict, "last_error", status->last_error);
-    python_dict_store_int(dict, "last_esp_error", status->last_esp_error);
+    python_dict_store_int(dict, "last_esp_error", status->error);
     python_dict_store_int(dict, "last_msg_id", status->last_msg_id);
     python_dict_store_uint(dict, "rx_count", status->rx_count);
     python_dict_store_uint(dict, "tx_count", status->tx_count);
@@ -4591,8 +4585,8 @@ static mp_obj_t solaros_expansion_drivers(void)
 {
     mp_obj_t list = mp_obj_new_list(0, NULL);
     for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
-        solar_os_expansion_driver_t driver;
-        if (!solar_os_expansion_get_driver(i, &driver)) {
+        solar_os_expansion_driver_info_t driver;
+        if (solar_os_expansion_get_driver_info(i, &driver) != ESP_OK) {
             continue;
         }
         mp_obj_t item = mp_obj_new_dict(6);

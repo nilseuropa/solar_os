@@ -143,8 +143,8 @@ typedef struct {
     webradio_tab_t tab;
     webradio_visualizer_t visualizer;
     webradio_dialog_t dialog;
-    solar_os_oscilloscope_widget_t *scope;
-    solar_os_spectrum_widget_t *spectrum;
+    solar_os_signal_widget_t *scope;
+    solar_os_signal_widget_t *spectrum;
     uint32_t last_visualizer_ms;
     uint8_t volume;
     solar_os_media_preferences_t *preferences;
@@ -283,11 +283,11 @@ static void webradio_publish_visualizer(const int16_t *samples,
     }
     const size_t frames = sample_count / channels;
     if (webradio.scope != NULL) {
-        (void)solar_os_oscilloscope_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             webradio.scope, samples, frames, channels);
     }
     if (webradio.spectrum != NULL) {
-        (void)solar_os_spectrum_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             webradio.spectrum, samples, frames, channels);
     }
 }
@@ -302,14 +302,7 @@ static void webradio_set_ui_message(const char *message)
 
 static solar_os_shell_io_t *webradio_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&webradio.fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &webradio.fallback_io);
-        io = &webradio.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &webradio.fallback_io, true);
 }
 
 static bool webradio_graphical_session(solar_os_context_t *ctx)
@@ -545,10 +538,10 @@ static void webradio_draw_visualizer(solar_os_gfx_t *gfx,
     const int visualizer_y = layout.view_y, visualizer_height = layout.view_height;
     if (visualizer_height < 8) return;
     if (webradio.visualizer == WEBRADIO_VISUALIZER_SPECTRUM) {
-        solar_os_spectrum_widget_draw(
+        solar_os_signal_widget_draw(
             webradio.spectrum, gfx, layout.view_x, visualizer_y, layout.view_width, visualizer_height);
     } else {
-        solar_os_oscilloscope_widget_draw(
+        solar_os_signal_widget_draw(
             webradio.scope, gfx, layout.view_x, visualizer_y, layout.view_width, visualizer_height);
     }
     if (layout.compact) return;
@@ -1223,8 +1216,8 @@ static esp_err_t webradio_start_playback(const char *name, const char *url)
     }
     if (webradio.active_index != SIZE_MAX &&
         solar_os_webradio_catalog_duration(webradio.active_index) >= 0) webradio.finite = true;
-    solar_os_oscilloscope_widget_reset(webradio.scope);
-    solar_os_spectrum_widget_reset(webradio.spectrum);
+    solar_os_signal_widget_reset(webradio.scope);
+    solar_os_signal_widget_reset(webradio.spectrum);
     portENTER_CRITICAL(&webradio_lock);
     strlcpy(webradio.active_name, name, sizeof(webradio.active_name));
     strlcpy(webradio.active_url, url, sizeof(webradio.active_url));
@@ -1718,15 +1711,13 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
             goto fail_preferences;
         }
     } else {
-        err = solar_os_oscilloscope_widget_create(
-            WEBRADIO_SCOPE_SAMPLES, &webradio.scope);
+        err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_WAVEFORM, WEBRADIO_SCOPE_SAMPLES, &webradio.scope);
         if (err == ESP_OK) {
-            err = solar_os_spectrum_widget_create(
-                WEBRADIO_SPECTRUM_FFT_SIZE, &webradio.spectrum);
+            err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_SPECTRUM, WEBRADIO_SPECTRUM_FFT_SIZE, &webradio.spectrum);
         }
         if (err != ESP_OK) {
-            solar_os_oscilloscope_widget_destroy(webradio.scope);
-            solar_os_spectrum_widget_destroy(webradio.spectrum);
+            solar_os_signal_widget_destroy(webradio.scope);
+            solar_os_signal_widget_destroy(webradio.spectrum);
             webradio.scope = NULL;
             webradio.spectrum = NULL;
             goto fail_preferences;
@@ -1764,8 +1755,8 @@ static void webradio_stop(solar_os_context_t *ctx)
     }
     if (webradio.mode == WEBRADIO_MODE_GRAPHICS) {
         webradio_disable_high_refresh();
-        solar_os_oscilloscope_widget_destroy(webradio.scope);
-        solar_os_spectrum_widget_destroy(webradio.spectrum);
+        solar_os_signal_widget_destroy(webradio.scope);
+        solar_os_signal_widget_destroy(webradio.spectrum);
         webradio.scope = NULL;
         webradio.spectrum = NULL;
         solar_os_context_set_graphics_active(ctx, false);

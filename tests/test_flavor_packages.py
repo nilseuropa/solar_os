@@ -55,7 +55,7 @@ class FlavorPackagesTest(unittest.TestCase):
     def test_gpio_matrix_has_a_keymap_and_requires_expansion_gpio(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
-            enabled = flavor in ("full", "classic")
+            enabled = flavor == "full"
             self.assertEqual(packages["expansion_gpio_matrix"], enabled)
             if not enabled:
                 continue
@@ -103,11 +103,13 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(supported["service_usb_host"])
         self.assertTrue(supported["service_usb_storage"])
         self.assertTrue(supported["service_usb_serial"])
+        self.assertFalse(supported["service_usb_cdc"])
         _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"cdc"})
         self.assertFalse(cdc_only["service_usb_host"])
         self.assertFalse(cdc_only["service_usb_storage"])
         self.assertFalse(cdc_only["service_usb_serial"])
+        self.assertTrue(cdc_only["service_usb_cdc"])
 
     def test_flash_accepts_runtime_storage_without_board_sd(self):
         from solaros_board_manifest import load_board_manifest
@@ -161,19 +163,15 @@ class FlavorPackagesTest(unittest.TestCase):
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
         for package in ("app_python", "app_playground", "app_edit", "app_less",
-                        "app_files", "app_ssh", "service_audio", "service_messaging"):
+                        "service_audio", "service_messaging"):
             with self.subTest(shared=package):
                 self.assertTrue(packages[package])
                 self.assertTrue(compact_packages[package])
-        for package in ("app_io", "job_controls"):
-            with self.subTest(classic_only=package):
-                self.assertTrue(packages[package])
-                self.assertFalse(compact_packages[package])
-        for package in ("job_sc2_sync",):
+        for package in ("app_files", "app_ssh", "job_sc2_sync"):
             with self.subTest(writerdeck_only=package):
                 self.assertFalse(packages[package])
                 self.assertTrue(compact_packages[package])
-        for package in ("app_lua", "app_synth"):
+        for package in ("app_io", "job_controls", "app_lua", "app_synth"):
             with self.subTest(omitted=package):
                 self.assertFalse(packages[package])
                 self.assertFalse(compact_packages[package])
@@ -933,19 +931,19 @@ class FlavorPackagesTest(unittest.TestCase):
             ("service_audio", "service_audio_codecs"),
         )
         self.assertEqual(
-            self.catalog.package_defs["service_webradio"].requires,
+            self.catalog.package_defs["app_webradio"].requires,
             ("nvs_flash",),
         )
         self.assertEqual(
             self.catalog.package_defs["app_webradio"].depends,
             (
+                "app_media_preferences",
                 "service_audio",
                 "service_audio_codecs",
                 "service_http_client",
-                "service_media_preferences",
+                "service_m3u",
                 "service_media_widgets",
                 "service_signal_widgets",
-                "service_webradio",
             ),
         )
         self.assertEqual(
@@ -967,11 +965,11 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(
             self.catalog.package_defs["app_player"].depends,
             (
+                "app_media_preferences",
                 "service_audio",
                 "service_audio_codecs",
-                "service_media_preferences",
+                "service_media_playlist",
                 "service_media_widgets",
-                "service_player_playlist",
                 "service_signal_widgets",
                 "service_storage_browser",
             ),
@@ -1252,6 +1250,9 @@ class FlavorPackagesTest(unittest.TestCase):
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
+        _, _, _, core = self.resolve("core")
+        self.assertFalse(core["app_media_preferences"])
+        self.assertTrue(core["service_media_playlist"])
         _, pruned = generate_flavor_config.apply_board_capability_pruning(
             self.catalog,
             groups,
@@ -1265,7 +1266,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_synth",
             "service_http_client",
             "service_signal_widgets",
-            "service_webradio",
+            "app_media_preferences",
             "app_synth",
             "app_funcgen",
             "app_webradio",

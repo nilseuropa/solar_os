@@ -5,3 +5,18 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(ui_api), const solar_os_n
 if (name && !strcmp(name, "ui") && abi == 1U &&
     minimum <= sizeof(ui_api)) return &ui_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_TEXT_SEARCH
+_Static_assert(__builtin_types_compatible_p(__typeof__(text_search_api), const solar_os_native_text_search_api_v1_t), "native service table type");
+if (name && !strcmp(name, "text.search") && abi == 1U &&
+    minimum <= sizeof(text_search_api)) return &text_search_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_UNISTROKE
+_Static_assert(__builtin_types_compatible_p(__typeof__(gesture_api), const solar_os_native_gesture_api_v1_t), "native service table type");
+if (name && !strcmp(name, "input.gesture") && abi == 1U &&
+    minimum <= sizeof(gesture_api)) return &gesture_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_STORAGE_BROWSER
+_Static_assert(__builtin_types_compatible_p(__typeof__(storage_browser_api), const solar_os_native_storage_browser_api_v1_t), "native service table type");
+if (name && !strcmp(name, "storage.browser") && abi == 1U &&
+    minimum <= sizeof(storage_browser_api)) return &storage_browser_api;
+#endif

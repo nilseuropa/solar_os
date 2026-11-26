@@ -16,7 +16,32 @@ SOLAR_OS_NATIVE_DECLARE_GET(motion, "motion", solar_os_native_motion_api_v1_t, 1
     M(servo_open) \
     M(servo_set) \
     M(servo_disable) \
-    M(servo_close)
+    M(servo_close) \
+    M(motor_count) \
+    M(motor_info) \
+    M(motor_status) \
+    M(motor_command) \
+    M(motor_mode_name) \
+    M(motor_config_valid) \
+    M(motor_get_config) \
+    M(motor_configure) \
+    M(motor_configure_owned) \
+    M(encoder_count) \
+    M(encoder_info) \
+    M(encoder_status) \
+    M(encoder_read) \
+    M(encoder_reset) \
+    M(encoder_config_valid) \
+    M(encoder_get_config) \
+    M(encoder_configure) \
+    M(encoder_configure_owned) \
+    M(encoder_feedback) \
+    M(servo_open_ex) \
+    M(servo_count) \
+    M(servo_info) \
+    M(servo_status) \
+    M(servo_pulse) \
+    M(servo_release_owner)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -32,7 +57,39 @@ SOLAR_OS_NATIVE_DECLARE_GET(controllers, "controllers", solar_os_native_controll
     M(open_bound) \
     M(command) \
     M(step_bound) \
-    M(status_bound)
+    M(status_bound) \
+    M(create) \
+    M(remove) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(configure) \
+    M(bind) \
+    M(feed) \
+    M(step) \
+    M(set_mode) \
+    M(reset) \
+    M(start) \
+    M(stop) \
+    M(tune) \
+    M(tune_label) \
+    M(stop_all)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(controller_math, "controllers.math", solar_os_native_controller_math_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(controller_math, solar_os_native_controller_math_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(defaults) \
+    M(valid) \
+    M(reset) \
+    M(set_mode) \
+    M(step) \
+    M(tuner_storage) \
+    M(tuner_begin) \
+    M(tuner_step) \
+    M(tuner_result)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -82,7 +139,11 @@ SOLAR_OS_NATIVE_DECLARE_GET(clock, "clock", solar_os_native_clock_api_v1_t, 1U)
     M(valid) \
     M(get_timezone) \
     M(set_timezone) \
-    M(ntp_sync)
+    M(ntp_sync) \
+    M(provider_register) \
+    M(provider_close) \
+    M(resolve_timezone) \
+    M(timezone_is_raw_posix)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -100,7 +161,9 @@ SOLAR_OS_NATIVE_DECLARE_GET(pins, "pins", solar_os_native_pins_api_v1_t, 1U)
     M(connector_count) \
     M(connector_info) \
     M(connector_find) \
-    M(connector_exists)
+    M(connector_exists) \
+    M(policy_name) \
+    M(kind_name)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -120,7 +183,22 @@ SOLAR_OS_NATIVE_DECLARE_GET(gpio, "gpio", solar_os_native_gpio_api_v1_t, 1U)
     M(configure_owned) \
     M(read_owned) \
     M(write_owned) \
-    M(close)
+    M(close) \
+    M(label) \
+    M(parse) \
+    M(line_parse) \
+    M(line_is_native) \
+    M(controller_count) \
+    M(controller_info) \
+    M(controller_find) \
+    M(line_open) \
+    M(line_configure) \
+    M(line_read) \
+    M(line_write) \
+    M(line_acknowledge_interrupt) \
+    M(line_close) \
+    M(controller_register) \
+    M(controller_close)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -185,7 +263,30 @@ SOLAR_OS_NATIVE_DECLARE_GET(bus, "bus", solar_os_native_bus_api_v1_t, 1U)
     M(onewire_reset) \
     M(onewire_scan) \
     M(onewire_exchange) \
-    M(spi_exchange)
+    M(spi_exchange) \
+    M(uart_set_mode) \
+    M(uart_status) \
+    M(uart_mode_name) \
+    M(uart_parse_mode) \
+    M(uart_baud_valid) \
+    M(label) \
+    M(spi_resolve_cs) \
+    M(spi_transfer_once) \
+    M(onewire_reset_gpio) \
+    M(onewire_scan_gpio) \
+    M(onewire_exchange_gpio) \
+    M(ps2_start) \
+    M(ps2_read) \
+    M(ps2_command) \
+    M(ps2_stats) \
+    M(ps2_stop) \
+    M(ps2_keyboard_reset) \
+    M(ps2_keyboard_decode) \
+    M(ps2_mouse_reset) \
+    M(ps2_mouse_decode) \
+    M(spi_device_open) \
+    M(spi_device_exchange) \
+    M(spi_device_close)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -198,6 +299,30 @@ SOLAR_OS_NATIVE_DECLARE_GET(board, "board", solar_os_native_board_api_v1_t, 1U)
     M(has) \
     M(capability_name) \
     M(capabilities_format)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtc, "clock.rtc", solar_os_native_rtc_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtc, solar_os_native_rtc_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(available) \
+    M(info) \
+    M(lease_open) \
+    M(program) \
+    M(cancel) \
+    M(lease_close) \
+    M(interrupt_status) \
+    M(interrupt_clear)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(rtc_provider, "clock.rtc.provider", solar_os_native_rtc_provider_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(rtc_provider, solar_os_native_rtc_provider_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(provider_register) \
+    M(provider_close)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -284,6 +409,44 @@ SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
 
+SOLAR_OS_NATIVE_DECLARE_GET(modem, "modem", solar_os_native_modem_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(modem, solar_os_native_modem_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(status) \
+    M(set_active) \
+    M(reset) \
+    M(profile_read) \
+    M(profile_write) \
+    M(profile_validate) \
+    M(transport_rate_read) \
+    M(transport_rate_write) \
+    M(unlock_sim) \
+    M(command) \
+    M(parse) \
+    M(label)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(sensors, "sensors", solar_os_native_sensors_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(sensors, solar_os_native_sensors_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(environment) \
+    M(imu) \
+    M(gnss_fix) \
+    M(gnss_status) \
+    M(gnss_set) \
+    M(provider_register) \
+    M(provider_close) \
+    M(provider_report)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
 SOLAR_OS_NATIVE_DECLARE_GET(hid_report, "hid.report", solar_os_native_hid_report_api_v1_t, 1U)
 #define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(hid_report, solar_os_native_hid_report_api_v1_t, 1U, method)
 #define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
@@ -315,6 +478,210 @@ SOLAR_OS_NATIVE_DECLARE_GET(hid_device, "hid.device", solar_os_native_hid_device
     M(gamepad_hat) \
     M(gamepad_send) \
     M(release_all)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(radio, "radio", solar_os_native_radio_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(radio, solar_os_native_radio_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(find) \
+    M(observe) \
+    M(read_rssi) \
+    M(open) \
+    M(close) \
+    M(valid) \
+    M(status) \
+    M(configure) \
+    M(set_state) \
+    M(tune_rx) \
+    M(send) \
+    M(send_stream) \
+    M(receive) \
+    M(profile_list) \
+    M(profile_get) \
+    M(profile_apply) \
+    M(profile_save) \
+    M(profile_remove) \
+    M(modulation_name) \
+    M(modulation_from_name) \
+    M(feature_name) \
+    M(state_name) \
+    M(state_from_name) \
+    M(rx_gain_name) \
+    M(rx_gain_parse) \
+    M(format_modulations) \
+    M(format_features) \
+    M(format_rx_gains)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(radio_provider, "radio.provider", solar_os_native_radio_provider_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(radio_provider, solar_os_native_radio_provider_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(provider_register) \
+    M(provider_close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(usb, "usb", solar_os_native_usb_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(usb, solar_os_native_usb_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(set_mode) \
+    M(status) \
+    M(mode_name) \
+    M(cdc_status) \
+    M(storage_status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(usb_serial, "usb.serial", solar_os_native_usb_serial_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(usb_serial, solar_os_native_usb_serial_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(snapshot)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(usb_cdc, "usb.cdc", solar_os_native_usb_cdc_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(usb_cdc, solar_os_native_usb_cdc_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(expansion, "expansion", solar_os_native_expansion_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(expansion, solar_os_native_expansion_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(available) \
+    M(device_count) \
+    M(device_info) \
+    M(attach) \
+    M(attach_board_device) \
+    M(detach) \
+    M(set_ready) \
+    M(driver_count) \
+    M(driver_supported) \
+    M(validate) \
+    M(binding_pin_supported) \
+    M(stream_binding_valid) \
+    M(label) \
+    M(driver_info) \
+    M(driver_find) \
+    M(driver_binding)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(robot_joints, "robot.joints", solar_os_native_robot_joints_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(robot_joints, solar_os_native_robot_joints_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(create) \
+    M(configure) \
+    M(bind_motor) \
+    M(bind_servo) \
+    M(command) \
+    M(status) \
+    M(close) \
+    M(release_owner) \
+    M(set_enabled) \
+    M(count) \
+    M(info)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(robot_model, "robot.model", solar_os_native_robot_model_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(robot_model, solar_os_native_robot_model_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(load_file) \
+    M(load_xml) \
+    M(unload) \
+    M(info) \
+    M(link) \
+    M(joint) \
+    M(update) \
+    M(transform) \
+    M(apply) \
+    M(extension) \
+    M(device) \
+    M(frame) \
+    M(drive_command) \
+    M(drive_status) \
+    M(transform_error) \
+    M(set_running)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(driver_registration, "driver.registration", solar_os_native_driver_registration_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(driver_registration, solar_os_native_driver_registration_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(register_driver)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(camera, "camera", solar_os_native_camera_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(camera, solar_os_native_camera_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(default_config) \
+    M(get_resolutions) \
+    M(status) \
+    M(open) \
+    M(set_running) \
+    M(capture) \
+    M(release_frame) \
+    M(close) \
+    M(invalidate) \
+    M(set_orientation) \
+    M(orientation_name) \
+    M(provider_register) \
+    M(provider_close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(nfc, "nfc", solar_os_native_nfc_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(nfc, solar_os_native_nfc_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(info) \
+    M(set_power) \
+    M(scan) \
+    M(provider_register) \
+    M(provider_close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(radio_scan, "radio.scan", solar_os_native_radio_scan_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(radio_scan, solar_os_native_radio_scan_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(read) \
+    M(clear) \
+    M(done) \
+    M(stop) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(logic, "gpio.logic", solar_os_native_logic_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(logic, solar_os_native_logic_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(defaults) \
+    M(validate) \
+    M(capture) \
+    M(status) \
+    M(read)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

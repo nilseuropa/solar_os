@@ -24,6 +24,9 @@ static int keymap_validate(const solar_os_input_keymap_t *map)
 { return solar_os_native_result(solar_os_input_keymap_validate(map)); }
 static int keymap_parse(const char *json, const solar_os_input_keymap_t *base, solar_os_input_keymap_t *out)
 { return solar_os_native_result(solar_os_input_keymap_parse(json, base, out)); }
+static int keymap_init_matrix(solar_os_input_keymap_t *map, uint32_t rows, uint32_t cols,
+    uint32_t first, uint32_t stride)
+{ return solar_os_native_result(solar_os_input_keymap_init_matrix(map, rows, cols, first, stride)); }
 
 typedef struct {
     solar_os_native_keymap_provider_v1_t callbacks;
@@ -147,6 +150,7 @@ static const solar_os_native_keymap_api_v1_t keymap_api = {
     .release = solar_os_input_keymap_release, .decode = solar_os_input_keymap_decode, .parse = keymap_parse,
     .provider_open = provider_open, .provider_activate = provider_activate, .provider_process = provider_process,
     .provider_press_priority = provider_press_priority, .provider_release_all = provider_release_all, .provider_close = provider_close,
+    .init_matrix = keymap_init_matrix,
 };
 #endif
 const void *solar_os_native_keymap_get_service(const char *name, uint32_t abi, uint32_t minimum)

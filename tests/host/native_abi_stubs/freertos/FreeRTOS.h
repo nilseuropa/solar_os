@@ -1,5 +1,7 @@
 #pragma once
 #include <pthread.h>
+#include <stdint.h>
+typedef uint32_t TickType_t;
 typedef pthread_mutex_t portMUX_TYPE;
 #define pdTRUE 1
 #define pdFALSE 0

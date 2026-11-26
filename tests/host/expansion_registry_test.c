@@ -7,6 +7,8 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_buses.h"
 #include "solar_os_expansion.h"
+#include "solar_os_native_expansion.h"
+#include "solar_os_native_expansion_abi.h"
 #include "solar_os_gpio_controller.h"
 #include "solar_os_memory.h"
 #include "solar_os_pins.h"
@@ -14,6 +16,10 @@
 #include "solar_os_stream.h"
 
 static size_t live_allocations;
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+static const char sensor_name[] = "external0";
+static unsigned bus_refs;
+#endif
 static size_t allocation_requests;
 static solar_os_memory_class_t last_memory_class;
 static bool fail_allocation;
@@ -56,7 +62,11 @@ void *solar_os_memory_calloc(size_t count,
                              solar_os_memory_class_t memory_class,
                              const char *tag)
 {
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+    assert(tag != NULL);
+#else
     assert(tag != NULL && strcmp(tag, "expansion.device") == 0);
+#endif
     allocation_requests++;
     last_memory_class = memory_class;
     if (fail_allocation) {
@@ -196,19 +206,35 @@ esp_err_t solar_os_bus_acquire(const char *name,
     (void)name;
     (void)protocol;
     (void)owner;
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+    if (!strcmp(owner, sensor_name)) {
+        assert(!strcmp(name, "i2c0") && protocol == SOLAR_OS_BUS_PROTOCOL_I2C && !bus_refs);
+        ++bus_refs;
+    }
+#endif
     return ESP_OK;
 }
 
 size_t solar_os_bus_release_owner(const char *owner)
 {
     (void)owner;
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+    if (!strcmp(owner, sensor_name)) {
+        assert(bus_refs == 1);
+        --bus_refs;
+        return 1;
+    }
+#endif
     return 0;
 }
 
 esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info)
 {
-    (void)id;
-    (void)info;
+    if (!strcmp(id, "fixture.bytes")) {
+        *info = (solar_os_stream_info_t){ .type = SOLAR_OS_STREAM_TYPE_BYTES,
+            .direction = SOLAR_OS_STREAM_DIRECTION_DUPLEX, .sharing = SOLAR_OS_STREAM_SHARING_EXCLUSIVE };
+        return ESP_OK;
+    }
     return ESP_ERR_NOT_FOUND;
 }
 
@@ -339,6 +365,17 @@ const solar_os_expansion_driver_t test_i2c_expansion_driver = {
     .detach = test_i2c_detach,
 };
 
+static const solar_os_expansion_driver_t *validating_driver;
+
+static esp_err_t test_dynamic_validate(const solar_os_expansion_binding_t *bindings,
+    size_t count, solar_os_expansion_binding_validation_t *validation)
+{
+    (void)validation;
+    assert(!bindings && !count && validating_driver);
+    assert(solar_os_expansion_unregister_driver(validating_driver) == ESP_ERR_INVALID_STATE);
+    return ESP_OK;
+}
+
 static void assert_device(size_t index,
                           const char *name,
                           solar_os_expansion_origin_t origin,
@@ -355,8 +392,56 @@ static void assert_device(size_t index,
     assert(device.ready);
 }
 
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+#include "bound_driver_test.inc"
+#endif
+
 int main(void)
 {
+#ifdef SOLAR_OS_TEST_BOUND_DRIVER
+    test_bound_driver();
+#endif
+    const solar_os_native_expansion_api_v1_t *abi = solar_os_native_expansion_get_service("expansion", 1, sizeof(*abi));
+    assert(abi && abi->available() && abi->driver_count() == 3);
+    assert(!solar_os_native_expansion_get_service("expansion", 1, sizeof(*abi) + 1));
+    assert(abi->driver_supported("manual") && !abi->driver_supported("absent"));
+    solar_os_expansion_driver_info_t driver_info;
+    assert(!abi->driver_info(0, &driver_info) && !strcmp(driver_info.name, "manual"));
+    assert(driver_info.allow_unlisted_bindings && !driver_info.binding_spec_count);
+    assert(abi->driver_find("test-flaky", &driver_info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!abi->driver_find("test-i2c", &driver_info) && driver_info.binding_spec_count == 3);
+    assert(driver_info.category == SOLAR_OS_EXPANSION_CATEGORY_INPUT);
+    solar_os_expansion_binding_spec_info_t spec;
+    int addresses[2] = {-1, -1};
+    assert(!abi->driver_binding("test-i2c", 1, &spec, NULL, 0));
+    assert(!strcmp(spec.key, "addr") && spec.required && !spec.has_role && spec.has_value_hint);
+    assert(spec.allowed_value_count == 2 && spec.kind == SOLAR_OS_EXPANSION_BINDING_I2C_ADDRESS);
+    assert(abi->driver_binding("test-i2c", 1, &spec, addresses, 1) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(addresses[0] == -1 && spec.allowed_value_count == 2);
+    assert(!abi->driver_binding("test-i2c", 1, &spec, addresses, 2));
+    assert(addresses[0] == 0x5d && addresses[1] == 0x14);
+    assert(!strcmp(abi->label(SOLAR_OS_NATIVE_EXPANSION_LABEL_BINDING, SOLAR_OS_EXPANSION_BINDING_GPIO), "gpio"));
+    assert(!abi->label(SOLAR_OS_NATIVE_EXPANSION_LABEL_ORIGIN, UINT32_MAX));
+    assert(abi->binding_pin_supported(SOLAR_OS_EXPANSION_BINDING_GPIO, NULL, 5));
+    assert(!abi->stream_binding_valid(SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM, "unknown"));
+    assert(abi->stream_binding_valid(SOLAR_OS_EXPANSION_BINDING_BYTE_STREAM, "fixture.bytes"));
+    assert(!abi->stream_binding_valid(SOLAR_OS_EXPANSION_BINDING_SCALAR_STREAM, "fixture.bytes"));
+    solar_os_expansion_binding_t fixture = gpio_binding(5);
+    solar_os_expansion_binding_validation_t abi_validation;
+    memset(fixture.role, 'x', sizeof(fixture.role));
+    assert(abi->validate("manual", &fixture, 1, &abi_validation) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(abi_validation.reason == SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE);
+    fixture = gpio_binding(5);
+    assert(!abi->validate("manual", &fixture, 1, &abi_validation));
+    assert(!abi->attach("manual", "abi-device", &fixture, 1));
+    assert(!abi->set_ready("abi-device", false));
+    solar_os_expansion_device_t snapshot;
+    assert(abi->device_count() == 1 && abi->device_info(0, &snapshot) && !snapshot.ready);
+    assert(!strcmp(snapshot.name, "abi-device") && snapshot.origin == SOLAR_OS_EXPANSION_ORIGIN_RUNTIME);
+    assert(snapshot.binding_count == 1 && snapshot.bindings[0].value == 5);
+    assert(!abi->detach("abi-device") && abi->device_count() == 0);
+    assert(!strcmp(snapshot.name, "abi-device") && !abi->device_info(0, &snapshot));
+
     assert(solar_os_expansion_binding_pin_supported(
         SOLAR_OS_EXPANSION_BINDING_GPIO, NULL, 5));
     assert(solar_os_expansion_binding_pin_supported(
@@ -390,15 +475,30 @@ int main(void)
     assert(!solar_os_expansion_get_driver(solar_os_expansion_driver_count(), &manual_driver));
     solar_os_expansion_driver_t dynamic_driver = {
         .name = "test-dynamic", .summary = "test dynamic driver", .board_only = true,
+        .validate_bindings = test_dynamic_validate,
     };
     assert(solar_os_expansion_register_driver(&dynamic_driver) == ESP_ERR_INVALID_ARG);
     dynamic_driver.board_only = false;
+    validating_driver = &dynamic_driver;
     assert(solar_os_expansion_register_driver(&dynamic_driver) == ESP_OK);
     assert(solar_os_expansion_driver_count() == 4);
     assert(solar_os_expansion_get_driver(3, &manual_driver));
     assert(strcmp(manual_driver.name, "test-dynamic") == 0);
     assert(!solar_os_expansion_get_driver(4, &manual_driver));
+    solar_os_expansion_driver_t duplicate = dynamic_driver;
+    assert(solar_os_expansion_register_driver(&duplicate) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_expansion_validate_bindings(dynamic_driver.name, NULL, 0, NULL) == ESP_OK);
+    assert(solar_os_expansion_attach(dynamic_driver.name, "fixture", NULL, 0) == ESP_OK);
+    assert(solar_os_expansion_unregister_driver(&dynamic_driver) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_expansion_unregister_driver(&duplicate) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_expansion_driver_count() == 4);
+    assert(solar_os_expansion_detach("fixture") == ESP_OK);
+    assert(!abi->driver_find(dynamic_driver.name, &driver_info));
     assert(solar_os_expansion_unregister_driver(&dynamic_driver) == ESP_OK);
+    assert(!strcmp(driver_info.name, "test-dynamic"));
+    assert(!strcmp(driver_info.summary, "test dynamic driver"));
+    duplicate.name = "this-driver-name-does-not-fit-device-snapshots";
+    assert(solar_os_expansion_register_driver(&duplicate) == ESP_ERR_INVALID_ARG);
     const solar_os_expansion_binding_t board_binding = {
         .kind = SOLAR_OS_EXPANSION_BINDING_GPIO, .value = 5,
     };
@@ -415,7 +515,7 @@ int main(void)
     assert(flaky_attach_calls == 1);
     assert(solar_os_expansion_device_count() == 8);
     assert(live_allocations == 8);
-    assert(solar_os_expansion_detach("board0") == ESP_OK);
+    assert(abi->detach("board0") == SOLAR_OS_NATIVE_OK);
     assert(solar_os_expansion_device_count() == 7);
     solar_os_expansion_poll(100U);
     solar_os_expansion_poll(599U);
@@ -448,11 +548,11 @@ int main(void)
     size_t allocations_before_refresh = allocation_requests;
     check_refresh_reservation = true;
     flaky_attach_failures = 1;
-    assert(solar_os_expansion_attach_board_device("board8") == ESP_ERR_TIMEOUT);
+    assert(abi->attach_board_device("board8") == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
     solar_os_expansion_device_t refreshed;
     assert(solar_os_expansion_get_device(7, &refreshed));
     assert(!strcmp(refreshed.name, "board8") && refreshed.active && !refreshed.ready);
-    assert(solar_os_expansion_attach_board_device("board8") == ESP_OK);
+    assert(abi->attach_board_device("board8") == SOLAR_OS_NATIVE_OK);
     assert(solar_os_expansion_get_device(7, &refreshed) && refreshed.ready);
     assert(allocation_requests == allocations_before_refresh && live_allocations == 9);
     check_refresh_reservation = false;

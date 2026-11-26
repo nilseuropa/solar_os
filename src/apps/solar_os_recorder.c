@@ -85,12 +85,6 @@ typedef enum {
 } recorder_browser_mode_t;
 
 typedef struct {
-    solar_os_stream_info_t stream;
-    solar_os_audio_device_info_t device;
-    bool has_device;
-} recorder_input_t;
-
-typedef struct {
     uint32_t magic;
     uint16_t version;
     uint16_t size;
@@ -117,9 +111,9 @@ typedef struct {
     solar_os_shell_io_t fallback_io;
     solar_os_storage_browser_t *browser;
     solar_os_cassette_widget_t cassette;
-    solar_os_oscilloscope_widget_t *scope;
-    solar_os_spectrum_widget_t *spectrum;
-    recorder_input_t inputs[RECORDER_INPUT_MAX];
+    solar_os_signal_widget_t *scope;
+    solar_os_signal_widget_t *spectrum;
+    solar_os_stream_info_t inputs[RECORDER_INPUT_MAX];
     size_t input_count;
     size_t input_index;
     size_t setup_cursor;
@@ -129,6 +123,7 @@ typedef struct {
     uint8_t bits_per_sample;
     uint8_t volume;
     float input_gain_db;
+    solar_os_native_parameter_info_v1_t input_gain;
     bool input_gain_available;
     bool editing_filename;
     bool ui_started;
@@ -154,6 +149,7 @@ typedef struct {
     solar_os_ui_input_state_t edit_filename_state;
     const solar_os_native_ui_api_v1_t *ui_api;
     const solar_os_native_media_widgets_api_v1_t *media_ui;
+    const solar_os_native_parameters_api_v1_t *parameters;
     char directory[SOLAR_OS_STORAGE_PATH_MAX];
     char preferred_input_id[SOLAR_OS_STREAM_ID_MAX];
     char active_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -296,7 +292,7 @@ static esp_err_t recorder_save_settings(void)
             recorder.preferred_input_id[0] != '\0' ?
                 recorder.preferred_input_id :
                 (recorder.input_index < recorder.input_count ?
-                    recorder.inputs[recorder.input_index].stream.id : ""),
+                    recorder.inputs[recorder.input_index].id : ""),
             sizeof(store.input_id));
     strlcpy(store.directory, recorder.directory, sizeof(store.directory));
 
@@ -357,14 +353,7 @@ static bool recorder_wav_file(const char *name, void *user)
 
 static solar_os_shell_io_t *recorder_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&recorder.fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &recorder.fallback_io);
-        io = &recorder.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &recorder.fallback_io, true);
 }
 
 static bool recorder_graphical_session(solar_os_context_t *ctx)
@@ -411,15 +400,15 @@ static void recorder_disable_high_refresh(void)
 static void recorder_refresh_gain(void)
 {
     recorder.input_gain_available = false;
-    if (recorder.input_index >= recorder.input_count ||
-        !recorder.inputs[recorder.input_index].has_device) {
+    if (!recorder.parameters || recorder.input_index >= recorder.input_count) {
         return;
     }
-    const recorder_input_t *input = &recorder.inputs[recorder.input_index];
-    if ((input->device.capabilities &
-         SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN) != 0U &&
-        solar_os_audio_get_device_input_gain(
-            input->device.id, &recorder.input_gain_db) == ESP_OK) {
+    const solar_os_stream_info_t *input = &recorder.inputs[recorder.input_index];
+    char path[sizeof(recorder.input_gain.path)];
+    if (recorder.parameters->resource_path("audio", input->device, "input-gain",
+                                           path, sizeof(path)) == SOLAR_OS_NATIVE_OK &&
+        recorder.parameters->find(path, &recorder.input_gain) == SOLAR_OS_NATIVE_OK &&
+        recorder.parameters->get(path, &recorder.input_gain_db) == SOLAR_OS_NATIVE_OK) {
         recorder.input_gain_available = true;
     }
 }
@@ -430,7 +419,7 @@ static void recorder_refresh_inputs(void)
     if (recorder.preferred_input_id[0] != '\0') {
         strlcpy(selected, recorder.preferred_input_id, sizeof(selected));
     } else if (recorder.input_index < recorder.input_count) {
-        strlcpy(selected, recorder.inputs[recorder.input_index].stream.id,
+        strlcpy(selected, recorder.inputs[recorder.input_index].id,
                 sizeof(selected));
     }
     recorder.input_count = 0U;
@@ -444,36 +433,23 @@ static void recorder_refresh_inputs(void)
              stream.direction != SOLAR_OS_STREAM_DIRECTION_DUPLEX)) {
             continue;
         }
-        recorder_input_t *input = &recorder.inputs[recorder.input_count++];
-        memset(input, 0, sizeof(*input));
-        input->stream = stream;
-        const size_t device_count = solar_os_audio_device_count();
-        for (size_t device_index = 0U; device_index < device_count;
-             device_index++) {
-            solar_os_audio_device_info_t device;
-            if (solar_os_audio_device_get(device_index, &device) &&
-                strcmp(device.capture_stream, stream.id) == 0) {
-                input->device = device;
-                input->has_device = true;
-                break;
-            }
-        }
+        recorder.inputs[recorder.input_count++] = stream;
     }
     recorder.input_index = 0U;
     for (size_t i = 0U; i < recorder.input_count; i++) {
         if ((selected[0] != '\0' &&
-             strcmp(recorder.inputs[i].stream.id, selected) == 0) ||
+             strcmp(recorder.inputs[i].id, selected) == 0) ||
             (selected[0] == '\0' &&
-             strcmp(recorder.inputs[i].stream.id, "audio0.capture") == 0)) {
+             strcmp(recorder.inputs[i].id, "audio0.capture") == 0)) {
             recorder.input_index = i;
             break;
         }
     }
     if (recorder.input_index < recorder.input_count &&
         (selected[0] == '\0' ||
-         strcmp(recorder.inputs[recorder.input_index].stream.id, selected) == 0)) {
+         strcmp(recorder.inputs[recorder.input_index].id, selected) == 0)) {
         strlcpy(recorder.preferred_input_id,
-                recorder.inputs[recorder.input_index].stream.id,
+                recorder.inputs[recorder.input_index].id,
                 sizeof(recorder.preferred_input_id));
     }
     recorder_refresh_gain();
@@ -579,20 +555,20 @@ static void recorder_samples_callback(const int16_t *samples,
     }
     const size_t frames = sample_count / channels;
     if (recorder.scope != NULL) {
-        (void)solar_os_oscilloscope_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             recorder.scope, samples, frames, channels);
     }
     if (recorder.spectrum != NULL) {
-        (void)solar_os_spectrum_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             recorder.spectrum, samples, frames, channels);
     }
 }
 
-static void recorder_device_callback(
+static void recorder_device_callback(bool capture,
     const solar_os_audio_device_info_t *device, void *user)
 {
     (void)user;
-    if (device == NULL) {
+    if (capture || device == NULL) {
         return;
     }
     portENTER_CRITICAL(&recorder_lock);
@@ -607,7 +583,7 @@ static void recorder_worker(void *arg)
     (void)arg;
     const recorder_work_t work = recorder.work;
     const char *capture_id = recorder.input_index < recorder.input_count ?
-        recorder.inputs[recorder.input_index].stream.id : "-";
+        recorder.inputs[recorder.input_index].id : "-";
     SOLAR_OS_LOGI(TAG,
                   "%s worker started input=%s path=%s format=%" PRIu32
                   "Hz/%uch/%ubit volume=%u",
@@ -620,7 +596,7 @@ static void recorder_worker(void *arg)
     const solar_os_audio_wav_options_t options = {
         .owner = "recorder",
         .capture_stream = recorder.input_index < recorder.input_count ?
-            recorder.inputs[recorder.input_index].stream.id : NULL,
+            recorder.inputs[recorder.input_index].id : NULL,
         .record_format = {
             .sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
             .sample_rate = recorder.sample_rate,
@@ -772,13 +748,13 @@ static esp_err_t recorder_start_worker(recorder_work_t work,
     recorder.active_output_id[0] = '\0';
     recorder.active_output_capabilities = 0U;
     recorder.media_ui->cassette_reset(&recorder.cassette);
-    solar_os_oscilloscope_widget_reset(recorder.scope);
-    solar_os_spectrum_widget_reset(recorder.spectrum);
+    solar_os_signal_widget_reset(recorder.scope);
+    solar_os_signal_widget_reset(recorder.spectrum);
     recorder_set_message(NULL);
     SOLAR_OS_LOGI(TAG, "%s start requested input=%s path=%s",
                   recorder_work_name(work),
                   recorder.input_index < recorder.input_count ?
-                    recorder.inputs[recorder.input_index].stream.id : "-",
+                    recorder.inputs[recorder.input_index].id : "-",
                   path != NULL ? path : "-");
     /* Capture and file I/O can cross cache-disabled regions, so this resumable
      * transport keeps its stack in internal SRAM. It is user-started foreground
@@ -893,22 +869,20 @@ static void recorder_adjust_gain(int direction)
         recorder_set_message("Input gain unavailable");
         return;
     }
-    const recorder_input_t *input = &recorder.inputs[recorder.input_index];
-    float step = input->device.input_gain_step_db;
+    const solar_os_native_parameter_info_v1_t *setting = &recorder.input_gain;
+    float step = setting->step;
     if (step <= 0.0f) step = 1.0f;
     float gain = recorder.input_gain_db + (direction < 0 ? -step : step);
-    if (gain < input->device.input_gain_min_db) {
-        gain = input->device.input_gain_min_db;
+    if (gain < setting->minimum) {
+        gain = setting->minimum;
     }
-    if (input->device.input_gain_max_db > input->device.input_gain_min_db &&
-        gain > input->device.input_gain_max_db) {
-        gain = input->device.input_gain_max_db;
+    if (gain > setting->maximum) {
+        gain = setting->maximum;
     }
-    const esp_err_t err = solar_os_audio_set_device_input_gain(
-        input->device.id, gain);
-    if (err == ESP_OK) {
+    if (recorder.parameters->set(setting->path, gain) == SOLAR_OS_NATIVE_OK) {
         recorder.input_gain_db = gain;
-        recorder.saved_input_gain_db = gain;
+        (void)recorder.parameters->get(setting->path, &recorder.input_gain_db);
+        recorder.saved_input_gain_db = recorder.input_gain_db;
         recorder.saved_input_gain_valid = true;
         recorder_set_message(NULL);
     } else {
@@ -930,7 +904,7 @@ static void recorder_cycle_input(int direction)
     }
     recorder_refresh_gain();
     strlcpy(recorder.preferred_input_id,
-            recorder.inputs[recorder.input_index].stream.id,
+            recorder.inputs[recorder.input_index].id,
             sizeof(recorder.preferred_input_id));
     recorder.saved_input_gain_valid = false;
 }
@@ -1107,7 +1081,7 @@ static void recorder_setup_value(size_t row, char *label, size_t label_len,
     case 2U:
         strlcpy(label, "Input", label_len);
         strlcpy(value, recorder.input_index < recorder.input_count ?
-            recorder.inputs[recorder.input_index].stream.id : "none", value_len);
+            recorder.inputs[recorder.input_index].id : "none", value_len);
         break;
     case 3U:
         strlcpy(label, "Channels", label_len);
@@ -1223,7 +1197,7 @@ static void recorder_render_tui(void)
                  recorder.sample_rate, recorder.channels == 1U ? "mono" : "stereo",
                  (unsigned)recorder.bits_per_sample,
                  recorder.input_index < recorder.input_count ?
-                    recorder.inputs[recorder.input_index].stream.id : "none",
+                    recorder.inputs[recorder.input_index].id : "none",
                  (unsigned)recorder.volume);
         recorder_clip(clipped, sizeof(clipped), line,
                       cols > 2U ? cols - 2U : 0U);
@@ -1265,10 +1239,10 @@ static void recorder_draw_visualizer(solar_os_gfx_t *gfx,
         recorder.media_ui->cassette_draw(&recorder.cassette, gfx, 5, visual_y,
                                       width - 10, visual_height);
     } else if (recorder.visualizer != RECORDER_VISUALIZER_SPECTRUM) {
-        solar_os_oscilloscope_widget_draw(recorder.scope, gfx, 5, visual_y,
+        solar_os_signal_widget_draw(recorder.scope, gfx, 5, visual_y,
                                           width - 10, visual_height);
     } else {
-        solar_os_spectrum_widget_draw(recorder.spectrum, gfx, 5, visual_y,
+        solar_os_signal_widget_draw(recorder.spectrum, gfx, 5, visual_y,
                                       width - 10, visual_height);
     }
     if (layout.compact) return;
@@ -1628,16 +1602,18 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     recorder.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(recorder.ui_api->input_text));
     recorder.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(recorder.media_ui->cassette_draw));
+    recorder.parameters = solar_os_native_parameters_get(solar_os_native_host_v1()->get_service,
+        offsetof(solar_os_native_parameters_api_v1_t, resource_path) + sizeof(recorder.parameters->resource_path));
     esp_err_t err = recorder.ui_api && recorder.media_ui ? recorder_set_initial_path(path_arg) : ESP_ERR_NOT_SUPPORTED;
     if (err != ESP_OK) goto fail_state;
     recorder_refresh_inputs();
     SOLAR_OS_LOGI(TAG, "inputs discovered count=%u selected=%s",
                   (unsigned)recorder.input_count,
                   recorder.input_index < recorder.input_count ?
-                      recorder.inputs[recorder.input_index].stream.id : "-");
+                      recorder.inputs[recorder.input_index].id : "-");
     if (!settings_loaded && recorder.input_count > 0U) {
         const solar_os_stream_audio_format_t *format =
-            &recorder.inputs[recorder.input_index].stream.audio;
+            &recorder.inputs[recorder.input_index].audio;
         if (format->sample_rate != 0U) recorder.sample_rate = format->sample_rate;
         if (format->channels > 0U && format->channels <= 2U) {
             recorder.channels = format->channels;
@@ -1646,16 +1622,16 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     if (settings_loaded && recorder.saved_input_gain_valid &&
         recorder.input_gain_available &&
         recorder.input_index < recorder.input_count &&
-        strcmp(recorder.inputs[recorder.input_index].stream.id,
+        strcmp(recorder.inputs[recorder.input_index].id,
                recorder.preferred_input_id) == 0) {
-        const recorder_input_t *input = &recorder.inputs[recorder.input_index];
-        err = solar_os_audio_set_device_input_gain(
-            input->device.id, recorder.saved_input_gain_db);
-        if (err == ESP_OK) {
+        const int result = recorder.parameters->set(recorder.input_gain.path,
+                                                     recorder.saved_input_gain_db);
+        if (result == SOLAR_OS_NATIVE_OK) {
             recorder.input_gain_db = recorder.saved_input_gain_db;
+            (void)recorder.parameters->get(recorder.input_gain.path, &recorder.input_gain_db);
         } else {
-            SOLAR_OS_LOGW(TAG, "saved input gain unavailable device=%s: %s",
-                          input->device.id, esp_err_to_name(err));
+            SOLAR_OS_LOGW(TAG, "saved input gain unavailable for %s (%d)",
+                          recorder.input_gain.path, result);
         }
     }
     err = solar_os_storage_browser_create(
@@ -1666,18 +1642,16 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     if (recorder.mode == RECORDER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&recorder.tui, ctx);
     } else {
-        err = solar_os_oscilloscope_widget_create(
-            RECORDER_SCOPE_SAMPLES, &recorder.scope);
-        if (err == ESP_OK) err = solar_os_spectrum_widget_create(
-            RECORDER_SPECTRUM_FFT_SIZE, &recorder.spectrum);
+        err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_WAVEFORM, RECORDER_SCOPE_SAMPLES, &recorder.scope);
+        if (err == ESP_OK) err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_SPECTRUM, RECORDER_SPECTRUM_FFT_SIZE, &recorder.spectrum);
         if (err == ESP_OK) {
             recorder_enable_high_refresh(ctx);
             solar_os_context_set_graphics_active(ctx, true);
         }
     }
     if (err != ESP_OK) {
-        solar_os_oscilloscope_widget_destroy(recorder.scope);
-        solar_os_spectrum_widget_destroy(recorder.spectrum);
+        solar_os_signal_widget_destroy(recorder.scope);
+        solar_os_signal_widget_destroy(recorder.spectrum);
         solar_os_storage_browser_destroy(recorder.browser);
         recorder.browser = NULL;
         goto fail_state;
@@ -1706,8 +1680,8 @@ static void recorder_stop(solar_os_context_t *ctx)
     }
     if (recorder.mode == RECORDER_MODE_GRAPHICS) {
         recorder_disable_high_refresh();
-        solar_os_oscilloscope_widget_destroy(recorder.scope);
-        solar_os_spectrum_widget_destroy(recorder.spectrum);
+        solar_os_signal_widget_destroy(recorder.scope);
+        solar_os_signal_widget_destroy(recorder.spectrum);
         solar_os_context_set_graphics_active(ctx, false);
     } else if (recorder.ui_started) {
         solar_os_tui_set_cursor_visible(&recorder.tui, true);

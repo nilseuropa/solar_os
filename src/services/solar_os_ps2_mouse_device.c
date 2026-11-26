@@ -112,6 +112,7 @@ static void emit_packet(solar_os_ps2_mouse_device_t *device,
 static void ps2_mouse_worker(void *arg)
 {
     solar_os_ps2_mouse_device_t *device = arg;
+    const TickType_t poll = pdMS_TO_TICKS(PS2_MOUSE_POLL_MS);
     while (!device->stop_requested) {
         uint8_t bytes[SOLAR_OS_PS2_RX_BUFFER_SIZE];
         const size_t count = solar_os_ps2_bus_read(&device->bus,
@@ -129,7 +130,7 @@ static void ps2_mouse_worker(void *arg)
                 device->unsupported++;
             }
         }
-        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PS2_MOUSE_POLL_MS));
+        vTaskDelay(poll ? poll : 1);
     }
 
     device->worker_done = true;
@@ -237,26 +238,28 @@ esp_err_t solar_os_ps2_mouse_detach(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     device->stop_requested = true;
-    if (device->worker_task != NULL) {
-        (void)xTaskNotifyGive(device->worker_task);
-    }
     if (!solar_os_task_wait_done(device->worker_task,
                                  &device->worker_done,
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
         return ESP_ERR_TIMEOUT;
     }
-    flush_bus(&device->bus);
-    const esp_err_t disable_err = solar_os_ps2_bus_command(
-        &device->bus,
-        PS2_MOUSE_DISABLE_REPORTING,
-        PS2_MOUSE_COMMAND_TIMEOUT_MS);
-    if (disable_err != ESP_OK) {
-        ESP_LOGW(TAG,
-                 "%s could not disable reporting: %s",
-                 name,
-                 esp_err_to_name(disable_err));
+    device->worker_task = NULL;
+    if (device->bus.running) {
+        flush_bus(&device->bus);
+        const esp_err_t disable_err = solar_os_ps2_bus_command(
+            &device->bus,
+            PS2_MOUSE_DISABLE_REPORTING,
+            PS2_MOUSE_COMMAND_TIMEOUT_MS);
+        if (disable_err != ESP_OK) {
+            ESP_LOGW(TAG,
+                     "%s could not disable reporting: %s",
+                     name,
+                     esp_err_to_name(disable_err));
+        }
     }
 
+    const esp_err_t stopped = solar_os_ps2_bus_stop_checked(&device->bus);
+    if (stopped != ESP_OK) return stopped;
     solar_os_ps2_bus_stats_t stats;
     solar_os_ps2_bus_get_stats(&device->bus, &stats);
     ESP_LOGI(TAG,

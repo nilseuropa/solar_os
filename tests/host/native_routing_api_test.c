@@ -141,6 +141,8 @@ int main(void)
     assert(wifi->connect("peer", "secret") == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
     solar_os_native_wifi_ap_v1_t ap; assert(!wifi->scan(&ap, 1, &count) && count == 1 && ap.rssi == -127 && ap.channel == 255 && ap.hidden);
     solar_os_native_wifi_profile_v1_t profile; assert(!wifi->known(&profile, 1, &count) && profile.preferred && !strcmp(profile.ssid, "peer"));
+    assert(!strcmp(wifi->state_name(SOLAR_OS_NATIVE_WIFI_CONNECTED), "connected"));
+    assert(!strcmp(wifi->state_name(UINT32_MAX), "unknown"));
     solar_os_native_wifi_status_v1_t status; assert(!wifi->status(&status));
     assert(status.state == SOLAR_OS_NATIVE_WIFI_CONNECTED && status.rssi == -120 && status.disconnect_reason == 255);
     assert(status.repeater_upstream_frames == UINT64_C(5000000000) && status.nat_error == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);

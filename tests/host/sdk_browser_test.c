@@ -30,6 +30,24 @@ static const solar_os_cc_header_v1_t headers[]={
 };
 static solar_os_cc_api_v1_t compiler={.abi_version=1,.struct_size=sizeof(compiler),
     .sdk_version="0.6.0",.sdk_count=sizeof(headers)/sizeof(headers[0]),.sdk_headers=headers};
+static bool use_packed;
+static const char *packed_info(uint32_t index, uint32_t *bytes)
+{
+    assert(index < sizeof(headers) / sizeof(headers[0]));
+    *bytes = headers[index].bytes;
+    return headers[index].name;
+}
+static int packed_read(uint32_t index, void *data, uint32_t capacity)
+{
+    assert(index < sizeof(headers) / sizeof(headers[0]) && capacity == headers[index].bytes);
+    memcpy(data, headers[index].text, capacity);
+    return SOLAR_OS_NATIVE_OK;
+}
+static const solar_os_cc_api_v2_t packed_compiler = {
+    .base = {.abi_version = SOLAR_OS_CC_PACKED_ABI, .struct_size = sizeof(packed_compiler),
+        .sdk_version = "0.6.0", .sdk_count = sizeof(headers) / sizeof(headers[0])},
+    .sdk_header_info = packed_info, .sdk_header_read = packed_read,
+};
 static int write_text(const char *s,size_t n)
 { size_t used=strlen(output);assert(used+n<sizeof(output));memcpy(output+used,s,n);output[used+n]=0;if(cancel_output && n>=256)cancel=true;return 0; }
 static void *allocate(size_t n) { if(fail_alloc)return NULL;void *p=calloc(1,n);assert(p);allocations++;return p; }
@@ -81,7 +99,8 @@ static const solar_os_native_memory_api_v1_t memory={.alloc=allocate,.free=relea
 static int run(const char *op,const char *argument)
 {
     memset(output,0,sizeof(output));char *args[]={"cc","sdk",(char *)op,(char *)argument};
-    int code=solar_os_cc_sdk_command(&host,&libc_api,&compiler,&memory,argument?4:3,args);
+    const solar_os_cc_api_v1_t *api = use_packed ? &packed_compiler.base : &compiler;
+    int code=solar_os_cc_sdk_command(&host,&libc_api,api,&memory,argument?4:3,args);
     assert(!allocations);return code;
 }
 static void expect(const char *relative,const char *text)
@@ -100,6 +119,13 @@ int main(int argc,char **argv)
         for (unsigned i=0;i<compiler.sdk_count;i++)
             assert(!run("show",headers[i].name) && !strcmp(output,headers[i].text));
         assert(!run("export","sdk"));
+    } else if (!strcmp(argv[2], "packed")) {
+        use_packed = true;
+        assert(!run("list", NULL) && strstr(output, "stdio.h") && strstr(output, "testlib/api.h"));
+        assert(!run("show", "stdio.h") && !strcmp(output, headers[1].text));
+        assert(!run("export", "sdk") && strstr(output, "exported 4 headers"));
+        expect("sdk/stdio.h", headers[1].text);
+        expect("sdk/testlib/api.h", "#define ANSWER 42\n");
     } else if(!strcmp(argv[2],"library")) {
         assert(argc>=6);
         assert(!run("list",NULL) && strstr(output,argv[3]) && strstr(output,argv[4]));

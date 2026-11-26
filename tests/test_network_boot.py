@@ -23,6 +23,7 @@ class NetworkBootTest(unittest.TestCase):
 #define ESP_ERR_NOT_ALLOWED 0x10D
 #define SOLAR_OS_BOARD_CAP_CDC 1
 #define SOLAR_OS_BOARD_CAP_WIFI 2
+#define SOLAR_OS_BOARD_USB_DEFAULT_OFF 0
 #define SOLAR_OS_LOGW(...) ((void)0)
 #define SOLAR_OS_LOGI(...) ((void)0)
 #define ESP_ERROR_CHECK(expr) do { \

@@ -18,6 +18,7 @@ class AudioFileSeekTest(unittest.TestCase):
             "audio_wav_report_progress", "audio_wav_read_exact", "audio_wav_read_info_from_file",
             "audio_mp3_synchsafe_u32", "audio_mp3_seek_payload", "audio_mp3_fill_input",
             "audio_mp3_consume_input", "audio_mp3_fill_output_info",
+            "audio_mp3_probe_from_file",
             "audio_mp3_playback_flush", "audio_mp3_playback_append",
             "audio_player_convert_block", "audio_play_wav_stream", "audio_mp3_advance_time",
             "audio_mp3_seek_frame", "audio_play_mp3_stream",
@@ -25,6 +26,11 @@ class AudioFileSeekTest(unittest.TestCase):
         extracted = []
         for name in functions:
             match = re.search(r"^static [^\n]*\b" + name + r"\([\s\S]*?^}", source, re.M)
+            self.assertIsNotNone(match, name)
+            extracted.append(match.group())
+        for name in ("solar_os_audio_file_probe", "solar_os_audio_play_wav",
+                     "solar_os_audio_play_mp3", "solar_os_audio_file_play"):
+            match = re.search(r"^esp_err_t " + name + r"\([\s\S]*?^}", source, re.M)
             self.assertIsNotNone(match, name)
             extracted.append(match.group())
         with tempfile.TemporaryDirectory(prefix="solaros-audio-seek-") as directory:
@@ -46,10 +52,14 @@ class AudioFileSeekTest(unittest.TestCase):
             binary = tmp / "audio_file_seek_test"
             subprocess.run(["cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-DSOLAR_OS_AUDIO_CODEC_HOST_TEST", f"-I{tmp}", f"-I{ROOT / 'tests/host'}",
+                "-DSOLAR_OS_AUDIO_CODEC_HOST_TEST", "-DSOLAR_OS_PACKAGE_SERVICE_AUDIO=1",
+                "-DSOLAR_OS_PACKAGE_SERVICE_AUDIO_CODECS=1", "-fno-pie", "-no-pie",
+                f"-I{tmp}", f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'include'}",
                 f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src'}",
                 f"-I{ROOT / 'components/minimp3/include'}",
                 str(ROOT / "tests/host/audio_file_seek_test.c"),
+                str(ROOT / "src/services/solar_os_native_audio.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
                 str(ROOT / "src/services/solar_os_audio_codec.c"),
                 str(ROOT / "src/services/solar_os_audio_pcm.c"),
                 str(ROOT / "components/minimp3/minimp3_impl.c"), "-Wl,--wrap=mp3dec_decode_frame",

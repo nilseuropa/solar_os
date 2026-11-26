@@ -35,3 +35,19 @@ typedef struct {
     void (*cassette_draw)(solar_os_cassette_widget_t *state, solar_os_gfx_t *,
         int x, int y, int width, int height);
 } solar_os_native_media_widgets_api_v1_t;
+
+#define SOLAR_OS_NATIVE_SIGNAL_WIDGET_SERVICE "ui.signal"
+#define SOLAR_OS_NATIVE_SIGNAL_WIDGET_ABI 1U
+#define SOLAR_OS_SIGNAL_WAVEFORM 1U
+#define SOLAR_OS_SIGNAL_SPECTRUM 2U
+
+/* Submit copies interleaved PCM. Borrow gfx on the surface's owning task.
+ * Serialize reset and draw. Close can be retried when operations are active. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*create)(uint32_t kind, size_t samples, solar_os_native_handle_t *widget);
+    int (*close)(solar_os_native_handle_t widget);
+    int (*reset)(solar_os_native_handle_t widget);
+    int (*submit_s16)(solar_os_native_handle_t widget, const int16_t *samples, size_t frames, uint8_t channels);
+    int (*draw)(solar_os_native_handle_t widget, solar_os_gfx_t *gfx, int x, int y, int width, int height);
+} solar_os_native_signal_widget_api_v1_t;

@@ -41,7 +41,7 @@ typedef struct {
 
 typedef struct {
     solar_os_rtsp_client_t *client;
-    solar_os_oscilloscope_widget_t *scope;
+    solar_os_signal_widget_t *scope;
     SemaphoreHandle_t image_mutex;
     uint8_t *pixels;
     uint32_t image_width, image_height;
@@ -91,7 +91,7 @@ static void rtsp_samples(const int16_t *samples, size_t count, uint8_t channels,
 {
     (void)user;
     if (rtsp.scope && channels)
-        (void)solar_os_oscilloscope_widget_submit_s16(rtsp.scope, samples, count / channels, channels);
+        (void)solar_os_signal_widget_submit_s16(rtsp.scope, samples, count / channels, channels);
 }
 
 static void network_worker(void *arg)
@@ -431,7 +431,7 @@ static void render(solar_os_context_t *ctx, bool force)
         xSemaphoreGive(rtsp.image_mutex);
     } else if (!status.video && status.audio) {
         const int margin = rtsp.fullscreen ? 0 : 3;
-        solar_os_oscilloscope_widget_draw(rtsp.scope, gfx, bounds.x + margin, content_top + margin,
+        solar_os_signal_widget_draw(rtsp.scope, gfx, bounds.x + margin, content_top + margin,
             w - 2 * margin, content_height - 2 * margin);
     } else if (!status.video && chrome) solar_os_gfx_text(gfx, bounds.x + 5, bounds.y + 40, "Connecting...");
     if (chrome && rtsp.frame_diagnostics && status.video && !rtsp.stopped) {
@@ -761,7 +761,7 @@ static esp_err_t start(solar_os_context_t *ctx)
         (!io || solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_PORT);
     solar_os_context_set_app_class(ctx, rtsp.graphical ? SOLAR_OS_APP_CLASS_GUI : SOLAR_OS_APP_CLASS_COMMAND);
     if (rtsp.graphical) {
-        esp_err_t err = solar_os_oscilloscope_widget_create(256, &rtsp.scope);
+        esp_err_t err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_WAVEFORM, 256, &rtsp.scope);
         if (err != ESP_OK) return err;
         rtsp.image_mutex = xSemaphoreCreateMutex();
         if (!rtsp.image_mutex) return ESP_ERR_NO_MEM;
@@ -811,7 +811,7 @@ static void cleanup(void)
     reap_playback();
     solar_os_media_preferences_destroy(rtsp.preferences);
     solar_os_media_playlist_close(&rtsp.playlist);
-    solar_os_oscilloscope_widget_destroy(rtsp.scope);
+    solar_os_signal_widget_destroy(rtsp.scope);
     solar_os_memory_free(rtsp.pixels);
     for (unsigned i = 0; i < rtsp.queued; i++) solar_os_memory_free(rtsp.queue[i].pixels);
     if (rtsp.image_mutex) vSemaphoreDelete(rtsp.image_mutex);

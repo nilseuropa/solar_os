@@ -6,6 +6,7 @@
 
 #include "nvs.h"
 #include "solar_os_modem.h"
+#include "solar_os_native_device.h"
 
 typedef struct {
     solar_os_modem_profile_t profile;
@@ -259,6 +260,14 @@ static const solar_os_modem_ops_t always_on_ops = {
 
 int main(void)
 {
+    _Static_assert(sizeof(solar_os_modem_profile_t) == 260, "retain saved profile layout");
+    const solar_os_native_modem_api_v1_t *api = solar_os_native_device_get_service(
+        SOLAR_OS_NATIVE_MODEM_SERVICE, SOLAR_OS_NATIVE_MODEM_ABI, sizeof(*api));
+    assert(api && !api->count() && !api->label(UINT32_MAX, 0));
+    uint32_t parsed;
+    assert(!api->parse(SOLAR_OS_MODEM_LABEL_AUTH, "pap", &parsed) && parsed == SOLAR_OS_MODEM_AUTH_PAP);
+    assert(api->parse(SOLAR_OS_MODEM_LABEL_AUTH, "invalid", &parsed) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!strcmp(api->label(SOLAR_OS_MODEM_LABEL_IP_TYPE, SOLAR_OS_MODEM_IP_IPV6), "ipv6"));
     solar_os_modem_profile_t profile = {
         .apn = "5g.vodafone.iot",
         .ip_type = SOLAR_OS_MODEM_IP_IPV4V6,
@@ -303,9 +312,11 @@ int main(void)
         .powered = true,
     };
     assert(solar_os_modem_register(&registration) == ESP_OK);
-    assert(solar_os_modem_count() == 1U);
+    assert(solar_os_modem_count() == 1U && api->count() == 1U);
     solar_os_modem_info_t info;
-    assert(solar_os_modem_get(0U, &info));
+    assert(!api->info(0, &info));
+    assert(api->info(1, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->set_active("modem0", UINT32_MAX, true) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(strcmp(info.name, "modem0") == 0);
     assert(strcmp(info.driver, "fake") == 0);
     assert(info.power_control && info.powered && info.reset_control);
@@ -334,15 +345,15 @@ int main(void)
 
     assert(solar_os_modem_profile_get("modem0", &profile) ==
            ESP_ERR_NOT_FOUND);
-    assert(solar_os_modem_profile_set("modem0", &profile) == ESP_OK);
+    assert(!api->profile_write("modem0", &profile));
     assert(fake.apply_count == 1U);
     solar_os_modem_profile_t loaded;
-    assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_OK);
+    assert(!api->profile_read("modem0", &loaded));
     assert(strcmp(loaded.apn, profile.apn) == 0);
     assert(strcmp(loaded.dns, profile.dns) == 0);
     assert(loaded.ip_type == SOLAR_OS_MODEM_IP_IPV4V6);
 
-    assert(solar_os_modem_set_data_active("modem0", true) == ESP_OK);
+    assert(!api->set_active("modem0", SOLAR_OS_MODEM_PACKET_DATA, true));
     assert(fake.apply_count == 2U);
     assert(fake.data_count == 1U && fake.data_active);
     assert(solar_os_modem_set_data_active("modem0", false) == ESP_OK);
@@ -360,7 +371,7 @@ int main(void)
 
     assert(solar_os_modem_reset("modem0") == ESP_OK);
     assert(fake.reset_count == 1U);
-    assert(solar_os_modem_set_power("modem0", false) == ESP_OK);
+    assert(!api->set_active("modem0", SOLAR_OS_MODEM_SUPPLY, false));
     assert(fake.power_count == 1U && !fake.powered);
     assert(solar_os_modem_get(0U, &info));
     assert(info.power_control && !info.powered);
@@ -383,7 +394,7 @@ int main(void)
     assert(solar_os_modem_reset("modem0") == ESP_OK);
     assert(fake.reset_count == 2U);
 
-    assert(solar_os_modem_profile_clear("modem0") == ESP_OK);
+    assert(!api->profile_write("modem0", NULL));
     assert(fake.clear_count == 1U);
     assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_ERR_NOT_FOUND);
     assert(solar_os_modem_unregister("modem0") == ESP_OK);

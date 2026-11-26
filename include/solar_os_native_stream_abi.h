@@ -44,6 +44,7 @@ typedef struct {
  * its private registry handle and one optional provider-owned frame. Frame
  * data remains borrowed until frame_release; close returns BUSY while leased.
  * Serialize handle operations. Close failure preserves the handle for retry.
+ * An endpoint may require I/O and close on the task that opened it.
  * Read/write counts are byte counts. Media formats are explicit values; the
  * private audio/video option union never crosses the ABI. */
 typedef struct {
@@ -65,4 +66,10 @@ typedef struct {
     int (*read_csv)(solar_os_native_handle_t handle, const solar_os_native_stream_read_options_v1_t *options, solar_os_native_stream_csv_v1_t *record);
     int (*frame_acquire)(solar_os_native_handle_t handle, solar_os_native_stream_frame_v1_t *frame);
     int (*frame_release)(solar_os_native_handle_t handle);
+    /* Handle information includes its negotiated direction and media format. */
+    int (*handle_info)(solar_os_native_handle_t handle, solar_os_native_stream_info_v1_t *info);
+    const char *(*type_name)(uint32_t type);
+    const char *(*direction_name)(uint32_t direction);
+    const char *(*sharing_name)(uint32_t sharing);
+    const char *(*audio_format_name)(uint32_t format);
 } solar_os_native_stream_api_v1_t;

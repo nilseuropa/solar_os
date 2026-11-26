@@ -36,6 +36,9 @@ esp_err_t solar_os_module_package_path(solar_os_module_type_t type, const char *
 static uint32_t add(uint32_t a, uint32_t b) { return a + b; }
 typedef struct { uint32_t abi_version, struct_size; uint32_t (*add)(uint32_t, uint32_t); } api_t;
 static const api_t api = {7, sizeof(api), add};
+static const api_t alternate_api = {8, sizeof(alternate_api), add};
+static bool versioned_builtin;
+static unsigned selections;
 static int shutdown_library(void) {
     atomic_fetch_add(&shutdowns, 1);
     uint32_t token; const void *p;
@@ -43,6 +46,16 @@ static int shutdown_library(void) {
     return fail_shutdown ? SOLAR_OS_NATIVE_ERROR_INVALID_STATE : SOLAR_OS_NATIVE_OK;
 }
 static int shutdown_builtin(void) { builtin_shutdowns++; return 0; }
+static int select_builtin_api(uint32_t version, uint32_t minimum, const void **out)
+{
+    ++selections;
+    assert(*out == NULL);
+    assert(solar_os_native_library_unload("tinycc") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    if (version == 8 && minimum <= sizeof(alternate_api)) *out = &alternate_api;
+    /* The loader validates even a successful callback's returned header. */
+    if (version == 9) *out = &api;
+    return version == 10 ? SOLAR_OS_NATIVE_ERROR_NO_MEMORY : SOLAR_OS_NATIVE_OK;
+}
 static int builtin_entry(int argc, char **argv) {
     assert(argc == 1 && argv && !strcmp(argv[0], "tinycc"));
     if (fail_builtin) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
@@ -50,6 +63,13 @@ static int builtin_entry(int argc, char **argv) {
         1, sizeof(descriptor), "tinycc", "built-in compiler", (const void *)&api, shutdown_builtin,
     };
     builtin_loads++;
+    if (versioned_builtin) {
+        solar_os_native_library_versioned_descriptor_v1_t extended = {
+            .base = descriptor, .select_api = select_builtin_api,
+        };
+        extended.base.struct_size = sizeof(extended);
+        return solar_os_native_register_library(&extended.base);
+    }
     return solar_os_native_register_library(&descriptor);
 }
 typedef struct { bool live; } fake_image_t;
@@ -202,6 +222,19 @@ int main(void) {
     assert(solar_os_native_library_unload("tinycc") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     assert(!solar_os_native_library_release(builtin_lease));
     assert(!solar_os_native_library_unload("tinycc") && builtin_shutdowns == 1);
+    versioned_builtin = true;
+    assert(!solar_os_native_library_acquire("tinycc", 7, sizeof(api), &builtin_lease, &builtin_table));
+    assert(builtin_table == &api && !selections && !solar_os_native_library_release(builtin_lease));
+    assert(!solar_os_native_library_acquire("tinycc", 8, sizeof(alternate_api), &builtin_lease, &builtin_table));
+    assert(builtin_table == &alternate_api && selections == 1 && !solar_os_native_library_release(builtin_lease));
+    assert(solar_os_native_library_acquire("tinycc", 8, sizeof(alternate_api) + 1, &builtin_lease, &builtin_table) ==
+        SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !builtin_lease && !builtin_table);
+    assert(solar_os_native_library_acquire("tinycc", 9, sizeof(alternate_api), &builtin_lease, &builtin_table) ==
+        SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !builtin_lease && !builtin_table);
+    assert(solar_os_native_library_acquire("tinycc", 10, sizeof(alternate_api), &builtin_lease, &builtin_table) ==
+        SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !builtin_lease && !builtin_table);
+    assert(selections == 4 && !native_library_lease_count);
+    assert(!solar_os_native_library_unload("tinycc") && builtin_shutdowns == 2);
     uint32_t lease; const void *table;
     assert(solar_os_native_library_acquire("example", 7, sizeof(api), &lease, &table) == 0);
     native_resident_slot_t retained_app = {.type = SOLAR_OS_MODULE_TYPE_APP, .id = "retained"};

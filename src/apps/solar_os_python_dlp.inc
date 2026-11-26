@@ -39,18 +39,18 @@ MP_DEFINE_CONST_FUN_OBJ_1(solaros_dlp_connection_close_obj, solaros_dlp_connecti
 static mp_obj_t solaros_dlp_connection_info(mp_obj_t object)
 {
     solar_os_display_link_t *link = python_dlp_link(object);
-    const sdlp_info_t *info = solar_os_display_link_info(link);
-    unsigned format = solar_os_display_link_format(link);
+    solar_os_native_display_link_info_v1_t info;
+    python_check_esp(solar_os_display_link_copy_info(link, &info));
     mp_obj_t dict = mp_obj_new_dict(10);
-    python_dict_store_int(dict, "width", info->width);
-    python_dict_store_int(dict, "height", info->height);
-    python_dict_store_int(dict, "format", format);
-    python_dict_store_int(dict, "stride", sdlp_row_bytes(info->width, format));
-    python_dict_store_int(dict, "frame_bytes", sdlp_row_bytes(info->width, format) * info->height);
-    python_dict_store_int(dict, "formats", info->formats);
-    python_dict_store_int(dict, "capabilities", info->capabilities);
-    python_dict_store_cstr(dict, "model", info->model);
-    python_dict_store_cstr(dict, "firmware", info->firmware);
+    python_dict_store_int(dict, "width", info.width);
+    python_dict_store_int(dict, "height", info.height);
+    python_dict_store_int(dict, "format", info.format);
+    python_dict_store_int(dict, "stride", info.stride);
+    python_dict_store_int(dict, "frame_bytes", info.frame_bytes);
+    python_dict_store_int(dict, "formats", info.formats);
+    python_dict_store_int(dict, "capabilities", info.capabilities);
+    python_dict_store_cstr(dict, "model", info.model);
+    python_dict_store_cstr(dict, "firmware", info.firmware);
     return dict;
 }
 MP_DEFINE_CONST_FUN_OBJ_1(solaros_dlp_connection_info_obj, solaros_dlp_connection_info);

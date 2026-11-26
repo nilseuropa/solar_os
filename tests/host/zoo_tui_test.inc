@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "solar_os_keys.h"
+#include "solar_os_native_client_ui.h"
 #include "solar_os_zoo.h"
 
 #define ZOO_RECORDS_MAX (SOLAR_OS_ZOO_MODELS_MAX * 2U)
@@ -17,13 +18,6 @@
 #define SOLAR_OS_INPUT_KEY_RELEASE 0
 #define SOLAR_OS_TASK_STOP_WAIT_MS 100
 #define SOLAR_OS_TASK_ROLE_FOREGROUND 0
-#define SOLAR_OS_TUI_ATTR_INVERSE 1
-#define SOLAR_OS_TUI_SCREEN_KEY_NONE 0
-#define SOLAR_OS_TUI_SCREEN_KEY_CONSUMED 1
-#define SOLAR_OS_TUI_SCREEN_KEY_PASSTHROUGH 2
-#define SOLAR_OS_TUI_SCREEN_KEY_TOGGLED 3
-#define SOLAR_OS_TUI_INPUT_CANCEL 1
-#define SOLAR_OS_TUI_INPUT_SUBMIT 2
 #define SOLAR_OS_FILE_SHORTCUT_SEARCH 1
 #define SOLAR_OS_FILE_SHORTCUT_FULLSCREEN 2
 #define tskIDLE_PRIORITY 0
@@ -34,13 +28,8 @@
 #define portEXIT_CRITICAL(p) ((void)(p))
 typedef int portMUX_TYPE;
 typedef void *TaskHandle_t;
-typedef int solar_os_tui_input_action_t;
-typedef int solar_os_tui_screen_key_action_t;
 typedef int solar_os_file_shortcut_t;
 typedef struct { bool screen_active, fullscreen, alt_prefix_pending; } solar_os_tui_t;
-typedef struct { size_t cursor, top; } solar_os_tui_viewport_t;
-typedef struct { size_t cursor, view; } solar_os_tui_input_state_t;
-typedef struct { size_t row, col, height, width; } solar_os_tui_rect_t;
 typedef struct { bool finished; int argc; const char **argv; } solar_os_context_t;
 typedef struct { uint8_t key, action; } key_event_t;
 typedef struct { int type; union { uint8_t ch; key_event_t key; } data; } solar_os_event_t;

@@ -11,6 +11,7 @@ class NativeVisionServicesTest(unittest.TestCase):
     def test_public_headers_compile_without_sdk_in_c_and_cpp(self):
         headers = ["solar_os_native_abi.h", "solar_os_native_job_abi.h",
                    "solar_os_native_image_abi.h", "solar_os_native_media_abi.h",
+                   "solar_os_native_media_sample_abi.h",
                    "solar_os_native_vision_abi.h", "solar_os_native_inference_abi.h",
                    "solar_os_native_sscma_abi.h", "solar_os_native_data_abi.h", "solar_os_processor_provider_abi.h"]
         code = "".join(f'#include "{name}"\n' for name in headers)
@@ -30,7 +31,8 @@ class NativeVisionServicesTest(unittest.TestCase):
                               'void solar_os_memory_free(void *p) { (void)p; }\n'
                               'bool solar_os_memory_is_external(const void *p) { (void)p; return false; }\n'
                               'void solar_os_memory_get_status(solar_os_memory_status_t *s) { memset(s,0,sizeof(*s)); }\n'
-                              'int main(void) { assert(!solar_os_native_media_get_service("image", 1, 0)); }\n')
+                              'int main(void) { assert(!solar_os_native_media_get_service("image", 1, 0));\n'
+                              'assert(!solar_os_native_media_get_service("media.sample", 1, 0)); }\n')
             binary = Path(tmp) / "disabled"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                             "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "include"),
@@ -47,7 +49,7 @@ class NativeVisionServicesTest(unittest.TestCase):
         self.assertIn(".get_service = native_job_get_service", native)
         self.assertIn('"generated/native_root_providers.inc"', native)
         providers = (ROOT / 'src/services/generated/native_root_providers.inc').read_text()
-        self.assertIn("solar_os_native_media_get_service(name", providers)
+        self.assertIn("    solar_os_native_media_get_service,", providers)
 
     def test_acceptance_module_declares_extended_host_requirement(self):
         manifest = tomllib.loads((ROOT / "modules/examples/vision-check/module.toml").read_text())

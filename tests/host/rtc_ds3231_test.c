@@ -76,6 +76,12 @@ esp_err_t solar_os_time_unregister_provider(const char *name)
     return ESP_OK;
 }
 
+esp_err_t solar_os_time_unregister_provider_owned(const char *owner, const void *user)
+{
+    if (user != time_provider.user) return ESP_ERR_NOT_FOUND;
+    return solar_os_time_unregister_provider(owner);
+}
+
 static void test_calendar(void)
 {
     solar_os_ds3231_t chip = {0};

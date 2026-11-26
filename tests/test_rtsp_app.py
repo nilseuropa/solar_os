@@ -82,8 +82,8 @@ class RtspAppTest(unittest.TestCase):
         self.assertIn("TCP interleaving", manual)
 
     def test_audio_only_uses_common_scope_and_video_uses_common_blitter(self):
-        self.assertIn("solar_os_oscilloscope_widget_draw", APP)
-        self.assertIn("solar_os_oscilloscope_widget_submit_s16", APP)
+        self.assertIn("solar_os_signal_widget_draw", APP)
+        self.assertIn("solar_os_signal_widget_submit_s16", APP)
         self.assertIn("solar_os_gfx_blit_raster", APP)
         self.assertIn("media_ui->player_controls_draw", APP)
         self.assertIn(".video = rtsp.graphical && !rtsp.audio_only", APP)

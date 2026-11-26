@@ -120,7 +120,15 @@ int main(void)
     assert(api->color_is_valid(api->rgb(12, 34, 56)) && api->color_is_valid(api->gray(4)));
     assert(api->color(&gfx) == SOLAR_OS_GFX_COLOR_BLACK);
     assert(allocations == before && api->needs_present(&gfx));
-    api->present(&gfx); assert(ordinary_frames == 1 && !api->needs_present(&gfx));
+    api->present(&gfx);
+    assert(ordinary_frames == 1 && !last_damage_count && !api->needs_present(&gfx));
+    api->pixel(&gfx, 1, 10);
+    const solar_os_display_rect_t damage = {61, 70, 1, 1};
+    api->present_regions(&gfx, &damage, 1);
+    assert(ordinary_frames == 2 && last_damage_count == 1 && !api->needs_present(&gfx));
+    assert(last_damage.x == 61 && last_damage.y == 70 &&
+           last_damage.width == 1 && last_damage.height == 1);
+    assert(allocations == before);
     const uint8_t bitmap[] = {1};
     assert(!api->present_mono_xbm(&gfx, bitmap, 1, 0, 0, 1, 1, 1) && mono_frames == 1);
     const uint8_t pixels[] = {0x12, 0x34};
@@ -147,7 +155,8 @@ int main(void)
     assert(allocations == indexed_before);
     api->clear(&gfx, api->rgb(255, 255, 255)); api->pixel(&gfx, 1, 1);
     assert(api->format(&gfx) == SOLAR_OS_DISPLAY_FORMAT_INDEX8);
-    api->present(&gfx); assert(surfaces == 1 && !api->needs_present(&gfx));
+    api->present_regions(&gfx, &damage, 1);
+    assert(surfaces == 1 && ordinary_frames == 2 && !api->needs_present(&gfx));
     solar_os_gfx_release_surface(&gfx);
     return 0;
 }

@@ -106,22 +106,58 @@ static const uint8_t *gfx_font_data(solar_os_gfx_font_t font)
     }
 }
 
-static const uint8_t *gfx_icon_font_data(solar_os_gfx_icon_size_t size)
+typedef struct {
+    uint16_t offset, bytes;
+    uint8_t last_icon;
+} icon_font_block_t;
+
+typedef struct {
+    const uint8_t *header, *packed;
+    const icon_font_block_t *blocks;
+} icon_font_t;
+
+#include "../../protocol/display_link/include/sdlp_lz4_block.h"
+#include "generated/solar_os_icon_fonts.inc"
+
+#define GFX_ICON_HEADER_BYTES 23U
+#define GFX_ICON_GLYPH_PREFIX (GFX_ICON_HEADER_BYTES + 2U)
+#define GFX_ICON_SCRATCH_BYTES (GFX_ICON_GLYPH_PREFIX + SOLAR_OS_ICON_BLOCK_BYTES + 2U)
+#define GFX_ICON_LOCAL_GLYPH 32U
+
+static const uint8_t *gfx_unpack_icon(const icon_font_t *face, unsigned icon,
+                                     uint8_t scratch[GFX_ICON_SCRATCH_BYTES])
 {
-    switch (size) {
-    case SOLAR_OS_GFX_ICON_SIZE_8:
-        return u8g2_font_open_iconic_all_1x_t;
-    case SOLAR_OS_GFX_ICON_SIZE_16:
-        return u8g2_font_open_iconic_all_2x_t;
-    case SOLAR_OS_GFX_ICON_SIZE_32:
-        return u8g2_font_open_iconic_all_4x_t;
-    case SOLAR_OS_GFX_ICON_SIZE_48:
-        return u8g2_font_open_iconic_all_6x_t;
-    case SOLAR_OS_GFX_ICON_SIZE_64:
-        return u8g2_font_open_iconic_all_8x_t;
-    default:
-        return NULL;
+    const icon_font_block_t *block = face->blocks;
+    unsigned first = 0;
+    while (block->bytes && icon > block->last_icon) {
+        first = block->last_icon + 1U;
+        ++block;
     }
+    if (!block->bytes || block->bytes > SOLAR_OS_ICON_BLOCK_BYTES) return NULL;
+    size_t packed_bytes = block[1].offset - block->offset;
+    const uint8_t *packed = face->packed + block->offset;
+    uint8_t *records = scratch + GFX_ICON_GLYPH_PREFIX;
+    if (packed_bytes == block->bytes) memcpy(records, packed, packed_bytes);
+    else if (!solar_os_lz4_decode_block(records, block->bytes, packed, packed_bytes)) return NULL;
+
+    uint8_t *end = records + block->bytes;
+    for (; first <= icon && records < end; ++first) {
+        size_t bytes = *records++;
+        if (!bytes || bytes > 253 || bytes > (size_t)(end - records)) return NULL;
+        if (first == icon) {
+            /* Preserve the original metrics and glyph bytes. Only the glyph's
+             * local encoding and its lookup offsets change. */
+            uint8_t *font = records - GFX_ICON_GLYPH_PREFIX;
+            memcpy(font, face->header, GFX_ICON_HEADER_BYTES);
+            memset(font + 17, 0, 6);
+            font[GFX_ICON_HEADER_BYTES] = GFX_ICON_LOCAL_GLYPH;
+            font[GFX_ICON_HEADER_BYTES + 1] = bytes + 2U;
+            records[bytes] = records[bytes + 1U] = 0;
+            return font;
+        }
+        records += bytes;
+    }
+    return NULL;
 }
 
 static bool gfx_color_is_gray(solar_os_gfx_color_t color)
@@ -966,6 +1002,7 @@ static bool gfx_text_needs_pack(solar_os_gfx_t *gfx, const char *text)
         return false;
     }
     const uint8_t *base = gfx_font_data(gfx->font);
+    solar_os_font_face_ref_t ref = {0};
     for (const char *p = text; ; ) {
         const uint32_t codepoint = solar_os_utf8_next(&p);
         if (codepoint == 0) {
@@ -973,21 +1010,21 @@ static bool gfx_text_needs_pack(solar_os_gfx_t *gfx, const char *text)
         }
         if (codepoint > 0xffU && codepoint <= 0xffffU &&
             !u8g2_IsGlyph(gfx->u8g2, (uint16_t)codepoint) &&
-            solar_os_font_fallback(base, codepoint) != NULL) {
+            solar_os_font_fallback(base, codepoint, &ref)) {
+            solar_os_font_face_release(&ref);
             return true;
         }
     }
 }
 
 static uint16_t gfx_select_glyph(solar_os_gfx_t *gfx, const uint8_t *base,
-                                 uint32_t codepoint)
+                                 uint32_t codepoint, solar_os_font_face_ref_t *ref)
 {
     const uint16_t glyph = codepoint > 0xffffU ? 0xfffdU : (uint16_t)codepoint;
     u8g2_SetFont(gfx->u8g2, base);
-    if (glyph > 0xffU && !u8g2_IsGlyph(gfx->u8g2, glyph)) {
-        const uint8_t *extra = solar_os_font_fallback(base, glyph);
-        if (extra) u8g2_SetFont(gfx->u8g2, extra);
-    }
+    if (ref->face) solar_os_font_face_release(ref);
+    if (glyph > 0xffU && !u8g2_IsGlyph(gfx->u8g2, glyph) &&
+        solar_os_font_fallback(base, glyph, ref)) u8g2_SetFont(gfx->u8g2, ref->face);
     return glyph;
 }
 
@@ -998,13 +1035,14 @@ static int gfx_utf8_walk(solar_os_gfx_t *gfx,
                          bool draw)
 {
     const uint8_t *base = gfx_font_data(gfx->font);
+    solar_os_font_face_ref_t ref = {0};
     int advance = 0;
     for (const char *p = text; ; ) {
         const uint32_t codepoint = solar_os_utf8_next(&p);
         if (codepoint == 0) {
             break;
         }
-        const uint16_t glyph = gfx_select_glyph(gfx, base, codepoint);
+        const uint16_t glyph = gfx_select_glyph(gfx, base, codepoint, &ref);
         if (draw) {
             advance += (int)u8g2_DrawGlyph(gfx->u8g2, (u8g2_uint_t)(x + advance),
                                            (u8g2_uint_t)baseline_y, glyph);
@@ -1013,6 +1051,7 @@ static int gfx_utf8_walk(solar_os_gfx_t *gfx,
         }
     }
     u8g2_SetFont(gfx->u8g2, base);
+    if (ref.face) solar_os_font_face_release(&ref);
     return advance;
 }
 
@@ -1056,11 +1095,12 @@ static gfx_text_span_metrics_t gfx_text_span_walk(solar_os_gfx_t *gfx,
 {
     gfx_text_span_metrics_t run = {0};
     const uint8_t *base = gfx_font_data(gfx->font);
+    solar_os_font_face_ref_t ref = {0};
     while (run.bytes < length) {
         uint32_t codepoint;
         const size_t bytes = solar_os_ui_utf8_decode_n(text + run.bytes, length - run.bytes, &codepoint);
         if (!bytes) break;
-        const uint16_t glyph = gfx_select_glyph(gfx, base, codepoint);
+        const uint16_t glyph = gfx_select_glyph(gfx, base, codepoint, &ref);
         gfx->u8g2->font_decode.glyph_width = 0;
         gfx->u8g2->glyph_x_offset = 0;
         const int delta = u8g2_GetGlyphWidth(gfx->u8g2, glyph);
@@ -1084,6 +1124,7 @@ static gfx_text_span_metrics_t gfx_text_span_walk(solar_os_gfx_t *gfx,
         if (minimum_advance > 0 && run.advance >= minimum_advance) break;
     }
     u8g2_SetFont(gfx->u8g2, base);
+    if (ref.face) solar_os_font_face_release(&ref);
     return run;
 }
 
@@ -1444,22 +1485,9 @@ void solar_os_gfx_text_span(solar_os_gfx_t *gfx, int x, int baseline_y,
                             const char *text, size_t length)
 { gfx_render_text(gfx, x, baseline_y, text, length, true); }
 
-void solar_os_gfx_icon(solar_os_gfx_t *gfx,
-                       int x,
-                       int y,
-                       solar_os_gfx_icon_t icon,
-                       solar_os_gfx_icon_size_t size)
+static void gfx_draw_icon(solar_os_gfx_t *gfx, int x, int y, int pixels,
+                          const uint8_t *font, uint16_t encoding)
 {
-    const uint8_t *font = gfx_icon_font_data(size);
-    if (!gfx_ready(gfx) || font == NULL ||
-        (unsigned)icon >= SOLAR_OS_GFX_ICON_COUNT) {
-        return;
-    }
-
-    const int pixels = (int)size;
-    const uint16_t encoding =
-        (uint16_t)(GFX_OPEN_ICONIC_FIRST_ENCODING + (unsigned)icon);
-
     const solar_os_display_rect_t canvas = solar_os_display_canvas_rect(gfx->u8g2);
     x += canvas.x;
     y += canvas.y;
@@ -1500,6 +1528,37 @@ void solar_os_gfx_icon(solar_os_gfx_t *gfx,
         u8g2_DrawGlyph(gfx->u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, encoding);
     }
     gfx_mark_dirty(gfx);
+}
+
+/* Small icons take their original path without a scratch allocation. */
+static __attribute__((noinline)) void gfx_draw_large_icon(solar_os_gfx_t *gfx, int x, int y,
+                                                          unsigned icon, unsigned size)
+{
+    uint8_t scratch[GFX_ICON_SCRATCH_BYTES];
+    const uint8_t *font = gfx_unpack_icon(&large_icon_fonts[size / 16 - 2], icon, scratch);
+    if (!font) return;
+    gfx_draw_icon(gfx, x, y, size, font, GFX_ICON_LOCAL_GLYPH);
+    u8g2_SetFont(gfx->u8g2, gfx_font_data(gfx->font));
+    u8g2_SetFontPosBaseline(gfx->u8g2);
+}
+
+void solar_os_gfx_icon(solar_os_gfx_t *gfx, int x, int y, solar_os_gfx_icon_t icon,
+                       solar_os_gfx_icon_size_t size)
+{
+    if (!gfx_ready(gfx) || (unsigned)icon >= SOLAR_OS_GFX_ICON_COUNT) return;
+    switch (size) {
+    case SOLAR_OS_GFX_ICON_SIZE_8:
+    case SOLAR_OS_GFX_ICON_SIZE_16:
+        gfx_draw_icon(gfx, x, y, size, size == SOLAR_OS_GFX_ICON_SIZE_8 ?
+            u8g2_font_open_iconic_all_1x_t : u8g2_font_open_iconic_all_2x_t,
+            GFX_OPEN_ICONIC_FIRST_ENCODING + (unsigned)icon);
+        break;
+    case SOLAR_OS_GFX_ICON_SIZE_32:
+    case SOLAR_OS_GFX_ICON_SIZE_48:
+    case SOLAR_OS_GFX_ICON_SIZE_64:
+        gfx_draw_large_icon(gfx, x, y, (unsigned)icon, (unsigned)size);
+        break;
+    }
 }
 
 void solar_os_gfx_bitmap(solar_os_gfx_t *gfx,
@@ -1921,7 +1980,8 @@ bool solar_os_gfx_needs_present(const solar_os_gfx_t *gfx)
     return gfx != NULL && gfx->dirty;
 }
 
-void solar_os_gfx_present(solar_os_gfx_t *gfx)
+void solar_os_gfx_present_regions(solar_os_gfx_t *gfx,
+    const solar_os_display_rect_t *areas, size_t count)
 {
     if (!gfx_ready(gfx)) {
         return;
@@ -1936,6 +1996,12 @@ void solar_os_gfx_present(solar_os_gfx_t *gfx)
         }
         return;
     }
-    solar_os_display_present(gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS);
+    solar_os_display_present_regions(
+        gfx->u8g2, SOLAR_OS_DISPLAY_PRESENT_GRAPHICS, areas, count);
     gfx->dirty = false;
+}
+
+void solar_os_gfx_present(solar_os_gfx_t *gfx)
+{
+    solar_os_gfx_present_regions(gfx, NULL, 0);
 }

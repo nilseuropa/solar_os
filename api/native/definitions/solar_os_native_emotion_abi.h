@@ -1,0 +1,43 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_EMOTION_SERVICE "emotion"
+#define SOLAR_OS_NATIVE_EMOTION_ABI 1U
+
+typedef struct {
+    const char *display; /* NULL uses the calling foreground app's surface. */
+    /* Unspecified colors use the terminal settings at open. */
+    uint32_t foreground_rgb888, background_rgb888;
+    bool foreground_set, background_set;
+    bool sound;
+    uint16_t fps; /* 0 uses the target's rate, capped at 25. */
+    int32_t motion; /* -1 automatic, 0 still poses, 1 animation. */
+    bool fullscreen; /* Use the panel without changing the display canvas. */
+} solar_os_emotion_options_t;
+
+typedef struct {
+    uint32_t frames, dropped, audio_skipped;
+    int32_t error, audio_error;
+    uint16_t fps, width, height;
+    bool sound, motion;
+} solar_os_emotion_status_t;
+
+/* A live instance holds its display claim and renderer library lease. A busy
+ * handle can be retried. Failed open may return a close-only handle if the
+ * display or renderer could not finish rollback. Retry a failed close before
+ * releasing the app's surface or other resources used by this instance. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const solar_os_emotion_options_t *options, solar_os_native_handle_t *instance,
+        char *detail, size_t capacity);
+    int (*close)(solar_os_native_handle_t instance);
+    int (*set_suspended)(solar_os_native_handle_t instance, bool suspended);
+    int (*set)(solar_os_native_handle_t instance, const char *pose, uint32_t transition_ms);
+    int (*react)(solar_os_native_handle_t instance, const char *pose, uint32_t hold_ms,
+        uint32_t transition_ms, const char *cue);
+    int (*look)(solar_os_native_handle_t instance, int32_t x, int32_t y);
+    int (*blink)(solar_os_native_handle_t instance);
+    int (*status)(solar_os_native_handle_t instance, solar_os_emotion_status_t *status);
+    int (*uses_foreground)(solar_os_native_handle_t instance, bool *uses_foreground);
+} solar_os_native_emotion_api_v1_t;

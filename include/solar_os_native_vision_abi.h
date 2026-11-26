@@ -25,4 +25,7 @@ typedef struct {
         solar_os_imlib_operation_t operation, const solar_os_imlib_options_t *options,
         solar_os_native_cancel_fn cancel, void *user, solar_os_imlib_result_t **result);
     void (*result_free)(solar_os_imlib_result_t *result);
+    const char *(*operation_name)(solar_os_imlib_operation_t operation);
+    bool (*is_transform)(solar_os_imlib_operation_t operation);
+    bool (*option_allowed)(solar_os_imlib_operation_t operation, const char *key);
 } solar_os_native_imlib_api_v1_t;

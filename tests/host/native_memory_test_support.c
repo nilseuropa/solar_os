@@ -4,6 +4,23 @@
 #include <string.h>
 #include "solar_os_memory.h"
 
+__attribute__((weak)) void *solar_os_memory_calloc(size_t count, size_t size,
+                                                  solar_os_memory_class_t cls, const char *tag)
+{
+    if (!size || count > SIZE_MAX / size) return NULL;
+    void *buffer = solar_os_memory_alloc(count * size, cls, tag);
+    if (buffer) memset(buffer, 0, count * size);
+    return buffer;
+}
+
+__attribute__((weak)) void *solar_os_memory_realloc(void *buffer, size_t size,
+                                                   solar_os_memory_class_t cls, const char *tag)
+{
+    if (!buffer) return solar_os_memory_alloc(size, cls, tag);
+    if (!size) solar_os_memory_free(buffer);
+    return NULL;
+}
+
 struct solar_os_memory_buffer { void *data; unsigned pins; };
 solar_os_memory_buffer_t *solar_os_memory_buffer_create(size_t size, const char *owner)
 {

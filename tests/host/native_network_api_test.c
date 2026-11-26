@@ -43,6 +43,15 @@ esp_err_t solar_os_net_session_tcp_connect(solar_os_net_session_t *state,const c
     if(state->cancel(state->user))return ESP_ERR_TIMEOUT;
     state->channels|=1;*out=1;return ESP_OK;
 }
+esp_err_t solar_os_net_session_tls_connect(solar_os_net_session_t *state, const char *host,
+    uint16_t port, uint32_t timeout, uint32_t *out)
+{
+    assert(!strcmp(host, "peer") && port == 443 && timeout == 37);
+    if (state->cancel(state->user)) return ESP_ERR_INVALID_STATE;
+    state->channels |= 8U;
+    *out = 4;
+    return ESP_OK;
+}
 esp_err_t solar_os_net_session_udp_open(solar_os_net_session_t *state,uint16_t port,uint32_t *out)
 { assert(port==55);state->channels|=2;*out=2;return ESP_OK; }
 esp_err_t solar_os_net_session_websocket_connect(solar_os_net_session_t *state,const char *url,const char *subprotocol,uint32_t timeout,uint32_t *out)
@@ -53,6 +62,12 @@ esp_err_t solar_os_net_session_udp_send(solar_os_net_session_t *state,uint32_t i
 { assert(id==2 && !strcmp(host,"peer") && port==9);return solar_os_net_session_tcp_send(state,1,bytes,size,timeout); }
 esp_err_t solar_os_net_session_websocket_send(solar_os_net_session_t *state,uint32_t id,const void *bytes,size_t size,bool text,uint32_t timeout)
 { assert(id==3 && text);return solar_os_net_session_tcp_send(state,1,bytes,size,timeout); }
+esp_err_t solar_os_net_session_tls_send(solar_os_net_session_t *state, uint32_t id,
+    const void *data, size_t size, uint32_t timeout)
+{
+    assert(id == 4 && (state->channels & 8U));
+    return solar_os_net_session_tcp_send(state, 1, data, size, timeout);
+}
 static esp_err_t receive(solar_os_net_session_t *state,uint32_t id,void *bytes,size_t capacity,uint32_t timeout,solar_os_net_receive_result_t *out)
 {
     assert(id>=1 && id<=3 && capacity>=4 && timeout==37);
@@ -71,13 +86,21 @@ esp_err_t solar_os_net_session_udp_receive(solar_os_net_session_t *state,uint32_
 { return receive(state,id,data,size,timeout,out); }
 esp_err_t solar_os_net_session_websocket_receive(solar_os_net_session_t *state,uint32_t id,void *data,size_t size,uint32_t timeout,solar_os_net_receive_result_t *out)
 { return receive(state,id,data,size,timeout,out); }
+esp_err_t solar_os_net_session_tls_receive(solar_os_net_session_t *state, uint32_t id,
+    void *data, size_t size, uint32_t timeout, solar_os_net_receive_result_t *out)
+{
+    assert(id == 4 && (state->channels & 8U) && size >= 4 && timeout == 37);
+    memcpy(data, "data", 4);
+    *out = (solar_os_net_receive_result_t){.data_len = 4, .message_len = 4};
+    return ESP_OK;
+}
 esp_err_t solar_os_net_session_close(solar_os_net_session_t *state,uint32_t id)
-{ assert(id>=1 && id<=3);state->channels&=~(1U<<(id-1));return ESP_OK; }
+{ assert(id>=1 && id<=4);state->channels&=~(1U<<(id-1));return ESP_OK; }
 void solar_os_net_session_close_all(solar_os_net_session_t *state) { state->channels=0; }
 void solar_os_net_session_get_status(const solar_os_net_session_t *state,solar_os_net_session_status_t *out)
 {
     memset(out,0,sizeof(*out));strcpy(out->owner,state->owner);
-    for(unsigned i=0;i<3;++i)out->open_channels+=(state->channels>>i)&1;
+    for(unsigned i=0;i<4;++i)out->open_channels+=(state->channels>>i)&1;
     out->session_limit=4;out->global_open_channels=out->open_channels;out->global_limit=8;
 }
 const char *solar_os_net_ws_opcode_name(solar_os_net_ws_opcode_t opcode)
@@ -116,6 +139,7 @@ int main(void)
 {
     api=solar_os_native_network_get_service("net",1,sizeof(*api));assert(api);
     assert(api->capabilities & SOLAR_OS_NATIVE_NET_CHANNELS);
+    assert(api->capabilities & SOLAR_OS_NATIVE_NET_TLS_CHANNELS);
     uint32_t context=0,channel=0;assert(!api->create("fixture",&context) && context);
     char address[46];assert(!api->resolve("peer",address,sizeof(address)) && !strcmp(address,"2001:db8::1"));
     assert(!api->hosts(visit,&visits) && visits==1);
@@ -135,6 +159,18 @@ int main(void)
     }
     solar_os_native_net_status_v1_t status;assert(!api->status(context,&status) && status.channels==3 && status.global_limit==8);
     assert(!strcmp(api->websocket_opcode_name(2),"binary"));
+    char tls_data[8];
+    solar_os_native_net_receive_v1_t tls;
+    assert(!api->cancel(context, true));
+    assert(api->tls_connect(context, "peer", 443, 37, &channel) == SOLAR_OS_NATIVE_ERROR_CANCELLED && !channel);
+    assert(!api->cancel(context, false));
+    assert(!api->tls_connect(context, "peer", 443, 37, &channel) && channel == 4);
+    assert(!api->send(context, channel, SOLAR_OS_NATIVE_NET_TLS, NULL, 0, "hi", 2, false, 37));
+    assert(!api->receive(context, channel, SOLAR_OS_NATIVE_NET_TLS, tls_data, sizeof(tls_data), 37, &tls));
+    assert(tls.bytes == 4 && !tls.flags && !memcmp(tls_data, "data", 4));
+    assert(!api->status(context, &status) && status.channels == 4);
+    assert(!api->channel_close(context, channel));
+
     waiting=false;block_receive=true;
     pthread_t thread;assert(!pthread_create(&thread,NULL,read_worker,&context));
     pthread_mutex_lock(&lock);while(!waiting)pthread_cond_wait(&condition,&lock);pthread_mutex_unlock(&lock);

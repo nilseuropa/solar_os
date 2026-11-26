@@ -3,3 +3,13 @@
 _Static_assert(__builtin_types_compatible_p(__typeof__(api), const solar_os_native_motion_api_v1_t), "native service table type");
 if (name && !strcmp(name, "motion") && abi == 1U &&
     minimum <= sizeof(api)) return &api;
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+_Static_assert(__builtin_types_compatible_p(__typeof__(robot_joints_api), const solar_os_native_robot_joints_api_v1_t), "native service table type");
+if (name && !strcmp(name, "robot.joints") && abi == 1U &&
+    minimum <= sizeof(robot_joints_api)) return &robot_joints_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+_Static_assert(__builtin_types_compatible_p(__typeof__(robot_model_api), const solar_os_native_robot_model_api_v1_t), "native service table type");
+if (name && !strcmp(name, "robot.model") && abi == 1U &&
+    minimum <= sizeof(robot_model_api)) return &robot_model_api;
+#endif

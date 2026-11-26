@@ -51,4 +51,9 @@ typedef struct {
     int (*provider_press_priority)(solar_os_native_handle_t profile, uint16_t physical, unsigned *priority);
     int (*provider_release_all)(solar_os_native_handle_t profile);
     int (*provider_close)(solar_os_native_handle_t profile);
+    /* Initialize physical IDs, leaving mappings empty for the caller. A
+     * cell uses ID first + row * stride + column, with unused inter-row
+     * slots left zero. Invalid dimensions preserve the caller's map. */
+    int (*init_matrix)(solar_os_input_keymap_t *map, uint32_t rows, uint32_t cols,
+        uint32_t first, uint32_t stride);
 } solar_os_native_keymap_api_v1_t;

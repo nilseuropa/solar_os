@@ -1,12 +1,20 @@
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "solar_os_camera.h"
+#include "solar_os_native_camera.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_runtime.h"
+#include "solar_os_native_support.h"
+#include "solar_os_stream.h"
+#include "solar_os_memory.h"
 
 typedef struct {
     bool started;
     bool fail_capture;
+    bool fail_stop;
     unsigned starts;
     unsigned stops;
     unsigned releases;
@@ -34,6 +42,7 @@ static esp_err_t fake_start(void *ctx,
 static esp_err_t fake_stop(void *ctx)
 {
     fake_camera_t *fake = ctx;
+    if (fake->fail_stop) return ESP_ERR_TIMEOUT;
     fake->started = false;
     fake->stops++;
     return ESP_OK;
@@ -90,6 +99,131 @@ static esp_err_t fake_control(void *ctx, const char *protocol, const void *reque
 }
 static unsigned invalidations;
 static void fake_invalidate(void *ctx) { assert(ctx); ++invalidations; }
+
+static unsigned native_allocations;
+
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{
+    assert(cls == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && tag);
+    void *memory = calloc(count, size);
+    if (memory) ++native_allocations;
+    return memory;
+}
+
+void solar_os_memory_free(void *memory)
+{
+    if (memory) --native_allocations;
+    free(memory);
+}
+
+static void test_native_camera(const solar_os_camera_backend_ops_t *operations)
+{
+    const solar_os_native_camera_api_v1_t *camera = solar_os_native_camera_get_service(
+        SOLAR_OS_NATIVE_CAMERA_SERVICE, SOLAR_OS_NATIVE_CAMERA_ABI, sizeof(*camera));
+    assert(camera);
+    fake_camera_t fake = {0};
+    const solar_os_camera_backend_t backend = {.driver = "abi-camera", .ops = operations, .ctx = &fake};
+    assert(solar_os_camera_register_backend(&backend) == ESP_OK);
+    solar_os_camera_config_t config = camera->default_config();
+    solar_os_native_handle_t owner = 0, competing = 0;
+    assert(!camera->open("abi", &owner) && owner);
+    assert(camera->open("competing", &competing) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !competing);
+    assert(!camera->set_running(owner, true, &config));
+    solar_os_camera_frame_t frame;
+    assert(!camera->capture(owner, &frame));
+    assert(frame.data == fake_jpeg && frame.length == sizeof(fake_jpeg) && frame.timestamp_us == 1234);
+    solar_os_camera_frame_t busy;
+    assert(camera->capture(owner, &busy) == SOLAR_OS_NATIVE_ERROR_BUSY && !busy.data);
+    assert(camera->close(owner) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(camera->set_running(owner, false, NULL) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(camera->invalidate(owner) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(!camera->release_frame(owner) && fake.releases == 1);
+    fake.fail_stop = true;
+    assert(camera->close(owner) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    solar_os_camera_status_t status;
+    assert(!camera->status(&status) && status.owner_leased && status.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    fake.fail_stop = false;
+    assert(!camera->close(owner) && !native_allocations && !solar_os_native_handle_count());
+    assert(camera->capture(owner, &frame) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(solar_os_camera_unregister_backend(backend.driver) == ESP_OK);
+}
+
+static unsigned provider_leases;
+
+int solar_os_native_library_retain(uint32_t token, uint32_t *retained)
+{
+    assert(token == 10 && retained);
+    ++provider_leases;
+    *retained = 11;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(uint32_t token)
+{
+    assert(token == 11 && provider_leases);
+    --provider_leases;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int portable_start(void *user, const solar_os_camera_config_t *config, solar_os_camera_orientation_t orientation,
+                          solar_os_camera_sensor_info_t *sensor)
+{ return solar_os_native_result(fake_start(user, config, orientation, sensor)); }
+static int portable_stop(void *user)
+{ return solar_os_native_result(fake_stop(user)); }
+static int portable_capture(void *user, solar_os_camera_backend_frame_t *frame)
+{ return solar_os_native_result(fake_capture(user, frame)); }
+static esp_err_t other_scalar(void *user, const solar_os_stream_read_options_t *options, float *out)
+{ (void)user; (void)options; *out = 1; return ESP_OK; }
+
+static void test_native_camera_provider(void)
+{
+    const solar_os_native_camera_api_v1_t *camera = solar_os_native_camera_get_service(
+        SOLAR_OS_NATIVE_CAMERA_SERVICE, SOLAR_OS_NATIVE_CAMERA_ABI, sizeof(*camera));
+    assert(camera && camera->provider_register && camera->provider_close);
+    fake_camera_t fake = {0};
+    char name[] = "portable-camera";
+    solar_os_camera_config_t config = {.width = 416, .height = 416, .jpeg_quality = 18};
+    solar_os_native_camera_provider_v1_t descriptor = {
+        .driver = name, .library_lease = 10, .stream_name = name, .default_config = &config,
+        .user = &fake, .start = portable_start, .stop = portable_stop,
+        .capture = portable_capture, .release = fake_release,
+    };
+    static const solar_os_stream_driver_t foreign = {
+        .info = {.id = "portable-camera", .provider = "foreign", .device = "other", .format = "f32",
+                 .type = SOLAR_OS_STREAM_TYPE_SCALAR, .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE},
+        .read_scalar = other_scalar,
+    };
+    assert(solar_os_stream_register(&foreign) == ESP_OK);
+    solar_os_native_handle_t provider;
+    assert(camera->provider_register(&descriptor, &provider) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!provider && !provider_leases && !native_allocations);
+    solar_os_camera_status_t status;
+    assert(!camera->status(&status) && !status.backend_registered);
+    assert(solar_os_stream_unregister(foreign.info.id) == ESP_OK);
+
+    assert(!camera->provider_register(&descriptor, &provider) && provider && provider_leases == 1);
+    memset(&descriptor, 0, sizeof(descriptor));
+    name[0] = 0;
+    config.width = 1;
+    solar_os_stream_info_t info;
+    assert(solar_os_stream_get_info(foreign.info.id, &info) == ESP_OK && info.type == SOLAR_OS_STREAM_TYPE_VIDEO);
+    assert(info.video.width == 416 && info.video.jpeg_quality == 18);
+    solar_os_stream_handle_t stream = SOLAR_OS_STREAM_HANDLE_INIT;
+    solar_os_stream_open_options_t options = {.direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+        .requested_video = {.codec = SOLAR_OS_STREAM_VIDEO_JPEG}};
+    assert(solar_os_stream_open_ex(foreign.info.id, "consumer", &options, &stream) == ESP_OK);
+    solar_os_stream_video_frame_t frame;
+    assert(solar_os_stream_acquire_frame(&stream, &frame) == ESP_OK && frame.data == fake_jpeg && frame.width == 416);
+    assert(camera->provider_close(provider) == SOLAR_OS_NATIVE_ERROR_BUSY && provider_leases == 1);
+    assert(solar_os_stream_release_frame(&stream, &frame) == ESP_OK);
+    assert(solar_os_stream_close_ex(&stream) == ESP_OK && fake.releases == 1);
+
+    assert(solar_os_stream_unregister(foreign.info.id) == ESP_OK);
+    assert(solar_os_stream_register(&foreign) == ESP_OK);
+    assert(!camera->provider_close(provider) && !provider_leases && !native_allocations);
+    assert(solar_os_stream_get_info(foreign.info.id, &info) == ESP_OK && info.type == SOLAR_OS_STREAM_TYPE_SCALAR);
+    assert(solar_os_stream_unregister(foreign.info.id) == ESP_OK);
+}
 
 int main(void)
 {
@@ -268,6 +402,8 @@ int main(void)
     assert(solar_os_camera_register_backend(&unsupported) == ESP_OK);
     assert(solar_os_camera_set_orientation(SOLAR_OS_CAMERA_ORIENTATION_MIRROR) == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_camera_unregister_backend("fake-camera") == ESP_OK);
+    test_native_camera(&operations);
+    test_native_camera_provider();
     puts("camera service tests: ok");
     return 0;
 }

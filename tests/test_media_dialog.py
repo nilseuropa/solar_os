@@ -37,7 +37,7 @@ class MediaDialogTest(unittest.TestCase):
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-fno-pie", "-no-pie", f"-I{stage}",
-                f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}",
+                f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src/apps'}",
                 "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/media_editor_apps_test.c"), "-o", str(binary),
             ], check=True)

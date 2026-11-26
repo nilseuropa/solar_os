@@ -11,7 +11,7 @@ class NativeRoutingApiTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'wifi_release.inc').write_text(production_functions(
                 (ROOT / 'src/services/solar_os_wifi.c').read_text(),
-                ('solar_os_wifi_connectionless_release', 'solar_os_wifi_latency_release')))
+                ('solar_os_wifi_connectionless_release', 'solar_os_wifi_latency_release', 'solar_os_wifi_state_name')))
             binary = Path(tmp) / 'routing'
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-pthread',
                 '-fsanitize=address,undefined', '-fno-pie', '-no-pie',

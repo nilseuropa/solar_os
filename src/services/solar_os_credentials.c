@@ -1,4 +1,5 @@
 #include "solar_os_credentials.h"
+#include "solar_os_secure_wipe.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -63,11 +64,7 @@ static solar_os_credentials_store_t credentials_store;
 
 void solar_os_credentials_wipe(void *buffer, size_t length)
 {
-    volatile uint8_t *bytes = buffer;
-    while (bytes != NULL && length > 0U) {
-        *bytes++ = 0U;
-        length--;
-    }
+    solar_os_secure_wipe(buffer, length);
 }
 
 static uint32_t credentials_crc32(const void *data, size_t length)

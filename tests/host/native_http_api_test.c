@@ -8,6 +8,7 @@
 #include "solar_os_native_handles.h"
 #include "solar_os_memory.h"
 #include "solar_os_http_stream.h"
+#include "solar_os_download.h"
 
 struct solar_os_http_request { solar_os_http_request_options_t options; };
 struct solar_os_http_session_context { solar_os_http_cancel_fn cancel; void *user; uint32_t id; };
@@ -136,6 +137,31 @@ void solar_os_http_buffered_response_clear(solar_os_http_buffered_response_t *ou
     for (size_t i = 0; i < out->header_count; ++i) { free(out->headers[i].name); free(out->headers[i].value); }
     free(out->headers); free(out->body); memset(out, 0, sizeof(*out));
 }
+static const char expected_digest[] = "19e0ef597b4ef2ac0ba17899d76fccb24c4bbd66c33c9e5b1778584eafd8c6dd";
+static bool cancel_download;
+static unsigned download_updates;
+static void download_progress(size_t received, size_t total, void *user)
+{
+    assert(received == 7 && total == 7 && user == &download_updates);
+    ++download_updates;
+    assert(api->close(active_context) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    if (cancel_download) assert(!api->cancel(active_context, true));
+}
+
+esp_err_t solar_os_download_file(const solar_os_http_request_options_t *options, const char *path,
+    size_t maximum, size_t expected, const char *sha256, solar_os_download_progress_fn progress,
+    void *user, solar_os_download_result_t *result)
+{
+    assert(!strcmp(options->url, "https://peer/path") && options->method == SOLAR_OS_HTTP_METHOD_POST);
+    assert(!strcmp(path, "/flash/stage") && maximum == 100 && expected == 7 && !strcmp(sha256, expected_digest));
+    assert(!options->should_cancel(options->cancel_user_data));
+    *result = (solar_os_download_result_t){
+        .bytes = 7, .sha256 = {0xab}, .response = {.status_code = 200, .content_length = 7, .bytes_received = 7},
+    };
+    progress(7, 7, user);
+    return options->should_cancel(options->cancel_user_data) ? ESP_ERR_INVALID_STATE : ESP_OK;
+}
+
 static int event_visit(const solar_os_native_http_borrowed_event_v1_t *event, void *user)
 {
     assert(user == &visits && event->type == SOLAR_OS_NATIVE_HTTP_RESPONSE && event->status == 404);
@@ -171,6 +197,13 @@ int main(void)
     assert(!api->cancel(active_context, true));
     pthread_mutex_lock(&lock); release_wait = true; pthread_cond_broadcast(&condition); pthread_mutex_unlock(&lock);
     pthread_join(thread, NULL); block_request = false; assert(!api->cancel(active_context, false));
+    solar_os_native_download_result_v1_t download;
+    assert(!api->download(active_context, &options, "/flash/stage", 100, 7, expected_digest, download_progress, &download_updates, &download));
+    assert(download_updates == 1 && download.bytes == 7 && download.response.status == 200 && download.sha256[0] == 0xab);
+    cancel_download = true;
+    assert(api->download(active_context, &options, "/flash/stage", 100, 7, expected_digest, download_progress, &download_updates, &download) == SOLAR_OS_NATIVE_ERROR_CANCELLED);
+    assert(download_updates == 2 && download.bytes == 7 && download.response.flags == SOLAR_OS_NATIVE_HTTP_CANCELLED && download.sha256[0] == 0);
+    assert(!api->cancel(active_context, false));
     uint32_t connection; assert(!api->connection_open(active_context, "https://peer", "agent", &connection));
     solar_os_native_handle_t response; assert(!api->request(active_context, connection, &options, 3, &response));
     assert(!api->response_info(response, &result) && result.status == 404 && result.body_size == 3 && result.header_count == 1);

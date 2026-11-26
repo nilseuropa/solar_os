@@ -9,8 +9,9 @@
 static unsigned allocations;
 static solar_os_display_raster_t presented;
 static const uint8_t *fixture_fallback_font;
-const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
-{ (void)font; (void)codepoint; return fixture_fallback_font; }
+bool solar_os_font_fallback(const uint8_t *font, uint32_t codepoint, solar_os_font_face_ref_t *ref)
+{ (void)font; (void)codepoint; assert(!ref->face); ref->face = fixture_fallback_font; return ref->face != NULL; }
+void solar_os_font_face_release(solar_os_font_face_ref_t *ref) { assert(ref->face); ref->face = NULL; }
 size_t solar_os_font_pack_count(void) { return fixture_fallback_font ? 1 : 0; }
 esp_err_t solar_os_display_present_frame(u8g2_t *u, const solar_os_display_raster_t *frame)
 { (void)u; presented = *frame; return ESP_OK; }

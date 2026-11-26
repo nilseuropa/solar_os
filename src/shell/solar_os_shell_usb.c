@@ -95,8 +95,10 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
             SOLAR_OS_USB_MODE_HOST : strcmp(argv[2], "off") == 0 ?
                 SOLAR_OS_USB_MODE_OFF : SOLAR_OS_USB_MODE_DEVICE);
         if (ret != ESP_OK) {
-            solar_os_cdc_status_t cdc;
+            solar_os_cdc_status_t cdc = {0};
+#if SOLAR_OS_PACKAGE_SERVICE_USB_CDC
             solar_os_cdc_get_status(&cdc);
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_STORAGE
             solar_os_usb_storage_status_t storage;
             solar_os_usb_storage_get_status(&storage);
@@ -182,7 +184,7 @@ void solar_os_shell_cmd_usb(solar_os_context_t *ctx, int argc, char **argv)
     }
     solar_os_shell_io_table_writeln(io, "ADDR IF SOURCE     STATE   REPORTS ERRORS");
     for (size_t i = 0; i < status.interface_count; i++) {
-        const usb_host_port_interface_t *interface = &status.interfaces[i];
+        const solar_os_usb_interface_status_t *interface = &status.interfaces[i];
         char source[16];
         snprintf(source, sizeof(source), "usb-%s%u",
             interface->protocol == SOLAR_OS_USB_HID_KEYBOARD ? "kbd" :

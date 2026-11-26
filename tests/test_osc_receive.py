@@ -23,10 +23,13 @@ class OscReceiveTest(unittest.TestCase):
             (path / "test.c").write_text(fixture)
             subprocess.run([
                 "cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
+                "-DSOLAR_OS_PACKAGE_SERVICE_OSC=1",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
+                "-I" + str(ROOT / "src"),
                 "-I" + str(ROOT / "include"), str(path / "test.c"),
                 str(ROOT / "src/services/solar_os_osc.c"),
+                str(ROOT / "src/services/solar_os_native_network.c"),
                 str(ROOT / "src/services/solar_os_parameters.c"),
                 str(ROOT / "src/services/solar_os_stream.c"), "-lm", "-o", str(path / "test")], check=True)
             subprocess.run([str(path / "test")], check=True)

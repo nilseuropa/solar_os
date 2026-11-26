@@ -29,6 +29,7 @@ typedef struct {
     uint32_t generation;
     solar_os_tick_stats_t tick_stats;
     size_t callback_refs;
+    size_t detail_refs;
     TaskHandle_t callback_task;
     bool stop_after_callback;
     bool lifecycle_busy;
@@ -46,6 +47,10 @@ static size_t job_runtime_count;
 static size_t static_job_runtime_count;
 static bool jobs_initialized;
 static portMUX_TYPE jobs_lock = portMUX_INITIALIZER_UNLOCKED;
+
+_Static_assert(SOLAR_OS_JOB_OWNER_MAX == SOLAR_OS_PORT_OWNER_MAX, "job owner names fit port handles");
+_Static_assert(SOLAR_OS_JOB_KIND_BACKGROUND == SOLAR_OS_NATIVE_JOB_BACKGROUND &&
+    SOLAR_OS_JOB_KIND_INTERACTIVE == SOLAR_OS_NATIVE_JOB_INTERACTIVE, "native job kind values");
 
 static int job_index_by_name(const char *name)
 {
@@ -249,8 +254,6 @@ static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
 
     const solar_os_job_runtime_t *runtime = &job_runtimes[index];
     *status = (solar_os_job_status_t){
-        .name = runtime->entry->name,
-        .summary = runtime->entry->summary,
         .kind = job_kind_from_runtime(runtime),
         .state = runtime->state,
         .last_error = runtime->last_error,
@@ -258,7 +261,7 @@ static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
         .last_tick_ms = runtime->last_tick_ms,
         .generation = runtime->generation,
         .has_event = job_has_event(runtime->entry->job),
-        .detail = runtime->entry->job != NULL ? runtime->entry->job->detail : NULL,
+        .has_detail = runtime->entry->job != NULL && runtime->entry->job->detail != NULL,
         .worker_stack_bytes =
             runtime->entry->job != NULL ? runtime->entry->job->worker_stack_bytes : 0,
         .worker_stack_external =
@@ -266,6 +269,8 @@ static bool job_status_from_runtime(size_t index, solar_os_job_status_t *status)
         .tick_stats = runtime->tick_stats,
         .resource_count = runtime->resource_count,
     };
+    strlcpy(status->name, runtime->entry->name, sizeof(status->name));
+    if (runtime->entry->summary) strlcpy(status->summary, runtime->entry->summary, sizeof(status->summary));
     strlcpy(status->owner, runtime->owner, sizeof(status->owner));
     memcpy(status->resources,
            runtime->resources,
@@ -306,7 +311,9 @@ esp_err_t solar_os_jobs_register_dynamic(const char *name,
                                          const char *summary,
                                          const solar_os_job_t *job)
 {
-    if (name == NULL || name[0] == '\0' || summary == NULL || job == NULL ||
+    if (name == NULL || name[0] == '\0' || strlen(name) >= SOLAR_OS_JOB_NAME_MAX ||
+        summary == NULL || strlen(summary) >= SOLAR_OS_JOB_SUMMARY_MAX ||
+        job == NULL || job->name == NULL ||
         strcmp(name, job->name) != 0 || !job_has_start(job)) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -373,7 +380,7 @@ esp_err_t solar_os_jobs_unregister_dynamic(const char *name,
         return ESP_ERR_INVALID_ARG;
     }
     if (runtime->state != SOLAR_OS_JOB_STOPPED || runtime->lifecycle_busy ||
-        runtime->callback_refs != 0U || runtime->pending_start != NULL) {
+        runtime->callback_refs != 0U || runtime->detail_refs != 0U || runtime->pending_start != NULL) {
         portEXIT_CRITICAL(&jobs_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -489,17 +496,17 @@ static bool job_inspection_from_runtime(
     return true;
 }
 
-bool solar_os_jobs_inspect(size_t index,
-                           solar_os_job_inspection_t *inspection)
+static bool job_inspect(size_t ordinal, const char *key, bool by_owner,
+                         solar_os_job_inspection_t *inspection)
 {
-    if (inspection == NULL || solar_os_jobs_init() != ESP_OK) {
-        return false;
-    }
+    if (!inspection) return false;
     memset(inspection, 0, sizeof(*inspection));
+    if (solar_os_jobs_init() != ESP_OK) return false;
     bool lifecycle_busy = false;
     bool startable = false;
     portENTER_CRITICAL(&jobs_lock);
-    const int runtime_index = job_index_by_ordinal(index);
+    const int runtime_index = key ? (by_owner ? job_index_by_owner(key) : job_index_by_name(key)) :
+        job_index_by_ordinal(ordinal);
     const bool found = runtime_index >= 0 &&
         job_inspection_from_runtime((size_t)runtime_index,
                                     inspection,
@@ -512,28 +519,21 @@ bool solar_os_jobs_inspect(size_t index,
     return found;
 }
 
+bool solar_os_jobs_inspect(size_t index, solar_os_job_inspection_t *inspection)
+{
+    return job_inspect(index, NULL, false, inspection);
+}
+
 bool solar_os_jobs_inspect_by_name(
     const char *name,
     solar_os_job_inspection_t *inspection)
 {
-    if (inspection == NULL || solar_os_jobs_init() != ESP_OK) {
-        return false;
-    }
-    memset(inspection, 0, sizeof(*inspection));
-    bool lifecycle_busy = false;
-    bool startable = false;
-    portENTER_CRITICAL(&jobs_lock);
-    const int index = job_index_by_name(name);
-    const bool found = index >= 0 &&
-        job_inspection_from_runtime((size_t)index,
-                                    inspection,
-                                    &lifecycle_busy,
-                                    &startable);
-    portEXIT_CRITICAL(&jobs_lock);
-    if (found) {
-        job_finish_inspection(inspection, lifecycle_busy, startable);
-    }
-    return found;
+    return name && job_inspect(0, name, false, inspection);
+}
+
+bool solar_os_jobs_inspect_by_owner(const char *owner, solar_os_job_inspection_t *inspection)
+{
+    return owner && job_inspect(0, owner, true, inspection);
 }
 
 esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int argc, char **argv)
@@ -705,31 +705,50 @@ esp_err_t solar_os_jobs_start(solar_os_context_t *ctx, const char *name, int arg
     return ret;
 }
 
-bool solar_os_jobs_get_error_detail(const char *name,
-                                    char *buffer,
-                                    size_t buffer_len)
+static solar_os_job_runtime_t *job_retain_for_detail(const char *name)
 {
-    if (name == NULL || name[0] == '\0' || buffer == NULL || buffer_len == 0U) {
-        return false;
-    }
-    const esp_err_t ret = solar_os_jobs_init();
-    if (ret != ESP_OK) {
-        return false;
-    }
-    void (*error_detail)(char *, size_t) = NULL;
+    if (solar_os_jobs_init() != ESP_OK) return NULL;
+    solar_os_job_runtime_t *runtime = NULL;
     portENTER_CRITICAL(&jobs_lock);
     const int index = job_index_by_name(name);
-    if (index >= 0 && job_runtimes[index].entry != NULL &&
-        job_runtimes[index].entry->job != NULL) {
-        error_detail = job_runtimes[index].entry->job->error_detail;
+    if (index >= 0 && job_runtimes[index].entry->job) {
+        runtime = &job_runtimes[index];
+        runtime->detail_refs++;
     }
     portEXIT_CRITICAL(&jobs_lock);
+    return runtime;
+}
+
+static void job_release_detail(solar_os_job_runtime_t *runtime)
+{
+    portENTER_CRITICAL(&jobs_lock);
+    runtime->detail_refs--;
+    portEXIT_CRITICAL(&jobs_lock);
+}
+
+bool solar_os_jobs_get_error_detail(const char *name, char *buffer, size_t buffer_len)
+{
+    if (!buffer || !buffer_len) return false;
     buffer[0] = '\0';
-    if (error_detail == NULL) {
-        return false;
-    }
-    error_detail(buffer, buffer_len);
+    solar_os_job_runtime_t *runtime = job_retain_for_detail(name);
+    if (!runtime) return false;
+    const solar_os_job_t *job = runtime->entry->job;
+    if (job->error_detail) job->error_detail(buffer, buffer_len);
+    job_release_detail(runtime);
+    buffer[buffer_len - 1U] = '\0';
     return buffer[0] != '\0';
+}
+
+esp_err_t solar_os_jobs_print_detail(solar_os_context_t *ctx, const char *name)
+{
+    if (!ctx || !name || !*name) return ESP_ERR_INVALID_ARG;
+    solar_os_job_runtime_t *runtime = job_retain_for_detail(name);
+    if (!runtime) return ESP_ERR_NOT_FOUND;
+    const solar_os_job_t *job = runtime->entry->job;
+    const bool supported = job->detail != NULL;
+    if (supported) job->detail(ctx);
+    job_release_detail(runtime);
+    return supported ? ESP_OK : ESP_ERR_NOT_SUPPORTED;
 }
 
 esp_err_t solar_os_jobs_stop(solar_os_context_t *ctx, const char *name)
@@ -1030,31 +1049,6 @@ void solar_os_jobs_tick(solar_os_context_t *ctx, uint32_t now_ms)
                           tick_stats.deadline_miss_count);
         }
     }
-}
-
-uint32_t solar_os_jobs_requested_tick_interval_ms(void)
-{
-    uint32_t interval_ms = SOLAR_OS_TICK_INTERVAL_DEFAULT_MS;
-
-    portENTER_CRITICAL(&jobs_lock);
-    for (size_t i = 0; i < job_runtime_count; i++) {
-        const solar_os_job_runtime_t *runtime = &job_runtimes[i];
-        const solar_os_job_t *job =
-            runtime->entry != NULL ? runtime->entry->job : NULL;
-        if (runtime->state != SOLAR_OS_JOB_RUNNING ||
-            !job_has_event(job)) {
-            continue;
-        }
-        const uint32_t requested_ms =
-            solar_os_tick_interval_ms(job->tick_interval_ms,
-                                      SOLAR_OS_TICK_INTERVAL_DEFAULT_MS);
-        if (requested_ms < interval_ms) {
-            interval_ms = requested_ms;
-        }
-    }
-    portEXIT_CRITICAL(&jobs_lock);
-
-    return interval_ms;
 }
 
 uint32_t solar_os_jobs_next_tick_wait_ms(uint32_t now_ms)

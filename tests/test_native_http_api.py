@@ -18,7 +18,7 @@ class NativeHttpApiTest(unittest.TestCase):
             binary = Path(tmp) / 'http'
             subprocess.run(['cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror', '-pthread',
                 '-fsanitize=address,undefined', '-fno-pie', '-no-pie',
-                '-DSOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT=1', '-I', tmp,
+                '-DSOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT=1', '-DSOLAR_OS_PACKAGE_SERVICE_DOWNLOAD=1', '-I', tmp,
                 '-I', str(ROOT / 'tests/host/native_abi_stubs'), '-I', str(ROOT / 'tests/host'),
                 '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
                 '-I', str(SDK / 'components/http_parser'),

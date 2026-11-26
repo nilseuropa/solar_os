@@ -1,6 +1,7 @@
 #include "solar_os_media_widgets.h"
 #include "solar_os_native_ui_abi.h"
 #include "solar_os_native_media_widgets_abi.h"
+#include "solar_os_native_storage_browser_abi.h"
 #include <assert.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -94,12 +95,8 @@ void solar_os_cassette_widget_draw(solar_os_cassette_widget_t *p,
                                    int h) {
     visualizer(p, g, x, y, w, h);
 }
-static void solar_os_oscilloscope_widget_draw(void *p, solar_os_gfx_t *g, int x,
+static void solar_os_signal_widget_draw(void *p, solar_os_gfx_t *g, int x,
                                               int y, int w, int h) {
-    visualizer(p, g, x, y, w, h);
-}
-static void solar_os_spectrum_widget_draw(void *p, solar_os_gfx_t *g, int x,
-                                          int y, int w, int h) {
     visualizer(p, g, x, y, w, h);
 }
 enum {
@@ -140,10 +137,6 @@ typedef enum {
     WEBRADIO_PLAYBACK_PLAYING,
     WEBRADIO_PLAYBACK_ERROR
 } webradio_playback_state_t;
-typedef struct {
-    bool is_directory;
-    char name[192];
-} solar_os_storage_browser_entry_t;
 typedef solar_os_m3u_entry_t solar_os_player_track_t;
 static size_t browser_cursor;
 static size_t solar_os_storage_browser_count(void *p) {

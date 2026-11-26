@@ -5,6 +5,25 @@
 #define SOLAR_OS_NATIVE_TERMINAL_SERVICE "terminal"
 #define SOLAR_OS_NATIVE_TERMINAL_ABI 1U
 
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_ORIENTATION 0U
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_SCALE 1U
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_FONT 2U
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_TEXT_SIZE 3U
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_PALETTE 4U
+#define SOLAR_OS_NATIVE_TERMINAL_PREFERENCE_STATUS_BAR 5U
+
+typedef struct {
+    uint16_t orientation_degrees;
+    uint8_t scale;
+} solar_os_native_terminal_display_preferences_v1_t;
+
+typedef struct {
+    size_t rows;
+    int grid_top;
+    int baseline_offset;
+    int content_bottom;
+} solar_os_terminal_geometry_t;
+
 /* Borrow application.terminal during its owning callback. Serialize access;
  * do not retain the reference beyond its owner or access it from another task.
  * The core owns storage, rendering and scrollback. Text is consumed before
@@ -86,4 +105,16 @@ typedef struct {
     bool (*needs_draw)(const solar_os_terminal_t *terminal);
     void (*invalidate_render)(solar_os_terminal_t *terminal);
     void (*draw)(solar_os_terminal_t *terminal);
+    size_t (*columns_for_width)(int display_width, int horizontal_margin, int cell_width, size_t max_cols);
+    bool (*geometry_for_height)(int display_height, int status_bar_height, int footer_height,
+        int line_height, int cell_ascent, size_t max_rows, solar_os_terminal_geometry_t *geometry);
+    bool (*profile_valid)(const solar_os_terminal_profile_t *profile);
+    void (*load_saved_profile)(solar_os_terminal_profile_t *profile);
+    int (*load_display_preferences)(const char *display, uint16_t orientation_default,
+                                    solar_os_native_terminal_display_preferences_v1_t *preferences);
+    /* NULL display selects global defaults. Named displays accept orientation
+     * and scale. The palette and status-bar values are booleans (0 or 1). */
+    int (*save_preference)(const char *display, uint32_t field, uint32_t value);
+    /* The saved cursor choice takes precedence over the panel default. */
+    void (*cursor_preference_for_panel)(bool epaper, solar_os_terminal_cursor_shape_t *shape, bool *blink);
 } solar_os_native_terminal_api_v1_t;

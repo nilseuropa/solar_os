@@ -144,7 +144,7 @@ static void mqtt_print_status(solar_os_shell_io_t *term)
         solar_os_shell_io_printf(term,
                                  "Last error: %s (%s)\n",
                                  status.last_error,
-                                 solar_os_shell_error_text(status.last_esp_error));
+                                 solar_os_shell_error_text(status.error));
     }
 }
 

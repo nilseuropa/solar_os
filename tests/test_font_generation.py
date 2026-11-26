@@ -33,6 +33,7 @@ class FontGenerationTest(unittest.TestCase):
                 "cc", "-std=c11", "-O2", "-ffunction-sections", "-fdata-sections",
                 "-I" + str(component / "src/clib"),
                 "-I" + str(REPOSITORY / "src/services"),
+                "-I" + str(REPOSITORY / "include"),
                 "-I" + directory,
                 str(REPOSITORY / "tests/host/terminal_bitmap_font_test.c"),
                 *sources, "-Wl,--gc-sections", "-o", binary,

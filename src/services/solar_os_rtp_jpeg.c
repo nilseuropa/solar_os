@@ -355,8 +355,7 @@ esp_err_t solar_os_rtp_jpeg_packetize(solar_os_rtp_sender_t *sender,
     if (!solar_os_rtp_sender_valid(sender) || !jpeg_view_valid(view) ||
         packet == NULL || packet_capacity < sender->max_packet_bytes ||
         write_packet == NULL ||
-        view->scan_len + SOLAR_OS_RTP_JPEG_HEADER_RESERVE + 2U >
-            SOLAR_OS_MEDIA_VIDEO_FRAME_MAX) {
+        view->scan_len > SOLAR_OS_MEDIA_VIDEO_FRAME_MAX - SOLAR_OS_RTP_JPEG_HEADER_RESERVE - 2U) {
         return ESP_ERR_INVALID_ARG;
     }
     const bool restart = view->restart_interval != 0U;

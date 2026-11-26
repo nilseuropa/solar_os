@@ -5,9 +5,10 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_bus_abi.h"
 
-#define SOLAR_OS_ONEWIRE_MAX_DEVICES 32U
-#define SOLAR_OS_ONEWIRE_MAX_TRANSFER 64U
+#define SOLAR_OS_ONEWIRE_MAX_DEVICES SOLAR_OS_NATIVE_BUS_ONEWIRE_MAX_DEVICES
+#define SOLAR_OS_ONEWIRE_MAX_TRANSFER SOLAR_OS_NATIVE_BUS_ONEWIRE_MAX_TRANSFER
 
 esp_err_t solar_os_onewire_init(void);
 bool solar_os_onewire_pin_allowed(int pin);

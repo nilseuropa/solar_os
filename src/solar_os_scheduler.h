@@ -2,21 +2,14 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "solar_os_native_jobs_abi.h"
 
 #define SOLAR_OS_TICK_INTERVAL_DEFAULT_MS 25U
 #define SOLAR_OS_TICK_DEADLINE_DEFAULT_MS 25U
 #define SOLAR_OS_RUNTIME_WAIT_EVENT_MAX_MS 25U
 #define SOLAR_OS_RUNTIME_WAIT_POLL_MAX_MS 10U
 
-typedef struct {
-    uint32_t interval_ms;
-    uint32_t deadline_ms;
-    uint32_t dispatch_count;
-    uint32_t deadline_miss_count;
-    uint32_t last_dispatch_ms;
-    uint32_t last_duration_us;
-    uint32_t max_duration_us;
-} solar_os_tick_stats_t;
+typedef solar_os_job_tick_stats_v1_t solar_os_tick_stats_t;
 
 typedef struct {
     bool initialized;

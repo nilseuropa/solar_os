@@ -38,6 +38,28 @@ static void geometry(void)
     assert(g.canvas.x+g.canvas.width<=g.panel.width && g.canvas.y+g.canvas.height<=g.panel.height);
 }
 
+static void packed_icons(solar_os_gfx_t *gfx)
+{
+    const uint8_t *original[] = {u8g2_font_open_iconic_all_4x_t,
+        u8g2_font_open_iconic_all_6x_t, u8g2_font_open_iconic_all_8x_t};
+    uint8_t expected[52 * 52 * 8];
+    u8g2_t *u = gfx->u8g2;
+    unsigned allocations_before = allocations;
+    for (unsigned face = 0; face < sizeof(original) / sizeof(original[0]); ++face) {
+        unsigned size = 32 + 16 * face;
+        for (unsigned icon = 0; icon < SOLAR_OS_GFX_ICON_COUNT; ++icon) {
+            u8g2_ClearBuffer(u);
+            gfx_draw_icon(gfx, -10, 3, size, original[face], GFX_OPEN_ICONIC_FIRST_ENCODING + icon);
+            memcpy(expected, u->tile_buf_ptr, sizeof(expected));
+            u8g2_ClearBuffer(u);
+            solar_os_gfx_icon(gfx, -10, 3, icon, size);
+            assert(!memcmp(expected, u->tile_buf_ptr, sizeof(expected)));
+            assert(u->font == gfx_font_data(gfx->font));
+        }
+    }
+    assert(allocations == allocations_before);
+}
+
 static void pixels(void)
 {
     uint8_t storage[16+52*52*8+16]; memset(storage,0xa5,sizeof(storage));
@@ -69,6 +91,7 @@ static void pixels(void)
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,351,351)==ESP_OK && presented.x==411 && presented.y==411);
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,-61,0)==ESP_ERR_INVALID_ARG);
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,INT_MAX,INT_MIN)==ESP_ERR_INVALID_ARG);
+    packed_icons(&gfx);
     for(unsigned indexed=0;indexed<2;indexed++) {
         if(indexed) assert(solar_os_gfx_enable_index8(&gfx)==ESP_OK);
         solar_os_gfx_clear(&gfx,SOLAR_OS_GFX_COLOR_WHITE);

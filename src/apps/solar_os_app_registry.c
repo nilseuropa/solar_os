@@ -479,22 +479,22 @@ static const solar_os_app_registry_entry_t *app_registry_cached_find(const char 
 
 #endif
 
-void solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user),
+esp_err_t solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user),
                                           void *user)
 {
+    if (!visit) return ESP_ERR_INVALID_ARG;
 #if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
-    if (!visit) return;
     app_registry_cache_ensure();
     /* Visitors may reenter discovery. Keep a coherent cold snapshot and call
      * them outside the publication lock without a catalog-sized stack array. */
     portENTER_CRITICAL(&app_registry_cache_lock);
     const bool empty = app_registry_cache.count == 0;
     portEXIT_CRITICAL(&app_registry_cache_lock);
-    if (empty) return;
+    if (empty) return ESP_OK;
     char (*ids)[SOLAR_OS_MODULE_PACKAGE_ID_MAX] = solar_os_memory_alloc(
         SOLAR_OS_MODULE_PACKAGE_COUNT_MAX * sizeof(*ids),
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "apps.module.names");
-    if (!ids) return;
+    if (!ids) return ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&app_registry_cache_lock);
     const size_t count = app_registry_cache.count;
     for (size_t i = 0U; i < count; ++i)
@@ -503,9 +503,10 @@ void solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *us
     for (size_t i = 0U; i < count; ++i)
         if (!visit(ids[i], user)) break;
     solar_os_memory_free(ids);
+    return ESP_OK;
 #else
-    (void)visit;
     (void)user;
+    return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
 
@@ -820,6 +821,17 @@ bool solar_os_app_registry_can_open(const char *path_or_url)
     const solar_os_app_registry_entry_t *entry =
         app_registry_find_target_opener(path_or_url, resolved, sizeof(resolved));
     return entry != NULL && entry->app != NULL;
+}
+
+bool solar_os_app_registry_opener_info(const char *path_or_url, solar_os_app_discovery_info_t *info)
+{
+    if (!info) return false;
+    char resolved[SOLAR_OS_APP_ARG_LEN];
+    const solar_os_app_registry_entry_t *entry =
+        app_registry_find_target_opener(path_or_url, resolved, sizeof(resolved));
+    if (!entry || !entry->app) return false;
+    app_discovery_native_info(entry, info);
+    return true;
 }
 
 esp_err_t solar_os_app_registry_request_open(solar_os_context_t *ctx,

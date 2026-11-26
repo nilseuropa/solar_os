@@ -4,16 +4,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "esp_err.h"
-
-#define SOLAR_OS_MEDIA_SAMPLE_MAX_BYTES (4U * 1024U * 1024U)
-#define SOLAR_OS_MEDIA_SAMPLE_SOURCE_MAX 256U
+#include "solar_os_native_media_sample_abi.h"
 
 typedef struct solar_os_media_sample solar_os_media_sample_t;
-typedef struct {
-    const char *source;
-    uint64_t sequence, timestamp_us;
-    uint32_t width, height; /* Zero when not supplied by the source. */
-} solar_os_media_sample_metadata_t;
 typedef struct {
     const uint8_t *data;
     size_t length;
@@ -27,7 +20,6 @@ typedef struct {
     const char *format; /* Encoded container: "wav" or "mp3". */
     solar_os_media_sample_metadata_t metadata;
 } solar_os_media_sample_audio_t;
-typedef bool (*solar_os_media_sample_cancel_fn)(void *user);
 
 /* Immutable owned encoded image. Copies both bytes and source metadata without
  * decoding or transcoding. A provider lease may be released as soon as this
@@ -38,6 +30,8 @@ esp_err_t solar_os_media_sample_open_image(const char *resolved_path,
     solar_os_media_sample_t **out);
 esp_err_t solar_os_media_sample_open_image_bounded(const char *resolved_path,
     size_t max_bytes, solar_os_media_sample_t **out);
+esp_err_t solar_os_media_sample_open_image_cancellable(const char *resolved_path,
+    size_t max_bytes, solar_os_media_sample_cancel_fn cancel, void *user, solar_os_media_sample_t **out);
 /* Audio remains encoded and immutable. Container recognition does not decode
  * or transcode it. File reads poll cancellation between bounded chunks. */
 esp_err_t solar_os_media_sample_copy_audio(const void *data, size_t length,

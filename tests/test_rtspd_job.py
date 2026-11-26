@@ -15,7 +15,9 @@ class RtspdJobPolicyTest(unittest.TestCase):
         shell = (ROOT / "src/apps/solar_os_shell.c").read_text()
         self.assertIn("#if SOLAR_OS_PACKAGE_JOB_RTSPD\n    if (solar_os_shell_rtspd_completion_emit", shell)
         self.assertIn("solar_os_stream_count(), shell_completion_get_rtspd_stream", shell)
-        complete = production_functions(shell, ("shell_complete_argument",))
+        wrapper = production_functions(shell, ("shell_complete_argument",))
+        self.assertIn("shell_complete_argument_with_work(ctx, parse", wrapper)
+        complete = production_functions(shell, ("shell_complete_argument_with_work",))
         self.assertIn("solar_os_shell_completion_needs_trailing_space(match)", complete)
         self.assertIn('"shell/solar_os_shell_rtspd_completion.c"', PACKAGES)
 

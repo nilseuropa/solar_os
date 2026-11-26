@@ -10,6 +10,9 @@
 #include "solar_os_http_client.h"
 #include "solar_os_http_stream.h"
 #include "solar_os_http_policy.h"
+#if SOLAR_OS_PACKAGE_SERVICE_DOWNLOAD
+#include "solar_os_download.h"
+#endif
 
 typedef struct {
     atomic_bool cancelled,closing;
@@ -403,6 +406,39 @@ static int redirect_url(const char *base,const char *location,char *out,size_t c
     *out=0;return solar_os_http_redirect_url(base,location,out,capacity)?SOLAR_OS_NATIVE_OK:SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
 }
 static bool redirect_status(int32_t status) { return solar_os_http_redirect_status(status); }
+#if SOLAR_OS_PACKAGE_SERVICE_DOWNLOAD
+static int http_download(solar_os_native_handle_t id, const solar_os_native_http_options_v1_t *in,
+    const char *path, size_t max_size, size_t expected_size, const char *expected_sha256,
+    solar_os_native_download_progress_fn progress, void *user, solar_os_native_download_result_v1_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    memset(out, 0, sizeof(*out));
+    out->response.status = -1;
+    out->response.content_length = -1;
+    native_http_context_t *state = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_HTTP);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+
+    solar_os_http_request_options_t options;
+    solar_os_http_header_t *headers = NULL;
+    int result = atomic_load(&state->closing) ? SOLAR_OS_NATIVE_ERROR_INVALID_STATE : options_in(in, &options, &headers);
+    if (!result) {
+        options.should_cancel = http_cancelled;
+        options.cancel_user_data = (void *)(uintptr_t)id;
+        solar_os_download_result_t value = { .response = {.status_code = -1, .content_length = -1} };
+        result = http_result(state, solar_os_download_file(&options, path, max_size, expected_size,
+            expected_sha256, progress, user, &value));
+        out->bytes = value.bytes;
+        if (!result) memcpy(out->sha256, value.sha256, sizeof(out->sha256));
+        result_out(&value.response, result, &out->response);
+    } else {
+        out->response.error = result;
+    }
+    solar_os_memory_free(headers);
+    solar_os_native_handle_release(id);
+    return result;
+}
+#endif
+
 static const solar_os_native_http_api_v1_t http_api={
     .abi_version=SOLAR_OS_NATIVE_HTTP_ABI,.struct_size=sizeof(http_api),
     .create=http_create,.close=http_close,.cancel=http_cancel,.limits=http_limits,.method_parse=http_method_parse,
@@ -410,6 +446,9 @@ static const solar_os_native_http_api_v1_t http_api={
     .response_read=response_read,.response_header=response_header,.connection_open=connection_open,.connection_close=connection_close,
     .stream_open=stream_open,.stream_read=stream_read,.stream_close=stream_close,.close_all=http_close_all,
     .origin_parse=origin_parse,.same_origin=same_origin,.redirect_status=redirect_status,.redirect_url=redirect_url,
+#if SOLAR_OS_PACKAGE_SERVICE_DOWNLOAD
+    .download = http_download,
+#endif
 };
 #endif
 const void *solar_os_native_http_get_service(const char *name,uint32_t abi,uint32_t minimum)

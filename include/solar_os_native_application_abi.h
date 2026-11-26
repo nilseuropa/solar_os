@@ -53,4 +53,12 @@ typedef struct {
                            solar_os_app_discovery_info_t *info);
     int (*discovery_find)(const char *name, bool include_playground,
                            solar_os_app_discovery_info_t *info);
+    /* Resolve the default application for a file or supported URL. */
+    int (*find_opener)(const char *path_or_url, solar_os_app_discovery_info_t *info);
+    /* An empty owner means the named application is idle. */
+    int (*get_owner)(const char *name, char *owner, size_t capacity);
+    /* Visit installed foreground and command modules. A copied ID is borrowed
+     * for the duration of each callback. Return false to finish early. */
+    int (*module_visit)(bool (*visit)(const char *id, void *user), void *user);
+    bool (*file_type_matches)(const char *extensions, const char *path);
 } solar_os_native_application_api_v1_t;

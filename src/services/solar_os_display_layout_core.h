@@ -4,10 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum {
-    SOLAR_OS_DISPLAY_LAYOUT_HORIZONTAL,
-    SOLAR_OS_DISPLAY_LAYOUT_VERTICAL,
-} solar_os_display_layout_axis_t;
+#include "solar_os_display_layout_types_v1.h"
 
 typedef struct {
     uint16_t x;

@@ -20,6 +20,19 @@ static bool lookup(size_t index, solar_os_m3u_entry_t *entry, void *user)
     *entry = records->entries[index];
     return true;
 }
+typedef struct {
+    const solar_os_native_m3u_api_v1_t *api;
+    const char *path;
+    records_t *records;
+} reentrant_write_t;
+
+static bool lookup_reentrant(size_t index, solar_os_m3u_entry_t *entry, void *user)
+{
+    const reentrant_write_t *write = user;
+    assert(write->api->write(write->path, 1, lookup, write->records) ==
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    return lookup(index, entry, write->records);
+}
 static size_t file_descriptors(void)
 {
     DIR *directory = opendir("/proc/self/fd"); assert(directory);
@@ -42,7 +55,8 @@ int main(void)
     records_t input = {.entries = {{.path="first.mp3", .title="T\xc3\xb6ne", .duration=3},
         {.path="rtsp://example.com/media", .duration=-1}}, .count=2};
     const size_t descriptors = file_descriptors();
-    assert(!api->write(path, 2, lookup, &input) && input.calls == 2);
+    reentrant_write_t write = {.api=api, .path=path, .records=&input};
+    assert(!api->write(path, 2, lookup_reentrant, &write) && input.calls == 2);
     records_t output = {0};
     assert(!api->read(path, accept, &output) && output.calls == 2);
     assert(!strcmp(output.entries[0].path, expected) && !strcmp(output.entries[0].title, "T\xc3\xb6ne"));

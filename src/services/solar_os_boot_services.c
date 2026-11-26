@@ -114,7 +114,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (usb_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "USB unavailable: %s", esp_err_to_name(usb_err));
     }
-#else
+#elif SOLAR_OS_PACKAGE_SERVICE_USB_CDC
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC)) {
         const esp_err_t cdc_err =
 #if SOLAR_OS_BOARD_USB_DEFAULT_OFF

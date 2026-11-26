@@ -6,47 +6,7 @@
 #include <string.h>
 
 #include "esp_err.h"
-
-#define SOLAR_OS_CAMERA_SENSOR_NAME_MAX 16U
-#define SOLAR_OS_CAMERA_DRIVER_NAME_MAX 24U
-#define SOLAR_OS_CAMERA_OWNER_NAME_MAX 24U
-#define SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX 12U
-#define SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX 32U
-#define SOLAR_OS_CAMERA_CAPTURE_TIMEOUT_MS 4000U
-
-typedef struct {
-    uint16_t width;
-    uint16_t height;
-} solar_os_camera_resolution_t;
-
-typedef enum {
-    SOLAR_OS_CAMERA_ORIENTATION_NORMAL = 0,
-    SOLAR_OS_CAMERA_ORIENTATION_MIRROR = 1,
-    SOLAR_OS_CAMERA_ORIENTATION_FLIP = 2,
-    SOLAR_OS_CAMERA_ORIENTATION_180 = 3,
-} solar_os_camera_orientation_t;
-
-typedef struct {
-    uint16_t width;
-    uint16_t height;
-    uint8_t jpeg_quality;
-} solar_os_camera_config_t;
-
-typedef struct {
-    uint16_t product_id;
-    char name[SOLAR_OS_CAMERA_SENSOR_NAME_MAX];
-    uint8_t frame_buffer_count;
-    bool jpeg_quality_fixed;
-} solar_os_camera_sensor_info_t;
-
-typedef struct {
-    const uint8_t *data;
-    size_t length;
-    uint16_t width;
-    uint16_t height;
-    uint64_t timestamp_us;
-    void *release_token;
-} solar_os_camera_backend_frame_t;
+#include "solar_os_native_camera_abi.h"
 
 typedef struct {
     esp_err_t (*start)(void *ctx,
@@ -91,32 +51,8 @@ typedef struct {
 } solar_os_camera_backend_t;
 
 typedef struct {
-    const uint8_t *data;
-    size_t length;
-    uint16_t width;
-    uint16_t height;
-    uint64_t timestamp_us;
-} solar_os_camera_frame_t;
-
-typedef struct {
     uint32_t generation;
 } solar_os_camera_owner_t;
-
-typedef struct {
-    bool backend_registered;
-    bool initialized;
-    bool owner_leased;
-    bool frame_leased;
-    char driver[SOLAR_OS_CAMERA_DRIVER_NAME_MAX];
-    char owner[SOLAR_OS_CAMERA_OWNER_NAME_MAX];
-    char processor[SOLAR_OS_CAMERA_PROCESSOR_NAME_MAX];
-    char processor_source[SOLAR_OS_CAMERA_PROCESSOR_SOURCE_MAX];
-    solar_os_camera_sensor_info_t sensor;
-    solar_os_camera_config_t config;
-    solar_os_camera_orientation_t orientation;
-    uint32_t capture_count;
-    esp_err_t last_error;
-} solar_os_camera_status_t;
 
 solar_os_camera_config_t solar_os_camera_default_config(void);
 /* Also usable by generic video consumers without linking the camera service. */
@@ -143,6 +79,7 @@ esp_err_t solar_os_camera_get_resolutions(solar_os_camera_resolution_t *out,
 esp_err_t solar_os_camera_register_backend(
     const solar_os_camera_backend_t *backend);
 esp_err_t solar_os_camera_unregister_backend(const char *driver);
+esp_err_t solar_os_camera_unregister_backend_owned(const char *driver, const void *context);
 esp_err_t solar_os_camera_acquire(const char *owner,
                                   solar_os_camera_owner_t *token);
 esp_err_t solar_os_camera_release_owner(solar_os_camera_owner_t *token);

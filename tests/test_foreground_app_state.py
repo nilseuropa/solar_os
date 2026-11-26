@@ -55,11 +55,29 @@ class ForegroundAppStatePolicyTest(unittest.TestCase):
             (source / "backend.c").write_text(
                 "backend.ops->start(backend.ctx);\n"
                 "const solar_os_test_backend_t *ops = backend.ops;\n"
-                "ops->stop();\n",
+                "ops->stop();\n"
+                "const solar_os_native_camera_provider_v1_t *provider;\n"
+                "provider->start(provider->user, config, orientation, sensor);\n",
                 encoding="utf-8",
             )
             self.assertEqual(
                 check_foreground_app_state.lifecycle_bypasses(repository), []
+            )
+
+    def test_native_service_start_does_not_hide_app_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            source = repository / "src"
+            source.mkdir()
+            (source / "fixture.c").write_text(
+                "const solar_os_native_ssh_exec_api_v1_t *api;\n"
+                "channel.api->start();\n"
+                "channel.api->start(); app->start();\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                check_foreground_app_state.lifecycle_bypasses(repository),
+                ["src/fixture.c:3: foreground callback bypasses the shared application scope"],
             )
 
     def test_vendored_sources_are_not_lifecycle_bypasses(self):

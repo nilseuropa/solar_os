@@ -99,7 +99,7 @@ class NetworkTuiTest(unittest.TestCase):
         self.assertNotIn('capabilities = ["wifi"]', slip_package)
 
     def test_package_builds_tui_with_network_service(self):
-        package_start = PACKAGES.index("[packages.service_network]")
+        package_start = PACKAGES.index("[packages.core_shell]")
         package_end = PACKAGES.index("\n[packages.", package_start + 1)
         package = PACKAGES[package_start:package_end]
         self.assertIn('"shell/solar_os_shell_network_tui.c"', package)

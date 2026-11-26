@@ -15,7 +15,6 @@
 
 typedef struct {
     bool active;
-    bool detaching;
     solar_os_sensor_info_t info;
     solar_os_sensors_ops_t ops;
     void *ctx;
@@ -35,8 +34,7 @@ static SemaphoreHandle_t sensors_mutex;
 static EXT_RAM_BSS_ATTR StaticSemaphore_t sensors_mutex_storage;
 static uint32_t sensors_next_generation = 1U;
 static bool sensors_initialized;
-static bool temperature_stream_registered;
-static bool humidity_stream_registered;
+static uint32_t registered_streams;
 
 static esp_err_t ensure_mutex(void)
 {
@@ -89,7 +87,7 @@ static esp_err_t sensor_acquire(const char *name,
     xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     for (size_t i = 0; i < SENSOR_DEVICE_MAX; i++) {
         sensor_device_t *device = &sensor_devices[i];
-        if (!device->active || device->detaching ||
+        if (!device->active ||
             (named && strcmp(device->info.name, name) != 0)) {
             continue;
         }
@@ -130,114 +128,88 @@ static void sensor_release(const sensor_ref_t *ref)
     xSemaphoreGive(sensors_mutex);
 }
 
-static bool sensors_have_capability(solar_os_sensor_capabilities_t capability)
+typedef struct {
+    uint32_t capability;
+    const char *id, *unit, *summary;
+} sensor_stream_t;
+
+static const sensor_stream_t sensor_streams[] = {
+    {SOLAR_OS_SENSOR_CAP_TEMPERATURE, "temperature", "C", "ambient temperature"},
+    {SOLAR_OS_SENSOR_CAP_HUMIDITY, "humidity", "percent", "relative humidity"},
+};
+
+static uint32_t sensors_capabilities_locked(const sensor_device_t *exclude)
 {
-    if (ensure_mutex() != ESP_OK) {
-        return false;
+    uint32_t result = 0;
+    for (size_t i = 0; i < SENSOR_DEVICE_MAX; ++i) {
+        const sensor_device_t *device = &sensor_devices[i];
+        if (device->active && device != exclude) result |= device->info.capabilities;
     }
-    bool available = false;
-    xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-    for (size_t i = 0; i < SENSOR_DEVICE_MAX; i++) {
-        if (sensor_devices[i].active && !sensor_devices[i].detaching &&
-            sensor_has_capabilities(&sensor_devices[i], capability)) {
-            available = true;
-            break;
-        }
-    }
-    xSemaphoreGive(sensors_mutex);
-    return available;
+    return result;
 }
 
-static esp_err_t sensors_stream_read_scalar(
-    void *user,
-    const solar_os_stream_read_options_t *options,
-    float *value)
+static esp_err_t sensors_stream_read_scalar(void *user, const solar_os_stream_read_options_t *options, float *value)
 {
     (void)options;
-    return (uintptr_t)user == 0U ?
-        solar_os_sensors_read_temperature(NULL, value) :
-        solar_os_sensors_read_humidity(NULL, value);
+    const sensor_stream_t *stream = user;
+    return stream->capability == SOLAR_OS_SENSOR_CAP_TEMPERATURE ?
+        solar_os_sensors_read_temperature(NULL, value) : solar_os_sensors_read_humidity(NULL, value);
 }
 
-static esp_err_t sensors_register_stream(const char *id,
-                                         const char *unit,
-                                         const char *summary,
-                                         uintptr_t field)
+/* Stream registration and retirement only change metadata under the stream
+ * lock. Read callbacks run after releasing the stream lock. */
+static esp_err_t sensors_add_streams_locked(void)
 {
-    solar_os_stream_driver_t driver = {
-        .info = {
-            .type = SOLAR_OS_STREAM_TYPE_SCALAR,
-            .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
-            .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
-        },
-        .read_scalar = sensors_stream_read_scalar,
-        .user = (void *)field,
-    };
-    strlcpy(driver.info.id, id, sizeof(driver.info.id));
-    strlcpy(driver.info.provider, "sensors", sizeof(driver.info.provider));
-    strlcpy(driver.info.device, "default", sizeof(driver.info.device));
-    strlcpy(driver.info.unit, unit, sizeof(driver.info.unit));
-    strlcpy(driver.info.format, "f32", sizeof(driver.info.format));
-    strlcpy(driver.info.summary, summary, sizeof(driver.info.summary));
-    return solar_os_stream_register(&driver);
+    const uint32_t missing = sensors_capabilities_locked(NULL) & ~registered_streams;
+    if (!missing) return ESP_OK;
+    solar_os_stream_driver_t drivers[2];
+    size_t count = 0;
+    for (size_t i = 0; i < sizeof(sensor_streams) / sizeof(sensor_streams[0]); ++i) {
+        const sensor_stream_t *stream = &sensor_streams[i];
+        if (!(missing & stream->capability)) continue;
+        solar_os_stream_driver_t *driver = &drivers[count++];
+        *driver = (solar_os_stream_driver_t){
+            .info = {.type = SOLAR_OS_STREAM_TYPE_SCALAR, .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+                     .sharing = SOLAR_OS_STREAM_SHARING_SHARED},
+            .read_scalar = sensors_stream_read_scalar, .user = (void *)stream,
+        };
+        strlcpy(driver->info.id, stream->id, sizeof(driver->info.id));
+        strlcpy(driver->info.provider, "sensors", sizeof(driver->info.provider));
+        strlcpy(driver->info.device, "default", sizeof(driver->info.device));
+        strlcpy(driver->info.unit, stream->unit, sizeof(driver->info.unit));
+        strlcpy(driver->info.format, "f32", sizeof(driver->info.format));
+        strlcpy(driver->info.summary, stream->summary, sizeof(driver->info.summary));
+    }
+    const esp_err_t error = solar_os_stream_register_many(drivers, count);
+    if (error == ESP_OK) registered_streams |= missing;
+    return error;
 }
 
-static esp_err_t sensors_refresh_streams(void)
+static esp_err_t sensors_remove_streams_locked(const sensor_device_t *device)
 {
-    const bool have_temperature =
-        sensors_have_capability(SOLAR_OS_SENSOR_CAP_TEMPERATURE);
-    const bool have_humidity =
-        sensors_have_capability(SOLAR_OS_SENSOR_CAP_HUMIDITY);
-
-    if (have_temperature && !temperature_stream_registered) {
-        const esp_err_t ret = sensors_register_stream(
-            "temperature", "C", "ambient temperature", 0U);
-        if (ret != ESP_OK) {
-            return ret;
-        }
-        temperature_stream_registered = true;
-    } else if (!have_temperature && temperature_stream_registered) {
-        const esp_err_t ret = solar_os_stream_unregister("temperature");
-        if (ret != ESP_OK) {
-            return ret;
-        }
-        temperature_stream_registered = false;
+    const uint32_t removed = registered_streams & ~sensors_capabilities_locked(device);
+    if (!removed) return ESP_OK;
+    const char *ids[2];
+    const void *users[2];
+    size_t count = 0;
+    for (size_t i = 0; i < sizeof(sensor_streams) / sizeof(sensor_streams[0]); ++i) {
+        if (!(removed & sensor_streams[i].capability)) continue;
+        ids[count] = sensor_streams[i].id;
+        users[count++] = &sensor_streams[i];
     }
-
-    if (have_humidity && !humidity_stream_registered) {
-        const esp_err_t ret = sensors_register_stream(
-            "humidity", "percent", "relative humidity", 1U);
-        if (ret != ESP_OK) {
-            return ret;
-        }
-        humidity_stream_registered = true;
-    } else if (!have_humidity && humidity_stream_registered) {
-        const esp_err_t ret = solar_os_stream_unregister("humidity");
-        if (ret != ESP_OK) {
-            return ret;
-        }
-        humidity_stream_registered = false;
-    }
-    return ESP_OK;
-}
-
-static esp_err_t sensors_stream_require_idle(const char *id, bool registered)
-{
-    if (!registered) {
-        return ESP_OK;
-    }
-    solar_os_stream_info_t info;
-    const esp_err_t ret = solar_os_stream_get_info(id, &info);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    return info.active_handles == 0U ? ESP_OK : ESP_ERR_INVALID_STATE;
+    const esp_err_t error = solar_os_stream_unregister_many_owned(ids, users, count);
+    if (error == ESP_OK) registered_streams &= ~removed;
+    return error;
 }
 
 esp_err_t solar_os_sensors_init(void)
 {
+    if (ensure_mutex() != ESP_OK) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     sensors_initialized = true;
-    return sensors_refresh_streams();
+    const esp_err_t error = sensors_add_streams_locked();
+    xSemaphoreGive(sensors_mutex);
+    return error;
 }
 
 esp_err_t solar_os_sensors_register(
@@ -286,126 +258,32 @@ esp_err_t solar_os_sensors_register(
     if (free_device->generation == 0U) {
         free_device->generation = sensors_next_generation++;
     }
+    const esp_err_t error = sensors_initialized ? sensors_add_streams_locked() : ESP_OK;
+    if (error != ESP_OK) memset(free_device, 0, sizeof(*free_device));
     xSemaphoreGive(sensors_mutex);
-
-    if (sensors_initialized) {
-        const esp_err_t ret = sensors_refresh_streams();
-        if (ret != ESP_OK) {
-            (void)solar_os_sensors_unregister(registration->name);
-            return ret;
-        }
-    }
-    return ESP_OK;
+    return error;
 }
 
 esp_err_t solar_os_sensors_unregister(const char *name)
 {
-    if (!sensor_name_valid(name) || ensure_mutex() != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    return solar_os_sensors_unregister_owned(name, NULL);
+}
 
-    size_t remove_index = SENSOR_DEVICE_MAX;
-    uint32_t remove_generation = 0U;
-    bool remove_temperature_stream = false;
-    bool remove_humidity_stream = false;
-
+esp_err_t solar_os_sensors_unregister_owned(const char *name, const void *context)
+{
+    if (!sensor_name_valid(name) || ensure_mutex() != ESP_OK) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-    for (size_t i = 0; i < SENSOR_DEVICE_MAX; i++) {
+    esp_err_t error = ESP_ERR_NOT_FOUND;
+    for (size_t i = 0; i < SENSOR_DEVICE_MAX; ++i) {
         sensor_device_t *device = &sensor_devices[i];
-        if (!device->active || strcmp(device->info.name, name) != 0) {
-            continue;
-        }
-        if (device->refs > 0U) {
-            xSemaphoreGive(sensors_mutex);
-            return ESP_ERR_INVALID_STATE;
-        }
-        remove_index = i;
-        remove_generation = device->generation;
-        remove_temperature_stream =
-            sensor_has_capabilities(device, SOLAR_OS_SENSOR_CAP_TEMPERATURE);
-        remove_humidity_stream =
-            sensor_has_capabilities(device, SOLAR_OS_SENSOR_CAP_HUMIDITY);
-        for (size_t j = 0; j < SENSOR_DEVICE_MAX; j++) {
-            if (j == i || !sensor_devices[j].active ||
-                sensor_devices[j].detaching) {
-                continue;
-            }
-            remove_temperature_stream = remove_temperature_stream &&
-                !sensor_has_capabilities(
-                    &sensor_devices[j], SOLAR_OS_SENSOR_CAP_TEMPERATURE);
-            remove_humidity_stream = remove_humidity_stream &&
-                !sensor_has_capabilities(
-                    &sensor_devices[j], SOLAR_OS_SENSOR_CAP_HUMIDITY);
-        }
-        device->detaching = true;
+        if (!device->active || strcmp(device->info.name, name) != 0 ||
+            (context && device->ctx != context)) continue;
+        error = device->refs ? ESP_ERR_INVALID_STATE : sensors_remove_streams_locked(device);
+        if (error == ESP_OK) memset(device, 0, sizeof(*device));
         break;
     }
     xSemaphoreGive(sensors_mutex);
-    if (remove_index == SENSOR_DEVICE_MAX) {
-        return ESP_ERR_NOT_FOUND;
-    }
-
-    esp_err_t ret = sensors_stream_require_idle(
-        "temperature", remove_temperature_stream && temperature_stream_registered);
-    if (ret == ESP_OK) {
-        ret = sensors_stream_require_idle(
-            "humidity", remove_humidity_stream && humidity_stream_registered);
-    }
-    if (ret != ESP_OK) {
-        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-        sensor_device_t *device = &sensor_devices[remove_index];
-        if (device->active && device->generation == remove_generation) {
-            device->detaching = false;
-        }
-        xSemaphoreGive(sensors_mutex);
-        return ret;
-    }
-
-    bool temperature_unregistered = false;
-    if (remove_temperature_stream && temperature_stream_registered) {
-        ret = solar_os_stream_unregister("temperature");
-        if (ret == ESP_OK) {
-            temperature_stream_registered = false;
-            temperature_unregistered = true;
-        }
-    }
-    if (ret == ESP_OK && remove_humidity_stream && humidity_stream_registered) {
-        ret = solar_os_stream_unregister("humidity");
-        if (ret == ESP_OK) {
-            humidity_stream_registered = false;
-        }
-    }
-    if (ret != ESP_OK) {
-        if (temperature_unregistered &&
-            sensors_register_stream(
-                "temperature", "C", "ambient temperature", 0U) == ESP_OK) {
-            temperature_stream_registered = true;
-        }
-        xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-        sensor_device_t *device = &sensor_devices[remove_index];
-        if (device->active && device->generation == remove_generation) {
-            device->detaching = false;
-        }
-        xSemaphoreGive(sensors_mutex);
-        return ret;
-    }
-
-    xSemaphoreTake(sensors_mutex, portMAX_DELAY);
-    sensor_device_t *device = &sensor_devices[remove_index];
-    if (!device->active || !device->detaching ||
-        device->generation != remove_generation ||
-        device->refs > 0U) {
-        if (device->active && device->generation == remove_generation) {
-            device->detaching = false;
-        }
-        xSemaphoreGive(sensors_mutex);
-        (void)sensors_refresh_streams();
-        return ESP_ERR_INVALID_STATE;
-    }
-    memset(device, 0, sizeof(*device));
-    xSemaphoreGive(sensors_mutex);
-
-    return sensors_initialized ? sensors_refresh_streams() : ESP_OK;
+    return error;
 }
 
 size_t solar_os_sensors_count(void)
@@ -416,7 +294,7 @@ size_t solar_os_sensors_count(void)
     size_t count = 0U;
     xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     for (size_t i = 0; i < SENSOR_DEVICE_MAX; i++) {
-        count += sensor_devices[i].active && !sensor_devices[i].detaching ? 1U : 0U;
+        count += sensor_devices[i].active ? 1U : 0U;
     }
     xSemaphoreGive(sensors_mutex);
     return count;
@@ -430,7 +308,7 @@ bool solar_os_sensors_get(size_t index, solar_os_sensor_info_t *info)
     size_t current = 0U;
     xSemaphoreTake(sensors_mutex, portMAX_DELAY);
     for (size_t i = 0; i < SENSOR_DEVICE_MAX; i++) {
-        if (!sensor_devices[i].active || sensor_devices[i].detaching) {
+        if (!sensor_devices[i].active) {
             continue;
         }
         if (current++ == index) {

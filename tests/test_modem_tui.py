@@ -1,4 +1,5 @@
 from pathlib import Path
+import tomllib
 import unittest
 
 
@@ -42,10 +43,11 @@ class ModemTuiTest(unittest.TestCase):
         self.assertIn("masked);", TUI)
 
     def test_package_builds_modem_tui(self):
-        package_start = PACKAGES.index("[packages.service_modem]")
-        package_end = PACKAGES.index("\n[packages.", package_start + 1)
-        package = PACKAGES[package_start:package_end]
-        self.assertIn('"shell/solar_os_shell_modem_tui.c"', package)
+        packages = tomllib.loads(PACKAGES)["packages"]
+        self.assertIn("shell/solar_os_shell_modem_tui.c", packages["core_shell"]["sources"])
+        self.assertIn("services/solar_os_modem.c", packages["service_modem"]["sources"])
+        self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_MODEM", TUI)
+
 
 
 if __name__ == "__main__":

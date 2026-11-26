@@ -9,6 +9,8 @@ typedef struct {
   esp_err_t (*prepare)(void *, bool reset);
   esp_err_t (*configured)(void *, const sdlp_info_t *);
   void (*destroy)(void *);
+  /* For retryable owners, release the endpoint before disposing of memory. */
+  esp_err_t (*close_checked)(void *);
   /* Core transport hook; set/clear only while the host serializes a call. */
   void (*set_call_options)(void *, const solar_os_display_link_call_options_t *);
   bool reset_available;

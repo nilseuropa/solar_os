@@ -43,6 +43,10 @@ void solar_os_shell_io_init_port(solar_os_shell_io_t *io,
 void solar_os_shell_io_capture_output(solar_os_shell_io_t *io,
                                       solar_os_context_t *ctx);
 void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, uint16_t rows);
+/* Borrow the existing channel, or bind caller-owned storage to the terminal.
+ * The fallback must live until the application releases its context. */
+solar_os_shell_io_t *solar_os_shell_io_with_fallback(solar_os_context_t *context,
+    solar_os_shell_io_t *fallback, bool replace_empty);
 solar_os_shell_io_kind_t solar_os_shell_io_kind(const solar_os_shell_io_t *io);
 solar_os_terminal_t *solar_os_shell_io_terminal(solar_os_shell_io_t *io);
 const char *solar_os_shell_terminal_profile_name(solar_os_shell_terminal_profile_t profile);

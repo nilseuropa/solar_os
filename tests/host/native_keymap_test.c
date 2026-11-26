@@ -60,6 +60,13 @@ int main(void)
     assert(!solar_os_native_keymap_get_service("input.keymap",1,sizeof(*api)+1));
     assert(!solar_os_native_keymap_get_service("missing",1,8));
     assert(api->decode==solar_os_input_keymap_decode && api->release==solar_os_input_keymap_release);
+    assert(!api->init_matrix(&current, 2, 3, 30000, 10));
+    assert(current.slot_count == 13 && current.physical[1] == 30000 && current.physical[3] == 30002);
+    assert(!current.physical[4] && current.physical[11] == 30010 && !api->validate(&current));
+    assert(api->init_matrix(&current, 2, 3, UINT16_MAX, 10) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(api->init_matrix(&current, 2, 3, 1, 2) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->init_matrix(&current, 2, 3, 1, 256) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(current.physical[1] == 30000 && current.slot_count == 13);
     solar_os_native_handle_t producer,profile=999,other;
     assert(!solar_os_native_handle_create(SOLAR_OS_NATIVE_HANDLE_INPUT_PRODUCER,(void *)(uintptr_t)1,producer_destroy,&producer));
     solar_os_input_keymap_t defaults={.slot_count=3};

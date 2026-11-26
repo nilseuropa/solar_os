@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "solar_os_emotion_abi.h"
+#include "solar_os_native_emotion_abi.h"
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
@@ -15,6 +16,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NOT_FOUND 4
 #define ESP_ERR_NOT_SUPPORTED 5
 #define ESP_ERR_TIMEOUT 6
+#define ESP_ERR_INVALID_SIZE 7
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 16
 #define SOLAR_OS_DISPLAY_TARGET_OWNER_MAX 32
 #define SOLAR_OS_DISPLAY_FORMAT_INDEX2 2
@@ -23,6 +25,7 @@ typedef int esp_err_t;
 #define SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT 2
 #define SOLAR_OS_MEMORY_INTERNAL_CRITICAL 0
 #define SOLAR_OS_MEMORY_EXTERNAL_REQUIRED 1
+#define SOLAR_OS_MEMORY_EXTERNAL_PREFERRED 2
 #define SOLAR_OS_TASK_ROLE_BACKGROUND 0
 #define SOLAR_OS_TASK_ROLE_FOREGROUND 1
 #define SOLAR_OS_TASK_STOP_WAIT_MS 2000
@@ -41,14 +44,13 @@ typedef uint32_t solar_os_gfx_color_t;
 typedef struct { uint16_t preferred_stream_fps, presentation_stack_bytes; uint32_t frame_formats; char owner[32]; } solar_os_display_target_t;
 typedef struct { bool alive; } solar_os_frame_presenter_t;
 typedef struct {
-    solar_os_gfx_t *gfx;
     int format;
     uint16_t width, height, stride, preferred_fps;
     const uint16_t *palette_rgb565;
     size_t palette_size;
     bool allow_mono_fallback, literal_direct_palette, literal_mono_palette, clear_background_on_resume, fullscreen;
     unsigned background_index;
-} solar_os_frame_presenter_config_t;
+} solar_os_frame_presenter_options_v1_t;
 typedef struct { esp_err_t last_error; } solar_os_frame_presenter_stats_t;
 typedef struct { unsigned count, size, head; bool caps; unsigned char data[8][64]; } queue_t;
 typedef queue_t *QueueHandle_t;
@@ -117,8 +119,8 @@ static int solar_os_native_library_acquire(const char *name,unsigned abi,size_t 
 {assert(!strcmp(name,"emotion")&&abi==1&&n==sizeof(solar_os_emotion_api_v1_t));if(!acquire_ok)return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;leases++;*lease=42;*out=solar_os_emotion_engine_api_v1();return 0;}
 static int solar_os_native_library_release(uint32_t lease)
 {assert(lease==42&&leases);leases--;return 0;}
-static int solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,const solar_os_frame_presenter_config_t *c)
-{assert(c->width==(c->fullscreen?160:128)&&c->height==(c->fullscreen?80:64)&&c->literal_direct_palette&&c->literal_mono_palette);*out=calloc(1,sizeof(**out));return presenter_start_ok?0:ESP_ERR_NO_MEM;}
+static int solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,solar_os_gfx_t *target,const solar_os_frame_presenter_options_v1_t *c)
+{assert(target==&gfx && c->width==(c->fullscreen?160:128)&&c->height==(c->fullscreen?80:64)&&c->literal_direct_palette&&c->literal_mono_palette);*out=calloc(1,sizeof(**out));return presenter_start_ok?0:ESP_ERR_NO_MEM;}
 static int solar_os_frame_presenter_suspend_checked(solar_os_frame_presenter_t *p)
 {return !p||present_stop_ok?0:ESP_ERR_TIMEOUT;}
 static int solar_os_frame_presenter_deinit(solar_os_frame_presenter_t *p)
@@ -152,6 +154,66 @@ static int solar_os_audio_stream_write(solar_os_audio_stream_t *a,const void *sa
 {assert(a==&audio&&samples&&size<=1024);clock_ms+=size/64;return 0;}
 #endif
 #include "emotion_runtime.inc"
+
+#ifdef TEST_NATIVE_EMOTION_API
+#include "emotion_native_support.inc"
+#include "emotion_handle_header.inc"
+#include "emotion_handles.inc"
+
+typedef struct { int unused; } solar_os_context_t;
+typedef struct { int unused; } solar_os_app_t;
+static solar_os_context_t foreground;
+static const solar_os_app_t foreground_owner;
+static bool foreground_active;
+static const solar_os_app_t *solar_os_application_descriptor(void)
+{ return foreground_active ? &foreground_owner : NULL; }
+static solar_os_context_t *solar_os_application_context(void)
+{ return foreground_active ? &foreground : NULL; }
+static solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx)
+{ assert(ctx == &foreground); return &gfx; }
+
+#include "emotion_native.inc"
+
+static void test_native_emotion(void)
+{
+    const solar_os_native_emotion_api_v1_t *api = solar_os_native_emotion_get_service(
+        SOLAR_OS_NATIVE_EMOTION_SERVICE, SOLAR_OS_NATIVE_EMOTION_ABI, sizeof(*api));
+    assert(api);
+    solar_os_emotion_options_t options = {.display = "oled0", .motion = 0};
+    solar_os_native_handle_t handle;
+    char detail[96];
+    presenter_start_ok = false;
+    present_stop_ok = false;
+    assert(api->open(&options, &handle, detail, sizeof(detail)) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && handle);
+    assert(api->blink(handle) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT && claims && leases);
+    present_stop_ok = true;
+    assert(!api->close(handle) && !claims && !leases && !allocations);
+    presenter_start_ok = true;
+
+    foreground_active = true;
+    options.display = NULL;
+    assert(!api->open(&options, &handle, detail, sizeof(detail)) && handle);
+    bool uses_foreground;
+    assert(!api->uses_foreground(handle, &uses_foreground) && uses_foreground);
+    void *borrowed;
+    assert(!solar_os_native_handle_acquire_exclusive(handle, EMOTION_HANDLE_KIND, &borrowed));
+    assert(api->set_suspended(handle, true) == SOLAR_OS_NATIVE_ERROR_BUSY && claims);
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_BUSY && claims);
+    solar_os_native_handle_release_exclusive(handle);
+    assert(!api->set_suspended(handle, true) && !claims && leases);
+    assert(!api->set(handle, "happy", 0));
+    assert(!api->set_suspended(handle, false) && claims);
+    assert(!api->look(handle, 1, 2) && !api->blink(handle));
+    solar_os_emotion_status_t status;
+    assert(!api->status(handle, &status) && status.width == 128 && !status.motion && status.fps == 2);
+    assert(!solar_os_native_handle_close_owner(&foreground_owner));
+    assert(api->status(handle, &status) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!claims && !leases && !allocations && !solar_os_native_handle_count());
+    foreground_active = false;
+}
+#endif
+
 static void fake_delay(unsigned ms)
 {clock_ms+=ms;if(++delay_count>=8)atomic_store(&((solar_os_emotion_t *)saved_arg)->stop,true);}
 static void test_terminal_colors(void)
@@ -207,6 +269,9 @@ static void test_terminal_colors(void)
 }
 int main(void)
 {
+#ifdef TEST_NATIVE_EMOTION_API
+    test_native_emotion();
+#endif
     test_terminal_colors();
     solar_os_emotion_options_t full={.display="oled0",.motion=1,.fullscreen=true};
     solar_os_emotion_t *full_face=NULL;

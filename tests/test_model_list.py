@@ -22,6 +22,7 @@ class ModelListTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-no-pie",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 str(source), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

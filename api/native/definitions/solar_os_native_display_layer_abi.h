@@ -1,0 +1,21 @@
+#pragma once
+#include "solar_os_display_types_v1.h"
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_DISPLAY_LAYER_SERVICE "display.layer"
+#define SOLAR_OS_NATIVE_DISPLAY_LAYER_ABI 1U
+
+/* A layer uses a target's current logical panel coordinates and theme. It
+ * composites over ordinary terminal and graphics output without claiming the
+ * drawing surface. The target can display one layer at a time. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const char *target, const char *owner, solar_os_native_handle_t *layer);
+    /* The packed monochrome data has ceil(width / 8) bytes per row, with the
+     * least-significant bit first. The host copies it in this call. */
+    int (*show)(solar_os_native_handle_t layer, const solar_os_display_rect_t *rect,
+                const uint8_t *pixels, size_t bytes);
+    int (*visible)(solar_os_native_handle_t layer, bool *visible);
+    int (*clear)(solar_os_native_handle_t layer);
+    int (*close)(solar_os_native_handle_t layer);
+} solar_os_native_display_layer_api_v1_t;

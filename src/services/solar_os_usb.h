@@ -2,25 +2,7 @@
 
 #include "esp_err.h"
 #include "usb_host_port.h"
-
-typedef enum {
-    SOLAR_OS_USB_MODE_DEVICE,
-    SOLAR_OS_USB_MODE_HOST,
-    SOLAR_OS_USB_MODE_SUSPENDED,
-    SOLAR_OS_USB_MODE_FAULT,
-    SOLAR_OS_USB_MODE_OFF,
-} solar_os_usb_mode_t;
-
-typedef struct {
-    solar_os_usb_mode_t mode;
-    bool sleep_prepared;
-    /* Commanded switch state on boards with VBUS control; not voltage feedback. */
-    bool vbus_enabled;
-    esp_err_t last_error;
-    esp_err_t rollback_error;
-    size_t interface_count;
-    usb_host_port_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
-} solar_os_usb_status_t;
+#include "solar_os_native_usb_abi.h"
 
 /* Apply the board's volatile boot policy once. */
 esp_err_t solar_os_usb_init(void);

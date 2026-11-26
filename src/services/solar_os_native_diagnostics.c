@@ -103,6 +103,35 @@ static const solar_os_native_log_api_v1_t log_api = {
     .buffer_hex = log_hex, .level_name = log_level_name, .parse_level = log_parse_level,
 };
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENGINES
+#include "solar_os_engines.h"
+
+static int engine_measure(const char *name, const char *owner, const char *label,
+                          solar_os_native_engine_work_fn work, void *user)
+{
+    if (!work) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    solar_os_engine_token_t token;
+    int result = solar_os_native_result(solar_os_engine_begin(name, owner, label, &token));
+    if (result) return result;
+    uint64_t units = 0;
+    result = work(user, &units);
+    const int finish = solar_os_native_result(solar_os_engine_end(&token, units));
+    return result ? result : finish;
+}
+
+static int engine_record(const char *name, const char *owner, const char *label,
+                         uint64_t duration_us, uint64_t units)
+{
+    return solar_os_native_result(solar_os_engine_record(name, owner, label, duration_us, units));
+}
+
+static const solar_os_native_engines_api_v1_t engines_api = {
+    .abi_version = SOLAR_OS_NATIVE_ENGINES_ABI, .struct_size = sizeof(engines_api),
+    .count = solar_os_engine_count, .info = solar_os_engine_get, .find = solar_os_engine_get_by_name,
+    .measure = engine_measure, .record = engine_record, .reset = solar_os_engine_reset_all,
+};
+#endif
+
 const void *solar_os_native_diagnostics_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
 #include "generated/native_diagnostics_dispatch.inc"

@@ -5,6 +5,7 @@ section = "hardware"
 summary = "Use the optional external robot library for calibrated servo and motor/encoder joints"
 keywords = "robot joint servo velocity motor encoder ppr gearbox ratio polarity pi pid breakaway friction deadband"
 packages_any = ["service_robot"]
+agent_reference_sections = true
 +++
 # Robot joints
 

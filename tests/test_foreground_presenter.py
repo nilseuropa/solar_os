@@ -150,7 +150,8 @@ class ForegroundPresenterTest(unittest.TestCase):
         source = (ROOT / "src/services/solar_os_frame_presenter.c").read_text()
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "frame_lifecycle.inc").write_text(production_functions(
-                source, ("solar_os_frame_presenter_suspend_checked", "solar_os_frame_presenter_redraw")))
+                source, ("solar_os_frame_presenter_suspend_checked", "solar_os_frame_presenter_deinit",
+                         "solar_os_frame_presenter_redraw")))
             binary = Path(tmp, "presenter")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -194,7 +195,7 @@ class ForegroundPresenterTest(unittest.TestCase):
             "solar_os_frame_presenter_init", "solar_os_frame_presenter_resume",
             "solar_os_frame_presenter_deinit", "solar_os_frame_presenter_redraw",
             "solar_os_frame_presenter_submit", "solar_os_frame_presenter_acquire",
-            "solar_os_frame_presenter_exchange"))
+            "solar_os_frame_presenter_exchange", "solar_os_frame_presenter_release"))
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "frame_fitting.inc").write_text(
                 state + "\n" + bayer + "\n" + functions)

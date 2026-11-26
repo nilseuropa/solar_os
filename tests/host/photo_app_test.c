@@ -30,7 +30,7 @@ static ssize_t photo_test_write(int fd,const void *data,size_t size);
 size_t strlcpy(char *to,const char *from,size_t size) {
     size_t n=strlen(from);if(size) { size_t bytes=n<size-1?n:size-1;memcpy(to,from,bytes);to[bytes]=0; }return n;
 }
-#define write photo_test_write
+#define write(fd, bytes, size) photo_test_write((fd), (bytes), (size))
 #include "../../src/apps/solar_os_photo.c"
 #undef write
 

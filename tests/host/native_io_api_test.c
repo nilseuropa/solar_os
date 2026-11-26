@@ -5,16 +5,35 @@
 #include "solar_os_native_client.h"
 #include "solar_os_native_io.h"
 #include "solar_os_native_handles.h"
+#include "solar_os_native_runtime.h"
 #include "solar_os_resources.h"
 #include "solar_os_pins.h"
+#include "pin_labels.inc"
 #include "solar_os_gpio.h"
+#include "solar_os_gpio_controller.h"
+#include "gpio_port.h"
 #include "solar_os_adc.h"
 #include "solar_os_pwm.h"
 #include "solar_os_memory.h"
 static unsigned allocations, writes, reads, resets, pwm_writes, pwm_closes;
 static bool fail_reset, fail_pwm_close;
+static unsigned library_pins;
+void *solar_os_native_driver_pin(void) { return NULL; }
+void solar_os_native_driver_unpin(void *pin) { assert(pin == NULL); }
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained)
+{
+    if (lease != 10) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *retained = 11;
+    ++library_pins;
+    return 0;
+}
+int solar_os_native_library_release(uint32_t lease)
+{
+    assert(lease == 11 && library_pins);
+    --library_pins;
+    return 0;
+}
 static char role[] = "available pin";
-typedef int gpio_num_t;
 typedef struct { bool configured, output_level; solar_os_gpio_mode_t mode; solar_os_gpio_pull_t pull; } gpio_slot_t;
 static gpio_slot_t gpio_slots[2];
 size_t strlcpy(char *out, const char *in, size_t capacity)
@@ -43,8 +62,10 @@ static esp_err_t gpio_check_owned(int pin, const char *owner)
     solar_os_resource_claim_t claim;
     return solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin, -1, &claim) && !strcmp(claim.owner, owner) ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
-static esp_err_t gpio_port_write(gpio_num_t pin, bool level) { assert(find_slot(pin)); (void)level; ++writes; return ESP_OK; }
-static esp_err_t gpio_port_read(gpio_num_t pin, bool *level) { assert(find_slot(pin)); *level = true; ++reads; return ESP_OK; }
+esp_err_t gpio_port_write(gpio_num_t pin, bool level) { assert(find_slot(pin)); (void)level; ++writes; return ESP_OK; }
+esp_err_t gpio_port_configure(gpio_num_t pin, gpio_port_mode_t mode, gpio_port_pull_t pull)
+{ (void)pin; (void)mode; (void)pull; return ESP_ERR_NOT_SUPPORTED; }
+esp_err_t gpio_port_read(gpio_num_t pin, bool *level) { assert(find_slot(pin)); *level = true; ++reads; return ESP_OK; }
 #include "gpio_owned_write.inc"
 size_t solar_os_gpio_pin_count(void) { return 2; }
 bool solar_os_gpio_get_pin_info(size_t index, solar_os_gpio_pin_info_t *out)
@@ -91,11 +112,120 @@ static esp_err_t pwm_disable(void *user, uint16_t output, const char *owner) { (
 static esp_err_t pwm_close(void *user, uint16_t output, const char *owner)
 { (void)user; assert(output == 65535 && owner); if (fail_pwm_close) return ESP_ERR_TIMEOUT; ++pwm_closes; return ESP_OK; }
 static esp_err_t pwm_stop(void *user, uint16_t output) { (void)user; assert(output == 65535); return ESP_OK; }
+static bool external_level;
+static unsigned acknowledgements;
+static esp_err_t fake_line_config(void *ctx, uint8_t line, solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull)
+{
+    assert(ctx == &external_level && line == 3 && mode == SOLAR_OS_GPIO_LINE_MODE_OUTPUT &&
+        pull == SOLAR_OS_GPIO_LINE_PULL_DOWN);
+    return ESP_OK;
+}
+static esp_err_t fake_line_read(void *ctx, uint8_t line, bool *level)
+{ assert(ctx == &external_level && line == 3); *level = external_level; return ESP_OK; }
+static esp_err_t fake_line_write(void *ctx, uint8_t line, bool level)
+{ assert(ctx == &external_level && line == 3); external_level = level; return ESP_OK; }
+static esp_err_t fake_line_ack(void *ctx)
+{ assert(ctx == &external_level); ++acknowledgements; return ESP_OK; }
+
+static int configure_provider(void *ctx, uint8_t line, uint32_t mode, uint32_t pull)
+{ return fake_line_config(ctx, line, (solar_os_gpio_line_mode_t)mode, (solar_os_gpio_line_pull_t)pull); }
+
+static void gpio_controller_provider_test(const solar_os_native_gpio_api_v1_t *gpio)
+{
+    char name[] = "portable";
+    solar_os_native_gpio_controller_provider_v1_t descriptor = {.name = name, .line_count = 4,
+        .library_lease = 10, .user = &external_level, .configure = configure_provider,
+        .read = fake_line_read, .write = fake_line_write, .acknowledge_interrupt = fake_line_ack};
+    solar_os_native_handle_t provider, lease, duplicate;
+    assert(!gpio->controller_register(&descriptor, &provider) && library_pins == 1);
+    assert(gpio->controller_register(&descriptor, &duplicate) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!duplicate && library_pins == 1);
+    descriptor.write = NULL;
+    name[0] = 'x';
+    solar_os_native_gpio_line_v1_t line;
+    assert(gpio->line_parse("portable:3", &line) && !gpio->line_open(&line, "caller", &lease));
+    assert(gpio->controller_close(provider) == SOLAR_OS_NATIVE_ERROR_BUSY && library_pins == 1);
+    assert(!gpio->line_configure(lease, SOLAR_OS_NATIVE_GPIO_OUTPUT, SOLAR_OS_NATIVE_GPIO_PULL_DOWN));
+    assert(!gpio->line_write(lease, true));
+    bool level = false;
+    assert(!gpio->line_read(lease, &level) && level);
+    const unsigned previous = acknowledgements;
+    assert(!gpio->line_acknowledge_interrupt(lease) && acknowledgements == previous + 1);
+    assert(!gpio->line_close(lease));
+    assert(!gpio->controller_close(provider) && !library_pins);
+    assert(gpio->controller_close(provider) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!gpio->controller_find("portable", NULL));
+
+    descriptor.name = "portable";
+    descriptor.write = fake_line_write;
+    assert(!gpio->controller_register(&descriptor, &provider));
+    assert(!solar_os_gpio_controller_unregister("portable"));
+    const solar_os_gpio_controller_ops_t replacement_ops = {.configure = fake_line_config,
+        .read = fake_line_read, .write = fake_line_write};
+    const solar_os_gpio_controller_registration_t replacement = {.name = "portable", .line_count = 4,
+        .ops = &replacement_ops, .ctx = &external_level};
+    assert(!solar_os_gpio_controller_register(&replacement));
+    assert(!gpio->controller_close(provider) && !library_pins);
+    assert(gpio->controller_find("portable", NULL));
+    assert(!solar_os_gpio_controller_unregister("portable"));
+    assert(!allocations && !solar_os_native_handle_count());
+}
+
+static void gpio_line_test(const solar_os_native_gpio_api_v1_t *gpio)
+{
+    const solar_os_gpio_controller_ops_t ops = {.configure = fake_line_config,
+        .read = fake_line_read, .write = fake_line_write, .acknowledge_interrupt = fake_line_ack};
+    const solar_os_gpio_controller_registration_t external = {.name = "expander", .line_count = 4,
+        .ops = &ops, .ctx = &external_level};
+    assert(!solar_os_gpio_controller_register(&external));
+    solar_os_native_gpio_controller_v1_t info;
+    assert(gpio->controller_count() == 1 && gpio->controller_info(0, &info) && info.line_count == 4);
+    assert(gpio->controller_find("expander", &info) && !gpio->controller_find("missing", NULL));
+    solar_os_native_gpio_line_v1_t line;
+    assert(gpio->line_parse("expander:3", &line) && !gpio->line_is_native(&line));
+    solar_os_native_handle_t lease, competitor;
+    assert(!gpio->line_open(&line, "same", &lease));
+    assert(gpio->line_open(&line, "same", &competitor) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !competitor);
+    assert(solar_os_gpio_controller_unregister("expander") == ESP_ERR_INVALID_STATE);
+    assert(!gpio->line_configure(lease, SOLAR_OS_NATIVE_GPIO_OUTPUT, SOLAR_OS_NATIVE_GPIO_PULL_DOWN));
+    assert(!gpio->line_write(lease, true) && external_level);
+    bool level = false;
+    assert(!gpio->line_read(lease, &level) && level);
+    assert(!gpio->line_acknowledge_interrupt(lease) && acknowledgements == 1);
+    assert(!gpio->line_close(lease) && !solar_os_gpio_controller_unregister("expander"));
+    assert(gpio->line_read(lease, &level) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(gpio->line_open(&line, "gone", &lease) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !lease);
+
+    assert(gpio->line_parse("gpio8", &line) && gpio->line_is_native(&line));
+    assert(!gpio->line_open(&line, "same", &lease));
+    assert(!gpio->line_configure(lease, SOLAR_OS_NATIVE_GPIO_OUTPUT, SOLAR_OS_NATIVE_GPIO_PULL_NONE));
+    assert(!gpio->line_write(lease, false) && !gpio->line_acknowledge_interrupt(lease));
+    fail_reset = true;
+    assert(gpio->line_close(lease) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(gpio->line_open(&line, "same", &competitor) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    fail_reset = false;
+    assert(!gpio->line_close(lease));
+    assert(!allocations && !solar_os_native_handle_count());
+}
+
 int main(void)
 {
     const solar_os_native_resources_api_v1_t *resources = solar_os_native_io_get_service("resources", 1, sizeof(*resources)); assert(resources);
     const solar_os_native_pins_api_v1_t *pins = solar_os_native_io_get_service("pins", 1, sizeof(*pins)); assert(pins);
+    assert(!strcmp(resources->kind_name(SOLAR_OS_NATIVE_RESOURCE_SPI_CS), "spi_cs"));
+    assert(!strcmp(resources->kind_name(UINT32_MAX), "unknown"));
+    assert(!strcmp(pins->policy_name(SOLAR_OS_NATIVE_PIN_FIXED), "fixed"));
+    assert(!strcmp(pins->kind_name(SOLAR_OS_NATIVE_PIN_NC), "not connected"));
     const solar_os_native_gpio_api_v1_t *gpio = solar_os_native_io_get_service("gpio", 1, sizeof(*gpio)); assert(gpio);
+    assert(!strcmp(gpio->label(SOLAR_OS_NATIVE_GPIO_LABEL_MODE, SOLAR_OS_NATIVE_GPIO_OUTPUT), "output"));
+    assert(!strcmp(gpio->label(SOLAR_OS_NATIVE_GPIO_LABEL_PULL, SOLAR_OS_NATIVE_GPIO_PULL_DOWN), "down"));
+    assert(!gpio->label(SOLAR_OS_NATIVE_GPIO_LABEL_PULL, UINT32_MAX));
+    assert(!gpio->label(UINT32_MAX, SOLAR_OS_NATIVE_GPIO_INPUT));
+    uint32_t parsed_gpio;
+    assert(gpio->parse(SOLAR_OS_NATIVE_GPIO_LABEL_MODE, "in", &parsed_gpio) && parsed_gpio == SOLAR_OS_NATIVE_GPIO_INPUT);
+    assert(gpio->parse(SOLAR_OS_NATIVE_GPIO_LABEL_PULL, "off", &parsed_gpio) && parsed_gpio == SOLAR_OS_NATIVE_GPIO_PULL_NONE);
+    assert(!gpio->parse(SOLAR_OS_NATIVE_GPIO_LABEL_MODE, "off", &parsed_gpio));
+    assert(parsed_gpio == SOLAR_OS_NATIVE_GPIO_PULL_NONE);
     const solar_os_native_adc_api_v1_t *adc = solar_os_native_io_get_service("adc", 1, sizeof(*adc)); assert(adc);
     const solar_os_native_pwm_api_v1_t *pwm = solar_os_native_io_get_service("pwm", 1, sizeof(*pwm)); assert(pwm);
     solar_os_native_resource_request_v1_t requests[] = {{SOLAR_OS_NATIVE_RESOURCE_GPIO_PIN, 70, -1, "first"}, {SOLAR_OS_NATIVE_RESOURCE_I2C_ADDRESS, 1, 42, "second"}};
@@ -135,6 +265,8 @@ int main(void)
     fail_pwm_close = true; assert(pwm->close(lease) == SOLAR_OS_NATIVE_ERROR_TIMEOUT && !pwm_closes);
     assert(pwm->set(&output, 50, 1500, true) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     fail_pwm_close = false; assert(!pwm->close(lease) && pwm_closes == 1);
+    gpio_line_test(gpio);
+    gpio_controller_provider_test(gpio);
     assert(!solar_os_pwm_unregister("expander")); assert(!resources->count() && !allocations && !solar_os_native_handle_count());
     puts("native I/O: real resource/PWM registries, owned GPIO writes and retryable cleanup passed"); return 0;
 }

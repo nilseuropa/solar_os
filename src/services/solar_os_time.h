@@ -39,7 +39,10 @@ typedef struct {
 esp_err_t solar_os_time_init(void);
 esp_err_t solar_os_time_register_provider(const char *owner,
                                           const solar_os_time_provider_t *provider);
+/* ESP_ERR_INVALID_STATE leaves the provider active. Retain its callback
+ * state and retry removal after the borrowed call finishes. */
 esp_err_t solar_os_time_unregister_provider(const char *owner);
+esp_err_t solar_os_time_unregister_provider_owned(const char *owner, const void *user);
 bool solar_os_time_has_provider(void);
 uint64_t solar_os_time_uptime_ms(void);
 void solar_os_time_format_uptime(uint64_t uptime_ms, char *buffer, size_t len);

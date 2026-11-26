@@ -27,7 +27,7 @@ class PackageUpgradeTest(unittest.TestCase):
         source = (ROOT / 'src/services/solar_os_module_packages.c').read_text()
         fixture = (ROOT / 'tests/host/pkg_upgrade_test.inc').read_text()
         basics = production_functions(source, (
-            'module_set_detail', 'module_name_valid', 'module_type_directory',
+            'module_set_detail', 'module_name_valid', 'solar_os_module_type_name', 'module_type_directory',
             'module_legacy_app_path', 'solar_os_module_package_path',
             'module_foreach_directory', 'solar_os_module_package_foreach_installed',
             'module_download_cancelled', 'module_download_progress',
@@ -43,7 +43,10 @@ class PackageUpgradeTest(unittest.TestCase):
         code = code.replace('/* RECEIPTS */', (ROOT / 'src/services/solar_os_module_receipts.inc').read_text())
         code = code.replace('/* INSTALL */', install)
         code = code.replace('/* UPGRADE */', (ROOT / 'src/services/solar_os_module_upgrade.inc').read_text())
-        self.compile_run(code, (CJSON / 'cJSON.c',), ('-lcrypto', '-lm'))
+        service_dir = ROOT / 'src/services'
+        self.compile_run(code, (CJSON / 'cJSON.c', service_dir / 'solar_os_native_components.c',
+            service_dir / 'solar_os_native_handles.c'),
+            ('-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1', '-DSOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES=1', '-lcrypto', '-lm'))
 
     def test_shell_update_listing_confirmation_and_cancellation(self):
         source = (ROOT / 'src/shell/solar_os_shell_system.c').read_text()

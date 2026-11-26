@@ -18,5 +18,6 @@ class NativeCoreApiTest(unittest.TestCase):
                 '-I',str(ROOT/'src'),'-I',str(ROOT/'src/services'),
                 str(ROOT/'tests/host/native_core_api_test.c'),
                 str(ROOT/'src/services/solar_os_native_core.c'),
+                str(ROOT/'src/services/solar_os_timezone.c'),
                 '-lcrypto','-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True,timeout=20)

@@ -119,8 +119,7 @@ void solar_os_terminal_get_cursor_preference(solar_os_terminal_cursor_shape_t *s
     solar_os_terminal_get_cursor_preference_for_display(NULL, shape, blink);
 }
 
-void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
-    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+static unsigned load_cursor_preference(void)
 {
     unsigned value = atomic_load(&cursor_preference);
     if (value == TERM_CURSOR_UNLOADED) {
@@ -135,9 +134,28 @@ void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
         atomic_compare_exchange_strong(&cursor_preference, &expected, saved);
         value = atomic_load(&cursor_preference);
     }
-    if (value == TERM_CURSOR_UNSET) value = solar_os_display_is_epaper(u8g2) ? 1U : 0U;
+    return value;
+}
+
+static void cursor_preference_values(unsigned value, bool epaper,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
+    if (value == TERM_CURSOR_UNSET) value = epaper ? 1U : 0U;
     if (shape != NULL) *shape = (solar_os_terminal_cursor_shape_t)(value >> 1U);
     if (blink != NULL) *blink = (value & 1U) == 0;
+}
+
+void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
+    unsigned value = load_cursor_preference();
+    cursor_preference_values(value, value == TERM_CURSOR_UNSET && solar_os_display_is_epaper(u8g2), shape, blink);
+}
+
+void solar_os_terminal_get_cursor_preference_for_panel(bool epaper,
+    solar_os_terminal_cursor_shape_t *shape, bool *blink)
+{
+    cursor_preference_values(load_cursor_preference(), epaper, shape, blink);
 }
 
 esp_err_t solar_os_terminal_set_cursor_preference(solar_os_terminal_cursor_shape_t shape,
@@ -195,8 +213,7 @@ esp_err_t solar_os_terminal_profile_save_scale(const char *display, uint8_t scal
 
 esp_err_t solar_os_terminal_profile_save_orientation(uint16_t degrees)
 {
-    return orientation_is_valid(degrees) ?
-        save_u16(TERM_NVS_ORIENTATION_KEY, degrees) : ESP_ERR_INVALID_ARG;
+    return solar_os_terminal_profile_save_display_orientation("display0", degrees);
 }
 
 uint16_t solar_os_terminal_profile_load_display_orientation(const char *display, uint16_t fallback)

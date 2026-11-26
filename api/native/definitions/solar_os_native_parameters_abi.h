@@ -9,6 +9,15 @@ typedef struct {
     float minimum, maximum, step;
     uint32_t curve;
 } solar_os_native_parameter_info_v1_t;
+
+typedef struct {
+    const char *name, *label, *unit;
+    float minimum, maximum, step;
+    uint32_t curve;
+    int (*get)(void *user, float *value);
+    int (*set)(void *user, float value);
+    void *user;
+} solar_os_native_parameter_definition_v1_t;
 /* Metadata is copied. Normalized values are 0..65535. Each writer claim gets
  * a distinct OS owner key. Provider removal revokes a claim; closing a revoked
  * claim succeeds, while owned writes return NOT_FOUND. Claims are explicit
@@ -25,4 +34,24 @@ typedef struct {
     int (*claim)(const char *path, const char *writer, solar_os_native_handle_t *claim);
     int (*release)(solar_os_native_handle_t claim);
     int (*set_owned)(solar_os_native_handle_t claim, float value);
+    /* Build the path for a named property of a resource, e.g.
+     * audio.audio0.input-gain. A NULL name returns the registration owner.
+     * Kind and name are lowercase ASCII letters, digits, hyphen or underscore.
+     * IDs using other bytes are hex-encoded. Output is empty on error. */
+    int (*resource_path)(const char *kind, const char *id, const char *name,
+                         char *path, size_t capacity);
+    /* Metadata and callback pointers are copied. With library_lease=0, the
+     * registration belongs to the running application and the host retires
+     * it before releasing app state. A nonzero lease keeps a resident library
+     * loaded until close succeeds. Callbacks run on the task reading or
+     * writing the parameter. Keep user data alive and synchronize access
+     * between callbacks; they may run concurrently. */
+    int (*provider_register)(const char *owner, uint32_t library_lease,
+        const solar_os_native_parameter_definition_v1_t *definitions, size_t count,
+        solar_os_native_handle_t *provider);
+    int (*provider_update_range)(solar_os_native_handle_t provider,
+        const char *name, float minimum, float maximum);
+    /* BUSY retires the names immediately. Retry after borrowed calls finish. */
+    int (*provider_close)(solar_os_native_handle_t provider);
+    const char *(*curve_name)(uint32_t curve);
 } solar_os_native_parameters_api_v1_t;

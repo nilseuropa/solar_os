@@ -27,13 +27,21 @@ static void test_basic_and_store(void)
     assert(solar_os_rtsp_authorization(&c, "DESCRIBE", "rtsp://cam/media", "user", "pass",
                                       header, sizeof(header)) == ESP_OK);
     assert(!strcmp(header, "Basic dXNlcjpwYXNz"));
+    const size_t needed = strlen(header) + 1U;
+    assert(solar_os_rtsp_authorization(&c, "DESCRIBE", "rtsp://cam/media", "user", "pass",
+                                      header, needed) == ESP_OK);
+    assert(solar_os_rtsp_authorization(&c, "DESCRIBE", "rtsp://cam/media", "user", "pass",
+                                      header, needed - 1U) == ESP_ERR_INVALID_SIZE);
+    assert(!header[0]);
     assert(solar_os_rtsp_auth_set("cam", 554, "user", "stored") == ESP_OK);
     char user[65], password[65];
     assert(solar_os_rtsp_auth_lookup("CAM", 554, user, sizeof(user), password, sizeof(password)) == ESP_OK);
     assert(!strcmp(user, "user") && !strcmp(password, "stored"));
     assert(solar_os_rtsp_auth_lookup("cam", 8554, user, sizeof(user), password, sizeof(password)) == ESP_ERR_NOT_FOUND);
     solar_os_rtsp_auth_account_t listed[4];
-    assert(solar_os_rtsp_auth_list(listed, 4) == 1 && !strcmp(listed[0].user, "user"));
+    size_t count;
+    assert(solar_os_rtsp_auth_list(listed, 4, &count) == ESP_OK);
+    assert(count == 1 && !strcmp(listed[0].user, "user"));
     assert(solar_os_rtsp_auth_clear("cam", 554) == ESP_OK);
     assert(solar_os_rtsp_auth_lookup("cam", 554, user, sizeof(user), password, sizeof(password)) == ESP_ERR_NOT_FOUND);
     const char *text = "RTSP/1.0 401 Unauthorized\r\nCSeq: 1\r\nWWW-Authenticate: Digest realm=\"cam\", nonce=\"n\", qop=\"auth\"\r\n\r\n";

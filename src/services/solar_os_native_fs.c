@@ -230,6 +230,15 @@ static int fs_copy(const char *from,const char *to,solar_os_native_fs_progress_f
     int result=FS_CALL(solar_os_storage_copy_file_progress_cancel(from,to,progress,cancel,user));
     solar_os_disk_image_registry_unlock();return result;
 }
+static const char *fs_entry_type_name(uint32_t type)
+{
+    switch (type) {
+    case SOLAR_OS_NATIVE_FS_FILE: return solar_os_storage_entry_type_name(SOLAR_OS_STORAGE_ENTRY_FILE);
+    case SOLAR_OS_NATIVE_FS_DIRECTORY: return solar_os_storage_entry_type_name(SOLAR_OS_STORAGE_ENTRY_DIRECTORY);
+    default: return solar_os_storage_entry_type_name(SOLAR_OS_STORAGE_ENTRY_OTHER);
+    }
+}
+
 static const solar_os_native_fs_api_v1_t fs_api={
     .abi_version=SOLAR_OS_NATIVE_FS_ABI,.struct_size=sizeof(fs_api),
     .resolve=fs_resolve,.normalize=fs_normalize,.join=fs_join,.default_path=fs_default,.sibling=fs_sibling,
@@ -238,6 +247,7 @@ static const solar_os_native_fs_api_v1_t fs_api={
     .read=fs_read,.write=fs_write,.read_at=fs_read_at,.write_at=fs_write_at,.truncate=fs_truncate,
     .sync=fs_sync,.replace=fs_replace,.copy=fs_copy,
     .revision=solar_os_storage_revision,.notify_changed=solar_os_storage_notify_changed,
+    .entry_type_name=fs_entry_type_name,
 };
 
 static int volume_state(uint32_t role,bool *mounted,bool *unrecognized,char *path,size_t capacity)

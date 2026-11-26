@@ -15,3 +15,8 @@ if (name && !strcmp(name, "library") && abi == 1U &&
 _Static_assert(__builtin_types_compatible_p(__typeof__(native_system_api), const solar_os_native_system_api_v1_t), "native service table type");
 if (name && !strcmp(name, "system") && abi == 1U &&
     minimum <= sizeof(native_system_api)) return &native_system_api;
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+_Static_assert(__builtin_types_compatible_p(__typeof__(native_driver_registration_api), const solar_os_native_driver_registration_api_v1_t), "native service table type");
+if (name && !strcmp(name, "driver.registration") && abi == 1U &&
+    minimum <= sizeof(native_driver_registration_api)) return &native_driver_registration_api;
+#endif

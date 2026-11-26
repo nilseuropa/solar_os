@@ -152,6 +152,18 @@ esp_err_t solar_os_port_serial_break(const solar_os_port_handle_t *port,uint16_t
 { assert(solar_os_port_handle_valid(port) && ms==100);return ESP_OK; }
 
 bool solar_os_time_has_provider(void) { return true; }
+int solar_os_native_clock_provider_register(const solar_os_native_clock_provider_v1_t *in,
+                                             solar_os_native_handle_t *out)
+{
+    assert(in && out && !strcmp(in->name, "fixture"));
+    *out = 123;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_clock_provider_close(solar_os_native_handle_t handle)
+{
+    assert(handle == 123);
+    return SOLAR_OS_NATIVE_OK;
+}
 uint64_t solar_os_time_uptime_ms(void) { return UINT64_C(9876543210); }
 void solar_os_time_format_uptime(uint64_t value,char *text,size_t capacity)
 { snprintf(text,capacity,"%llu",(unsigned long long)value); }
@@ -239,6 +251,8 @@ static void test_crypto(void)
     assert(!api->random(data,sizeof(data)) && data[2048]==0xa5);
     size_t size=0;assert(api->base64_decode("YWJj",NULL,0,&size)==SOLAR_OS_NATIVE_ERROR_INVALID_SIZE && size==3);
     assert(!api->base64_decode("YWJj",data,sizeof(data),&size) && size==3 && !memcmp(data,"abc",3));
+    api->wipe(data + 1, 3);
+    assert(data[0] == 'a' && data[1] == 0 && data[2] == 0 && data[3] == 0 && data[4] == 0xa5);
     uint8_t signature=0x42;
     assert(!api->verify_p256_sha256("fixture-key","abc",3,&signature,1));
     signature=0;
@@ -259,11 +273,22 @@ static void test_clock(void)
     assert(!clock->convert(SOLAR_OS_NATIVE_CLOCK_LOCAL,&utc,&local) && local.hour==utc.hour+1);
     assert(!clock->convert(SOLAR_OS_NATIVE_CLOCK_UTC,&local,&local) && local.hour==utc.hour);
     solar_os_native_timezone_v1_t zone;assert(!clock->get_timezone(&zone) && !strcmp(zone.name,"Europe/Berlin"));
+    assert(clock->resolve_timezone("UTC+5:30", zone.name, sizeof(zone.name), zone.posix, sizeof(zone.posix)));
+    assert(!strcmp(zone.name, "UTC+5:30") && !strcmp(zone.posix, "UTC-5:30"));
+    assert(clock->resolve_timezone("Berlin", zone.name, sizeof(zone.name), zone.posix, sizeof(zone.posix)));
+    assert(!strcmp(zone.name, "Europe/Berlin") && clock->timezone_is_raw_posix(zone.posix));
+    assert(!clock->timezone_is_raw_posix("Europe/Berlin"));
+    assert(!clock->resolve_timezone("UTC+26", zone.name, sizeof(zone.name), zone.posix, sizeof(zone.posix)));
+    assert(!clock->resolve_timezone("UTC", zone.name, 1, zone.posix, sizeof(zone.posix)));
     assert(!clock->set_timezone("UTC"));
     assert(clock->set_timezone("unknown")==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(!clock->ntp_sync("fixture",400,&utc,&local) && local.hour==utc.hour+1);
     assert(clock->get(2,&utc)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(clock->epoch_ms(NULL)==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    const solar_os_native_clock_provider_v1_t provider = {.name = "fixture"};
+    solar_os_native_handle_t handle;
+    assert(!clock->provider_register(&provider, &handle));
+    assert(!clock->provider_close(handle));
 }
 static int dummy_destroy(void *value)
 {
@@ -301,6 +326,8 @@ static void test_owner_during_concurrent_close(void)
     pthread_mutex_unlock(&test_lock);
     assert(solar_os_native_handle_close_owner(&resource_owner)==SOLAR_OS_NATIVE_ERROR_BUSY);
     assert(!solar_os_native_handle_acquire_owned(id,199,&resource_owner));
+    void *borrowed;
+    assert(solar_os_native_handle_acquire_exclusive(id, 199, &borrowed)==SOLAR_OS_NATIVE_ERROR_BUSY && !borrowed);
     solar_os_native_handle_release(id); /* A stray release cannot clear closing. */
     assert(solar_os_native_handle_close_owner(&resource_owner)==SOLAR_OS_NATIVE_ERROR_BUSY);
     pthread_mutex_lock(&test_lock);finish_destroy=true;pthread_cond_broadcast(&test_condition);
@@ -319,7 +346,16 @@ static void test_registry_capacity_and_exhaustion(void)
     assert(solar_os_native_handle_acquire(ids[0],200)==NULL);
     assert(solar_os_native_handle_acquire(ids[0],199)==&destroyed);
     assert(solar_os_native_handle_close(ids[0])==SOLAR_OS_NATIVE_ERROR_BUSY);
+    void *borrowed;
+    assert(solar_os_native_handle_acquire_exclusive(ids[0], 199, &borrowed)==SOLAR_OS_NATIVE_ERROR_BUSY && !borrowed);
     solar_os_native_handle_release(ids[0]);
+    assert(!solar_os_native_handle_acquire_exclusive(ids[0], 199, &borrowed) && borrowed==&destroyed);
+    assert(!solar_os_native_handle_acquire(ids[0], 199));
+    assert(solar_os_native_handle_acquire_exclusive(ids[0], 199, &borrowed)==SOLAR_OS_NATIVE_ERROR_BUSY && !borrowed);
+    assert(solar_os_native_handle_acquire_exclusive(ids[0], 200, &borrowed)==SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !borrowed);
+    solar_os_native_handle_release(ids[0]);
+    assert(solar_os_native_handle_close(ids[0])==SOLAR_OS_NATIVE_ERROR_BUSY);
+    solar_os_native_handle_release_exclusive(ids[0]);
     native_handle_slot_t *slot=find_handle(ids[0]);
     slot->reference_state=NATIVE_HANDLE_REFERENCE_MAX;
     assert(!solar_os_native_handle_acquire(ids[0],199));

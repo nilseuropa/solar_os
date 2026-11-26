@@ -8,15 +8,150 @@
 void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
 { (void)cls; (void)tag; return calloc(count, size); }
 void solar_os_memory_free(void *p) { free(p); }
+static unsigned sensor_provider_pins;
 int solar_os_native_library_retain(uint32_t source, uint32_t *out)
-{ (void)source; *out = 0; return SOLAR_OS_NATIVE_ERROR_NOT_FOUND; }
-int solar_os_native_library_release(uint32_t lease) { (void)lease; return SOLAR_OS_NATIVE_ERROR_NOT_FOUND; }
+{
+    *out = 0;
+    if (source != 123) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *out = 124;
+    ++sensor_provider_pins;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_library_release(uint32_t lease)
+{
+    assert(lease == 124 && sensor_provider_pins);
+    --sensor_provider_pins;
+    return SOLAR_OS_NATIVE_OK;
+}
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
+#include <pthread.h>
+#include <stdatomic.h>
+#include "nvs.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_backlight.h"
+#include "solar_os_identity.h"
+#include "solar_os_log.h"
 #include "solar_os_power.h"
 #include "solar_os_shutdown.h"
+#include "solar_os_storage.h"
 #include "esp_sleep.h"
+
+static char identity_store_user[32] = "invalid user", identity_store_host[32] = "saved-host";
+static char identity_pending[32];
+static char *identity_store_target;
+static atomic_uint identity_nvs_open;
+static bool identity_nvs_unavailable, identity_store_failure;
+
+size_t strlcpy(char *out, const char *value, size_t capacity)
+{
+    const size_t length = strlen(value);
+    if (capacity) {
+        const size_t copied = length < capacity - 1 ? length : capacity - 1;
+        memcpy(out, value, copied);
+        out[copied] = 0;
+    }
+    return length;
+}
+
+static char *identity_storage_field(const char *key)
+{
+    if (!strcmp(key, "user")) return identity_store_user;
+    assert(!strcmp(key, "hostname"));
+    return identity_store_host;
+}
+
+esp_err_t nvs_open(const char *name, nvs_open_mode_t mode, nvs_handle_t *handle)
+{
+    assert(!strcmp(name, "identity") && mode == NVS_READWRITE);
+    if (identity_nvs_unavailable) return ESP_FAIL;
+    assert(atomic_fetch_add(&identity_nvs_open, 1) == 0);
+    *handle = 1;
+    return ESP_OK;
+}
+
+esp_err_t nvs_get_str(nvs_handle_t handle, const char *key, char *value, size_t *length)
+{
+    assert(handle == 1 && atomic_load(&identity_nvs_open) == 1);
+    const char *saved = identity_storage_field(key);
+    assert(strlen(saved) < *length);
+    *length = strlcpy(value, saved, *length) + 1;
+    return ESP_OK;
+}
+
+esp_err_t nvs_set_str(nvs_handle_t handle, const char *key, const char *value)
+{
+    assert(handle == 1 && !identity_store_target && atomic_load(&identity_nvs_open) == 1);
+    identity_store_target = identity_storage_field(key);
+    assert(strlcpy(identity_pending, value, sizeof(identity_pending)) < sizeof(identity_pending));
+    return ESP_OK;
+}
+
+esp_err_t nvs_commit(nvs_handle_t handle)
+{
+    assert(handle == 1 && identity_store_target);
+    if (identity_store_failure) return ESP_FAIL;
+    strcpy(identity_store_target, identity_pending);
+    return ESP_OK;
+}
+
+void nvs_close(nvs_handle_t handle)
+{
+    assert(handle == 1);
+    identity_store_target = NULL;
+    assert(atomic_fetch_sub(&identity_nvs_open, 1) == 1);
+}
+
+bool solar_os_storage_is_mounted(void) { return false; }
+esp_err_t solar_os_storage_default_path(const char *name, char *out, size_t capacity)
+{ (void)name; (void)out; (void)capacity; return ESP_ERR_NOT_FOUND; }
+esp_err_t solar_os_storage_join_path(const char *parent, const char *name, char *out, size_t capacity)
+{ (void)parent; (void)name; (void)out; (void)capacity; return ESP_ERR_NOT_FOUND; }
+esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag, const char *fmt, ...)
+{ (void)level; (void)tag; (void)fmt; return ESP_OK; }
+
+static void *identity_worker(void *value)
+{
+    for (unsigned i = 0; i < 32; i++) assert(solar_os_identity_set_user(value) == ESP_OK);
+    return NULL;
+}
+
+static void verify_identity(void)
+{
+    const solar_os_native_identity_api_v1_t *api =
+        solar_os_native_device_get_service("device.identity", 1, sizeof(*api));
+    assert(api && api->get(NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    solar_os_identity_v1_t identity;
+    identity_nvs_unavailable = true;
+    assert(!api->get(&identity) && !strcmp(identity.user, "user") && !strcmp(identity.hostname, "sol"));
+    identity_nvs_unavailable = false;
+    assert(!api->get(&identity) && !strcmp(identity.user, "user") && !strcmp(identity.hostname, "saved-host"));
+    assert(api->set(SOLAR_OS_IDENTITY_USER, "invalid user") == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->set(SOLAR_OS_IDENTITY_HOSTNAME, "01234567890123456789012345678901") ==
+           SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->set((solar_os_identity_field_t)2, "valid") == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+
+    char format[64], short_text[5];
+    assert(!api->set(SOLAR_OS_IDENTITY_HOSTNAME, "workbench"));
+    assert(!strcmp(identity_store_host, "workbench"));
+    assert(!strcmp(identity.hostname, "saved-host"));
+    assert(solar_os_identity_set_user("operator") == ESP_OK);
+    api->format(format, sizeof(format));
+    assert(!strcmp(format, "operator@workbench"));
+    api->format(short_text, sizeof(short_text));
+    assert(!strcmp(short_text, "oper"));
+
+    identity_store_failure = true;
+    assert(api->set(SOLAR_OS_IDENTITY_USER, "another") == SOLAR_OS_NATIVE_ERROR_FAILED);
+    assert(!api->get(&identity) && !strcmp(identity.user, "operator"));
+    identity_store_failure = false;
+
+    pthread_t first, second;
+    char first_user[] = "first", second_user[] = "second";
+    assert(!pthread_create(&first, NULL, identity_worker, first_user));
+    assert(!pthread_create(&second, NULL, identity_worker, second_user));
+    assert(!pthread_join(first, NULL) && !pthread_join(second, NULL));
+    assert(!api->get(&identity) && !strcmp(identity.user, identity_store_user));
+}
 static char board_id[100] = "host";
 static uint64_t hardware_caps = SOLAR_OS_BOARD_CAP_CAMERA | SOLAR_OS_BOARD_CAP_EXPANSION_I2S;
 solar_os_board_info_t solar_os_board_info(void)
@@ -119,11 +254,376 @@ static uint16_t selected_effect;
 static esp_err_t play_effect(void *ctx, uint16_t value) { assert(ctx == &selected_effect); selected_effect = value; return ESP_OK; }
 static esp_err_t stop_effect(void *ctx) { assert(ctx == &selected_effect); selected_effect = 0; return ESP_OK; }
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+#include "solar_os.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_rtc.h"
+
+static const solar_os_app_t rtc_app = {.name = "rtc-test"};
+static unsigned alarm_stops, countdown_stops;
+static bool alarm_fails, countdown_stop_fails;
+static uint8_t alarm_hour;
+static uint32_t countdown_seconds, rtc_pending = SOLAR_OS_RTC_INTERRUPT_ALARM;
+
+const solar_os_app_t *solar_os_application_descriptor(void) { return &rtc_app; }
+
+static esp_err_t rtc_read_clock(void *user, solar_os_datetime_t *out)
+{
+    assert(!user);
+    *out = (solar_os_datetime_t){.year = 2026, .month = 11, .day = 26, .weekday = 4};
+    return ESP_OK;
+}
+
+static esp_err_t rtc_write_clock(void *user, const solar_os_datetime_t *value)
+{
+    assert(!user && value);
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_set_alarm(void *user, const solar_os_rtc_alarm_t *value)
+{
+    assert(!user);
+    if (alarm_fails) return ESP_ERR_TIMEOUT;
+    alarm_hour = value->hour;
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_disable_alarm(void *user)
+{
+    assert(!user);
+    ++alarm_stops;
+    alarm_hour = 0;
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_set_countdown(void *user, uint32_t seconds, bool repeat)
+{
+    assert(!user && repeat);
+    countdown_seconds = seconds;
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_disable_countdown(void *user)
+{
+    assert(!user);
+    if (countdown_stop_fails) return ESP_ERR_TIMEOUT;
+    ++countdown_stops;
+    countdown_seconds = 0;
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_interrupt_status(void *user, uint32_t *out)
+{
+    assert(!user);
+    *out = rtc_pending;
+    return ESP_OK;
+}
+
+static esp_err_t rtc_test_interrupt_clear(void *user, uint32_t bits)
+{
+    assert(!user);
+    rtc_pending &= ~bits;
+    return ESP_OK;
+}
+
+static void verify_rtc(void)
+{
+    const solar_os_native_rtc_api_v1_t *api =
+        solar_os_native_device_get_service("clock.rtc", 1, sizeof(*api));
+    assert(api && !api->available());
+    const solar_os_native_rtc_provider_api_v1_t *providers =
+        solar_os_native_device_get_service("clock.rtc.provider", 1, sizeof(*providers));
+    assert(providers && providers->provider_close(0) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    solar_os_rtc_info_t info;
+    assert(api->info(&info) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !info.provider[0]);
+    const solar_os_rtc_provider_t provider = {
+        .get_utc_datetime = rtc_read_clock, .set_utc_datetime = rtc_write_clock,
+        .set_alarm = rtc_test_set_alarm, .disable_alarm = rtc_test_disable_alarm,
+        .set_countdown = rtc_test_set_countdown, .disable_countdown = rtc_test_disable_countdown,
+        .get_interrupt_status = rtc_test_interrupt_status, .clear_interrupt_status = rtc_test_interrupt_clear,
+        .interrupt_gpio = 17, .interrupt_active_level = 0,
+    };
+    solar_os_native_handle_t a, b;
+    assert(api->lease_open("timer", &a) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !a);
+    assert(!solar_os_rtc_register_provider("fixture-rtc", &provider));
+    assert(api->available());
+    assert(!api->info(&info) && !strcmp(info.provider, "fixture-rtc") && info.interrupt_gpio == 17);
+    assert(info.capabilities == (SOLAR_OS_RTC_CAP_CALENDAR | SOLAR_OS_RTC_CAP_ALARM |
+                                 SOLAR_OS_RTC_CAP_COUNTDOWN | SOLAR_OS_RTC_CAP_INTERRUPT_STATUS));
+    assert(alarm_stops == 1 && countdown_stops == 1);
+
+    assert(!api->lease_open("timer", &a) && !api->lease_open("timer", &b) && a != b);
+    solar_os_rtc_timer_request_v1_t alarm = {
+        .kind = SOLAR_OS_RTC_TIMER_ALARM,
+        .configuration.alarm = {.match_fields = SOLAR_OS_RTC_ALARM_MATCH_HOUR, .hour = 7},
+    };
+    assert(!api->program(a, &alarm) && alarm_hour == 7);
+    assert(api->program(b, &alarm) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->cancel(b, SOLAR_OS_RTC_TIMER_ALARM) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    alarm.configuration.alarm.hour = 8;
+    alarm_fails = true;
+    assert(api->program(a, &alarm) == SOLAR_OS_NATIVE_ERROR_TIMEOUT && alarm_hour == 7);
+    assert(api->program(b, &alarm) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    alarm_fails = false;
+    assert(!api->lease_close(b) && alarm_hour == 7);
+
+    const solar_os_rtc_timer_request_v1_t countdown = {
+        .kind = SOLAR_OS_RTC_TIMER_COUNTDOWN, .configuration.countdown = {.seconds = 100, .repeat = true},
+    };
+    assert(!api->program(a, &countdown) && countdown_seconds == 100);
+    countdown_stop_fails = true;
+    assert(api->lease_close(a) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!alarm_hour && countdown_seconds == 100 && alarm_stops == 2 && countdown_stops == 1);
+    countdown_stop_fails = false;
+    assert(!solar_os_native_handle_close_owner(&rtc_app));
+    assert(!countdown_seconds && alarm_stops == 2 && countdown_stops == 2);
+    assert(api->lease_close(a) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!api->info(&info) && !info.alarm_owner[0] && !info.countdown_owner[0]);
+
+    uint32_t pending;
+    rtc_pending = SOLAR_OS_RTC_INTERRUPT_COUNTDOWN;
+    assert(!api->interrupt_status(&pending) && pending == SOLAR_OS_RTC_INTERRUPT_COUNTDOWN);
+    assert(!api->interrupt_clear(pending));
+    assert(!api->interrupt_status(&pending) && !pending);
+    assert(!solar_os_rtc_unregister_provider("fixture-rtc") && !api->available());
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_stream.h"
+
+static unsigned sensor_streams;
+esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
+{
+    assert(driver && driver->info.id[0]);
+    ++sensor_streams;
+    return ESP_OK;
+}
+esp_err_t solar_os_stream_unregister(const char *id)
+{
+    assert(id && *id && sensor_streams);
+    --sensor_streams;
+    return ESP_OK;
+}
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count)
+{
+    for (size_t i = 0; i < count; ++i) assert(!solar_os_stream_register(&drivers[i]));
+    return ESP_OK;
+}
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *ids, const void *const *users, size_t count)
+{
+    for (size_t i = 0; i < count; ++i) {
+        assert(users[i]);
+        assert(!solar_os_stream_unregister(ids[i]));
+    }
+    return ESP_OK;
+}
+
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+#include "solar_os_sensors.h"
+static esp_err_t read_temperature(void *user, float *temperature)
+{
+    *temperature = *(const float *)user;
+    return ESP_OK;
+}
+static esp_err_t read_humidity(void *user, float *humidity)
+{
+    *humidity = *(const float *)user;
+    return ESP_OK;
+}
+
+typedef struct {
+    const solar_os_native_sensors_api_v1_t *api;
+    solar_os_native_handle_t provider;
+} environment_provider_t;
+static int portable_temperature(void *user, float *temperature)
+{
+    const environment_provider_t *test = user;
+    assert(test->api->provider_close(test->provider) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    *temperature = 18.0F;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void verify_environment(const solar_os_native_sensors_api_v1_t *api)
+{
+    float temperature = -12.5F, humidity = 66.0F;
+    const solar_os_sensors_ops_t temp_ops = {.read_temperature = read_temperature};
+    const solar_os_sensors_ops_t humid_ops = {.read_humidity = read_humidity};
+    const solar_os_sensors_registration_t temp = {"temp", "host", &temp_ops, &temperature};
+    const solar_os_sensors_registration_t humid = {"humid", "host", &humid_ops, &humidity};
+    assert(!solar_os_sensors_register(&temp) && !solar_os_sensors_register(&humid));
+    const uint32_t kind = SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT;
+    const uint32_t both = SOLAR_OS_SENSOR_CAP_TEMPERATURE | SOLAR_OS_SENSOR_CAP_HUMIDITY;
+    solar_os_native_sensor_info_v1_t info;
+    assert(api->count(kind) == 2 && !api->info(kind, 0, &info));
+    assert(!strcmp(info.name, "temp") && !strcmp(info.driver, "host"));
+    assert(info.capabilities == SOLAR_OS_SENSOR_CAP_TEMPERATURE && !info.state);
+    assert(api->info(kind, 2, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    solar_os_native_environment_v1_t sample;
+    assert(!api->environment(NULL, both, &sample));
+    assert(sample.temperature_c == temperature && sample.humidity_percent == humidity);
+    assert(!api->environment("humid", SOLAR_OS_SENSOR_CAP_HUMIDITY, &sample));
+    assert(sample.temperature_c == 0.0F && sample.humidity_percent == humidity);
+    assert(api->environment("temp", 0, &sample) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->environment("temp", both, &sample) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!solar_os_sensors_unregister(temp.name) && !solar_os_sensors_unregister(humid.name));
+    assert(!api->count(kind) && !sensor_streams);
+    assert(!solar_os_sensors_init());
+    environment_provider_t provider = {.api = api};
+    char provider_name[] = "portable-temp";
+    solar_os_native_sensor_provider_v1_t descriptor = {.name = provider_name, .driver = "host",
+        .kind = kind, .library_lease = 123, .user = &provider,
+        .ops.environment.temperature = portable_temperature};
+    assert(!api->provider_register(&descriptor, &provider.provider) && sensor_provider_pins == 1);
+    solar_os_native_handle_t duplicate;
+    assert(api->provider_register(&descriptor, &duplicate) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!duplicate && sensor_provider_pins == 1 && sensor_streams == 1);
+    provider_name[0] = 'x';
+    descriptor.ops.environment.temperature = NULL;
+    assert(!api->environment("portable-temp", SOLAR_OS_SENSOR_CAP_TEMPERATURE, &sample));
+    assert(sample.temperature_c == 18.0F && !sample.humidity_percent);
+    assert(api->provider_report(provider.provider, SOLAR_OS_NATIVE_GNSS_POWER_CONTROL, false) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!api->provider_close(provider.provider) && !sensor_provider_pins && !sensor_streams);
+
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+#include "solar_os_imu.h"
+static esp_err_t read_imu(void *user, uint32_t timeout_ms, solar_os_imu_sample_t *sample)
+{
+    assert(!user && timeout_ms == 135);
+    assert(solar_os_imu_unregister("imu-test") == ESP_ERR_INVALID_STATE);
+    *sample = (solar_os_imu_sample_t){.timestamp_us = UINT64_C(7654321000),
+        .valid = SOLAR_OS_IMU_CAP_ACCELERATION, .acceleration_m_s2 = {0.0F, 4.5F, 9.8F}};
+    return ESP_OK;
+}
+
+static void verify_imu(const solar_os_native_sensors_api_v1_t *api)
+{
+    const solar_os_imu_ops_t ops = {.read_sample = read_imu};
+    const solar_os_imu_registration_t reg = {"imu-test", "host", SOLAR_OS_IMU_CAP_ACCELERATION, &ops, NULL};
+    assert(!solar_os_imu_register(&reg));
+    const uint32_t kind = SOLAR_OS_NATIVE_SENSOR_IMU;
+    solar_os_native_sensor_info_v1_t info;
+    assert(api->count(kind) == 1 && !api->info(kind, 0, &info));
+    assert(info.capabilities == SOLAR_OS_IMU_CAP_ACCELERATION && !info.state);
+    solar_os_native_imu_sample_v1_t sample;
+    assert(!api->imu("imu-test", 135, &sample));
+    assert(sample.valid == info.capabilities && sample.acceleration_m_s2[1] == 4.5F);
+    assert(sample.timestamp_us == UINT64_C(7654321000));
+    assert(!solar_os_imu_unregister(reg.name) && !api->count(kind) && !sensor_streams);
+    const solar_os_native_sensor_provider_v1_t descriptor = {.name = reg.name, .driver = reg.driver,
+        .kind = kind, .library_lease = 123, .ops.imu = {SOLAR_OS_IMU_CAP_ACCELERATION, read_imu}};
+    solar_os_native_handle_t provider;
+    assert(!api->provider_register(&descriptor, &provider) && sensor_provider_pins == 1 && sensor_streams == 1);
+    assert(!api->imu(reg.name, 135, &sample) && sample.timestamp_us == UINT64_C(7654321000));
+    assert(!api->provider_close(provider) && !sensor_provider_pins && !sensor_streams);
+
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+#include "solar_os_gnss.h"
+typedef struct { bool powered, enabled; } receiver_state_t;
+static esp_err_t read_gnss(void *user, uint32_t timeout_ms, solar_os_gnss_fix_t *fix)
+{
+    receiver_state_t *state = user;
+    assert(state->powered && state->enabled && timeout_ms == 50);
+    assert(solar_os_gnss_unregister("receiver") == ESP_ERR_INVALID_STATE);
+    *fix = (solar_os_gnss_fix_t){.valid = true, .satellites_valid = true,
+        .satellites = 9, .latitude_deg_e7 = -500000};
+    return ESP_OK;
+}
+static esp_err_t set_gnss_power(void *user, bool enabled)
+{
+    ((receiver_state_t *)user)->powered = enabled;
+    return ESP_OK;
+}
+static esp_err_t set_gnss_enabled(void *user, bool enabled)
+{
+    ((receiver_state_t *)user)->enabled = enabled;
+    return ESP_OK;
+}
+
+static void verify_gnss(const solar_os_native_sensors_api_v1_t *api)
+{
+    receiver_state_t state = {0};
+    const solar_os_gnss_ops_t ops = {read_gnss, set_gnss_power, set_gnss_enabled};
+    const solar_os_gnss_registration_t reg = {"receiver", "host", &ops, &state, false};
+    assert(!solar_os_gnss_register(&reg));
+    const uint32_t kind = SOLAR_OS_NATIVE_SENSOR_GNSS;
+    const uint32_t power = SOLAR_OS_NATIVE_GNSS_POWER_CONTROL, enable = SOLAR_OS_NATIVE_GNSS_ENABLE_CONTROL;
+    solar_os_native_sensor_info_v1_t info;
+    assert(api->count(kind) == 1 && !api->info(kind, 0, &info));
+    assert(info.capabilities == (power | enable) && !(info.state & SOLAR_OS_NATIVE_GNSS_POWERED));
+    solar_os_native_gnss_status_v1_t status;
+    assert(!api->gnss_status(reg.name, 50, &status) && !status.powered && !status.fix_available);
+    assert(api->gnss_set(reg.name, power | enable, true) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!api->gnss_set(reg.name, power, true) && !api->gnss_set(reg.name, enable, true));
+    assert(!api->info(kind, 0, &info) && info.state == (SOLAR_OS_NATIVE_GNSS_POWERED | SOLAR_OS_NATIVE_GNSS_ENABLED));
+    solar_os_native_gnss_fix_v1_t fix;
+    assert(!api->gnss_fix(reg.name, 50, &fix) && fix.satellites_valid && fix.satellites == 9);
+    assert(!api->gnss_status(reg.name, 50, &status) && status.fix_available && status.fix.latitude_deg_e7 == -500000);
+    assert(!solar_os_gnss_unregister(reg.name) && !api->count(kind));
+    const solar_os_native_sensor_provider_v1_t descriptor = {.name = reg.name, .driver = reg.driver,
+        .kind = kind, .library_lease = 123, .user = &state,
+        .ops.gnss = {.read = read_gnss, .set_enabled = set_gnss_enabled, .powered = true}};
+    solar_os_native_handle_t provider;
+    assert(!api->provider_register(&descriptor, &provider) && sensor_provider_pins == 1);
+    assert(!api->gnss_fix(reg.name, 50, &fix));
+    assert(!api->provider_report(provider, enable, false) && state.enabled);
+    assert(!api->info(kind, 0, &info) && !(info.state & SOLAR_OS_NATIVE_GNSS_ENABLED));
+    assert(!solar_os_gnss_unregister(reg.name) && !solar_os_gnss_register(&reg));
+    assert(api->provider_report(provider, power, true) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!api->provider_close(provider) && !sensor_provider_pins);
+    assert(api->count(kind) == 1 && !solar_os_gnss_unregister(reg.name));
+
+}
+#endif
+
+static void verify_sensors(void)
+{
+    const solar_os_native_sensors_api_v1_t *api =
+        solar_os_native_device_get_service("sensors", 1, sizeof(*api));
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
+    assert(api && !api->count(UINT32_MAX));
+    solar_os_native_sensor_info_v1_t info;
+    assert(api->info(UINT32_MAX, 0, &info) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+#if SOLAR_OS_PACKAGE_SERVICE_SENSORS
+    verify_environment(api);
+#else
+    assert(!api->environment && !api->count(SOLAR_OS_NATIVE_SENSOR_ENVIRONMENT));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+    verify_imu(api);
+#else
+    assert(!api->imu && !api->count(SOLAR_OS_NATIVE_SENSOR_IMU));
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GNSS
+    verify_gnss(api);
+#else
+    assert(!api->gnss_fix && !api->gnss_status && !api->gnss_set);
+#endif
+#else
+    assert(!api);
+#endif
+}
+
 int main(void)
 {
+    verify_sensors();
     assert(!solar_os_native_device_get_service("battery", 2, 0));
     assert(!solar_os_native_device_get_service("battery", 1, UINT32_MAX));
+#if SOLAR_OS_PACKAGE_SERVICE_RTC
+    verify_rtc();
+#else
+    assert(!solar_os_native_device_get_service("clock.rtc", 1, 0));
+#endif
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
+    verify_identity();
     const solar_os_native_board_api_v1_t *board = solar_os_native_device_get_service("board", 1, sizeof(*board)); assert(board);
     solar_os_native_board_info_v1_t info; assert(!board->info(&info)); memset(board_id, 'x', sizeof(board_id) - 1);
     assert(!strcmp(info.id, "host") && info.psram_bytes == 8388608 && info.capabilities == (SOLAR_OS_NATIVE_BOARD_CAP_CAMERA | SOLAR_OS_NATIVE_BOARD_CAP_EXPANSION_I2S));
@@ -161,6 +661,7 @@ int main(void)
     solar_os_shutdown_poll(shutdown_step, &power_value, 600); assert(!strcmp(power->shutdown_stage_name(shutdown.stage), "wake source"));
 #else
     assert(!solar_os_native_device_get_service("board", 1, 0) && !solar_os_native_device_get_service("power", 1, 0) && !solar_os_native_device_get_service("backlight", 1, 0));
+    assert(!solar_os_native_device_get_service("device.identity", 1, 0));
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_GPIO
     const solar_os_native_status_led_api_v1_t *led = solar_os_native_device_get_service("status_led", 1, sizeof(*led)); assert(led);

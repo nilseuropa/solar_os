@@ -12,9 +12,6 @@ extern "C" {
 #define SOLAR_OS_JET_MAX_OBJECTS 32U
 #define SOLAR_OS_JET_MAX_VERTICES 1024U
 #define SOLAR_OS_JET_MAX_TRIANGLES 2048U
-typedef struct { int32_t x, y, z, rx, ry, rz; } solar_os_jet_pose_t;
-typedef struct { int32_t x, y, z; } solar_os_jet_vertex_t;
-typedef struct { uint16_t a, b, c; } solar_os_jet_triangle_t;
 typedef struct {
     uint32_t abi_version, struct_size;
     int (*execute)(void *scene, const solar_os_jet_command_t *command, solar_os_jet_reply_t *reply);

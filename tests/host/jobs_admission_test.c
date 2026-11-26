@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "solar_os_jobs.h"
+#include "solar_os_native_jobs.h"
 #include "solar_os_task.h"
 #include "solar_os_memory.h"
 #include "solar_os_log.h"
@@ -15,6 +16,9 @@ static void (*exit_hook)(void);
 static bool can_create = true;
 static int allocations, starts, stops;
 static solar_os_job_t *descriptor;
+static solar_os_context_t context;
+static bool callback_active;
+solar_os_context_t *solar_os_application_context(void) { return callback_active ? &context : NULL; }
 void test_enter_critical(void) { ++depth; }
 void test_leave_critical(void)
 {
@@ -45,12 +49,26 @@ const char *esp_err_to_name(esp_err_t error) { (void)error; return "test error";
 static esp_err_t start(solar_os_context_t *ctx, int argc, char **argv)
 { (void)ctx; (void)argv; assert(!depth && argc == 0); ++starts; return ESP_OK; }
 static void stop(solar_os_context_t *ctx) { (void)ctx; assert(!depth); ++stops; }
+static void detail(solar_os_context_t *ctx)
+{
+    assert(ctx == &context && !depth);
+    assert(solar_os_jobs_unregister_dynamic("dynamic", descriptor) == ESP_ERR_INVALID_STATE);
+}
+static void error_detail(char *buffer, size_t capacity)
+{
+    detail(&context);
+    strlcpy(buffer, "test detail", capacity);
+}
 static void register_job(void)
 {
-    descriptor = calloc(1,sizeof(*descriptor)); assert(descriptor);
-    *descriptor = (solar_os_job_t){.name="dynamic",.summary="admission test",
-        .kind=SOLAR_OS_JOB_KIND_BACKGROUND,.start=start,.stop=stop,.worker_stack_bytes=4096};
-    assert(!solar_os_jobs_register_dynamic("dynamic",descriptor->summary,descriptor));
+    descriptor = calloc(1, sizeof(*descriptor) + 32); assert(descriptor);
+    char *text = (char *)(descriptor + 1);
+    strcpy(text, "dynamic");
+    strcpy(text + 8, "admission test");
+    *descriptor = (solar_os_job_t){.name=text,.summary=text+8,
+        .kind=SOLAR_OS_JOB_KIND_BACKGROUND,.start=start,.stop=stop,.worker_stack_bytes=4096,
+        .detail=detail,.error_detail=error_detail};
+    assert(!solar_os_jobs_register_dynamic(descriptor->name,descriptor->summary,descriptor));
 }
 static void release_job(void)
 {
@@ -61,8 +79,23 @@ static void release_job(void)
 #include "../../src/solar_os_jobs.c"
 int main(void)
 {
-    register_job(); assert(!solar_os_jobs_start(NULL,"dynamic",0,NULL));
+    const solar_os_native_jobs_api_v1_t *api =
+        solar_os_native_jobs_get_service("jobs", 1, sizeof(*api));
+    assert(api && !solar_os_native_jobs_get_service("jobs", 2, 8));
+    assert(!solar_os_native_jobs_get_service("jobs", 1, sizeof(*api) + 1));
+    register_job();
+    solar_os_job_inspection_v1_t snapshot;
+    assert(api->find_owner("job:dynamic", &snapshot) == SOLAR_OS_NATIVE_OK && snapshot.status.has_detail);
+    assert(snapshot.disposition == SOLAR_OS_JOB_START_READY && api->count() == 1);
+    char error[20];
+    assert(api->error_detail("dynamic", error, sizeof(error)) && !strcmp(error, "test detail"));
+    assert(api->print_detail("dynamic") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    callback_active = true;
+    assert(api->print_detail("dynamic") == SOLAR_OS_NATIVE_OK);
+    callback_active = false;
+    assert(api->start("dynamic", 0, NULL) == SOLAR_OS_NATIVE_OK);
     assert(starts == 1); release_job(); assert(stops == 1 && !allocations);
+    assert(!strcmp(snapshot.status.name, "dynamic") && !strcmp(snapshot.status.summary, "admission test"));
     /* Admission was copied, but the descriptor disappears before preflight.
      * A queued request allocated afterwards must also be released on lookup. */
     register_job(); can_create = false;

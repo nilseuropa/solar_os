@@ -19,28 +19,6 @@ typedef struct {
 
 #define SOLAR_OS_MIDI_SUBSCRIPTION_INIT { .index = -1, .token = 0 }
 
-typedef struct {
-    bool running;
-    char bus_name[SOLAR_OS_BUS_NAME_MAX];
-    uint32_t rx_bytes;
-    uint32_t rx_messages;
-    uint32_t tx_bytes;
-    uint32_t tx_messages;
-    uint32_t parser_unsupported;
-    uint32_t subscriber_drops;
-    uint32_t tx_drops;
-    esp_err_t last_error;
-} solar_os_midi_status_t;
-
-typedef struct {
-    char id[SOLAR_OS_STREAM_ID_MAX];
-    uint8_t channel;
-    uint8_t controller;
-    bool has_value;
-    uint8_t value;
-    uint32_t updates;
-} solar_os_midi_cc_stream_info_t;
-
 esp_err_t solar_os_midi_subscribe(const char *owner,
                                   solar_os_midi_subscription_t *subscription);
 esp_err_t solar_os_midi_unsubscribe(solar_os_midi_subscription_t *subscription);

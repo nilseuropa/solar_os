@@ -6,6 +6,7 @@
 
 #include "esp_err.h"
 #include "solar_os.h"
+#include "solar_os_native_sessions_abi.h"
 #include "solar_os_shell_io.h"
 
 #define SOLAR_OS_PORT_SHELL_SESSION_ID_BASE 16
@@ -52,4 +53,6 @@ size_t solar_os_port_shell_session_count(void);
 bool solar_os_port_shell_get_session_id(size_t index, uint8_t *session_id);
 size_t solar_os_port_shell_app_session_count(void);
 bool solar_os_port_shell_get_app_session_id(size_t index, uint8_t *session_id);
+size_t solar_os_port_shell_snapshot(uint32_t kinds, uint32_t id,
+    solar_os_native_session_info_v1_t *entries, size_t capacity);
 void solar_os_port_shell_print_list(solar_os_shell_io_t *io);

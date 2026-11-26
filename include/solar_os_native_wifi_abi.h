@@ -71,4 +71,5 @@ typedef struct {
     int (*lease_close)(solar_os_native_handle_t lease);
     int (*status)(solar_os_native_wifi_status_v1_t *status);
     int (*status_text)(char *text, size_t capacity);
+    const char *(*state_name)(uint32_t state);
 } solar_os_native_wifi_api_v1_t;

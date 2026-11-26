@@ -68,11 +68,14 @@ class MpegTest(unittest.TestCase):
             files.append(no_pts_path)
             subprocess.run([
                 "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                "-fsanitize=address,undefined", "-fno-sanitize-recover=all", "-no-pie",
+                "-DSOLAR_OS_PACKAGE_SERVICE_MPEG=1", f"-I{ROOT / 'include'}",
                 f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}",
                 f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'components/pl_mpeg'}",
                 str(ROOT / "tests/host/mpeg_test.c"),
                 str(ROOT / "src/services/solar_os_mpeg.c"),
+                str(ROOT / "src/services/solar_os_native_mpeg.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
                 str(ROOT / "src/services/solar_os_mpeg_raster.c"), "-lm", "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary), *map(str, files)], check=True, timeout=30)

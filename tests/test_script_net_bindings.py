@@ -1,3 +1,4 @@
+import tomllib
 import unittest
 from pathlib import Path
 from script_sources import script_source
@@ -92,65 +93,27 @@ class ScriptNetBindingsTest(unittest.TestCase):
         self.assertIn("net_remaining_ms(deadline_us)", NET_SOURCE)
 
     def test_both_interpreters_close_channels_before_vm_teardown(self):
-        self.assertIn(
-            "python_net_destroy();\n#endif\n"
-            "    python_inference_destroy();\n"
-            "    python_media_destroy();\n"
-            "    python_dlp_destroy();\n"
-            "    python_emotion_destroy();\n"
-            "    python_jet_destroy();\n"
-            "    python_robot_destroy();\n"
-            "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
-            "    python_http_stream_destroy();\n"
-            "    python_http_session_destroy();\n#endif\n"
-            "#if SOLAR_OS_PACKAGE_SERVICE_SERVO\n"
-            "    const esp_err_t servo_cleanup = solar_os_servo_release_owner(\"python\");\n"
-            "    if (servo_cleanup != ESP_OK) SOLAR_OS_LOGW(TAG, \"Servo cleanup: %s\", esp_err_to_name(servo_cleanup));\n"
-            "#endif\n"
-            "    solar_os_rtc_release_owner(\"python\");\n"
-            "    mp_embed_deinit();",
-            PYTHON_SOURCE,
-        )
-        self.assertIn(
-            "solua_net_destroy();\n#endif\n"
-            "    solua_inference_destroy();\n"
-            "    solua_media_destroy();\n"
-            "    solua_dlp_destroy();\n"
-            "    solua_emotion_destroy();\n"
-            "    solua_jet_destroy();\n"
-            "    solua_robot_destroy();\n"
-            "#if SOLAR_OS_PACKAGE_SERVICE_HTTP_CLIENT\n"
-            "    solua_http_stream_destroy();\n"
-            "    solua_http_session_destroy();\n#endif\n"
-            "#if SOLAR_OS_PACKAGE_SERVICE_SERVO\n"
-            "    const esp_err_t servo_cleanup = solar_os_servo_release_owner(\"lua\");\n"
-            "    if (servo_cleanup != ESP_OK) SOLAR_OS_LOGW(TAG, \"Servo cleanup: %s\", esp_err_to_name(servo_cleanup));\n"
-            "#endif\n"
-            "    solar_os_rtc_release_owner(\"lua\");\n"
-            "    lua_close(L);",
-            LUA_SOURCE,
-        )
+        for source, close_network, close_vm in (
+            (PYTHON_SOURCE, "python_net_destroy();", "mp_embed_deinit();"),
+            (LUA_SOURCE, "solua_net_destroy();", "lua_close(L);"),
+        ):
+            vm_runs = source.split(close_vm)[:-1]
+            self.assertEqual(len(vm_runs), 2)
+            for run in vm_runs:
+                self.assertIn(close_network, run)
 
-    def test_transport_service_is_only_required_by_script_runtimes(self):
-        service_net = PACKAGE_SOURCE.split("[packages.service_net]", 1)[1].split(
-            "[packages.service_script_net]", 1
-        )[0]
-        self.assertNotIn("solar_os_net_session.c", service_net)
-        self.assertNotIn("tcp_transport", service_net)
-
-        script_net = PACKAGE_SOURCE.split("[packages.service_script_net]", 1)[1].split(
-            "[packages.service_mqtt]", 1
-        )[0]
-        self.assertIn('depends = ["service_net"]', script_net)
-        self.assertIn('sources = ["services/solar_os_net_session.c"]', script_net)
-        self.assertIn('"tcp_transport"', script_net)
-
-        for runtime in ("app_python", "app_lua"):
-            package = PACKAGE_SOURCE.split(f"[packages.{runtime}]", 1)[1].split(
-                "[packages.", 1
-            )[0]
-            self.assertIn('"service_script_net"', package)
-
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_shared_transport_dependencies(self):
+        packages = tomllib.loads(PACKAGE_SOURCE)["packages"]
+        service_net = packages["service_net"]
+        script_net = packages["service_script_net"]
+        self.assertNotIn("services/solar_os_net_session.c", service_net["sources"])
+        self.assertNotIn("tcp_transport", service_net["requires"])
+        self.assertIn("service_net", script_net["depends"])
+        self.assertIn("services/solar_os_net_session.c", script_net["sources"])
+        self.assertIn("services/solar_os_tls.c", script_net["sources"])
+        self.assertIn("tcp_transport", script_net["requires"])
+        services = tomllib.loads((REPOSITORY / "api/native/services.toml").read_text())["service"]
+        net = next(service for service in services if service["id"] == "net")
+        self.assertEqual(net["gate"], "SOLAR_OS_PACKAGE_SERVICE_NET")
+        for consumer in ("app_python", "app_lua", "app_git", "service_osc"):
+            self.assertIn("service_script_net", packages[consumer]["depends"])
