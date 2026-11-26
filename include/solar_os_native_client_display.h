@@ -320,7 +320,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(shell_io, "shell_io", solar_os_native_shell_io_api_v
     M(flush) \
     M(vprintf_bold) \
     M(table_vprintf) \
-    M(table_vprintf_bold)
+    M(table_vprintf_bold) \
+    M(poll_input)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -554,7 +555,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(display_lease, "display.lease", solar_os_native_disp
     M(frames_exchange) \
     M(frames_release) \
     M(frames_redraw) \
-    M(frames_take_stats)
+    M(frames_take_stats) \
+    M(set_high_refresh)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -674,6 +676,46 @@ SOLAR_OS_NATIVE_DECLARE_GET(jet, "jet.scene", solar_os_native_jet_api_v1_t, 1U)
     M(render) \
     M(status) \
     M(execute)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(input_hardware, "input.hardware", solar_os_native_input_hardware_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(input_hardware, solar_os_native_input_hardware_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(button_count) \
+    M(button_at) \
+    M(dpad_axis_count) \
+    M(dpad_axis_at) \
+    M(calibrate_dpad)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_raster, "display.raster", solar_os_native_display_raster_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_raster, solar_os_native_display_raster_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(mono_damage) \
+    M(mono_to_index2)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_receiver, "display.receiver", solar_os_native_display_receiver_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_receiver, solar_os_native_display_receiver_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(open) \
+    M(pump) \
+    M(reset) \
+    M(close)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(display_link_target, "display.link.target", solar_os_native_display_link_target_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(display_link_target, solar_os_native_display_link_target_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(attach)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

@@ -1947,3 +1947,547 @@ scoped = false
 provider = "wireguard"
 table = "wireguard_api"
 gate = "SOLAR_OS_PACKAGE_SERVICE_WIREGUARD"
+
+[[service]]
+id = "zip"
+name = "storage.zip"
+abi = 1
+header = "solar_os_native_zip_abi.h"
+type = "solar_os_native_zip_api_v1_t"
+scoped = false
+provider = "zip"
+table = "zip_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_ZIP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_zip_get_service"
+
+[[service]]
+id = "sc2"
+name = "messaging.sc2"
+abi = 1
+header = "solar_os_native_sc2_abi.h"
+type = "solar_os_native_sc2_api_v1_t"
+scoped = false
+provider = "sc2"
+table = "sc2_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SC2"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_sc2_get_service"
+
+[[service]]
+id = "link"
+name = "link"
+abi = 1
+header = "solar_os_native_link_abi.h"
+type = "solar_os_native_link_api_v1_t"
+scoped = false
+provider = "link"
+table = "link_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_LINK"
+
+[[service]]
+id = "link_stream"
+name = "link.stream"
+abi = 1
+header = "solar_os_native_link_abi.h"
+type = "solar_os_native_link_stream_api_v1_t"
+scoped = false
+provider = "link"
+table = "link_stream_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_LINK"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_link_get_service"
+
+[[service]]
+id = "espnow"
+name = "network.espnow"
+abi = 1
+header = "solar_os_native_espnow_abi.h"
+type = "solar_os_native_espnow_api_v1_t"
+scoped = false
+provider = "espnow"
+table = "espnow_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_ESPNOW"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_espnow_get_service"
+
+[[service]]
+id = "link_repeater"
+name = "link.repeater"
+abi = 1
+header = "solar_os_native_link_repeater_abi.h"
+type = "solar_os_native_link_repeater_api_v1_t"
+scoped = false
+provider = "link"
+table = "repeater_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_LINK"
+
+[[service]]
+id = "link_messaging"
+name = "link.messaging"
+abi = 1
+header = "solar_os_native_link_messaging_abi.h"
+type = "solar_os_native_link_messaging_api_v1_t"
+scoped = false
+provider = "link_messaging"
+table = "link_messaging_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESSAGING"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_link_messaging_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_LINK"
+
+[[service]]
+id = "port_provider"
+name = "io.ports.provider"
+abi = 1
+header = "solar_os_native_port_provider_abi.h"
+type = "solar_os_native_port_provider_api_v1_t"
+scoped = false
+provider = "port_provider"
+table = "port_provider_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_port_provider_get_service"
+
+[[service]]
+id = "motor_provider"
+name = "motor.provider"
+abi = 1
+header = "solar_os_native_motion_provider_abi.h"
+type = "solar_os_native_motor_provider_api_v1_t"
+scoped = false
+provider = "device"
+table = "motor_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MOTOR"
+
+[[service]]
+id = "encoder_provider"
+name = "encoder.provider"
+abi = 1
+header = "solar_os_native_motion_provider_abi.h"
+type = "solar_os_native_encoder_provider_api_v1_t"
+scoped = false
+provider = "device"
+table = "encoder_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_ENCODER"
+
+[[service]]
+id = "ota"
+name = "ota"
+abi = 1
+header = "solar_os_native_ota_abi.h"
+type = "solar_os_native_ota_api_v1_t"
+scoped = false
+provider = "device"
+table = "ota_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_OTA"
+
+[[service]]
+id = "meshcore_stream"
+name = "meshcore.stream"
+abi = 1
+header = "solar_os_native_meshcore_stream_abi.h"
+type = "solar_os_native_meshcore_stream_api_v1_t"
+scoped = false
+provider = "link"
+table = "meshcore_stream_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESHCORE"
+
+[[service]]
+id = "meshcore_radio"
+name = "meshcore.radio"
+abi = 1
+header = "solar_os_native_meshcore_abi.h"
+type = "solar_os_native_meshcore_radio_api_v1_t"
+scoped = false
+provider = "meshcore"
+table = "meshcore_radio_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESHCORE"
+
+[[service]]
+id = "meshcore_ble"
+name = "meshcore.ble"
+abi = 1
+header = "solar_os_native_meshcore_abi.h"
+type = "solar_os_native_meshcore_ble_api_v1_t"
+scoped = false
+provider = "meshcore"
+table = "meshcore_ble_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESHCORE_BLE"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_meshcore_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESHCORE_COMMON"
+
+[[service]]
+id = "gateway"
+name = "messages.gateway"
+abi = 1
+header = "solar_os_native_gateway_abi.h"
+type = "solar_os_native_gateway_api_v1_t"
+scoped = false
+provider = "messages"
+table = "gateway_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_GATEWAY"
+
+[[service]]
+id = "gateway_sync"
+name = "messages.gateway_sync"
+abi = 1
+header = "solar_os_native_gateway_abi.h"
+type = "solar_os_native_gateway_sync_api_v1_t"
+scoped = false
+provider = "messages"
+table = "gateway_sync_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_GATEWAY_SYNC"
+
+[[service]]
+id = "email"
+name = "email"
+abi = 1
+header = "solar_os_native_email_abi.h"
+type = "solar_os_native_email_api_v1_t"
+scoped = false
+provider = "inbox"
+table = "email_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MAIL"
+
+[[service]]
+id = "synth"
+name = "audio.synth"
+abi = 1
+header = "solar_os_native_synth_abi.h"
+type = "solar_os_native_synth_api_v1_t"
+scoped = false
+provider = "synth"
+table = "synth_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SYNTH"
+
+[[service]]
+id = "voice"
+name = "audio.voice"
+abi = 1
+header = "solar_os_native_synth_abi.h"
+type = "solar_os_native_voice_api_v1_t"
+scoped = false
+provider = "synth"
+table = "voice_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SYNTH"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_synth_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SYNTH"
+
+[[service]]
+id = "audio_device_provider"
+name = "media.audio.provider"
+abi = 1
+header = "solar_os_native_audio_device_provider_abi.h"
+type = "solar_os_native_audio_device_provider_api_v1_t"
+scoped = false
+provider = "audio_routes"
+table = "audio_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AUDIO"
+
+[[service]]
+id = "battery_provider"
+name = "battery.provider"
+abi = 1
+header = "solar_os_native_battery_provider_abi.h"
+type = "solar_os_native_battery_provider_api_v1_t"
+scoped = false
+provider = "battery_provider"
+table = "battery_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BATTERY"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_battery_provider_get_service"
+gate = "SOLAR_OS_PACKAGE_SERVICE_BATTERY"
+
+[[service]]
+id = "pwm_provider"
+name = "pwm.provider"
+abi = 1
+header = "solar_os_native_pwm_provider_abi.h"
+type = "solar_os_native_pwm_provider_api_v1_t"
+scoped = false
+provider = "pwm_provider"
+table = "pwm_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_PWM"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_pwm_provider_get_service"
+
+[[service]]
+id = "agent"
+name = "agent"
+abi = 1
+header = "solar_os_native_agent_abi.h"
+type = "solar_os_native_agent_api_v1_t"
+scoped = false
+provider = "agent"
+table = "agent_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AGENT"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_agent_get_service"
+
+[[service]]
+id = "agent_conversation"
+name = "agent.conversation"
+abi = 1
+header = "solar_os_native_agent_conversation_abi.h"
+type = "solar_os_native_agent_conversation_api_v1_t"
+scoped = false
+provider = "agent"
+table = "agent_conversation_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AGENT"
+
+[[service]]
+id = "agent_run"
+name = "agent.run"
+abi = 1
+header = "solar_os_native_agent_run_abi.h"
+type = "solar_os_native_agent_run_api_v1_t"
+scoped = false
+provider = "agent_run"
+table = "agent_run_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AGENT"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_agent_run_get_service"
+
+[[service]]
+id = "agent_tools"
+name = "agent.tools"
+abi = 1
+header = "solar_os_native_agent_tools_abi.h"
+type = "solar_os_native_agent_tools_api_v1_t"
+scoped = false
+provider = "agent_run"
+table = "agent_tools_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AGENT"
+
+[[service]]
+id = "input_hardware"
+name = "input.hardware"
+abi = 1
+header = "solar_os_native_input_hardware_abi.h"
+type = "solar_os_native_input_hardware_api_v1_t"
+scoped = false
+provider = "input_hardware"
+table = "input_hardware_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_input_hardware_get_service"
+
+[[service]]
+id = "http_server"
+name = "http.server"
+abi = 1
+header = "solar_os_native_http_server_abi.h"
+type = "solar_os_native_http_server_api_v1_t"
+scoped = false
+provider = "http_server"
+table = "http_server_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_HTTP_SERVER"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_http_server_get_service"
+
+[[service]]
+id = "irc"
+name = "messages.irc"
+abi = 1
+header = "solar_os_native_irc_abi.h"
+type = "solar_os_native_irc_api_v1_t"
+scoped = false
+provider = "irc"
+table = "irc_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_IRC"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_irc_get_service"
+
+[[service]]
+id = "power_provider"
+name = "power.provider"
+abi = 1
+header = "solar_os_native_power_provider_abi.h"
+type = "solar_os_native_power_provider_api_v1_t"
+scoped = false
+provider = "power_provider"
+table = "power_provider_api"
+gate = "SOLAR_OS_PACKAGE_CORE_RUNTIME"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_power_provider_get_service"
+
+[[service]]
+id = "audio_player"
+name = "media.audio.player"
+abi = 1
+header = "solar_os_native_audio_player_abi.h"
+type = "solar_os_native_audio_player_api_v1_t"
+scoped = false
+provider = "audio_player"
+table = "audio_player_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_AUDIO"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_audio_player_get_service"
+
+[[service]]
+id = "display_raster"
+name = "display.raster"
+abi = 1
+header = "solar_os_native_display_raster_abi.h"
+type = "solar_os_native_display_raster_api_v1_t"
+scoped = false
+provider = "display_raster"
+table = "display_raster_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_DLP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_display_raster_get_service"
+
+[[service]]
+id = "display_receiver"
+name = "display.receiver"
+abi = 1
+header = "solar_os_native_display_receiver_abi.h"
+type = "solar_os_native_display_receiver_api_v1_t"
+scoped = false
+provider = "display_receiver"
+table = "display_receiver_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_DLP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_display_receiver_get_service"
+
+[[service]]
+id = "display_link_target"
+name = "display.link.target"
+abi = 1
+header = "solar_os_native_display_link_target_abi.h"
+type = "solar_os_native_display_link_target_api_v1_t"
+scoped = false
+provider = "display_link"
+table = "display_link_target_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY"
+
+[[service]]
+id = "modem_provider"
+name = "modem.provider"
+abi = 1
+header = "solar_os_native_modem_provider_abi.h"
+type = "solar_os_native_modem_provider_api_v1_t"
+scoped = false
+provider = "modem_provider"
+table = "modem_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MODEM"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_modem_provider_get_service"
+
+[[service]]
+id = "router_provider"
+name = "network.router.provider"
+abi = 1
+header = "solar_os_native_router_provider_abi.h"
+type = "solar_os_native_router_provider_api_v1_t"
+scoped = false
+provider = "router_provider"
+table = "router_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_NETWORK"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_router_provider_get_service"
+
+[[service]]
+id = "ppp"
+name = "network.ppp"
+abi = 1
+header = "solar_os_native_ppp_abi.h"
+type = "solar_os_native_ppp_api_v1_t"
+scoped = false
+provider = "ppp"
+table = "ppp_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_PPP"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_ppp_get_service"
+
+[[service]]
+id = "message_provider"
+name = "messages.provider"
+abi = 1
+header = "solar_os_native_message_provider_abi.h"
+type = "solar_os_native_message_provider_api_v1_t"
+scoped = false
+provider = "message_provider"
+table = "message_provider_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_MESSAGING"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_message_provider_get_service"
+
+[[service]]
+id = "sc2_profile"
+name = "messaging.sc2.profile"
+abi = 1
+header = "solar_os_native_sc2_profile_abi.h"
+type = "solar_os_native_sc2_profile_api_v1_t"
+scoped = false
+provider = "sc2_profile"
+table = "sc2_profile_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_sc2_profile_get_service"
+
+[[service]]
+id = "sc2_relay"
+name = "messaging.sc2.relay"
+abi = 1
+header = "solar_os_native_sc2_relay_abi.h"
+type = "solar_os_native_sc2_relay_api_v1_t"
+scoped = false
+provider = "sc2_relay"
+table = "sc2_relay_api"
+gate = "SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY"
+
+[[provider]]
+parent = "root"
+getter = "solar_os_native_sc2_relay_get_service"

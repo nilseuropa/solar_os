@@ -221,6 +221,9 @@ int main(void)
     assert(!strcmp(copy->headers[0].value, "yes") && !memcmp(copy->body, "request", 7) && !strcmp(copy->user_agent, "agent"));
     solar_os_native_http_event_v1_t event;
     assert(!api->stream_read(active_context, stream, 42, &event));
+    assert(!strcmp(api->stream_event_name(event.type), "header"));
+    assert(!strcmp(api->stream_event_name(SOLAR_OS_NATIVE_HTTP_COMPLETE), "complete"));
+    assert(!strcmp(api->stream_event_name(UINT32_MAX), "unknown"));
     assert(event.type == SOLAR_OS_NATIVE_HTTP_HEADER && event.flags == SOLAR_OS_NATIVE_HTTP_HEADERS_TRUNCATED);
     assert(event.content_length == INT64_C(5000000000) && event.bytes_received == UINT64_C(6000000000));
     assert(!strcmp(event.header_name, "content-type") && !strcmp(event.header_value, "text/plain"));

@@ -135,12 +135,12 @@ esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *regis
     return err;
 }
 
-esp_err_t solar_os_encoder_unregister(const char *name)
+static esp_err_t encoder_unregister(const char *name, const void *owner)
 {
     if (!valid_name(name, SOLAR_OS_ENCODER_NAME_MAX)) return ESP_ERR_INVALID_ARG;
     lock();
     encoder_t *e = find(name);
-    if (e == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
+    if (e == NULL || (owner && e->ctx != owner)) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
     if (e->refs != 0U || e->cleanup_busy || (e->removing && !e->registration_failed && !e->shutdown_done) || e->claim != 0) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     e->cleanup_busy=true;
     e->removing = true;
@@ -160,6 +160,16 @@ esp_err_t solar_os_encoder_unregister(const char *name)
         solar_os_memory_free(e);
     }
     return ret;
+}
+
+esp_err_t solar_os_encoder_unregister(const char *name)
+{
+    return encoder_unregister(name, NULL);
+}
+
+esp_err_t solar_os_encoder_unregister_owned(const char *name, const void *owner)
+{
+    return owner != NULL ? encoder_unregister(name, owner) : ESP_ERR_INVALID_ARG;
 }
 
 size_t solar_os_encoder_count(void)

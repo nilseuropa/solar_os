@@ -42,4 +42,5 @@ typedef struct {
     int (*serial_get)(solar_os_native_handle_t port, solar_os_native_serial_config_v1_t *config);
     int (*serial_set)(solar_os_native_handle_t port, const solar_os_native_serial_config_v1_t *config, uint32_t mask);
     int (*serial_break)(solar_os_native_handle_t port, uint16_t milliseconds);
+    const char *(*capabilities_text)(uint32_t capabilities, char *buffer, size_t capacity);
 } solar_os_native_ports_api_v1_t;

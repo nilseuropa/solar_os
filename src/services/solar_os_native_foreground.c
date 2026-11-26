@@ -506,13 +506,20 @@ static int foreground_synth_open(solar_os_native_foreground_audio_render_v1_t re
         .user = state, .block_frames = frames,
     };
     esp_err_t err = solar_os_synth_start(&config);
-    if (err == ESP_OK) {
-        state->synth_running = true;
+    if (err == ESP_OK || err == ESP_ERR_TIMEOUT) {
         solar_os_synth_status_t status;
         solar_os_synth_get_status(&status);
-        if (status.sample_rate != rate) {
+        if (err == ESP_OK) {
+            state->synth_running = true;
+            if (status.sample_rate != rate) {
+                foreground_synth_close_state(state);
+                err = ESP_ERR_NOT_SUPPORTED;
+            }
+        } else if (!strcmp(status.owner, state->slot->manifest.id)) {
+            /* A timed-out start can still own the callback. Join it before
+             * the guest may discard its render context or exit. */
+            state->synth_running = true;
             foreground_synth_close_state(state);
-            err = ESP_ERR_NOT_SUPPORTED;
         }
     }
     if (err != ESP_OK) { state->synth_render = NULL; state->synth_user = NULL; }

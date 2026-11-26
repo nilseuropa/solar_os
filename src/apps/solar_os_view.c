@@ -22,6 +22,7 @@
 #include "solar_os_stb_image.h"
 #include "solar_os_terminal.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_vector.h"
 #include "solar_os_webp_decoder.h"
 
 #define VIEW_MAX_PIXELS (2U * 1024U * 1024U)
@@ -336,7 +337,7 @@ static esp_err_t view_decode_gif(FILE *file,
                                  bool color)
 {
     const solar_os_native_vector_api_v1_t *vector = solar_os_native_vector_get(
-        solar_os_native_host_v1()->get_service, sizeof(*vector));
+        solar_os_native_vector_get_service, sizeof(*vector));
     if (!vector) return ESP_ERR_NOT_SUPPORTED;
     uint8_t *image_data = NULL;
     size_t image_len = 0;

@@ -306,7 +306,7 @@ static size_t messages_menu_count(void)
     case MESSAGES_FILTER: return messages_provider_count() + 1;
     case MESSAGES_CLASSES: return messages_class_choice(SIZE_MAX, NULL, 0, false);
     case MESSAGES_FORM:
-    case MESSAGES_EDIT_FIELD: return messages_app.settings.count + (messages_app.form_instance ? 0 : 1) + 1;
+    case MESSAGES_EDIT_FIELD: return messages_app.settings.data.count + (messages_app.form_instance ? 0 : 1) + 1;
     case MESSAGES_ACTIONS: { size_t count; (void)messages_actions(&count); return count; }
     default: return 0;
     }
@@ -331,8 +331,8 @@ static void messages_menu_line(size_t index, char *line, size_t capacity)
             size_t field = index - (messages_app.form_instance ? 0 : 1);
             bool secret = messages_app.settings.fields[field].secret;
             const char *value = secret ?
-                (messages_app.settings.changed[field] ? (messages_app.settings.values[field][0] ? "[changed]" : "[clear]") :
-                messages_app.settings.present[field] ? "[saved]" : "[empty]") : messages_app.settings.values[field];
+                (messages_app.settings.data.changed[field] ? (messages_app.settings.data.values[field][0] ? "[changed]" : "[clear]") :
+                messages_app.settings.data.present[field] ? "[saved]" : "[empty]") : messages_app.settings.data.values[field];
             snprintf(line, capacity, "%s: %s", messages_app.settings.fields[field].label, value);
         }
     }
@@ -714,9 +714,9 @@ static void messages_menu_event(solar_os_context_t *ctx, uint8_t ch)
         if (action == SOLAR_OS_TUI_INPUT_SUBMIT) {
             if (messages_app.form_name_edit) strlcpy(messages_app.form_name, messages_app.edit, sizeof(messages_app.form_name));
             else {
-                strlcpy(messages_app.settings.values[messages_app.edit_field], messages_app.edit,
-                    sizeof(messages_app.settings.values[0]));
-                messages_app.settings.changed[messages_app.edit_field] = true;
+                strlcpy(messages_app.settings.data.values[messages_app.edit_field], messages_app.edit,
+                    sizeof(messages_app.settings.data.values[0]));
+                messages_app.settings.data.changed[messages_app.edit_field] = true;
             }
         }
         if (action == SOLAR_OS_TUI_INPUT_SUBMIT || action == SOLAR_OS_TUI_INPUT_CANCEL) {
@@ -774,7 +774,7 @@ static void messages_menu_event(solar_os_context_t *ctx, uint8_t ch)
             messages_app.edit_field = index - (messages_app.form_instance ? 0 : 1);
             bool secret = !messages_app.form_name_edit && messages_app.settings.fields[messages_app.edit_field].secret;
             strlcpy(messages_app.edit, messages_app.form_name_edit ? messages_app.form_name :
-                secret ? "" : messages_app.settings.values[messages_app.edit_field], sizeof(messages_app.edit));
+                secret ? "" : messages_app.settings.data.values[messages_app.edit_field], sizeof(messages_app.edit));
             messages_app.input = (solar_os_tui_input_state_t){.cursor = strlen(messages_app.edit)};
             messages_app.mode = MESSAGES_EDIT_FIELD;
         } else if (messages_app.mode == MESSAGES_ACTIONS) {

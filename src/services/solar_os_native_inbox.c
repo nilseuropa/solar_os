@@ -80,6 +80,66 @@ static const solar_os_native_inbox_api_v1_t inbox_api = {
 };
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_MAIL
+#include "solar_os_email.h"
+
+static int email_status(solar_os_email_status_t *status)
+{
+    const esp_err_t error = solar_os_email_get_status(status);
+    if (error == ESP_OK) {
+        status->last_error = status->last_error == ESP_ERR_NOT_ALLOWED ?
+            SOLAR_OS_NATIVE_ERROR_CANCELLED : solar_os_native_result(status->last_error);
+    }
+    return solar_os_native_result(error);
+}
+
+static int email_configure(const char *url, const char *user, const char *password, const char *mailbox)
+{
+    return solar_os_native_result(solar_os_email_configure(url, user, password, mailbox));
+}
+
+static int email_forget(void)
+{
+    return solar_os_native_result(solar_os_email_forget());
+}
+
+static int email_get(uint32_t id, solar_os_email_message_t *message, bool mark_read)
+{
+    return solar_os_native_result(solar_os_email_get(id, message, mark_read));
+}
+
+static int email_mark_read(uint32_t id, bool read)
+{
+    return solar_os_native_result(solar_os_email_mark_read(id, read));
+}
+
+static int email_clear(void)
+{
+    return solar_os_native_result(solar_os_email_clear());
+}
+
+static int email_store(uint32_t uid, const char *from, const char *subject, const char *date,
+    const char *preview, bool truncated, uint32_t *id)
+{
+    return solar_os_native_result(solar_os_email_store(uid, from, subject, date, preview, truncated, id));
+}
+
+static int email_fetch(bool rescan, bool (*cancel)(void *), void *user)
+{
+    const esp_err_t error = solar_os_email_sync_fetch(rescan, cancel, user);
+    if (error == ESP_ERR_NOT_FINISHED) return SOLAR_OS_NATIVE_ERROR_BUSY;
+    if (error == ESP_ERR_NOT_ALLOWED) return SOLAR_OS_NATIVE_ERROR_CANCELLED;
+    return solar_os_native_result(error);
+}
+
+static const solar_os_native_email_api_v1_t email_api = {
+    .abi_version = SOLAR_OS_NATIVE_EMAIL_ABI, .struct_size = sizeof(email_api),
+    .status = email_status, .configure = email_configure, .forget = email_forget,
+    .snapshot = solar_os_email_snapshot, .get = email_get, .mark_read = email_mark_read,
+    .clear = email_clear, .store = email_store, .fetch = email_fetch,
+};
+#endif
+
 const void *solar_os_native_inbox_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
 #include "generated/native_inbox_dispatch.inc"

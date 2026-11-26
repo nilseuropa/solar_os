@@ -48,7 +48,8 @@ static solar_os_synth_config_t config;
 static int token[3], depth, calls, starts, stops, deleted, presented;
 static foreground_state_t *scope;
 static TaskHandle_t current;
-static bool mutex_fail, start_fail, stop_fail, image_live;
+static bool mutex_fail, stop_fail, image_live;
+static esp_err_t start_error;
 static uint32_t sample_rate=16000;
 static unsigned stream_opens, stream_closes, stream_writes;
 static esp_err_t stream_open_error, stream_write_error;
@@ -65,7 +66,7 @@ static int xSemaphoreTake(SemaphoreHandle_t mutex,unsigned timeout) {
 }
 static int xSemaphoreGive(SemaphoreHandle_t mutex) {assert(mutex && depth==1);depth--;return pdTRUE;}
 static void vSemaphoreDelete(SemaphoreHandle_t mutex) {assert(mutex && !depth && !state.synth_running);deleted++;}
-static int solar_os_synth_start(const solar_os_synth_config_t *c) {starts++;config=*c;return start_fail?ESP_FAIL:ESP_OK;}
+static int solar_os_synth_start(const solar_os_synth_config_t *c) {starts++;config=*c;return start_error;}
 static int solar_os_synth_stop(const char *owner) {
     assert(!strcmp(owner,"gameboy"));stops++;
     if(stop_fail)return ESP_ERR_TIMEOUT;
@@ -112,7 +113,7 @@ static void setup(void) {
     memset(&state,0,sizeof(state));memset(&other,0,sizeof(other));memset(&slot,0,sizeof(slot));
     strcpy(slot.manifest.id,"gameboy");state.slot=&slot;
     atomic_store(&state.worker,&token[0]);atomic_store(&other.worker,&token[1]);
-    strcpy(synth_owner,"gameboy");scope=&state;current=&token[0];mutex_fail=start_fail=stop_fail=false;image_live=true;
+    strcpy(synth_owner,"gameboy");scope=&state;current=&token[0];mutex_fail=stop_fail=false;start_error=ESP_OK;image_live=true;
     starts=stops=deleted=presented=calls=depth=0;sample_rate=16000;
     stream_opens=stream_closes=stream_writes=0;stream_open_error=stream_write_error=ESP_OK;
     stream_channels=2;stream_bits=16;short_write=false;stream_bytes=0;
@@ -182,8 +183,18 @@ int main(void) {
     assert(!stops && deleted==1 && !state.synth_render);
     setup();mutex_fail=true;assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
     assert(!starts && !state.synth_render);
-    setup();start_fail=true;assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_FAILED);
+    setup();start_error=ESP_FAIL;assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_FAILED);
     assert(!state.synth_running && !state.synth_render);foreground_worker_cleanup(&state);assert(deleted==1);
+    setup();start_error=ESP_ERR_TIMEOUT;
+    assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(stops==1 && calls==1 && !state.synth_running && !state.synth_render);
+    foreground_worker_cleanup(&state);assert(deleted==1);
+    setup();start_error=ESP_ERR_TIMEOUT;synth_owner[0]=0;
+    assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!stops && !state.synth_running && !state.synth_render);
+    setup();start_error=ESP_ERR_TIMEOUT;stop_fail=true;
+    if(!setjmp(restarted)){(void)foreground_synth_open(guest_render,&state,16,16000);assert(0);}
+    assert(stops==1 && state.synth_running && state.synth_render && !deleted);
     setup();sample_rate=48000;assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
     assert(stops==1 && !state.synth_running);
     setup();assert(foreground_synth_open(guest_render,&state,16,16000)==SOLAR_OS_NATIVE_OK);stop_fail=true;

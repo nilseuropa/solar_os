@@ -78,6 +78,26 @@ enum {
     SOLAR_OS_NATIVE_HANDLE_MEDIA_PLAYLIST,
     SOLAR_OS_NATIVE_HANDLE_SPI_DEVICE,
     SOLAR_OS_NATIVE_HANDLE_DISPLAY_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_ESPNOW,
+    SOLAR_OS_NATIVE_HANDLE_LINK_REPEATER,
+    SOLAR_OS_NATIVE_HANDLE_PORT_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_MOTOR_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_ENCODER_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_SYNTH,
+    SOLAR_OS_NATIVE_HANDLE_VOICE,
+    SOLAR_OS_NATIVE_HANDLE_AUDIO_DEVICE_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_BATTERY_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_PWM_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_HTTP_SERVER_ROUTE,
+    SOLAR_OS_NATIVE_HANDLE_HTTP_SERVER_REQUEST,
+    SOLAR_OS_NATIVE_HANDLE_POWER_OFF_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_AUDIO_PLAYER,
+    SOLAR_OS_NATIVE_HANDLE_DLP_RECEIVER,
+    SOLAR_OS_NATIVE_HANDLE_MODEM_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_ROUTER_PROVIDER,
+    SOLAR_OS_NATIVE_HANDLE_PPP,
+    SOLAR_OS_NATIVE_HANDLE_MESSAGE_CLASS,
+    SOLAR_OS_NATIVE_HANDLE_MESSAGE_LEASE,
 };
 typedef int (*solar_os_native_handle_destroy_fn)(void *state);
 int solar_os_native_handle_create(uint32_t kind, void *state,
@@ -87,6 +107,11 @@ void *solar_os_native_handle_acquire(solar_os_native_handle_t id, uint32_t kind)
  * cannot overlap an exclusive borrow. */
 int solar_os_native_handle_acquire_exclusive(solar_os_native_handle_t id, uint32_t kind, void **state);
 void solar_os_native_handle_release_exclusive(solar_os_native_handle_t id);
+/* Publish with an exclusive borrow already held. Optional owner for teardown. */
+int solar_os_native_handle_create_exclusive(uint32_t kind, void *state,
+    solar_os_native_handle_destroy_fn destroy, const void *owner, solar_os_native_handle_t *out);
+/* Consume an exclusive borrow and retire its slot as one operation. */
+int solar_os_native_handle_close_exclusive(solar_os_native_handle_t id, uint32_t kind);
 void solar_os_native_handle_release(solar_os_native_handle_t id);
 int solar_os_native_handle_close(solar_os_native_handle_t id);
 int solar_os_native_handle_close_kind(solar_os_native_handle_t id, uint32_t kind);

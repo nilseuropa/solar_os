@@ -210,6 +210,21 @@ esp_err_t solar_os_status_led_toggle(bool *out) { led_on = !led_on; if (out) *ou
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
+/* The battery registry and provider bridge are exercised by battery_service_test. */
+esp_err_t solar_os_battery_register_provider(const char *owner, const solar_os_battery_provider_t *provider)
+{
+    (void)owner;
+    (void)provider;
+    assert(false);
+    return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t solar_os_battery_unregister_provider_owned(const char *owner, const void *user)
+{
+    (void)owner;
+    (void)user;
+    assert(false);
+    return ESP_ERR_NOT_SUPPORTED;
+}
 bool solar_os_battery_has_provider(void) { return true; }
 esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *out)
 { *out = (solar_os_battery_status_t){.voltage_mv = 4137, .percent = 87, .percent_estimated = true, .adc_calibrated = true, .external_power = true, .charging = true, .charging_known = true, .external_power_known = true}; return ESP_OK; }

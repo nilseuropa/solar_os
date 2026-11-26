@@ -388,20 +388,19 @@ static esp_err_t test_settings_read(void *context, unsigned form, solar_os_messa
 {
     if (form) return ESP_ERR_NOT_FOUND;
     assert(!context || context == &test_joins);
-    settings->label = "Network";
-    settings->fields = test_fields;
-    settings->count = sizeof(test_fields) / sizeof(test_fields[0]);
+    solar_os_messaging_settings_form(settings, "Network", test_fields,
+        sizeof(test_fields) / sizeof(test_fields[0]));
     strlcpy(settings->worker, "test-worker", sizeof(settings->worker));
-    strlcpy(settings->values[0], "example.test", sizeof(settings->values[0]));
+    strlcpy(settings->data.values[0], "example.test", sizeof(settings->data.values[0]));
     /* Even a transport that supplies a value must never read secrets back. */
     if (context) {
-        strlcpy(settings->values[1], "stored-token", sizeof(settings->values[1]));
-        settings->present[1] = true;
+        strlcpy(settings->data.values[1], "stored-token", sizeof(settings->data.values[1]));
+        settings->data.present[1] = true;
     }
     return ESP_OK;
 }
 static esp_err_t test_settings_write(void *context, unsigned form, const char *name,
-                                    const solar_os_messaging_settings_t *settings,
+                                    const solar_os_message_setting_values_v1_t *settings,
                                     solar_os_messaging_provider_id_t *id)
 {
     assert(context == &test_joins && form == 0 && !name);
@@ -991,6 +990,156 @@ static void test_sequential_history_rebuild(void)
     assert(solar_os_messaging_clear(0, NULL) == ESP_OK);
 }
 
+#if SOLAR_OS_TEST_NATIVE_MESSAGE_PROVIDER
+#include "solar_os_native_message_provider.h"
+#include "solar_os_native_runtime.h"
+
+typedef struct {
+    const solar_os_native_message_provider_api_v1_t *service;
+    solar_os_native_handle_t registration;
+    solar_os_messaging_provider_id_t provider;
+    unsigned retirements;
+    bool refuse_stop;
+} provider_fixture_t;
+
+static unsigned library_pins;
+
+void *solar_os_memory_alloc(size_t size, solar_os_memory_class_t kind, const char *tag)
+{
+    assert(kind == SOLAR_OS_MEMORY_EXTERNAL_REQUIRED && tag);
+    return malloc(size);
+}
+int solar_os_native_library_retain(solar_os_native_handle_t lease, solar_os_native_handle_t *out)
+{
+    assert(lease == 17);
+    *out = 20 + ++library_pins;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_library_release(solar_os_native_handle_t lease)
+{
+    assert(lease == 20 + library_pins && library_pins);
+    --library_pins;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int portable_settings(void *user, void *instance, solar_os_messaging_provider_id_t id,
+    uint32_t form, solar_os_message_settings_v1_t *out)
+{
+    provider_fixture_t *fixture = user;
+    assert(fixture->service->close_class(fixture->registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    if (form) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    assert((id == 0 && !instance) || (id == fixture->provider && instance == fixture));
+    strlcpy(out->label, "Portable provider", sizeof(out->label));
+    strlcpy(out->fields[0].label, "Token", sizeof(out->fields[0].label));
+    out->fields[0].capacity = 64;
+    out->fields[0].secret = true;
+    out->data.count = 1;
+    strlcpy(out->data.values[0], "secret test value", sizeof(out->data.values[0]));
+    out->data.present[0] = id != 0;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int portable_create(void *user, const char *name, int argc, const char *const *argv,
+    solar_os_messaging_provider_id_t *id)
+{
+    provider_fixture_t *fixture = user;
+    assert(argc == 1 && !strcmp(argv[0], "test"));
+    assert(fixture->service->close_class(fixture->registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    static const unsigned profile = 0x12345678U;
+    return fixture->service->create_instance(fixture->registration, name, &profile, sizeof(profile), id);
+}
+
+static int portable_connect(void *instance, bool enabled)
+{
+    provider_fixture_t *fixture = instance;
+    assert(fixture->service->close_class(fixture->registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(fixture->service->detach_instance(fixture->registration, fixture->provider) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    return solar_os_messaging_provider_set_status(fixture->provider, enabled, enabled, ESP_OK, NULL);
+}
+
+static int portable_prepare(void *instance)
+{
+    provider_fixture_t *fixture = instance;
+    return fixture->refuse_stop ? SOLAR_OS_NATIVE_ERROR_TIMEOUT : SOLAR_OS_NATIVE_OK;
+}
+
+static void portable_finish(void *instance, bool retired)
+{
+    provider_fixture_t *fixture = instance;
+    if (retired) ++fixture->retirements;
+}
+
+static void test_portable_provider(void)
+{
+    const solar_os_native_messages_api_v1_t *api = solar_os_native_messages_get_service("messages", 1, sizeof(*api));
+    provider_fixture_t fixture = {
+        .service = solar_os_native_message_provider_get_service(
+            SOLAR_OS_NATIVE_MESSAGE_PROVIDER_SERVICE, 1, sizeof(solar_os_native_message_provider_api_v1_t)),
+    };
+    assert(api && fixture.service);
+    const solar_os_native_message_provider_api_v1_t *provider = fixture.service;
+    const solar_os_native_message_class_v1_t type = {
+        .name = "test-portable", .library_lease = 17, .user = &fixture, .connection_oriented = true,
+        .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM,
+        .operations = {.create = portable_create, .settings_read = portable_settings, .connect = portable_connect,
+            .prepare_retire = portable_prepare, .finish_retire = portable_finish},
+    };
+    assert(!provider->register_class(&type, &fixture.registration) && library_pins == 1);
+    solar_os_message_settings_v1_t form;
+    assert(!api->settings_read(type.name, 0, 0, &form));
+    assert(!strcmp(form.label, "Portable provider") && !form.data.values[0][0]);
+
+    const char *const argv[] = {"test"};
+    fail_migration_promotion = true;
+    assert(api->provider_add(type.name, "portable-test", 1, argv, &fixture.provider) != SOLAR_OS_NATIVE_OK);
+    assert(!fixture.provider && !api->provider_find("portable-test") && !fail_migration_promotion);
+    assert(!api->provider_add(type.name, "portable-test", 1, argv, &fixture.provider));
+    const solar_os_messaging_provider_id_t id = fixture.provider;
+    assert(id && api->provider_find("portable-test") == id);
+
+    unsigned profile = 0;
+    assert(!provider->profile_read(fixture.registration, id, &profile, sizeof(profile)) && profile == 0x12345678U);
+    solar_os_native_handle_t other;
+    const solar_os_native_message_class_v1_t other_class = {.name = "different", .library_lease = 17};
+    assert(!provider->register_class(&other_class, &other));
+    assert(provider->profile_read(other, id, &profile, sizeof(profile)) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !profile);
+    assert(provider->attach_instance(other, id, &fixture) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!provider->close_class(other) && library_pins == 1);
+
+    profile = 0xaabbccddU;
+    assert(!provider->profile_write(fixture.registration, id, &profile, sizeof(profile)));
+    assert(!provider->attach_instance(fixture.registration, id, &fixture));
+    assert(!api->connect(id, true) && !api->settings_read(type.name, id, 0, &form));
+    assert(form.data.present[0] && !form.data.values[0][0]);
+    solar_os_native_handle_t instance_pin;
+    assert(!provider->retain_instance(id, &instance_pin));
+    assert(provider->detach_instance(fixture.registration, id) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->provider_remove(id) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(provider->close_class(fixture.registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(!provider->release_instance(instance_pin));
+    fixture.refuse_stop = true;
+    assert(provider->detach_instance(fixture.registration, id) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!fixture.retirements);
+    fixture.refuse_stop = false;
+    assert(!provider->detach_instance(fixture.registration, id) && fixture.retirements == 1);
+    assert(!provider->close_class(fixture.registration) && !library_pins);
+    assert(!strcmp(form.label, "Portable provider"));
+    assert(api->provider_find("portable-test") == id);
+    assert(!provider->register_class(&type, &fixture.registration) && library_pins == 1);
+    profile = 0;
+    assert(!provider->profile_read(fixture.registration, id, &profile, sizeof(profile)) && profile == 0xaabbccddU);
+    assert(!provider->attach_instance(fixture.registration, id, &fixture));
+    assert(!api->provider_remove(id) && fixture.retirements == 2);
+    assert(!provider->close_class(fixture.registration) && !library_pins);
+
+    char path[160], relative[64];
+    snprintf(relative, sizeof(relative), ".chat/profiles/%03u.bin", id);
+    assert(!solar_os_storage_default_path(relative, path, sizeof(path)) && !unlink(path));
+    assert(!solar_os_storage_default_path(".chat/profiles", path, sizeof(path)) && !rmdir(path));
+    assert(!solar_os_storage_default_path(".chat", path, sizeof(path)) && !rmdir(path));
+}
+#endif
+
 int main(void)
 {
     assert(mkdtemp(test_root));
@@ -1005,6 +1154,9 @@ int main(void)
     test_channel_ownership_and_restart();
     test_provider_instances();
     test_unbound_and_evicted_removal();
+#if SOLAR_OS_TEST_NATIVE_MESSAGE_PROVIDER
+    test_portable_provider();
+#endif
     char path[160];
     const char *paths[] = { ".contacts/contacts.bin", ".messages/history.bin", ".messages/location", ".contacts", ".messages" };
     for (size_t i = 0; i < 5; i++) {

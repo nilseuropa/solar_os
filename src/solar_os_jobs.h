@@ -51,6 +51,10 @@ bool solar_os_jobs_get_error_detail(const char *name,
                                     size_t buffer_len);
 esp_err_t solar_os_jobs_print_detail(solar_os_context_t *ctx, const char *name);
 void solar_os_jobs_clear_resources(const char *name);
+esp_err_t solar_os_jobs_check_generation(const char *name, uint32_t generation);
+esp_err_t solar_os_jobs_note_run_resource(const char *name, uint32_t generation,
+    solar_os_job_resource_type_t type, const char *resource, const char *detail);
+esp_err_t solar_os_jobs_clear_run_resources(const char *name, uint32_t generation);
 esp_err_t solar_os_jobs_claim_port(const char *name,
                                    const char *port_name,
                                    solar_os_port_handle_t *handle);

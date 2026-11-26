@@ -15,7 +15,8 @@ class NativeControlsApiTest(unittest.TestCase):
             state = re.search(r'typedef struct \{\n    bool registered;.*?\} audio_device_entry_t;', audio, re.S).group()
             functions = production_functions(audio, (
                 'audio_device_id_valid', 'audio_register_input_controls',
-                'solar_os_audio_register_device_ex', 'solar_os_audio_unregister_device',
+                'solar_os_audio_register_device_ex', 'audio_unregister_device',
+                'solar_os_audio_unregister_device', 'solar_os_audio_unregister_device_owned',
                 'solar_os_audio_device_count', 'solar_os_audio_device_get',
                 'solar_os_audio_device_get_info', 'solar_os_audio_output_available',
                 'audio_mixer_enter', 'audio_mixer_leave', 'audio_mixer_select_output',
@@ -50,6 +51,6 @@ class NativeControlsApiTest(unittest.TestCase):
                 '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
                 str(ROOT / 'tests/host/native_controls_api_test.c'),
                 *(str(ROOT / ('src/services/' + name)) for name in ['solar_os_parameters.c', 'solar_os_controls.c',
-                    'solar_os_native_handles.c', 'solar_os_native_controls_api.c',
+                    'solar_os_controls_runtime.c', 'solar_os_native_handles.c', 'solar_os_native_controls_api.c',
                     'solar_os_native_audio_routes.c', 'solar_os_stream.c', 'solar_os_native_stream.c']), '-lm', '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)

@@ -385,14 +385,11 @@ typedef struct {
 static esp_err_t pkg_read_input(solar_os_shell_io_t *term, uint8_t *chars,
                                 size_t capacity, size_t *count)
 {
-    *count = 0;
-    if (!term) return ESP_ERR_INVALID_STATE;
-    if (solar_os_shell_io_kind(term) == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        if (!solar_os_port_handle_valid(&term->port)) return ESP_ERR_INVALID_STATE;
-        return solar_os_port_read(&term->port, chars, capacity, 0U, count);
+    if (term == NULL) {
+        *count = 0;
+        return ESP_ERR_INVALID_STATE;
     }
-    *count = solar_os_input_read_chars((char *)chars, capacity);
-    return ESP_OK;
+    return solar_os_shell_io_poll_input(term, chars, capacity, count);
 }
 
 static bool pkg_install_cancelled(void *user)

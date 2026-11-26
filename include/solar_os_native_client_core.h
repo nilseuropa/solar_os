@@ -88,7 +88,8 @@ SOLAR_OS_NATIVE_DECLARE_GET(libc, "libc", solar_os_native_libc_api_v1_t, 1U)
     M(pow_float) \
     M(sqrt_float) \
     M(parse_double) \
-    M(scale_double)
+    M(scale_double) \
+    M(explicit_bzero)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -194,7 +195,12 @@ SOLAR_OS_NATIVE_DECLARE_GET(controls, "controls", solar_os_native_controls_api_v
     M(bind_midi_cc) \
     M(unbind) \
     M(binding_count) \
-    M(binding_info)
+    M(binding_info) \
+    M(publish_sample) \
+    M(note_read_error) \
+    M(target_name) \
+    M(sample) \
+    M(apply_bindings)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -329,7 +335,12 @@ SOLAR_OS_NATIVE_DECLARE_GET(jobs, "jobs", solar_os_native_jobs_api_v1_t, 1U)
     M(kind_name) \
     M(resource_type_name) \
     M(start_disposition_name) \
-    M(start_reason_name)
+    M(start_reason_name) \
+    M(owner_name) \
+    M(note_resource) \
+    M(clear_resources) \
+    M(claim_port) \
+    M(complete)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD
@@ -385,6 +396,60 @@ SOLAR_OS_NATIVE_DECLARE_GET(script_runner, "script.runner", solar_os_native_scri
     M(report_error) \
     M(should_cancel) \
     M(wait_stopped)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(agent, "agent", solar_os_native_agent_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(agent, solar_os_native_agent_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(status) \
+    M(set_endpoint) \
+    M(set_model) \
+    M(set_api_key) \
+    M(set_reasoning_effort) \
+    M(set_tool_policy) \
+    M(set_max_tools) \
+    M(parse_tool_policy) \
+    M(tool_policy_name) \
+    M(forget) \
+    M(reference_search)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(agent_conversation, "agent.conversation", solar_os_native_agent_conversation_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(agent_conversation, solar_os_native_agent_conversation_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(list) \
+    M(get) \
+    M(visit) \
+    M(remove) \
+    M(commit) \
+    M(with_history)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(agent_run, "agent.run", solar_os_native_agent_run_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(agent_run, solar_os_native_agent_run_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(run) \
+    M(cancel) \
+    M(validate_media) \
+    M(ask)
+SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
+#undef SOLAR_OS_NATIVE_CLIENT_METHODS
+#undef SOLAR_OS_NATIVE_CLIENT_METHOD
+
+SOLAR_OS_NATIVE_DECLARE_GET(agent_tools, "agent.tools", solar_os_native_agent_tools_api_v1_t, 1U)
+#define SOLAR_OS_NATIVE_CLIENT_METHOD(method) SOLAR_OS_NATIVE_DECLARE_HAS(agent_tools, solar_os_native_agent_tools_api_v1_t, 1U, method)
+#define SOLAR_OS_NATIVE_CLIENT_METHODS(M) \
+    M(count) \
+    M(describe) \
+    M(policy_decision) \
+    M(risk_name) \
+    M(invoke)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

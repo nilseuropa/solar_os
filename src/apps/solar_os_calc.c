@@ -12,6 +12,8 @@
 #include "esp_err.h"
 #include "solar_os_expr.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_application.h"
+#include "solar_os_native_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_io.h"
@@ -843,13 +845,12 @@ static esp_err_t calc_start(solar_os_context_t *ctx)
 {
     if (calc == NULL)
         return ESP_ERR_INVALID_STATE;
-    const solar_os_native_host_api_v1_t *host = solar_os_native_host_v1();
     calc->application_api = solar_os_native_application_get(
-        host->get_service,
+        solar_os_native_application_get_service,
         offsetof(solar_os_native_application_api_v1_t, finish) +
             sizeof(calc->application_api->finish));
     calc->gfx_api = solar_os_native_gfx_get(
-        host->get_service,
+        solar_os_native_gfx_get_service,
         offsetof(solar_os_native_gfx_api_v1_t, present) +
             sizeof(calc->gfx_api->present));
     if (calc->application_api == NULL || calc->gfx_api == NULL)

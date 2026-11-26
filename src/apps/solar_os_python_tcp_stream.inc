@@ -3,7 +3,7 @@ static const solar_os_native_tcp_stream_api_v1_t *python_tcp_stream_cached_api;
 static const solar_os_native_tcp_stream_api_v1_t *python_tcp_stream_api(void)
 {
     if (!python_tcp_stream_cached_api) {
-        python_tcp_stream_cached_api = solar_os_native_tcp_stream_get(solar_os_native_host_v1()->get_service,
+        python_tcp_stream_cached_api = solar_os_native_tcp_stream_get(SOLAR_OS_SCRIPT_SERVICE_QUERY(tcp_stream),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_tcp_stream_api_v1_t, remove));
         if (!python_tcp_stream_cached_api)
             mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("TCP stream service unavailable"));

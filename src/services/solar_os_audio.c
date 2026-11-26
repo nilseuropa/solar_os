@@ -739,7 +739,7 @@ esp_err_t solar_os_audio_register_device_ex(
     return err;
 }
 
-esp_err_t solar_os_audio_unregister_device(const char *id)
+static esp_err_t audio_unregister_device(const char *id, const void *owner)
 {
     if (!audio_device_id_valid(id)) {
         return ESP_ERR_INVALID_ARG;
@@ -748,7 +748,8 @@ esp_err_t solar_os_audio_unregister_device(const char *id)
     portENTER_CRITICAL(&audio_devices_lock);
     for (size_t i = 0; i < SOLAR_OS_AUDIO_DEVICE_MAX; i++) {
         if (!audio_devices[i].registered ||
-            strcmp(audio_devices[i].info.id, id) != 0) {
+            strcmp(audio_devices[i].info.id, id) != 0 ||
+            (owner && audio_devices[i].user != owner)) {
             continue;
         }
         audio_device_entry_t *entry = &audio_devices[i];
@@ -768,6 +769,8 @@ esp_err_t solar_os_audio_unregister_device(const char *id)
             err = ESP_ERR_INVALID_STATE;
         } else if (entry->controls.token != 0U) {
             err = solar_os_parameters_unregister(&entry->controls);
+            /* A missing child token does not retire this device entry. */
+            if (err == ESP_ERR_NOT_FOUND) err = ESP_FAIL;
         }
         portENTER_CRITICAL(&audio_devices_lock);
         if (err != ESP_OK) {
@@ -784,6 +787,16 @@ esp_err_t solar_os_audio_unregister_device(const char *id)
     }
     portEXIT_CRITICAL(&audio_devices_lock);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_audio_unregister_device(const char *id)
+{
+    return audio_unregister_device(id, NULL);
+}
+
+esp_err_t solar_os_audio_unregister_device_owned(const char *id, const void *owner)
+{
+    return owner ? audio_unregister_device(id, owner) : ESP_ERR_INVALID_ARG;
 }
 
 size_t solar_os_audio_device_count(void)

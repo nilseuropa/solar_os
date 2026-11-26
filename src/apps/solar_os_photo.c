@@ -16,6 +16,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
+#include "solar_os_native_ui.h"
 #include "solar_os_memory.h"
 #include "solar_os_script_media.h"
 #include "solar_os_stb_image.h"
@@ -424,9 +426,9 @@ static esp_err_t start(solar_os_context_t *ctx)
     memset(&photo, 0, sizeof(photo)); photo.done = photo.save_done = true;
     esp_err_t error = parse(ctx);
     if (error != ESP_OK) return error;
-    photo.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    photo.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(photo.media_ui->player_button_at));
-    photo.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service,
+    photo.ui_api = solar_os_native_ui_get(solar_os_native_ui_get_service,
         offsetof(solar_os_native_ui_api_v1_t, label) + sizeof(photo.ui_api->label));
     if (!photo.media_ui || !photo.ui_api) return ESP_ERR_NOT_SUPPORTED;
     photo.mutex = xSemaphoreCreateMutex();

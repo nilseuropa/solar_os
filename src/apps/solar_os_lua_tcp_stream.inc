@@ -3,7 +3,7 @@ static const solar_os_native_tcp_stream_api_v1_t *solua_tcp_stream_cached_api;
 static const solar_os_native_tcp_stream_api_v1_t *solua_tcp_stream_api(lua_State *L)
 {
     if (!solua_tcp_stream_cached_api) {
-        solua_tcp_stream_cached_api = solar_os_native_tcp_stream_get(solar_os_native_host_v1()->get_service,
+        solua_tcp_stream_cached_api = solar_os_native_tcp_stream_get(SOLAR_OS_SCRIPT_SERVICE_QUERY(tcp_stream),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_tcp_stream_api_v1_t, remove));
         if (!solua_tcp_stream_cached_api) luaL_error(L, "TCP stream service unavailable");
     }

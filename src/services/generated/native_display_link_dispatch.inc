@@ -5,3 +5,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(display_link_api), const 
 if (name && !strcmp(name, "display.link") && abi == 1U &&
     minimum <= sizeof(display_link_api)) return &display_link_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+_Static_assert(__builtin_types_compatible_p(__typeof__(display_link_target_api), const solar_os_native_display_link_target_api_v1_t), "native service table type");
+if (name && !strcmp(name, "display.link.target") && abi == 1U &&
+    minimum <= sizeof(display_link_target_api)) return &display_link_target_api;
+#endif

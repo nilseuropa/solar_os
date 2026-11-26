@@ -1,23 +1,24 @@
 #include "solar_os_dlp_display.h"
 #include "solar_os_display.h"
 #include "freertos/FreeRTOS.h"
-#include <stdio.h>
 #include <string.h>
 
 typedef struct {
-  bool reserved;
+  bool reserved, detaching;
   char name[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
   solar_os_display_link_t *link;
+  const void *owner;
+  const u8g2_t *canvas;
 } device_t;
 static device_t devices[4];
 static portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 
-esp_err_t solar_os_dlp_display_register(const char *name, const char *driver,
-    solar_os_display_link_t *link, uint32_t budget) {
-  esp_err_t error = ESP_ERR_INVALID_ARG;
+esp_err_t solar_os_dlp_display_register_owned(const char *name, const char *driver,
+    solar_os_display_link_t *link, uint32_t budget, const void *owner) {
+  esp_err_t error;
   device_t *slot = NULL;
   if (!link || !name || !*name || strlen(name) >= SOLAR_OS_DISPLAY_TARGET_NAME_MAX || !driver)
-    goto fail;
+    return ESP_ERR_INVALID_ARG;
   portENTER_CRITICAL(&lock);
   bool duplicate = false;
   for (size_t i = 0; i < 4; i++) {
@@ -25,11 +26,13 @@ esp_err_t solar_os_dlp_display_register(const char *name, const char *driver,
     if (!devices[i].reserved && !slot) slot = &devices[i];
   }
   if (slot && !duplicate) {
-    slot->reserved = true; strlcpy(slot->name, name, sizeof(slot->name));
+    slot->reserved = true;
+    slot->owner = owner;
+    strlcpy(slot->name, name, sizeof(slot->name));
   }
   portEXIT_CRITICAL(&lock);
-  if (duplicate) { error = ESP_ERR_INVALID_STATE; goto fail; }
-  if (!slot) { error = ESP_ERR_NO_MEM; goto fail; }
+  if (duplicate) return ESP_ERR_INVALID_STATE;
+  if (!slot) return ESP_ERR_NO_MEM;
   const sdlp_info_t *info = solar_os_display_link_info(link);
   solar_os_display_target_t target = {0};
   strlcpy(target.name, name, sizeof(target.name));
@@ -60,29 +63,53 @@ esp_err_t solar_os_dlp_display_register(const char *name, const char *driver,
   error = solar_os_display_register_target(&target);
 release:
   portENTER_CRITICAL(&lock);
-  if (error == ESP_OK) slot->link = link;
-  else memset(slot, 0, sizeof(*slot));
+  if (error == ESP_OK) {
+    slot->link = link;
+    slot->canvas = target.u8g2;
+  } else {
+    memset(slot, 0, sizeof(*slot));
+  }
   portEXIT_CRITICAL(&lock);
-  if (error == ESP_OK) return ESP_OK;
-fail:
-  solar_os_display_link_destroy(link);
+  return error;
+}
+
+esp_err_t solar_os_dlp_display_register(const char *name, const char *driver,
+    solar_os_display_link_t *link, uint32_t budget) {
+  const esp_err_t error = solar_os_dlp_display_register_owned(name, driver, link, budget, NULL);
+  if (error != ESP_OK) solar_os_display_link_destroy(link);
+  return error;
+}
+
+esp_err_t solar_os_dlp_display_detach_owned(const char *name, const void *owner) {
+  if (!name) return ESP_ERR_INVALID_ARG;
+  device_t *slot = NULL;
+  portENTER_CRITICAL(&lock);
+  esp_err_t error = ESP_ERR_NOT_FOUND;
+  for (size_t i = 0; i < 4; i++) {
+    if (devices[i].link && devices[i].owner == owner && !strcmp(devices[i].name, name)) {
+      slot = &devices[i];
+      error = ESP_ERR_INVALID_STATE;
+      if (!slot->detaching) {
+        error = ESP_OK;
+        slot->detaching = true;
+      }
+      break;
+    }
+  }
+  portEXIT_CRITICAL(&lock);
+  if (error != ESP_OK) return error;
+
+  error = solar_os_display_unregister_target_owned(name, slot->canvas);
+  if (error == ESP_OK || error == ESP_ERR_NOT_FOUND)
+    error = solar_os_display_link_close(slot->link);
+
+  portENTER_CRITICAL(&lock);
+  if (error == ESP_OK) memset(slot, 0, sizeof(*slot));
+  else slot->detaching = false;
+  portEXIT_CRITICAL(&lock);
   return error;
 }
 
 esp_err_t solar_os_dlp_display_detach(const char *name) {
-  if (!name) return ESP_ERR_INVALID_ARG;
-  device_t *slot = NULL;
-  portENTER_CRITICAL(&lock);
-  for (size_t i = 0; i < 4; i++)
-    if (devices[i].reserved && !strcmp(devices[i].name, name)) { slot = &devices[i]; break; }
-  solar_os_display_link_t *link = slot ? slot->link : NULL;
-  portEXIT_CRITICAL(&lock);
-  if (!link) return ESP_ERR_NOT_FOUND;
-  esp_err_t error = solar_os_display_unregister_target(name);
-  if (error != ESP_OK) return error;
-  solar_os_display_link_destroy(link);
-  portENTER_CRITICAL(&lock);
-  memset(slot, 0, sizeof(*slot));
-  portEXIT_CRITICAL(&lock);
-  return ESP_OK;
+  return solar_os_dlp_display_detach_owned(name, NULL);
 }

@@ -35,6 +35,7 @@ esp_err_t solar_os_motor_register(const solar_os_motor_registration_t *registrat
 /* Rejects unregister while operations are in flight; successful unregister
  * stops the motor before releasing the context back to its driver. */
 esp_err_t solar_os_motor_unregister(const char *name);
+esp_err_t solar_os_motor_unregister_owned(const char *name, const void *owner);
 size_t solar_os_motor_count(void);
 bool solar_os_motor_get(size_t index, solar_os_motor_info_t *info);
 esp_err_t solar_os_motor_status(const char *name, solar_os_motor_status_t *status);

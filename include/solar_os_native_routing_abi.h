@@ -41,4 +41,6 @@ typedef struct {
     int (*router_status)(solar_os_native_network_router_v1_t *status);
     int (*router_start)(void);
     int (*router_stop)(void);
+    const char *(*role_name)(uint32_t role);
+    const char *(*state_name)(uint32_t state);
 } solar_os_native_routing_api_v1_t;

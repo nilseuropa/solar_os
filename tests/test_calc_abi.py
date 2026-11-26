@@ -37,5 +37,7 @@ class CalculatorAbiTest(unittest.TestCase):
                 '-I', str(ROOT / 'tests/host'), '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'),
                 '-I', str(ROOT / 'src/services'), '-I', str(ROOT / 'src/apps'), '-I', str(ROOT / 'src/shell'),
                 '-I', str(component / 'src/clib'), str(ROOT / 'tests/host/calc_abi_test.c'),
-                str(decoder), str(shell_fallback), *map(str, sources), '-Wl,--gc-sections', '-lm', '-o', str(binary)], check=True)
+                str(decoder), str(shell_fallback), *map(str, sources), '-Wl,--gc-sections',
+                '-Wl,--wrap=solar_os_native_application_get_service,--wrap=solar_os_native_gfx_get_service',
+                '-lm', '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)

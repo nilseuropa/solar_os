@@ -5,3 +5,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(audio_routes_api), const 
 if (name && !strcmp(name, "media.audio.routes") && abi == 1U &&
     minimum <= sizeof(audio_routes_api)) return &audio_routes_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
+_Static_assert(__builtin_types_compatible_p(__typeof__(audio_provider_api), const solar_os_native_audio_device_provider_api_v1_t), "native service table type");
+if (name && !strcmp(name, "media.audio.provider") && abi == 1U &&
+    minimum <= sizeof(audio_provider_api)) return &audio_provider_api;
+#endif

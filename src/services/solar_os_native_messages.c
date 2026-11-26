@@ -7,7 +7,6 @@
 #include "solar_os_native_support.h"
 
 #if SOLAR_OS_PACKAGE_SERVICE_MESSAGING
-#include "solar_os_memory.h"
 #include "solar_os_messaging.h"
 
 static int messages_status(solar_os_messaging_status_t *out)
@@ -127,42 +126,10 @@ static int messages_cancel(solar_os_message_key_t key)
     return solar_os_native_result(solar_os_messaging_cancel(key));
 }
 
-static solar_os_messaging_settings_t *messages_settings_allocate(void)
-{
-    return solar_os_memory_calloc(1, sizeof(solar_os_messaging_settings_t),
-        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.native.settings");
-}
-
 static int messages_settings_read(const char *class_name, solar_os_messaging_provider_id_t provider,
     uint32_t form, solar_os_message_settings_v1_t *out)
 {
-    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    memset(out, 0, sizeof(*out));
-    solar_os_messaging_settings_t *settings = messages_settings_allocate();
-    if (!settings) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
-    esp_err_t error = solar_os_messaging_settings_read(class_name, provider, form, settings);
-    if (error == ESP_OK) {
-        if (settings->label) strlcpy(out->label, settings->label, sizeof(out->label));
-        strlcpy(out->worker, settings->worker, sizeof(out->worker));
-        out->enabled = settings->enabled;
-        out->worker_is_resource = settings->worker_is_resource;
-        out->data.count = settings->count;
-        for (size_t i = 0; i < settings->count; i++) {
-            const solar_os_messaging_setting_t *field = &settings->fields[i];
-            solar_os_message_setting_v1_t *view = &out->fields[i];
-            strlcpy(view->label, field->label, sizeof(view->label));
-            if (field->hint) strlcpy(view->hint, field->hint, sizeof(view->hint));
-            view->capacity = field->capacity;
-            view->secret = field->secret;
-            view->required = field->required;
-            out->data.present[i] = settings->present[i];
-            if (!field->secret)
-                strlcpy(out->data.values[i], settings->values[i], sizeof(out->data.values[i]));
-        }
-    }
-    solar_os_messaging_settings_clear(settings);
-    solar_os_memory_free(settings);
-    return solar_os_native_result(error);
+    return solar_os_native_result(solar_os_messaging_settings_read(class_name, provider, form, out));
 }
 
 static int messages_settings_write(const char *class_name, solar_os_messaging_provider_id_t provider,
@@ -173,16 +140,7 @@ static int messages_settings_write(const char *class_name, solar_os_messaging_pr
     *result = 0;
     if (!in || !in->count || in->count > SOLAR_OS_MESSAGING_SETTINGS_FIELDS)
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    solar_os_messaging_settings_t *settings = messages_settings_allocate();
-    if (!settings) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
-    settings->count = in->count;
-    memcpy(settings->values, in->values, sizeof(settings->values));
-    memcpy(settings->present, in->present, sizeof(settings->present));
-    memcpy(settings->changed, in->changed, sizeof(settings->changed));
-    esp_err_t error = solar_os_messaging_settings_write(class_name, provider, form, name, settings, result);
-    solar_os_messaging_settings_clear(settings);
-    solar_os_memory_free(settings);
-    return solar_os_native_result(error);
+    return solar_os_native_result(solar_os_messaging_settings_write_values(class_name, provider, form, name, in, result));
 }
 
 static int messages_provider_claim(solar_os_messaging_provider_id_t provider, const char *detail)
@@ -317,6 +275,75 @@ static const solar_os_native_credentials_api_v1_t credentials_api = {
     .put = credentials_put, .read_secret = credentials_read, .remove = credentials_remove,
     .remove_provider = credentials_remove_provider, .wipe = solar_os_credentials_wipe,
     .kind_name = solar_os_credential_kind_name,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+#include "solar_os_gateway_instances.h"
+
+static solar_os_messaging_provider_id_t gateway_provider(solar_os_messaging_provider_id_t id)
+{
+    return id ? id : SOLAR_OS_MESSAGING_PROVIDER_GATEWAY;
+}
+
+static int gateway_status(solar_os_messaging_provider_id_t provider, solar_os_chat_status_t *status)
+{
+    if (!status) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const esp_err_t error = solar_os_gateway_instance_get_status(gateway_provider(provider), status);
+    if (error == ESP_OK) {
+        status->last_esp_error = solar_os_native_result(status->last_esp_error);
+        status->storage_error = solar_os_native_result(status->storage_error);
+    }
+    return solar_os_native_result(error);
+}
+
+static int gateway_configure(solar_os_messaging_provider_id_t provider, const char *url,
+    const char *token, solar_os_gateway_connection_v1_t connection)
+{
+    return solar_os_native_result(solar_os_gateway_instance_update(gateway_provider(provider), url, token, connection));
+}
+
+static size_t gateway_channels(solar_os_messaging_provider_id_t provider, solar_os_chat_channel_t *out, size_t capacity)
+{
+    return solar_os_gateway_instance_channels(gateway_provider(provider), out, capacity);
+}
+
+static int gateway_delete_channel(solar_os_messaging_provider_id_t provider, const char *name)
+{
+    return solar_os_native_result(solar_os_gateway_instance_delete_channel(gateway_provider(provider), name));
+}
+
+static int gateway_event_next(solar_os_messaging_provider_id_t provider, uint32_t *cursor,
+    solar_os_chat_event_t *event, uint32_t timeout_ms)
+{
+    return solar_os_native_result(solar_os_gateway_instance_read_event(provider, cursor, event, timeout_ms));
+}
+
+static const solar_os_native_gateway_api_v1_t gateway_api = {
+    .abi_version = SOLAR_OS_NATIVE_GATEWAY_ABI, .struct_size = sizeof(gateway_api),
+    .status = gateway_status, .configure = gateway_configure, .channels = gateway_channels,
+    .delete_channel = gateway_delete_channel, .event_next = gateway_event_next,
+    .state_name = solar_os_chat_state_name, .event_type_name = solar_os_chat_event_type_name,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY_SYNC
+#include "solar_os_gateway_sync.h"
+#include "solar_os_native_gateway_abi.h"
+
+static int gateway_sync_start(void)
+{
+    return solar_os_native_result(solar_os_gateway_sync_start());
+}
+
+static int gateway_sync_stop(void)
+{
+    return solar_os_native_result(solar_os_gateway_sync_stop());
+}
+
+static const solar_os_native_gateway_sync_api_v1_t gateway_sync_api = {
+    .abi_version = SOLAR_OS_NATIVE_GATEWAY_SYNC_ABI, .struct_size = sizeof(gateway_sync_api),
+    .start = gateway_sync_start, .stop = gateway_sync_stop, .running = solar_os_gateway_sync_running,
 };
 #endif
 

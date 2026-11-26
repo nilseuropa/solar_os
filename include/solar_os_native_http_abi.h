@@ -119,4 +119,6 @@ typedef struct {
     int (*download)(solar_os_native_handle_t context, const solar_os_native_http_options_v1_t *options,
         const char *staged_path, size_t max_size, size_t expected_size, const char *expected_sha256,
         solar_os_native_download_progress_fn progress, void *user, solar_os_native_download_result_v1_t *result);
+    /* Returns a stable label for response, header, data, complete or error. */
+    const char *(*stream_event_name)(uint32_t type);
 } solar_os_native_http_api_v1_t;

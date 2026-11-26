@@ -3,10 +3,328 @@
 packages = ["core_runtime", "service_*"]
 exclude_packages = ["service_native_modules", "service_system_api"]
 exclude_paths = ["src/vendor/**"]
-extra_headers = ["src/shell/solar_os_shell_io.h", "src/services/solar_os_module_packages.h"]
+extra_headers = ["src/shell/solar_os_shell_io.h", "src/services/solar_os_module_packages.h", "src/services/solar_os_gateway_instances.h", "src/services/solar_os_chat_transport_gateway.h", "src/services/solar_os_email_sync_internal.h"]
 
 # These public operation(s) provide the named OS capability.
 [operation]
+solar_os_sc2_sync_start = ["sc2_relay.start"]
+solar_os_sc2_sync_stop = ["sc2_relay.stop"]
+solar_os_sc2_sync_stop_checked = ["sc2_relay.stop"]
+solar_os_sc2_sync_get_status = ["sc2_relay.status"]
+solar_os_sc2_sync_room = ["sc2_relay.room"]
+solar_os_sc2_discover_domain_valid = ["sc2_relay.domain_valid"]
+solar_os_sc2_discover = ["sc2_relay.discover"]
+solar_os_sc2_relay_get_config = ["sc2_profile.read"]
+solar_os_sc2_relay_endpoint = ["sc2_profile.read"]
+solar_os_sc2_relay_key = ["sc2_profile.read"]
+solar_os_sc2_relay_parse_url = ["sc2_profile.parse_endpoint"]
+solar_os_sc2_relay_parse_endpoint = ["sc2_profile.parse_endpoint"]
+solar_os_sc2_room_title = ["sc2_profile.room_title"]
+solar_os_sc2_target_normalize = ["sc2_profile.normalize_target"]
+solar_os_sc2_conversation_security = ["sc2_profile.security_flags"]
+solar_os_sc2_relay_set_key = ["sc2_profile.rotate_key", "sc2_profile.rotate_key_for_relay"]
+solar_os_messaging_class_register = ["message_provider.register_class"]
+solar_os_messaging_class_unregister = ["message_provider.close_class"]
+solar_os_messaging_instance_create = ["message_provider.create_instance"]
+solar_os_messaging_instance_attach = ["message_provider.attach_instance"]
+solar_os_messaging_instance_detach = ["message_provider.detach_instance"]
+solar_os_messaging_profile_load = ["message_provider.profile_read"]
+solar_os_messaging_profile_save = ["message_provider.profile_write"]
+solar_os_messaging_instance_retain = ["message_provider.retain_instance"]
+solar_os_messaging_instance_release = ["message_provider.release_instance"]
+solar_os_messaging_settings_write_values = ["messages.settings_write"]
+solar_os_ppp_snapshot = ["ppp.status"]
+solar_os_ppp_create = ["ppp.open"]
+solar_os_ppp_destroy = ["ppp.close"]
+solar_os_ppp_start = ["ppp.start"]
+solar_os_ppp_connect = ["ppp.connect"]
+solar_os_ppp_disconnect = ["ppp.disconnect"]
+solar_os_ppp_notify_transport_reset = ["ppp.transport_reset"]
+solar_os_ppp_get_status = ["ppp.status"]
+solar_os_ppp_is_busy = ["ppp.status"]
+solar_os_ppp_is_connected = ["ppp.status"]
+solar_os_ppp_receive = ["ppp.receive"]
+solar_os_network_interface_role_name = ["routing.role_name"]
+solar_os_network_interface_state_name = ["routing.state_name"]
+solar_os_network_router_register = ["router_provider.register_router"]
+solar_os_network_router_select = ["router_provider.select"]
+solar_os_network_router_unregister_owned = ["router_provider.close"]
+solar_os_modem_register = ["modem_provider.register_modem"]
+solar_os_modem_unregister = ["modem_provider.close"]
+solar_os_modem_unregister_owned = ["modem_provider.close"]
+solar_os_dlp_display_register = ["display_link_target.attach"]
+solar_os_dlp_display_register_owned = ["display_link_target.attach"]
+solar_os_dlp_display_detach = ["display_link.close"]
+solar_os_dlp_display_detach_owned = ["display_link.close"]
+solar_os_dlp_mono_region = ["display_raster.mono_damage"]
+solar_os_dlp_mono_regions = ["display_raster.mono_damage"]
+solar_os_dlp_mono_index2 = ["display_raster.mono_to_index2"]
+solar_os_dlp_receiver_init = ["display_receiver.open"]
+solar_os_dlp_receiver_pump = ["display_receiver.pump"]
+solar_os_dlp_receiver_reset = ["display_receiver.reset"]
+solar_os_jobs_owner_name = ["jobs.owner_name"]
+solar_os_jobs_clear_resources = ["jobs.clear_resources"]
+solar_os_jobs_clear_run_resources = ["jobs.clear_resources"]
+solar_os_jobs_claim_port = ["jobs.claim_port"]
+solar_os_jobs_note_resource = ["jobs.note_resource"]
+solar_os_jobs_note_run_resource = ["jobs.note_resource"]
+solar_os_jobs_mark_stopped = ["jobs.complete"]
+solar_os_audio_player_create = ["audio_player.open"]
+solar_os_audio_player_write = ["audio_player.write"]
+solar_os_audio_player_end_input = ["audio_player.end_input"]
+solar_os_audio_player_finish = ["audio_player.finish"]
+solar_os_audio_player_error = ["audio_player.error"]
+solar_os_audio_player_destroy = ["audio_player.close"]
+solar_os_audio_player_destroy_checked = ["audio_player.close"]
+solar_os_email_sync_fetch = ["email.fetch"]
+solar_os_power_register_off_provider = ["power_provider.register_off"]
+solar_os_power_unregister_off_provider = ["power_provider.close"]
+solar_os_zip_create = ["zip.create"]
+solar_os_zip_extract = ["zip.extract"]
+solar_os_irc_create = ["messages.provider_add"]
+solar_os_irc_get_config = ["irc.profile"]
+solar_os_irc_configure = ["irc.configure"]
+solar_os_irc_update = ["irc.configure"]
+solar_os_irc_enable = ["messages.connect"]
+solar_os_irc_start = ["irc.start"]
+solar_os_irc_stop = ["irc.stop"]
+solar_os_irc_stop_checked = ["irc.stop"]
+solar_os_irc_running = ["irc.running"]
+solar_os_http_server_register_route = ["http_server.route_register"]
+solar_os_http_server_unregister_owner = ["http_server.route_close"]
+solar_os_http_server_unregister_owned = ["http_server.route_close"]
+solar_os_http_server_complete_async = ["http_server.request_complete"]
+solar_os_http_server_get_bearer_token = ["http_server.bearer_token"]
+solar_os_http_server_port = ["http_server.port"]
+solar_os_buttons_count = ["input_hardware.button_count"]
+solar_os_buttons_debug_get = ["input_hardware.button_at"]
+solar_os_adc_dpad_axis_count = ["input_hardware.dpad_axis_count"]
+solar_os_adc_dpad_get_axis_status = ["input_hardware.dpad_axis_at"]
+solar_os_adc_dpad_calibrate_idle = ["input_hardware.calibrate_dpad"]
+solar_os_adc_dpad_calibrate_reset = ["input_hardware.calibrate_dpad"]
+solar_os_agent_tools_get = ["agent_tools.describe"]
+solar_os_agent_tools_count = ["agent_tools.count"]
+solar_os_agent_tools_execute = ["agent_tools.invoke"]
+solar_os_agent_invoke_tool = ["agent_tools.invoke"]
+solar_os_agent_tools_policy_decision = ["agent_tools.policy_decision"]
+solar_os_agent_tool_risk_name = ["agent_tools.risk_name"]
+solar_os_script_agent_ask = ["media_sample.read_source", "media_sample.open", "agent_run.ask"]
+solar_os_script_agent_capture_answer = ["agent_run.ask"]
+solar_os_agent_run = ["agent_run.run"]
+solar_os_agent_cancel = ["agent_run.cancel"]
+solar_os_agent_images_validate = ["agent_run.validate_media"]
+solar_os_agent_audio_validate = ["agent_run.validate_media"]
+solar_os_agent_conversations_list = ["agent_conversation.list"]
+solar_os_agent_conversation_get = ["agent_conversation.get"]
+solar_os_agent_conversation_visit = ["agent_conversation.visit"]
+solar_os_agent_conversation_delete = ["agent_conversation.remove"]
+solar_os_agent_conversation_commit = ["agent_conversation.commit"]
+solar_os_agent_conversation_load_history = ["agent_conversation.with_history"]
+solar_os_agent_get_status = ["agent.status"]
+solar_os_agent_set_endpoint = ["agent.set_endpoint"]
+solar_os_agent_set_model = ["agent.set_model"]
+solar_os_agent_set_api_key = ["agent.set_api_key"]
+solar_os_agent_set_reasoning_effort = ["agent.set_reasoning_effort"]
+solar_os_agent_set_tool_policy = ["agent.set_tool_policy"]
+solar_os_agent_set_max_tools = ["agent.set_max_tools"]
+solar_os_agent_parse_tool_policy = ["agent.parse_tool_policy"]
+solar_os_agent_tool_policy_name = ["agent.tool_policy_name"]
+solar_os_agent_forget = ["agent.forget"]
+solar_os_agent_reference_search = ["agent.reference_search"]
+solar_os_display_set_high_refresh_override = ["display_lease.set_high_refresh"]
+solar_os_display_set_high_refresh_owned = ["display_lease.set_high_refresh"]
+solar_os_pwm_register = ["pwm_provider.register_provider"]
+solar_os_pwm_unregister = ["pwm_provider.close"]
+solar_os_pwm_unregister_owned = ["pwm_provider.close"]
+solar_os_battery_register_provider = ["battery_provider.register_provider"]
+solar_os_battery_unregister_provider = ["battery_provider.close"]
+solar_os_battery_unregister_provider_owned = ["battery_provider.close"]
+solar_os_audio_register_device = ["audio_device_provider.register_device"]
+solar_os_audio_register_device_ex = ["audio_device_provider.register_device"]
+solar_os_audio_unregister_device = ["audio_device_provider.close"]
+solar_os_audio_unregister_device_owned = ["audio_device_provider.close"]
+solar_os_synth_get_status = ["synth.status"]
+solar_os_synth_start = ["synth.open"]
+solar_os_synth_stop = ["synth.close"]
+solar_os_synth_parse_waveform = ["voice.parse_waveform"]
+solar_os_synth_voice_all_notes_off = ["voice.all_notes_off"]
+solar_os_synth_voice_configure = ["voice.configure"]
+solar_os_synth_voice_configure_performance = ["voice.configure_performance"]
+solar_os_synth_voice_get_status = ["voice.status"]
+solar_os_synth_voice_get_wavetable = ["voice.get_wavetable"]
+solar_os_synth_voice_note_off = ["voice.note_off"]
+solar_os_synth_voice_note_on = ["voice.note_on"]
+solar_os_synth_voice_set_wavetable = ["voice.set_wavetable"]
+solar_os_synth_voice_stop = ["voice.close"]
+solar_os_synth_waveform_name = ["voice.waveform_name"]
+solar_os_email_get_status = ["email.status"]
+solar_os_email_configure = ["email.configure"]
+solar_os_email_forget = ["email.forget"]
+solar_os_email_snapshot = ["email.snapshot"]
+solar_os_email_get = ["email.get"]
+solar_os_email_mark_read = ["email.mark_read"]
+solar_os_email_clear = ["email.clear"]
+solar_os_email_store = ["email.store"]
+solar_os_gateway_sync_start = ["gateway_sync.start"]
+solar_os_gateway_sync_stop = ["gateway_sync.stop"]
+solar_os_gateway_sync_running = ["gateway_sync.running"]
+solar_os_gateway_instance_create = ["messages.provider_add"]
+solar_os_gateway_instance_configure = ["gateway.configure"]
+solar_os_gateway_instance_get_status = ["gateway.status"]
+solar_os_gateway_instance_channels = ["gateway.channels"]
+solar_os_gateway_instance_update = ["gateway.configure"]
+solar_os_gateway_instance_delete_channel = ["gateway.delete_channel"]
+solar_os_gateway_instance_read_event = ["gateway.event_next"]
+solar_os_chat_channel_cursor = ["messages.provider_cursor"]
+solar_os_chat_channel_snapshot = ["gateway.channels"]
+solar_os_chat_configure = ["gateway.configure"]
+solar_os_chat_connect = ["gateway.configure"]
+solar_os_chat_context_id = ["messages.provider_context"]
+solar_os_chat_delete_channel = ["gateway.delete_channel"]
+solar_os_chat_disconnect = ["gateway.configure"]
+solar_os_chat_event_type_name = ["gateway.event_type_name"]
+solar_os_chat_get_status = ["gateway.status"]
+solar_os_chat_join = ["messages.join"]
+solar_os_chat_leave = ["messages.leave"]
+solar_os_chat_mark_channel_read = ["messages.conversation_snapshot", "messages.mark_read"]
+solar_os_chat_mark_message_read = ["messages.message_get", "messages.mark_read"]
+solar_os_chat_message_visit = ["messages.message_visit"]
+solar_os_chat_read_event = ["gateway.event_next"]
+solar_os_chat_read_event_after = ["gateway.event_next"]
+solar_os_chat_send = ["messages.conversation_upsert", "messages.send"]
+solar_os_chat_state_name = ["gateway.state_name"]
+solar_os_meshcore_get_status = ["meshcore_radio.status"]
+solar_os_meshcore_identity_generate = ["meshcore_radio.identity_generate"]
+solar_os_meshcore_identity_import = ["meshcore_radio.identity_import"]
+solar_os_meshcore_identity_public = ["meshcore_radio.identity_public"]
+solar_os_meshcore_identity_export_private = ["meshcore_radio.identity_export_private"]
+solar_os_meshcore_name_get = ["meshcore_radio.get_name"]
+solar_os_meshcore_name_set = ["meshcore_radio.set_name"]
+solar_os_meshcore_channel_snapshot = ["meshcore_radio.channels"]
+solar_os_meshcore_channel_add = ["meshcore_radio.channel_add"]
+solar_os_meshcore_channel_remove = ["meshcore_radio.channel_remove"]
+solar_os_meshcore_channel_public_set = ["meshcore_radio.channel_public_set"]
+solar_os_meshcore_request_advert = ["meshcore_radio.advertise"]
+solar_os_meshcore_ble_get_status = ["meshcore_ble.status"]
+solar_os_meshcore_ble_state_name = ["meshcore_ble.state_name"]
+solar_os_meshcore_instances_next = ["meshcore_radio.provider_next", "meshcore_ble.provider_next"]
+solar_os_meshcore_stream_create = ["meshcore_stream.create"]
+solar_os_meshcore_stream_remove = ["meshcore_stream.remove"]
+solar_os_meshcore_stream_count = ["meshcore_stream.count"]
+solar_os_meshcore_stream_get = ["meshcore_stream.status_at"]
+solar_os_meshcore_stream_get_status = ["meshcore_stream.status"]
+solar_os_meshcore_stream_transport_active = ["meshcore_stream.transport_active"]
+solar_os_ota_get_url = ["ota.get_url"]
+solar_os_ota_set_url = ["ota.set_url"]
+solar_os_ota_get_flavor = ["ota.get_flavor"]
+solar_os_ota_set_flavor = ["ota.set_flavor"]
+solar_os_ota_available_flavors_checked = ["ota.available_flavors_checked"]
+solar_os_ota_available_flavor_count = ["ota.available_flavor_count"]
+solar_os_ota_get_available_flavor = ["ota.available_flavor_at"]
+solar_os_ota_get_index_url = ["ota.index_url"]
+solar_os_ota_get_status = ["ota.status"]
+solar_os_ota_set_boot_slot = ["ota.set_boot_slot"]
+solar_os_ota_check = ["ota.check"]
+solar_os_ota_upgrade = ["ota.upgrade"]
+solar_os_motor_register = ["motor_provider.register_provider"]
+solar_os_motor_unregister = ["motor_provider.close"]
+solar_os_motor_unregister_owned = ["motor_provider.close"]
+solar_os_encoder_register = ["encoder_provider.register_provider"]
+solar_os_encoder_unregister = ["encoder_provider.close"]
+solar_os_encoder_unregister_owned = ["encoder_provider.close"]
+solar_os_port_capabilities_text = ["ports.capabilities_text"]
+solar_os_port_register = ["port_provider.register_many"]
+solar_os_port_register_many = ["port_provider.register_many"]
+solar_os_port_unregister = ["port_provider.close"]
+solar_os_port_unregister_many = ["port_provider.close"]
+solar_os_port_unregister_many_owned = ["port_provider.close"]
+solar_os_shell_io_poll_input = ["shell_io.poll_input"]
+solar_os_input_read_chars = ["shell_io.poll_input"]
+solar_os_link_messaging_available = ["system.service_info"]
+solar_os_link_messaging_start = ["link_messaging.start"]
+solar_os_link_messaging_stop = ["link_messaging.stop"]
+solar_os_link_messaging_process = ["link_messaging.process"]
+solar_os_link_messaging_note_transmit = ["link_messaging.note_transmit"]
+solar_os_link_messaging_note_ingest = ["link_messaging.note_ingest"]
+solar_os_link_repeater_get_status = ["link_repeater.status"]
+solar_os_link_repeater_note_invalid = ["link_repeater.note_invalid"]
+solar_os_link_repeater_note_transmit = ["link_repeater.note_transmit"]
+solar_os_link_repeater_observe = ["link_repeater.observe"]
+solar_os_link_repeater_reset = ["link_repeater.reset"]
+solar_os_link_repeater_take_due = ["link_repeater.take_due"]
+solar_os_espnow_format_mac = ["espnow.format_mac"]
+solar_os_espnow_get_status = ["espnow.status"]
+solar_os_espnow_parse_mac = ["espnow.parse_mac"]
+solar_os_espnow_parse_phy = ["espnow.parse_phy"]
+solar_os_espnow_peer_count = ["espnow.peer_count"]
+solar_os_espnow_peer_get = ["espnow.peer_at"]
+solar_os_espnow_peer_learn = ["espnow.peer_learn"]
+solar_os_espnow_peer_remove = ["espnow.peer_remove"]
+solar_os_espnow_peer_set = ["espnow.peer_set"]
+solar_os_espnow_phy_name = ["espnow.phy_name"]
+solar_os_espnow_receive = ["espnow.receive"]
+solar_os_espnow_send = ["espnow.send"]
+solar_os_espnow_start = ["espnow.open"]
+solar_os_espnow_stop = ["espnow.close"]
+solar_os_espnow_take_send_result = ["espnow.take_send_result"]
+solar_os_link_default_local_id = ["link.default_local_id"]
+solar_os_link_create = ["link.create"]
+solar_os_link_destroy = ["link.destroy"]
+solar_os_link_count = ["link.count"]
+solar_os_link_get = ["link.status_at"]
+solar_os_link_get_status = ["link.status"]
+solar_os_link_send = ["link.send"]
+solar_os_link_take_tx = ["link.take_tx"]
+solar_os_link_ingest = ["link.ingest"]
+solar_os_link_receive = ["link.receive"]
+solar_os_link_encode = ["link.encode"]
+solar_os_link_decode = ["link.decode"]
+solar_os_link_message_type_name = ["link.message_type_name"]
+solar_os_link_stream_create = ["link_stream.create"]
+solar_os_link_stream_create_configured = ["link_stream.create"]
+solar_os_link_stream_config_default = ["link_stream.default_config"]
+solar_os_link_stream_remove = ["link_stream.remove"]
+solar_os_link_stream_count = ["link_stream.count"]
+solar_os_link_stream_get = ["link_stream.status_at"]
+solar_os_link_stream_get_status = ["link_stream.status"]
+solar_os_link_stream_ingest = ["link_stream.ingest"]
+solar_os_link_stream_process = ["link_stream.process"]
+solar_os_link_stream_process_with_window = ["link_stream.process"]
+solar_os_link_stream_transport_stopped = ["link_stream.transport_stopped"]
+solar_os_sc2_init = ["sc2.initialize"]
+solar_os_sc2_buffer_alloc = ["memory.calloc_class"]
+solar_os_sc2_get_status = ["sc2.status"]
+solar_os_sc2_identity = ["sc2.identity"]
+solar_os_sc2_peer_info = ["sc2.peer_info"]
+solar_os_sc2_safety = ["sc2.safety"]
+solar_os_sc2_forget_peer = ["sc2.forget_peer"]
+solar_os_sc2_resolve_peer = ["sc2.resolve_peer"]
+solar_os_sc2_peer_next = ["sc2.peer_next"]
+solar_os_sc2_alias_name_valid = ["sc2.alias_name_valid"]
+solar_os_sc2_alias_set = ["sc2.alias_set"]
+solar_os_sc2_alias_get = ["sc2.alias_get"]
+solar_os_sc2_verified_get = ["sc2.verified_get"]
+solar_os_sc2_verified_set = ["sc2.verified_set"]
+solar_os_sc2_notice_seen = ["sc2.notice_seen"]
+solar_os_sc2_notice_mark = ["sc2.notice_mark"]
+solar_os_sc2_keys_publish = ["sc2.keys_publish"]
+solar_os_sc2_add_bundle = ["sc2.add_bundle"]
+solar_os_sc2_dm_encrypt = ["sc2.dm_encrypt"]
+solar_os_sc2_dm_decrypt = ["sc2.dm_decrypt"]
+solar_os_sc2_room_create = ["sc2.room_create"]
+solar_os_sc2_room_rotate = ["sc2.room_rotate"]
+solar_os_sc2_room_share = ["sc2.room_share"]
+solar_os_sc2_room_encrypt = ["sc2.room_encrypt"]
+solar_os_sc2_room_decrypt = ["sc2.room_decrypt"]
+solar_os_sc2_room_info = ["sc2.room_info"]
+solar_os_sc2_room_forget = ["sc2.room_forget"]
+solar_os_sc2_post_sign = ["sc2.post_sign"]
+solar_os_sc2_post_verify = ["sc2.post_verify"]
+solar_os_sc2_selftest = ["sc2.selftest"]
+solar_os_sc2_bench = ["sc2.bench"]
+solar_os_zip_list = ["zip.list"]
+solar_os_zip_read_file = ["zip.read"]
+solar_os_zip_read_into = ["zip.read"]
 solar_os_ps2_bus_start = ["bus.ps2_start"]
 solar_os_ps2_bus_stop = ["bus.ps2_stop", "bus.close"]
 solar_os_ps2_bus_stop_checked = ["bus.ps2_stop", "bus.close"]
@@ -1027,6 +1345,7 @@ solar_os_servo_pulse = ["motion.servo_pulse"]
 solar_os_servo_release_owner = ["motion.servo_release_owner"]
 solar_os_imlib_default_options = ["imlib.defaults"]
 solar_os_tensor_image_defaults = ["tensor_image.defaults"]
+solar_os_tensor_image_option = ["tensor_image.option"]
 solar_os_script_media_create = ["media.create"]
 solar_os_script_media_destroy = ["media.destroy"]
 solar_os_script_media_close = ["media.close"]
@@ -1892,6 +2211,11 @@ solar_os_control_bind_midi_cc = ["controls.bind_midi_cc"]
 solar_os_control_unbind = ["controls.unbind"]
 solar_os_control_binding_count = ["controls.binding_count"]
 solar_os_control_binding_get = ["controls.binding_info"]
+solar_os_control_publish_sample = ["controls.publish_sample"]
+solar_os_control_note_read_error = ["controls.note_read_error"]
+solar_os_control_target_name = ["controls.target_name"]
+solar_os_controls_sample = ["controls.sample"]
+solar_os_controls_apply_bindings = ["controls.apply_bindings"]
 solar_os_stream_count = ["stream.count"]
 solar_os_stream_get = ["stream.info"]
 solar_os_stream_get_info = ["stream.find"]
@@ -2027,6 +2351,7 @@ solar_os_memory_realloc = ["memory.realloc_class"]
 solar_os_memory_elf_alloc = ["memory.alloc_class"]
 solar_os_memory_dl_alloc = ["memory.alloc_class"]
 solar_os_memory_free = ["memory.free"]
+solar_os_sc2_buffer_free = ["libc.explicit_bzero", "memory.free"]
 solar_os_memory_is_external = ["memory.is_external"]
 solar_os_memory_buffer_create = ["memory.buffer_create_tagged"]
 solar_os_memory_buffer_pin = ["memory.buffer_pin"]
@@ -2176,6 +2501,7 @@ solar_os_http_stream_session_create = ["http.create"]
 solar_os_http_stream_session_destroy = ["http.close"]
 solar_os_http_stream_open = ["http.stream_open"]
 solar_os_http_stream_read = ["http.stream_read"]
+solar_os_http_stream_event_type_name = ["http.stream_event_name"]
 solar_os_http_stream_close = ["http.stream_close"]
 solar_os_http_stream_close_wait = ["http.stream_close"]
 solar_os_http_stream_close_all = ["http.close_all"]
@@ -2444,75 +2770,75 @@ review = "a808eb62606c89aa23d2a333611902863660a2c2477314db7b4eee4b02eb095b"
 
 [internal.solar_os_sessions_init]
 reason = "Main initializes the session scheduler and installs private terminal and overlay hooks before application dispatch starts."
-review = "36ced90de25b877c14d81fefe52b8f0288e5bc94fefb89734414bfd99f509691"
+review = "85e8601f08e24c68e44770eed94f4ef4c78ea66ebe406b28fbd1ec0932bfe3e8"
 
 [internal.solar_os_sessions_foreground_is_shell]
 reason = "The main input loop uses this shell-specific condition to dispatch launcher keys and choose the current input policy."
-review = "26e42541bbcce877903cf264c56f79ad1701783508d5764cc13a01e43a5d899f"
+review = "0ace7e2f9932337e9895cc5a21b1bc3878234c5dcc25de3c0f405a7b53d291c8"
 
 [internal.solar_os_sessions_has_display_shell]
 reason = "The boot and input runtime checks whether a display shell exists before choosing its own console handling."
-review = "b9f6aaea402039602d4f4da47807466bd95de1b79710ec5b41a1b081f85c5d37"
+review = "c5b35f5f31ebcbcf9933c641d117065b7809321eda036bc95387898520242f7f"
 
 [internal.solar_os_sessions_set_status_bar]
 reason = "Main publishes the system status bar to shell terminals. Applications use terminal and TUI operations for their own status and content."
-review = "f1861e97ebe4edf0851dc6e7acd9a9e9df62b1bc7dc32bae69d641a44aeae648"
+review = "6ec90c03ab16508e34e5aa008e10de29922ecb5496a6f0cb68b7f133b5132576"
 
 [internal.solar_os_sessions_switch_to_app]
 reason = "The main runtime enters a Core descriptor synchronously while it owns the UI scheduler. Applications request launches through application.launch."
-review = "16e53ab821a3a849bfb0b0bbd8fac396db6b38617f742ed1669d80f2e14ff59f"
+review = "97fef51f182e5d2b5700e053e35643e2bcb0796ba144054698652e25e7fe8e81"
 
 [internal.solar_os_sessions_switch_to_app_with_policy]
 reason = "The session host consumes a pending launch and chooses whether to suspend or replace the current descriptor. Applications submit the launch policy with application.launch."
-review = "f6077fb44026501c88fabbf74852ec5524a114b04cb81ad0d651516065ae530b"
+review = "2a33d6fe12e9214fba827d05244e3b99101f0ce8010579e9de5f90adffb10777"
 
 [internal.solar_os_sessions_show_input_focus_overlay]
 reason = "The input runtime announces a focus change using Core's display overlay callback."
-review = "cf87ba5bd13a3cd86ff04be047972fd8093ddadedf06243bc511bf8d0cc5e78d"
+review = "8317266c5241e2193f6ced276f685bcc28f932ba0a3e1f394b2df54966900773"
 
 [internal.solar_os_sessions_dispatch_foreground_event]
 reason = "The session scheduler routes events through the active application's context. Producers submit input through input; applications receive lifecycle event callbacks."
-review = "ce2cb557c63575921d3f18b720043646ffce4defdf6d914b529ebccfbc94912b"
+review = "9b4859510c01332a468b76cc9fc388356ea4572d47414325ff3c3f3b187f98de"
 
 [internal.solar_os_sessions_dispatch_input_event]
 reason = "Main routes normalized input to the session owning current focus. Producers submit input through the input service."
-review = "4b698692ad1d2d64c1ebd36e6a1c7dac3545c1ed6446773b998a6bd88b399884"
+review = "8ea07c6bf2a113fcf755d9a2ca4338b6a055e58f45f26e4ff7d0cc7a50a30114"
 
 [internal.solar_os_sessions_input_app]
 reason = "Main reads the active input descriptor to choose key and text routing. The descriptor and focus transitions belong to the scheduler."
-review = "c3f89de5951d0d560bb5f3abf09cf3f37d5851f48d2ef2be0e90354ed4b0f895"
+review = "dd018a1246b96c5ef66c712a33579edd7fee1a2cfb80e06a8ce87a278ec99385"
 
 [internal.solar_os_sessions_next_tick_wait_ms]
 reason = "The main scheduling loop chooses its next wake deadline from all runnable sessions. Applications declare cadence in their lifecycle table."
-review = "296edc96e62a56251663d778acc318b69f6f3eeb37f6951a53af56de9f4427ae"
+review = "aa8d0832056653fcf256e890b3414b86d9637733e02c950c0a2914ae282f0250"
 
 [internal.solar_os_sessions_dispatch_tick]
 reason = "Main asks the session scheduler to deliver due tick events with the appropriate context and deadline accounting."
-review = "458f0d267952639e2e8af67fee174f3ae9f1dab8939726ccd55f4df4dbe0a9ec"
+review = "b82f5355fb51e17fd74f2027fb20cc3c06ddad9f5b02d579447247b902cb5910"
 
 [internal.solar_os_sessions_dispatch_resume]
 reason = "The power and session runtime dispatches resume events and restores UI context after sleep."
-review = "1b2de3c3f4ed8345dfc860becba8c58673c92b447861e10dadb3e22a5007c1e8"
+review = "fafd3efdac8aa8a537039bbab198f4f8b42d9c65a5bf2255b0cbce7704dbda97"
 
 [internal.solar_os_sessions_process_requests]
 reason = "Main drains pending launches, completion results and focus operations on the owner task. The application service submits requests from callbacks."
-review = "1c743afe7ef210940a5e587d14a540a4a8a372bd9b4478ae7fe93f7019b8211e"
+review = "3e96e950d79da875cd2c1c26da5914ffe806e0e7513a6dd3ab16959501ff7815"
 
 [internal.solar_os_sessions_drain_operations]
 reason = "The session owner consumes its internal operation queue during the runtime loop and shutdown."
-review = "2858102d9307aedd2826a89fa695ccb964cf3dbb1fcbd3227419aaf2fce56b18"
+review = "4a9366085a45c1e669b723d8d2ca69fb760cdb12552946727606db74c2aea734"
 
 [internal.solar_os_sessions_prepare_shutdown]
 reason = "The Core shutdown hook retires active and suspended sessions before other resources are torn down."
-review = "71fc84d2f3e1234c9579e025184c0deb90f4140268d8976e0e17f257e784bfe8"
+review = "27649376a9d73979b050f2e443fae819b4b4b7343d92082450518035a9b46aa4"
 
 [internal.solar_os_sessions_prompt_if_shell_active]
 reason = "The shell host restores its prompt when a foreground transition fails or returns to the shell."
-review = "c70869ac6b13c14c5b797e1e95f7975b5547f7f0dc3d67656b248143bb7166d0"
+review = "70689479e9a6be19d31648b7d5a3a824729a5682c686f0ed1fc3a753a3744da0"
 
 [internal.solar_os_sessions_display_accepts_pointer_events]
 reason = "The input dispatcher checks the selected internal descriptor's event flags before forwarding pointer events."
-review = "fa9328372bdcaa2a6f9813f93cd97ca01fecab9db86676dee474239a11393046"
+review = "44777f6836d870aa7c9e8cf1a7fa5f432ae4aff5fffacc8aad86fa6eed10fd28"
 
 [internal.solar_os_context_take_launch_request]
 reason = "The session and port-shell hosts consume a pending launch descriptor from the current context. Applications enqueue launches through application.launch and application.open."
@@ -2544,47 +2870,47 @@ review = "211cf222f4f2c37f18f03811efe76152876aa8c38e78e4d73427a2989c1f1c59"
 
 [internal.solar_os_display_restore_canvas]
 reason = "The session owner restores a previously captured native rectangle after a failed terminal reflow. Applications set a canvas through display.set_canvas."
-review = "da401fac3112524b4892b0caf36c98fe029a49b14fd3ddb12b06c0e93c9d92b9"
+review = "9c8df8214d9477f2229abb21b478f0e7abe454154cece55ef41d59f55561d0d4"
 
 [internal.solar_os_native_handle_create]
 reason = "Core ABI providers publish typed state and a host destructor in the token registry. Applications obtain tokens from the owning service."
-review = "101b28aa6a84d1fc0055b5ed2bc3238a5119f8289d72588f509439440b843b23"
+review = "33e4cb05fb91bcec288784990dbc20f8a100c6ff778e503f66e3b57582a5600c"
 
 [internal.solar_os_native_handle_acquire]
 reason = "Core providers borrow a typed token state under a registry reference while executing a service operation."
-review = "65fcbd8ec5a59e83c52af22400911c602ecf13c17290403542b5216536cb4668"
+review = "a67543a23d14b7551572a10592eb846e1f9330a91383656d5109c852a1052dd8"
 
 [internal.solar_os_native_handle_release]
 reason = "Core providers release a token registry reference after using host-private state."
-review = "37b63e54fa6c1eac3256748c77944c99089e3909303ba94631ed1c5715c82a39"
+review = "8fdcba8525270f60e1769269cb5804152b49ce45de4bb6768ff0f045df561082"
 
 [internal.solar_os_native_handle_close]
 reason = "The Core token registry retires a slot and invokes its internal destructor. The owning service exposes type-specific close operations."
-review = "f630e773ba5c9254790e08bc9a90508ad82553d96b1ce1cedd44df926db3f83a"
+review = "430a1d9cd4bb8a0218c08c148f289f65be23fd355b748d21744b04d315e0a3bf"
 
 [internal.solar_os_native_handle_close_kind]
 reason = "Core service close paths verify the token type before retiring its slot."
-review = "656068416ea4aea4338a69f4a90339219b5d7c961cd56547abfcb7d107477543"
+review = "10825eb40dc05d416f573730952df30a3af7ddbc3aefd52a3e63a85066525dcc"
 
 [internal.solar_os_native_handle_count]
 reason = "This registry diagnostic counts private token slots and is used by host lifecycle tests."
-review = "ff927804e1ec2f419f4bceee2684ea84ac06362333bb7e0806ee7c92f3a867c4"
+review = "1acab68db27e8a9b4804b35b0f81d02af973fe4a45dd6184f0dc6eaeba359e99"
 
 [internal.solar_os_native_handle_create_owned]
 reason = "Core providers tie a registry slot to an opaque host lifecycle identity. Applications obtain tokens from their scoped service."
-review = "6382c838a73cfe315f8b1fd78064aa042742ebfb9b891fd9486961cc1668c15f"
+review = "269ee6d84542a0e32a84df4b67aa26981f219a0d6ed62da2bd023198cca21ef0"
 
 [internal.solar_os_native_handle_acquire_owned]
 reason = "Core providers verify the owning lifecycle identity while borrowing typed state."
-review = "73d52e888d9ee745428196a1bbe8831dc170e671bbd0cb17c2793f5d4bc8090f"
+review = "0ff2cf5c6d43b7caf0e0183b60625f4b142cd26fc3c82830fba9d446ffea24fb"
 
 [internal.solar_os_native_handle_close_owned]
 reason = "Core providers verify the owning lifecycle identity before closing typed state."
-review = "5ed42fe7e4c768146e8dcb79cffc16dde1fa04387784e8cf6a137648dcbee834"
+review = "7b581d24c474afc9e3f9eb2323a4790fb0cf7dd6c589aaf938caf43d1adb1177"
 
 [internal.solar_os_native_handle_close_owner]
 reason = "Core quiesces and closes remaining scoped handles before freeing the owning application context."
-review = "80c550c4ffc1eb3560c147544e11b25cbb23de7f616f4f7a4c0c37f7ecb671fc"
+review = "fec7c3331f9e6faaeba6b83a958a4bae3ef2dc9dbab71ae387935980472a5b19"
 
 [internal.solar_os_disk_image_close_owner]
 reason = "The native foreground host closes images owned by its private context before freeing that context."
@@ -2624,19 +2950,19 @@ review = "f402d39b2cb61128c3ddf88e7fe6a7e827efd829f73061c8bf004a2dfde99822"
 
 [internal.solar_os_jobs_init]
 reason = "Core populates the live job registry from its static descriptor table. Public job operations initialize it through the same path."
-review = "147a44001435acdcc22b2e68b0bfb3aa10e22ca87981e690bb8a81450428a251"
+review = "258c2915f55b6b5549983704c18f2d6609ed89c1de4ff8109f0db691e25bd79e"
 
 [internal.solar_os_jobs_prepare_shutdown]
 reason = "System shutdown drains job lifecycle callbacks before releasing their underlying services."
-review = "888bd0e63b482d582280aa9dd1b52982a55fc916a06f48be858adb72bfc910a1"
+review = "4c4f8cb2cd84e82d0bb4fbd1c65568ad936555ac6eb389c8f5889760904a4423"
 
 [internal.solar_os_jobs_next_tick_wait_ms]
 reason = "Main reads the next Core job scheduler deadline before waiting for work."
-review = "e97d434cbb4a2279422ce420e0677b9ce6bdf32a8b1bc43abdd485d58b255611"
+review = "ec761a6e068f4237f4f38453eac12321f8729c7d004c4729ad29eb6b417c140b"
 
 [internal.solar_os_jobs_tick]
 reason = "Main advances Core background jobs and dispatches their scheduler-owned callbacks."
-review = "025dae4e216bdea151ac66bca14dc3a9460bb8de270ff2d3ecbad2d43682a019"
+review = "e0ea31ffa5e523c2a5e6be3c74b04c84dc40d26101bee758e887d568aed2d60f"
 
 [internal.solar_os_job_registry_count]
 reason = "Core initialization counts compiled descriptor slots. The jobs service enumerates the live registry."
@@ -2652,15 +2978,15 @@ review = "5ab71dbc8d38cbee058f4cdb313d8f68c0b0e98013a22822fac36d76b9653a7b"
 
 [internal.solar_os_adc_dpad_init]
 reason = "Startup binds the board analog input device to the Core key producer."
-review = "7595deeaf216582b8466c611425a2424bfc27f5c75065a17575dbb139bae6112"
+review = "781f354ee0e65823aa8d59ed37e211ffc1a9f8da716f9a91cf492e375e9a64bf"
 
 [internal.solar_os_adc_dpad_poll]
 reason = "The main input loop polls the analog key producer and publishes normal input events."
-review = "19e3b98b1674e4061160d41ba3b1ded3a59cc7e3e4fa0d25b55d92b3449a14d8"
+review = "ef512e0aec7cf1b0df7d6425928571a51dd7d617e16710e7efa7d5663cc7f3d6"
 
 [internal.solar_os_battery_init]
 reason = "Startup loads battery monitoring policy and registers the scalar battery stream once the board provider is available."
-review = "278212ad409d925e18fe9a4bcb4a645f740297d2680fec274116b27c3118ecb2"
+review = "d86a77fd569873644457fec183207f63974414f3f10643b40fe231b3a17a3c57"
 
 [internal.solar_os_battery_trend_init]
 reason = "The battery trend sampler initializes its own history on first use."
@@ -2668,31 +2994,31 @@ review = "f448c229c235d5d3d9cc421c04121bd5048d0a1ce4f3ab0eef4acef467f556c0"
 
 [internal.solar_os_buttons_init]
 reason = "Core startup binds the board button device before input dispatch starts."
-review = "e966f6d595bb99d8c6a3106b7c1812ef65c1ec71dcc9358990dd4ed99dd6f05d"
+review = "62f187504e069377d57b0ee12a94b250177293ede9c22058a6e6787c06d2b363"
 
 [internal.solar_os_buttons_poll]
 reason = "The Core input loop samples and debounces the board buttons."
-review = "0b6e5598d2d8157e63ed403a347a2145ff2dc62d314115b0749ba9f50c65cb79"
+review = "fc46f7ae7f035afbb2ae47184a884d151912a49b993c5a031de80a8c71d914fa"
 
 [internal.solar_os_cdc_init]
 reason = "The USB coordinator starts its CDC backend as part of board boot or USB mode reconfiguration."
-review = "49b5ec122f19fc26092cb82b396890eb9dfbd023d1d454e9f166e244294316d3"
+review = "75785888a17e2c314899258b59a36d05de24201a337ff7f9502bb7330000c8fc"
 
 [internal.solar_os_cdc_deinit]
 reason = "The USB coordinator releases its CDC backend during rollback or a USB mode change."
-review = "b46f31d840639863835d2989d4be2dadf8d58a85d53d0e6c9b11695a351cc57f"
+review = "674cfddf8712eec9027610bd2b787f10770726ec4ba816448b31e0355e9bfb51"
 
 [internal.solar_os_chat_init]
 reason = "Boot installs the built-in gateway messaging provider in the class registry."
-review = "512649daa6116aefb0e3a43546a8ccac8795e61a1fc3366474c40dc6482c2ce9"
+review = "f4a9df21c5854b45f297edb9cffb38cefa17f16ddd70e2da02a0b5ab12cf5255"
 
 [internal.solar_os_display_init]
 reason = "Boot registers the board display Driver and its Core presenter. Applications discover logical targets through display."
-review = "020548f31478f473e196bac38d41bb60a026681181c4d416810e22ce21eb2bd5"
+review = "77a4634d2af3fda4f75eb46caccf31cd347bcdaceb1ed159f5d4df3f18a5fd8a"
 
 [internal.solar_os_display_shutdown]
 reason = "System shutdown stops the backlight and invokes the board display shutdown during final power-off."
-review = "b23f35b4ff3eba238647c89ca8fb7e44dda3496f5f49cfa13fe3b2d4402cbcbb"
+review = "0c992aff67c4278b453388aa0f4288dcf3bd8346c759a49d8b73dd60d199ceb2"
 
 [internal.solar_os_display_geometry_init]
 reason = "The display registry initializes native panel geometry when attaching a target."
@@ -2716,7 +3042,7 @@ review = "fd9d51f510fa5043189158335c64a709ba905ac62e5d995a1f33c290c964845f"
 
 [internal.solar_os_link_messaging_init]
 reason = "The boot coordinator registers the built-in Link messaging class."
-review = "7c0aa37be625988a9ae0fd998d5bdff0603b6ef697640b4ef65b34c6d981b7fe"
+review = "3a0ef39d777c411967fdcef23ce7eaeb1aae94f3c0e9d3f7d916502d551072da"
 
 [internal.solar_os_log_init]
 reason = "The runtime installs its logger and initializes the private log ring before dispatching applications."
@@ -2736,39 +3062,39 @@ review = "c3bbcd3f1eff67d19846eb5d71165f8650ad1b5a55d04addc3f9769b15c1d75b"
 
 [internal.solar_os_network_init]
 reason = "Boot initializes the network interface stack and event loop before bringing up interfaces."
-review = "63e8c44de3ddf7dcd856b67cb3cbe98e2e19a51c8f09b885b602df56025be2c1"
+review = "7f838d46e08a15b2bd5a7623597eb597b68655e4703240efdd1710e7429e27c7"
 
 [internal.solar_os_ota_init]
 reason = "Boot initializes Core update and rollback state for the active partition layout."
-review = "7da8a7c576391a534f87330de78788cb3060241eb474f697abde83b63ff694b5"
+review = "947a8f53b0158e79bd5f37eb36fed7969812b2fff5f1668f98d02495ee84bdbb"
 
 [internal.solar_os_port_init]
 reason = "Boot registers board ports and establishes the Core port registry."
-review = "a4304fba9b7bbe30f7421090a5c356d724b5a24caff4d56e786ba8b5bc9dc06a"
+review = "4c173547f51d2a9b0031b383bb91a11e3fe692cad1bce3227df84c3a5dcf5b3d"
 
 [internal.solar_os_port_shell_init]
 reason = "Core creates the port-shell host and reserves its optional startup worker before accepting connections."
-review = "12c3519f99b999f393dbd727551831c2e77b2fee012565fb0716a1557ddcbfaf"
+review = "cc5388645d047158664961693e98892f08fc23b1fb8d4465ca5708db7ece944f"
 
 [internal.solar_os_port_shell_prepare_shutdown]
 reason = "System shutdown requests cancellation of port-owned shell and application contexts."
-review = "b825778db981915e5aadeecb6683522487469a686071be5c4e015ec9c3480340"
+review = "6a339e8ac3e906be388b131bfc6ebac3ee140c8a5754125f63196b4e9b2e4960"
 
 [internal.solar_os_power_init]
 reason = "Startup configures the board power policy and initializes runtime power state."
-review = "e7f1e398c2663cbdfdb5e3422a7f93df034f76d92c76fce3946742af73708997"
+review = "2442ba41e3096841d877b6eea0fd749c71926a3a0e93fbe51a2956fcdb45eb1e"
 
 [internal.solar_os_power_poll]
 reason = "The main service loop advances Core power policies and wake transitions."
-review = "9f52f6deefe45aecad4a8d308ca6df73d0320ff900f393bf5ceee2a33619feb7"
+review = "0ef0107ce1cf0a450b2a7be49c05c5cc517047d1441d714e56d17bb0f02da6d6"
 
 [internal.solar_os_pwm_init]
 reason = "Boot initializes the Core PWM allocator and board output state."
-review = "7b2046a184e303d9b77de8449237d99b920b76f2fd3232c61534e2359c79f5e6"
+review = "b9f0d8f6e158c343bdcb6ee588b3a111c04b1104edcc9cf620ff6e824a63eed5"
 
 [internal.solar_os_sc2_provider_init]
 reason = "Startup registers the built-in SC2 class in the messaging registry."
-review = "9123d80bdcd5079321336ac4a1bdf134b63f9e352cb2b5cb3e12925a1bc5e760"
+review = "32582eb053d8a1a2c87327b678713d377a79edbcf29c368df9cba1ebf6c97956"
 
 [internal.solar_os_sensors_init]
 reason = "Boot activates sensor discovery and refreshes the associated Core streams."
@@ -2824,43 +3150,43 @@ review = "e7d50089e8c9daf5faa64f7d6f8d951c8e59ea97b322bfa0a6900b9bcaadc209"
 
 [internal.solar_os_tick_stats_reset]
 reason = "Session and job owners reset scheduler-private deadline counters at lifecycle boundaries."
-review = "3223bace36a9b4dd0565cd562bebc0e7a8ada2dee10532a7de71ec945063e851"
+review = "bd4cebe01a5e7ad81f2cbb11032a986f2e75f640c5705ff1969b7cdae747b765"
 
 [internal.solar_os_tick_interval_ms]
 reason = "The scheduler resolves its private configured and default cadence."
-review = "285648560cd10735b6740a503d6f925a10ffc8c87f883015a752ee7087e65f7d"
+review = "f502ab8b7a1d06542419e2b2aec50524c3d9e579aaf429d9495e5e92a01db6e3"
 
 [internal.solar_os_tick_due]
 reason = "Session and job owners determine when Core should deliver the next tick."
-review = "2ba886c916c86d2e47ea704294b2d85ec116dc556ad65ae99dd1bd8374422694"
+review = "70d0519bfde01e7b7d77b65d17a34785de24adac42cda4e9c4f8c1b45bb5a7a4"
 
 [internal.solar_os_tick_wait_ms]
 reason = "Core scheduler owners calculate their next wait from private dispatch counters."
-review = "d27f6c66b465678ecb36d9e22ac56f3051085e2942b34b35bde821a0c4588345"
+review = "2efad5aa7e9a71df3918c46d418028db0238cf48518edd2bfcae8303719dbd51"
 
 [internal.solar_os_tick_begin]
 reason = "The scheduler timestamps the start of a managed callback to measure deadline use."
-review = "98a2154f7653af14785031f37e2b72f260bfae4c325b5e8d87f95d4c399476c5"
+review = "efc5656413676d3b074e8dc18c0a71aca2a1d6962bd3f8397783bce554df4edb"
 
 [internal.solar_os_tick_end]
 reason = "The Core scheduler records callback duration and deadline misses."
-review = "df7351e471c81865ab3b2eacd9b3848dfefef64d526be5d386a9bb1a4b4af5d9"
+review = "7a791d093214e06288ac05ad1c2b6468c790091415a5bb88b29711cd42d531a5"
 
 [internal.solar_os_tick_should_log_miss]
 reason = "The scheduler throttles its private deadline miss diagnostic."
-review = "c7def70bc9ed2e3226c703e547ab40c21814add81d2d21b7592c92666e84b83d"
+review = "278406c5ed004164b39b728c6aeb66a39655ae61acb47a4ef9256939afa8c7cb"
 
 [internal.solar_os_runtime_wait_ms]
 reason = "The main loop chooses a wait based on pending ticks and hardware polling requirements."
-review = "10ebbf6beceb1de71a8921308215c037c0df5cc50cbbe1674f92df4d485751fe"
+review = "7176e7aa9901d10cc14863091ea52a7dced5fa710b438eb6048738ebb5081950"
 
 [internal.solar_os_runtime_loop_note]
 reason = "The main loop accounts for its own scheduler cadence."
-review = "302e918a3ddf3833f8beb92657b0409d90989a2b93cef4341b2120bcf9f060bb"
+review = "412a252cd137b72314bef0948b873238ffdda7528de397f2753126d5f1f35c75"
 
 [internal.solar_os_runtime_loop_take_report]
 reason = "The main loop snapshots and resets its scheduler diagnostics interval."
-review = "1a2a337dbe633c48862e95f3b3f9677af299db8e56f1e950f1ab375399d62944"
+review = "ab91e0f90427ba1438bfda3e1c2c855d26ecddfc7648eaf844ce9ea959a9ac9e"
 
 [internal.solar_os_inbox_saved_snapshot]
 reason = "The messaging journal restores legacy Inbox projections during archive migration. The public Inbox table reads the live registry."
@@ -2996,35 +3322,35 @@ review = "08ee83d5b0b9ba4fd3eb16094c3a5e362546b524ff5e176138159cc95c2becd6"
 
 [internal.solar_os_display_terminal_draw_state]
 reason = "The terminal renderer tests private presentation exclusion and an epoch that invalidates its retained cache."
-review = "25a4dd78c1b9ecfce3c45cbf95370a7a86c0c30d2270e593248af70a5ae2e6fe"
+review = "37dff3693cf9a0fd3b024a6c96f4553783b899d85aa6d8adc2725d7d37cb2dab"
 
 [internal.solar_os_display_show_power_state]
 reason = "The system power transition presents a protected splash and excludes ordinary presenters until resume."
-review = "836af22a14a24620c2843c7ecf74c8e9abb3771609b6e4629face5086f07966a"
+review = "c8958ecf87476dd20882de49fdac590f41840994e79976230499a47e42c0e939"
 
 [internal.solar_os_display_clear_power_state]
 reason = "The system power transition restores normal presenters after clearing the protected splash."
-review = "75325887d69237e12e4f83f77fc84030ce13c2747383bf423e748f10d0060678"
+review = "50fe79afa2161dc67135c690059601e48cfe0f5eb8932e46e5b9b9fe054fcda2"
 
 [internal.solar_os_display_suspend_primary]
 reason = "The system power transition places the physical primary display driver in power-save."
-review = "685548742dcdacb4bd3e0a14ac306d65cef86d0ff4ba2a3929d75b767f70c3c6"
+review = "57e563212568a9c94767f0760b0e346c8b1983aedd121446672b9119bdd2819b"
 
 [internal.solar_os_display_resume_primary]
 reason = "The system power transition wakes the physical primary display driver before resuming rendering."
-review = "cd263965250d01c050540cc001cc61a3282c71ab5a58fecf839cd90cf279de99"
+review = "e7f797bfdeb94a711bd5bf31d98b85296ffd989e6da0bd0d5d7685956cb908ad"
 
 [internal.solar_os_display_primary_suspended]
 reason = "The shutdown coordinator inspects the physical display state while sequencing the system power transition."
-review = "d6abb048bf10ab503e38941b35e71ffd2f38593e43bbc93f2f9586547cedf26b"
+review = "3f10d237b26cb6d711755f1e86e7c4ef8f96112df1523187492b6f2ae95c0008"
 
 [internal.solar_os_display_present_overlay]
 reason = "The Core session switcher schedules its temporary focus overlay against the private framebuffer."
-review = "18caa176ad087aae63fd7143a90e818205c0af9f1dbfb68241ae6daea1ea9b6c"
+review = "ecb29694947fa19628313b03a0df392df2e6e1e6090a1e428bf3d6c2443fde84"
 
 [internal.solar_os_display_set_overlay_active]
 reason = "The Core session switcher releases its temporary overlay and invalidates the underlying terminal frame."
-review = "2d1e2c0931dbcab6894ed2c499ca7ebd87bd502fdf072816518bdaefcc367c8c"
+review = "713d32f337f094f73993e052188a99674308d50f260e7bd02abcb9f696dc568b"
 
 [internal.solar_os_buses_init]
 reason = "The bus registry installs board wiring and rolls back reserved resources on initialization failure. Bus discovery and transfers ensure initialization."
@@ -3056,15 +3382,15 @@ review = "860b437fbc2e662495d519e336911492a6bf53ca50619685cc83da437d0e5ec5"
 
 [internal.solar_os_meshcore_init]
 reason = "The Core radio MeshCore implementation initializes the selected backend instance and its storage lazily before its operations."
-review = "a3aa4293e9d5f18da0c21b5cc38613ee18250a1bd284aedb1234932c2368dd83"
+review = "8606202debadc4ea94ce2651666b6c7ed6d5805875a48b33843d8438e30244cd"
 
 [internal.solar_os_meshcore_instances_init]
 reason = "Boot or a Core MeshCore job installs built-in backends, loads saved instances and prepares their worker locks."
-review = "506c1f1ff85ff07bd1497bcc99976617034523984a1b7419c87fe21997c52b7b"
+review = "8e6d63d7700b7a9e6e3344b31ea6e067d1fbafd5afd192315cfaffbdbac8f111"
 
 [internal.solar_os_meshcore_instances_poll]
 reason = "The Core radio and Bluetooth MeshCore workers serialize backend dispatch and reconnect polling."
-review = "72bb7d556f6a9eba90f3740252e97b18f44309b5735db0bcb845d5023dd0f159"
+review = "7e6d68fc3a26b62ca762abc1df27b7d4bda04e4c5e1d6f1d3276c478a7aa148b"
 
 [internal.solar_os_module_packages_init]
 reason = "Boot activates installed resident job and driver packages. Libraries are loaded by the separate library acquisition lifecycle."
@@ -3088,15 +3414,15 @@ review = "7b755bbdeb019490fc5cc132b7e2bc859064c1969dfa661ca0c14f39aea39436"
 
 [internal.solar_os_shell_io_init_terminal]
 reason = "The session scheduler binds a terminal renderer to shell I/O. Application fallback adapters may bind the same terminal when no shell session exists."
-review = "4c3fb5d66b4826fe552d427e5b2288c71f03c01b6d0ff31b732d9eeb5399bd7f"
+review = "4a3c2633452c2adc58fae1d0fd1f725e1f006fcff2d4763222cabce8d5947963"
 
 [internal.solar_os_shell_io_init_port]
 reason = "The port shell owner binds its retained transport handle and terminal geometry before exposing scoped shell I/O."
-review = "0c7874289289b93815de55f71e54f12cfda9221cd8ae6f0e3f8d9ab87b59e343"
+review = "d56b1e6ad37704f32ce690530dc25f6d9fafd8bcb7f52f77ac42b2e13a2e9eb3"
 
 [internal.solar_os_shell_io_capture_output]
 reason = "The command dispatcher installs its output mirror for a fallback renderer when no persistent shell session owns output."
-review = "e5b098e25828a010aa2c1a55f8a869cdabdd9c78e8899d7844c2a6be7a379907"
+review = "7191fed7971cfec74c94218f4a3aa22ae26ec3dac2deb368abbd20eb8241855e"
 
 [internal.solar_os_shutdown_note_failure]
 reason = "Core shutdown participants report a failed stage to the shutdown coordinator. Callers inspect the result through power.shutdown_status."
@@ -3124,31 +3450,31 @@ review = "f60d1261825de070295f993624ff53ce543e977fc760948f6353ef56eee56522"
 
 [internal.solar_os_power_apply_runtime_policy]
 reason = "Core power policy and Bluetooth wakeup handling apply the effective ESP-IDF power-management state."
-review = "844896a8882e9d36b1b851b6818af17f31b1e0a49ffe464f81e8ec22e1c02a67"
+review = "d8c08e24747ef6dff1f1f856e3afe51cdeda9993a7100d29e2d282cb7edadfc9"
 
 [internal.solar_os_power_begin_explicit_sleep]
 reason = "The power coordinator prepares the temporary runtime policy before entering an explicit system sleep."
-review = "fef42e4cc014ceaee308d926703e84aebba64ae027fddd65baf1ad7c65e4fda2"
+review = "f33e4b48ab4d54efbadb5d3b1c243d91879cfb60b8c7887c4a94107eebb3bf22"
 
 [internal.solar_os_power_end_explicit_sleep]
 reason = "The power coordinator restores the normal runtime policy after explicit sleep or an aborted transition."
-review = "e079115befa531845855c4bff3a29a3866357a9a9285d272707e91f5278ca2f1"
+review = "6bf1f09d09c9df7a23896aa475d907249f03ebdc7f46837f74c5a6a28ff3ff91"
 
 [internal.solar_os_power_begin_suspend]
 reason = "The power coordinator applies suspend policy before it stops display and service work."
-review = "4955b91a0ceb6d78902d721acddc014d04f86e5dd333f441bb994e76394f2b3a"
+review = "dfa8c09fe2c6c1356426cdd3a576ed85e48e8e958ec060fb35013efd099919bb"
 
 [internal.solar_os_power_end_suspend]
 reason = "The power coordinator restores runtime settings before normal session dispatch resumes."
-review = "38784a0353f54b3ba29a038aac8bb638c3d5c60b97f12d2fb3d624cd5445b1f0"
+review = "19fe28a14640a6234770b98c7b94df8d28fe88c49c60d6169d6685d681b7a3d3"
 
 [internal.solar_os_power_note_sleep_enter]
 reason = "The power coordinator records the entry timestamp immediately before the firmware sleep call."
-review = "9f7c248288d0fe4ebd0ed04b71c3e675f1016a1db959f699c9cb4968bdc24877"
+review = "d3d7ff888bab85b1e685df660f990c2df16bb3b7e448006812bbd81902f43f2b"
 
 [internal.solar_os_power_note_sleep_exit]
 reason = "The power coordinator records the hardware wake reason and actual sleep outcome for power.status."
-review = "1b38abdedd45a6b376bc742912aba7594cefe48f02b99a07838e274762ce6f99"
+review = "ad96a46939b752de595d7b3f5c13df6e01812433a646869cd046362dea8d422a"
 
 [internal.solar_os_identity_init]
 reason = "Core loads and migrates saved identity before network boot. Reading and setting the identity ensure initialization as needed."
@@ -3400,39 +3726,39 @@ review = "1fe4f2e8d244ebcbf29f023232c277482cfe7308cb1d591196546a43c028b33e"
 
 [internal.solar_os_sessions_set_display]
 reason = "Core replaces its built-in shell display and binds the raw controller state during a system display transition."
-review = "20b59d0f31feb867fb6c49142bb5c468f3c627b51060c8fef661f6ab9fcbb285"
+review = "76e6fbec7d0ab0b8c637d31823d67ed83292aad697f6c333938f30eab4d5a60c"
 
 [internal.solar_os_sessions_foreground_app]
 reason = "The scheduler exposes a borrowed firmware application pointer to its shell dispatch path. Session snapshots expose copied app identity."
-review = "2ea33a739a7687a4fad800ebd31e5687630423d4d32a95d9855438ff291303b0"
+review = "e3a3d13cc0b3c9f7c7de8887a3a5cc2d6f14a28f4ea267ed37b307f99864cc9c"
 
 [internal.solar_os_sessions_foreground_terminal]
 reason = "The scheduler exposes its borrowed current terminal pointer. Applications borrow their own terminal from the active application scope."
-review = "2cbbf02488158899d36e06d966fd15b5e0ee869f1432b1febedf223dc2e57aa9"
+review = "4d5b453bdb79ce2a9b752222a16f3f6d5a11ac3f30783e4758d769bc7566342b"
 
 [internal.solar_os_sessions_attach_tui]
 reason = "The TUI service associates its live state with the shell IO that owns it to coordinate scheduler rendering."
-review = "dd3d31b28575900e90e74b38918da8dd777371ac391406c2b391dd8fc91d3e73"
+review = "a4f77599d91aabf7d40820a530a301593cd72e5662a685681a428fdb0e034a6d"
 
 [internal.solar_os_sessions_detach_tui]
 reason = "The TUI service removes its private shell IO association before freeing the live TUI state."
-review = "108f1ee4d01fca22bcd8622e9b4fc1b645818a21d556abd6513989163ebc2863"
+review = "9e5295f9fc03a504f9ce0af73f97a24d904576e21bf31668b380a7250a6f1053"
 
 [internal.solar_os_sessions_requested_tick_interval_ms]
 reason = "The session owner computes an aggregate scheduler interval from live firmware callbacks."
-review = "e5c86c8b69babdd7b4fe7579ec87badd34b7165836532e8c6ffccae3469f833d"
+review = "048cca2824ce44496ddf85d07f721f9a232d142d20d2215e76e02d29812d8250"
 
 [internal.solar_os_sessions_run_on_owner]
 reason = "Service adapters marshal their private synchronous operations onto the session task using a Core completion queue."
-review = "96123853c814137d81f004f95cf3c0e70bfbc787acc9dfd4a6216d8d30dc562b"
+review = "a41c8146b1ff129064a9498085f8ff450d8491f18780ed2cdf8c411573b19efc"
 
 [internal.solar_os_sessions_print_list]
 reason = "The shell dispatches its private format and output callback for session lists. Applications can request output or read copied sessions."
-review = "a634fdf960e6ac408d7497d10af926fd56df144449ee3e9a0b31613fbcf17adb"
+review = "330d3fb2ccf319c6a7b4adbbfdb26c6848402049262182f1bdb8faebc581e3c2"
 
 [internal.solar_os_port_shell_print_list]
 reason = "The session list formatter appends port shell rows to the current shell IO. Portable callers can query the same sessions as records."
-review = "56e149f1180e78343bd6ae99b72a6fa567d3abb583d770574887aa43b179b7e7"
+review = "2b71095a5f706a14c8366ac9a3b4dcaa8b517748f0a250cfe6918da1a9298c6e"
 
 [internal.solar_os_gpio_isr_service_ensure]
 reason = "Drivers share the installation of the ESP-IDF GPIO interrupt dispatcher before registering their handlers."
@@ -3476,7 +3802,7 @@ review = "e77fcac94ebd3ff4c0e60772702666300b3a2cb58f35443baeea9ff2c819744e"
 
 [internal.solar_os_uart_init]
 reason = "Core binds the board UART and restores its persisted serial settings before clients acquire managed leases."
-review = "05f151cd1a77fa6130e159ae460955ec446697a45a94bee206038d0e8d8307de"
+review = "5d5680d80d86c730db3b913c56757b93b978c2e1350442b7269e27582f0076ca"
 
 [internal.solar_os_epd_native_plan]
 reason = "The panel driver chooses a native waveform from its private baseline, encoding and exposure state."
@@ -3776,11 +4102,11 @@ review = "62f40a2f20c322ccb7b2c970b1ae51ae60e6033f8931dbe6ee8cdcf50ead1577"
 
 [internal.solar_os_audio_register_streams]
 reason = "The built-in codec and DAC adapters publish their PCM endpoints together as part of hardware attachment. Consumers discover routes and open endpoints through the audio routes and stream tables."
-review = "4e9a49a57334699485b862ef6247ee105d0492e53581ad408a5b99c0b888b3ad"
+review = "8dd33bb5b051d438ff8925d9f03e28639a9dae97330057e73430d0c55083c02e"
 
 [internal.solar_os_audio_unregister_streams]
 reason = "The built-in audio hardware adapters retire their endpoints during hardware detachment, with its claim and rollback rules. Public consumers close stream leases and use expansion lifecycle operations."
-review = "ac9311ca12eaab34a21043af85529593d27cb0ec1939b237f90f0ff599d1507f"
+review = "60bff327ff6b13e9374612bf4a2c2a484766689c981ff88212d3caa333eea9c1"
 
 [internal.solar_os_display_link_create]
 reason = "The SPI DLP expansion driver owns GPIO reset and ready signals and the ESP-IDF SPI device. Attach that configured display driver through expansion.attach."
@@ -3912,11 +4238,11 @@ review = "c81b317fee3b01e4d039e0d1a754c3990a0be6369a8d4a8f57730a1e590e1d7c"
 
 [internal.solar_os_script_media_option_valid]
 reason = "The Python and Lua built-in adapters validate dictionary keys for their stream opening options. Native clients use structured stream options."
-review = "87affaadfac88ff336bc73916489bd4685e7cc1a4047f9435738cff313dd0029"
+review = "0a38236b4efb0bfb56ba8a1af6c2f92cdb4e71de4076c5659ffcdaa4dddc7890"
 
 [internal.solar_os_shell_io_with_fallback]
 reason = "The application host binds caller-owned terminal channel storage when it did not inherit a shell channel. Native code borrows the context channel through shell_io.current."
-review = "fb06914e8a8fa2edf57bf24d995e9fd0bfe4d204f73f2759c8bb869e1afc8117"
+review = "8fc5edc9429aa68c3dad893c7fffddaffc916e6b1f1f98a78f957d76b26c1cb5"
 
 [internal.solar_os_context_set_shell_io]
 reason = "The shell and application host install or detach their channel when entering a firmware context or constructing a terminal fallback."
@@ -3924,7 +4250,7 @@ review = "239f41df3df68595e233ad3118dc0017acbec539784671a9e0acbcaa6c2a932e"
 
 [internal.solar_os_sessions_mark_foreground_dirty]
 reason = "The dispatcher invalidates the current or fallback terminal after an input or display change. Applications invalidate their own terminal through terminal.invalidate_render."
-review = "153a81014853ac25ccd386b600972ddfecf395219b2e11fd0092bbb296b40e11"
+review = "ad8dea73502e31db8a23cc642aaa58222f8c62fcb73b6cba0051f1705d6ee119"
 
 [internal.solar_os_tls_write]
 reason = "Private one-record transport primitive used by Core to implement managed net sends and by libgit2's partial stream callback. The public byte channel takes responsibility for sending the entire buffer or retiring the channel on failure."
@@ -3932,11 +4258,11 @@ review = "12978e1ca1361783bf06b91a60b56cd4de6ba8abcd443d58b93d83d9d4a2d495"
 
 [internal.solar_os_jobs_register_dynamic]
 reason = "Core inserts private scheduler descriptors for the native job loader and Core-managed pipeline workers. Portable job packages use the versioned register_job lifecycle."
-review = "8e605f526e49a7da855ab5885dc3d7286c71f2cce7a334f540f57c95e65b8443"
+review = "fa987abbe6c485f3a674e07f8ac42c3e7254d8498550a1fd5192ca588d9c87df"
 
 [internal.solar_os_jobs_unregister_dynamic]
 reason = "Core removes the exact scheduler descriptor after the native job or pipeline worker has quiesced. The package lifecycle owns unregister and code retirement."
-review = "37279e65157b319c8cd1bf3bf8288b14d8efef49af0801b6c23c4134943d8029"
+review = "d3a2657ed8d35d81b64f8b0456a443333eec9945de47d2f59fab1684480ac80c"
 
 [internal.solar_os_expansion_unregister_driver]
 reason = "The native driver loader removes its exact private expansion descriptor during package retirement after attached devices and callbacks are gone."
@@ -3944,7 +4270,7 @@ review = "484e436e169b6795514da9bdac1e925e99449337d3c83b49e6382600822e5c3d"
 
 [internal.solar_os_messaging_settings_clear]
 reason = "Core wipes its private temporary credential form before releasing storage. Public settings operations copy caller-owned records and mask persisted secret values."
-review = "e37b098dc94219e5ee882fad570d1d0967402b2502f02804ab87177a6987843d"
+review = "49be520886758eba99788dd65f8be3c4b5036cdcafbdee5df026479c3b3f251d"
 
 [internal.solar_os_lwip_route_configure]
 reason = "The WireGuard service replaces its private lwIP destination table while holding the lwIP Core lock. SDK netif pointers stay inside the network stack."
@@ -4024,27 +4350,27 @@ review = "ffa33788fd086d9d02409e9103142dbbe0952db111eb8fba50ffd68bdfca374c"
 
 [internal.solar_os_script_media_open]
 reason = "The script adapter owns its local source IDs and applies its timeout and cancellation policy around the shared stream open operation."
-review = "b4e1135535dadbe4d64b1697b8ee7f357a68a65117dbb425d3a500ed34d50e91"
+review = "0fb5d4342d1381491686644c96d9225ba22780224282646890f452ff0f9bbaf4"
 
 [internal.solar_os_script_media_read]
 reason = "The script adapter polls its own cancellation function between bounded calls to the shared stream read operation."
-review = "4e51adb221d5ed26db1e9100b03f7b15a71dbf7abeb0a5436a0f8bd4f8c706c3"
+review = "b334c3d8232ec8b3a60dd25dfc0f05c09ae64374023716baa428b25afd1ee4ff"
 
 [internal.solar_os_script_media_write]
 reason = "The script adapter resolves its local source ID and checks its transfer budget and cancellation before the shared stream write operation."
-review = "22bb41b7a09485486a77fffd10e8d5d425734bd3faf3db7661c5648d9bdb7f42"
+review = "4c21462dfff561b8ee59ba0300289f247c0d31c572860372584a91b287367adc"
 
 [internal.solar_os_script_media_scalar]
 reason = "The script adapter resolves its local source ID and checks its interpreter wait budget before the shared scalar read operation."
-review = "239869ec997bbdaeada84a7f609faac10f5b5db5fd4ef0bf09dad00acf7c637a"
+review = "fb9bb8cb398a4e96944369ff66cbc84688f968b6ccb3c35b991b1ed23722f6e0"
 
 [internal.solar_os_native_handle_acquire_exclusive]
 reason = "A Core ABI adapter reserves its typed state for one operation. Its public service reports busy when another operation or cleanup holds the same handle."
-review = "8d6b715a23c04affb887b01e64b359e19a150e8cd40829385997ca0febd705d9"
+review = "89c3bfd5fa56b7348e8a6e5ccd4b4759a424b8b1488b2db68fb986a24a49e2a6"
 
 [internal.solar_os_native_handle_release_exclusive]
 reason = "A Core ABI adapter ends its exclusive borrow after a synchronous operation and enables the owning service to close the handle."
-review = "0673ea1fe2487652985ea9350998e4caf3121c3bb92f26cc1cccaf11eadf955f"
+review = "0ef7014cf37b755c56c184f8fb0ca8e68d454c902dd43040e0cf73eec4809291"
 
 [internal.solar_os_mpeg_set_cancel]
 reason = "The decoder polls a private cancellation callback while parsing and seeking. Public open, seek and decode provide call-scoped cancellation."
@@ -4052,7 +4378,7 @@ review = "48911cb1aaa80c58485d8349f50ab0f69ff760fa85246520f46e4f0f1766d3b0"
 
 [internal.solar_os_port_shell_is_app_session_id]
 reason = "Tests the reserved numeric range used by the private port-shell dispatcher, including unallocated slots. The sessions table exposes live session records and kind instead."
-review = "c19905e62fe500269ea3a1752462530de258a15db4e9d617c4367e3680273447"
+review = "a6cba5b5f0a55cfcf0350c2d156cf09a7004e2bc33b7a557a2a2947b241db015"
 
 [internal.solar_os_matrix_keyboard_default_map]
 reason = "Loads the built-in TCA8418 reference wiring table. Portable clients inspect each attached producer default through keymap.get, or initialize and provide their own matrix with keymap.init_matrix and keymap.provider_open."
@@ -4105,3 +4431,383 @@ review = "d68eaddcfb695300dbd73df4b08b81dead8fb8184b5c6aade34c983926ea6dd5"
 [internal.solar_os_wireguard_resume]
 reason = "The OS resumes the configured tunnel when its power and network providers return. Packages control requested tunnel availability through network.wireguard."
 review = "164d7881cd7d2f2b386a8eb974fbf9eba288cea515a595f65290550b483895f3"
+
+[internal.solar_os_zip_free]
+reason = "Legacy archive readers release firmware-allocated buffers here. The native ZIP reader decodes directly into the caller-owned buffer."
+review = "736be2f3ff998dcd164fd02e1e94254580f24c307c54334170a6053fb6ad926f"
+
+[internal.solar_os_sc2_engine_lock]
+reason = "The relay worker temporarily borrows the private engine, which owns identity secrets and ratchets. The SC2 ABI carries messages and public records through the same service."
+review = "c7c5e7d86ca7de76801ca8037c5cd30d99888a2eb4789970b40c028d64ce7714"
+
+[internal.solar_os_sc2_engine_unlock]
+reason = "The relay worker releases its private engine lock here. Each SC2 ABI operation manages its own lock."
+review = "0a7a7fa43ded2d2a611bd4fbdd6382b4d9c436ef41b8fb7423beb8d6966681b8"
+
+[internal.solar_os_sc2_err_text]
+reason = "The built-in shell formats SDK and protocol error codes for diagnostics. The SC2 ABI returns stable general and protocol-specific results."
+review = "02914862becf2d8ad0aa7b8cc4573f45ccdedde2468b5452b9c4bc4a94346d89"
+
+[internal.solar_os_sc2_peer_ref_error]
+reason = "The built-in shell formats peer lookup failures for its prompt. The SC2 ABI resolves references and returns distinct argument, size, state, and absence results."
+review = "ebe8185ed53dce32e44726ebc396e13ae31560b2338a105e9c55ce1deb724c83"
+
+[internal.solar_os_link_init]
+reason = "The boot coordinator prepares the queue registry. Creating a named Link instance initializes the registry for callers."
+review = "b798fa85f4202bbc81a78fbcb635e615ff5fbb414feb47fc6c15355d381f31fe"
+
+[internal.solar_os_link_stream_init]
+reason = "The boot coordinator prepares the stream registry. Creating a Link byte port initializes the registry for callers."
+review = "19244553e9301164c60ea35afb666cf3bf5d323e826b5077642ca722cedfabcb"
+
+[internal.solar_os_espnow_prepare_sleep]
+reason = "Core quiesces its ESP-NOW driver before taking Wi-Fi down for system sleep. Callers request sleep through the power service."
+review = "a227507136d8cfde646b363439a66aafcdfcfd8ecd80c29dc205a67e3389c401"
+
+[internal.solar_os_espnow_resume]
+reason = "Core restores its ESP-NOW driver after Wi-Fi resumes from system sleep. Callers use their existing radio lease."
+review = "e21508e476f9736601a26d1a88cf149e0e9d770f38adececc80b23f45220799e"
+
+[internal.solar_os_link_stream_create_tracked]
+reason = "Core transport provisioning records the generation of the underlying Link stream. The owning transport service exposes its tailored create operation."
+review = "4c27c30a4f409672cd2986d5f66d97ef081216a31c5d326aaebcd9d23346e041"
+
+[internal.solar_os_link_stream_remove_tracked]
+reason = "Core transport teardown uses the stored Link generation to avoid removing an unrelated replacement. Public clients remove streams through the owning service."
+review = "98d180a4af72a2a784778ee29135e86dd4da1ed89a4a0f7a7cea8d4425e15654"
+
+[internal.solar_os_link_stream_get_status_tracked]
+reason = "Core transport adapters verify their backing Link stream still owns its name before copying public counters."
+review = "3f9ca70ce7a93f16f0409f793284e6892e0007cee3891405621470782ea329bf"
+
+[internal.solar_os_meshcore_stream_init]
+reason = "The radio backend prepares the reliable stream registry before entering its worker. Creating a public MeshCore stream checks initialization."
+review = "c9659d88e90da099d50e52486ad67121919fd552c9797297dfc58894fdb38fc4"
+
+[internal.solar_os_meshcore_stream_instance_has_bindings]
+reason = "The MeshCore instance manager checks its private stream dependents before detaching the associated radio provider."
+review = "24044a068740c3ecec481eaa1397ce1390f360e4372cd21a4f46798f8b5203d1"
+
+[internal.solar_os_meshcore_stream_transport_start]
+reason = "The radio backend provisions its encrypted Link transport from the active instance identity when the worker starts."
+review = "2c647470c3618b70e80a68ca89dee4b4055e0a0a36eb79213cb4cef54c623807"
+
+[internal.solar_os_meshcore_stream_transport_stop]
+reason = "The radio backend parks the Link endpoints and retires its private packet queues as part of instance shutdown."
+review = "5575219ff02948172b39a20e54e472d25469b1d46830e5c63047861f3808605b"
+
+[internal.solar_os_meshcore_stream_process]
+reason = "The radio worker advances the internal reliable stream clock while pumping MeshCore radio messages."
+review = "c9174ef1965fcecdb99d749168c5e380877e28bb992eb443a2981f4372f83b60"
+
+[internal.solar_os_meshcore_stream_take_tx]
+reason = "The radio worker takes private Link bytes and encodes the MeshCore envelope for an encrypted request to a trusted peer."
+review = "9ea8d0a54b2bc4f9a0943235cdbea61f072025ba4868f8d9e497a53d9ba3246b"
+
+[internal.solar_os_meshcore_stream_note_tx]
+reason = "The radio worker attributes request completion to the linked contact before clients read the public stream counters."
+review = "06d383c0858176b237a3136b5f77d424513b1c2645be8409a0bf4bfd1f5e6fb7"
+
+[internal.solar_os_meshcore_stream_ingest]
+reason = "The radio backend validates decrypted wire data against the trusted peer, then dispatches the enclosed frame to its Link transport."
+review = "5e0b9fed9dc0d7d1ec60378c73937ea08599307ee987d0b1549c3e3297d8c56d"
+
+[internal.solar_os_meshcore_backend_register]
+reason = "Boot installs the Core radio and BLE implementations into the MeshCore manager. Other messaging transports have a separate provider registry."
+review = "c25a5d4baf67162e9f71961873d163334f9ddf5229be35fc9042201a2dc15355"
+
+[internal.solar_os_meshcore_current_id]
+reason = "A Core MeshCore backend uses the worker's selected instance ID when it routes an inbound message or publishes state."
+review = "18341fb7247e09cf534df24affdc6b2ec2f259c8b887ed162252f50d4f3fec72"
+
+[internal.solar_os_meshcore_current_state]
+reason = "Core backend code obtains its private task-scoped runtime state. ABI callers select a provider ID and use copied status and typed operations."
+review = "689cd83579de487236d534ca286012115231177d1f2a9360b9bceddf882db684"
+
+[internal.solar_os_meshcore_current_state_free]
+reason = "Core backend destruction frees the state retained by the instance manager after its worker has stopped."
+review = "1a1534f2c9755bb1d6c7b9da707a445e52d4d742d7807892f4319549c6486ce4"
+
+[internal.solar_os_meshcore_current_config]
+reason = "The selected backend reads the persisted binding, including private pairing state. Public clients use the messaging settings form with protected fields."
+review = "45f772c3452aec6f1a657583206ab716cb957ab83417ddbdfc9cffc3b4090e8e"
+
+[internal.solar_os_meshcore_current_name_set]
+reason = "The backend persists its scoped name. The public radio setting also updates active status and the messaging settings form handles BLE names."
+review = "9d9838fcad8d62a9826d42a9ad0f2d25b7d38845500f448e8cf27f5b4bd02aa7"
+
+[internal.solar_os_meshcore_current_public_set]
+reason = "The backend persists its scoped public channel flag as part of updating the provider's active channels."
+review = "8e20a903b1088d1e9ec83cc707c37814260d1504f4e9fdb0b3637f57e7f98d9a"
+
+[internal.solar_os_meshcore_current_pause]
+reason = "A backend parks its worker while it writes a subscription configuration. The instance manager restarts it when the saved configuration is enabled."
+review = "61b81e30a29d8d960e5c417b7fe0c0bc7ebeaf752a193891610c844e32197ba2"
+
+[internal.solar_os_meshcore_legacy_begin]
+reason = "The Core legacy call bridge selects the default or sole matching runtime and borrows it until the call returns."
+review = "bdeee28eed120da791fe0615ba80a8d4a4c3a4f7b7de16d8e3b97910bea8a3a5"
+
+[internal.solar_os_meshcore_instance_begin]
+reason = "The Core ABI adapter obtains a task-local lease on one matching runtime. It interprets provider IDs and releases the lease before returning the result."
+review = "205db6a85ff9c1514c804bc515d72f680e9cfcebae8d50044d198ecbce7f7911"
+
+[internal.solar_os_meshcore_legacy_end]
+reason = "The manager releases the internal worker and edit locks for the completed operation's runtime selection."
+review = "7e178928a9baab68c8030c017c338445c7f8ec268417fd6293f29c411f0cd329"
+
+[internal.solar_os_meshcore_instances_bind]
+reason = "The job launcher resolves command-line radio and BLE bindings to existing or new profiles. The messaging provider operations edit and connect named instances."
+review = "d8c9d8709ea63cd5abea30bfe2a5cf3cdb22072763ec21f77bc52a9c704efbe7"
+
+[internal.solar_os_meshcore_instances_cancel]
+reason = "The Core job cancels pending backend I/O before joining its worker. Clients request job cancellation through the scheduler."
+review = "9a3c9e912df719d9184e8c66eb5f3e2406399687f99320566b69d1bedfe11068"
+
+[internal.solar_os_meshcore_instances_stop]
+reason = "The Core job stops the active runtimes for its transport after its worker has left the poll loop."
+review = "ebd0e87f484ffa07ba8a1cf8b7b79e6d8abec3691707d7f0f1a1553c515adb07"
+
+[internal.solar_os_meshcore_start]
+reason = "The radio instance manager creates its packet and identity context at worker startup using the selected messaging profile."
+review = "edf9a7ca06848a50a6a146d6800812cc7876af27616740e608f2a5ed324b3e68"
+
+[internal.solar_os_meshcore_loop_once]
+reason = "The Core radio worker polls its transport, dispatches messages and advances internal timers."
+review = "31689ec8b1595ea66e35ee362728aec633336d978c7d4cf9f13a950078757d22"
+
+[internal.solar_os_meshcore_note_stack_watermark]
+reason = "The radio worker measures its own FreeRTOS stack and publishes the diagnostic in its copied status."
+review = "619319031b6c9f4816a59a47e6ff4a01e11bda42ba4d44d10f83035cf49a83e1"
+
+[internal.solar_os_meshcore_stop]
+reason = "The worker parks the radio transport and releases its active connection state during instance shutdown."
+review = "7c8fea00ccd2c659cc85c4903291a09526c9fea66090f62064d1ce1b0ea0546b"
+
+[internal.solar_os_meshcore_ble_start]
+reason = "The BLE worker opens its bound companion and configures its private pairing session from the saved profile."
+review = "e00e178510a004b59adc9f460baacb78b7015a395459a0798420c17bde507fe0"
+
+[internal.solar_os_meshcore_ble_loop_once]
+reason = "The Core BLE companion worker advances its handshake, synchronization, and transport events."
+review = "a21a95f36dcac9ac5b261cc20f7e3a4aef85bdb0320e767da1a54f020809370e"
+
+[internal.solar_os_meshcore_ble_cancel]
+reason = "The instance manager signals the BLE operation to stop pending transport calls before shutdown."
+review = "9a030ac8d880fa14cba259d739e913a8cc17764212950a75822de32e8695e6ca"
+
+[internal.solar_os_meshcore_ble_stop]
+reason = "The companion worker releases its pairing and connection state when the managed provider stops."
+review = "ec954f95ec167eae2278d75ee34b773c3981db76e5f09a4c02efba536afabf99"
+
+[internal.solar_os_meshcore_ble_note_stack_watermark]
+reason = "The companion worker measures its own FreeRTOS stack and publishes the result in copied diagnostics."
+review = "b85b69213a50188999e116fa9034fdc506733d643ebdeaa721548000b52769ea"
+
+[internal.solar_os_meshcore_channel_key_derive_hashtag]
+reason = "The MeshCore radio service derives the protocol's shared hashtag key during channel creation. Clients add a hashtag channel with no explicit key."
+review = "346a8d0a09c0bce90b81a060856a33df30a4b08580fbdf6079ad90644c653cd3"
+
+[internal.solar_os_gateway_instances_init]
+reason = "Boot prepares the Gateway stores and restores their profiles before the managed synchronizer starts."
+review = "56cfcd4e90969ad3c47782d7927d4ea691acfac67542d69a55d9ce851a450978"
+
+[internal.solar_os_gateway_scope_enter]
+reason = "Core class callbacks and workers select their own task-local Gateway store while executing one provider operation."
+review = "eabc366918c7577d9bfcb8554969f044707491cbf7b3a11d2146f7bb4d73678d"
+
+[internal.solar_os_gateway_scope_leave]
+reason = "Core callbacks restore the previous task-local store before releasing their runtime lease."
+review = "69b3b7d931a9f963cfdd0d734524c93f6a86c17c35d4de5a94a09dc987ba9b96"
+
+[internal.solar_os_gateway_current_id]
+reason = "Core workers resolve the active store's registry ID for their publications. Portable clients discover provider IDs from messages."
+review = "07917f6ba2d42b3c773e1c6ca7fdc6a27dcce2a35bb633382bdace08dc883dba"
+
+[internal.solar_os_gateway_current_name]
+reason = "Core uses the active store's label to identify generated worker and transport state. ABI callers receive it in provider discovery."
+review = "c4f498cfc821733b2c4fcdf66a02ea1d8ddcab23ae9affff075f8bd0ade8dde5"
+
+[internal.solar_os_gateway_transport_slot]
+reason = "Core Gateway transport stores its worker-owned private network context in this slot."
+review = "f0e0bab380e5cb4d825805ad68da5f3752548addb23c4f87216ac18d03e20775"
+
+[internal.solar_os_gateway_worker_slot]
+reason = "The managed synchronizer stores job state per Gateway instance while using its worker locks."
+review = "138791a641c6f06d4a4ed9d1a121ea670fd2e88046f4f45f74d598949c20d6f5"
+
+[internal.solar_os_gateway_current_instance]
+reason = "Core passes an opaque private store to its child worker so that the task can bind the same provider context."
+review = "f3b3a36920212a0f055e8c5771b6308c2ec4e4a33212b3a3b06249a8238b7c85"
+
+[internal.solar_os_gateway_workers_lock]
+reason = "Core serializes its worker iteration, replacement and removal before borrowing a private store."
+review = "2416fa611dfd1f7650c41ae5a745f046efa2e74f02eedab8b03dfbefdc97520a"
+
+[internal.solar_os_gateway_workers_unlock]
+reason = "Core releases the worker iteration and provider retirement lock after its private store access."
+review = "08c6f69681e36f325814885556bf69e8b9a26db6a2b8af47fe55a5227635e88b"
+
+[internal.solar_os_gateway_instance_next]
+reason = "Core workers iterate their private stores while holding their worker lock. Applications discover registered providers through messages."
+review = "98e3b9b438a85a1ea295fe385093ad4ea7df6cbc4e67fcee8a43de6e2a255eaa"
+
+[internal.solar_os_gateway_set_runtime_hooks]
+reason = "Core installs the Gateway supervisor's static prepare and destroy hooks before starting its worker. Clients control that same supervisor through the ABI."
+review = "098e1d4e810028bd4ae65e50ede29fc60956e7fee32c96c7507244229fae9059"
+
+[internal.solar_os_chat_get_config]
+reason = "The Core Gateway transport reads a private credential snapshot for authentication. Public Gateway settings and status report whether the token is set."
+review = "9e91fff7259e50a4d49a71b3d3e43042b732b1d253675c2c44c8ecbc03b0303a"
+
+[internal.solar_os_chat_outbox_peek]
+reason = "The Core supervisor takes the next wire-specific join, leave or delete command for the selected Gateway. Applications use the messaging and Gateway operations that queue these commands."
+review = "a5684559b9262d4e046522f6b0688629b119f42949ee3e435d206337428ca3e0"
+
+[internal.solar_os_chat_outbox_ack]
+reason = "The Core Gateway supervisor retires a wire command after the transport acknowledges submission."
+review = "729fb39033a9cb06154dec5ced469b37783e6cfc70f897637197fdd37f170716"
+
+[internal.solar_os_gateway_sync_publish]
+reason = "The Core supervisor projects wire events into Gateway diagnostics and the shared messaging journal. Public clients read the resulting records."
+review = "8b85508717313251ee993b9a9340a7410112f60efac0340cda0767751803e2a0"
+
+[internal.solar_os_gateway_sync_set_status]
+reason = "The Core Gateway supervisor owns transport health and publishes it into the shared messaging provider registry."
+review = "517264fbdd6d84af6f13445ae1b12a242fadad74d92c18ed21fa38eee0d689d9"
+
+[internal.solar_os_chat_gateway_transport_prepare_remove]
+reason = "The Core Gateway supervisor joins the child connection before releasing its instance."
+review = "6a3b4c67ed62d4a2ae7428bc8a140232f1a1e6fcb41ad9419b59f5108b3aaf9d"
+
+[internal.solar_os_chat_gateway_transport_destroy]
+reason = "Core releases the scoped transport queues and private buffers after its child task has stopped."
+review = "d7b494eceb5ecb16e3c1c6908170a995d21365d43ccb9a78ec8f5f35ddf2a608"
+
+[internal.solar_os_email_init]
+reason = "Boot restores the saved mailbox and initializes the shared message store. Each public Email operation also ensures initialization before using it."
+review = "0c4918956b6d560774c2b13652e89c1753436060607378474bf5e0b3493ebe6a"
+
+[internal.solar_os_control_binding_note]
+reason = "Updates the mapper's pickup state and counters after evaluating its parameter or MIDI target. Shared binding passes own these transitions."
+review = "7f5de9ed23823e086ce3c0ab8785e7c9fcd7e1d8de53fd06287d625bdb2819fa"
+
+[internal.solar_os_agent_init]
+reason = "Serializes the lazy load of persisted configuration and establishes the default registry state. Agent operations initialize the service as needed."
+review = "bf747f9f9296142d22e0fca514cd9a75ad77b3ed1c1885226cc0d0cfc4b1e90e"
+
+[internal.solar_os_agent_conversation_free_history]
+reason = "Releases the shared resume snapshot. The system ABI owns this allocation and releases it after the history visitor returns."
+review = "02c24855465761bbbad98bee864d3fdda5c7189486b34bb38bab4bf7839f4ab1"
+
+[internal.solar_os_agent_image_options]
+reason = "Parses the built-in Agent shell and chat command switches. The public run request takes the selected attachments directly."
+review = "7671847dce25bf2da9c55c9acc548443c13a10e7454ee64a3bc6861ba7091a52"
+
+[internal.solar_os_agent_input_content]
+reason = "Builds the OpenAI-compatible provider transport JSON, including its base64 representation. Running an Agent request invokes the provider internally."
+review = "d8b60c8c5d00f15dc0db1cb165a191f4e9afb9ea21db05f903805ba49931f9a6"
+
+[internal.solar_os_agent_image_content]
+reason = "Image-only compatibility helper for the OpenAI-compatible provider transport serializer."
+review = "72837984e9cc00076dc38368216eb3ead137bee385e1f7b9aacf7289a4ce31d6"
+
+[internal.solar_os_script_agent_result_clear]
+reason = "Frees the built-in scripting adapter capture buffer. The system ABI captures into caller-owned storage."
+review = "bc81b127e045d1c1ef5e94a9b0db1d0ba84d86c7d6241e517a514a0bb0742d39"
+
+[internal.solar_os_agent_tools_collect]
+reason = "Selects the initial tool descriptors for the provider transport from the current request and tool policy."
+review = "34ef82b25413729990efe720bcce4b687ccf4fa2b270c89a6ba6cc061e2a0926"
+
+[internal.solar_os_agent_tools_collect_discovered]
+reason = "Adds tool descriptors during the provider continuation after a discovery response. The Agent engine maintains this set."
+review = "60c3c916284d8452da1a5801fc03cbb520b982d4006bd2a941b512884c3b98cb"
+
+[internal.solar_os_agent_tools_activate]
+reason = "Updates the provider's active tool set during a continuation after validating demand and policy."
+review = "26665b5c3d611f2bf59fa2dbc46177a889884ef5d504b2c2c8a15f480a44230a"
+
+[internal.solar_os_agent_tools_is_discovery]
+reason = "Identifies the discovery command that updates provider tool descriptions during the run. Public callers can describe and invoke tools."
+review = "9299c10ae99b9ea77dbac2f94de23d557ad049b28f93a9db63f9a76bc9ca1adf"
+
+[internal.solar_os_buttons_set_long_press_handler]
+reason = "Boot binds the board-defined long-press actions for pairing, Escape, or application exit. Apps consume ordinary input events."
+review = "1e5177ad5743f1717912bc6826c44fca0fa50d31b2c3f23ebaced49435389905"
+
+[internal.solar_os_native_handle_create_exclusive]
+reason = "Reserves a private host token with an exclusive borrow, before any cleanup or concurrent adapter call can observe it."
+review = "4460acf99d2f59e70d94d899730a26b96613db232c37ef6740099c39ac9c7459"
+
+[internal.solar_os_native_handle_close_exclusive]
+reason = "Ends a private host callback borrow and consumes the token in one transition. Public operations retire their own typed handles."
+review = "7b360b8a24d85c9413023832275f76d04e8dada48d4b24b8fae96ec924085854"
+
+[internal.solar_os_irc_init]
+reason = "Boot restores persisted IRC provider instances and registers the shared messaging class. IRC service operations initialize the registry as needed."
+review = "40061846de0ef08865cdccac81de50fc72eb1cc190761ff501f69010be719417"
+
+[internal.solar_os_email_sync_begin]
+reason = "Core reserves the configured mailbox and snapshots credentials for its IMAP transport. The public fetch operation uses the credentials within Core."
+review = "9afa452f435a9be1588bfec275e4492be16cb5b31bc519fc7776ba9c04ac9759"
+
+[internal.solar_os_email_sync_finished]
+reason = "Core records the result and releases the account reservation on every fetch exit. Applications observe the resulting state through email.status."
+review = "2937f1ae5c60c4cedec0c2d96c3c097b1cdc23e00b9fa1361ad095e0bb1cbd08"
+
+[internal.solar_os_jobs_check_generation]
+reason = "Core checks that a resource request still belongs to the live run before calling a port backend. The public claim operation verifies the same generation again before returning the port."
+review = "864afbf28cc803089294f4455ca83f66cc75c11f4336f5d2bcee55d4b2b235c4"
+
+[internal.solar_os_network_lwip_preferred]
+reason = "The lwIP route hook reads the Core preferred netif directly on the TCP/IP task. The public routing service returns a copied preferred path."
+review = "77b5316209596c59c47926e19ec1bb1c759c3587452ee85e95cf9a5289c15acc"
+
+[internal.solar_os_network_path_register]
+reason = "Core attaches an SDK netif to its route table. Portable PPP transports request an uplink from network.ppp and Core binds the negotiated interface."
+review = "6d8eb39c71e1459b4e95abcd446a3f7555d23681dcdfbb7b89b192f7fa1c2af9"
+
+[internal.solar_os_network_path_unregister]
+reason = "Core removes a route before destroying the matched SDK netif. The PPP close operation removes the exact route and routing readers use copied paths."
+review = "8291434d85413f5450fd307b5af5c759be0ac612dd011fd99f340bdc8de8c8b4"
+
+[internal.solar_os_network_path_set_connecting]
+reason = "Only the transport coordinator updates the connecting phase of an SDK interface. Portable PPP transports start negotiation and observe the phase through PPP and routing status."
+review = "5b0a38e7f4338a6b0c00975b8d699c8eb32232153dbdb9c0599129093e066beb"
+
+[internal.solar_os_network_path_set_ready]
+reason = "Core negotiates IP and DNS on the actual SDK netif before advertising a route. Portable PPP transports supply link bytes and read the corresponding route state."
+review = "ddfaa6e6ce6f432547ffa42fe023a0486805f2cd78d76a7cc646ebe28c80aa64"
+
+[internal.solar_os_messaging_settings_form]
+reason = "Built-in classes copy static C form templates into the same owned record that portable class callbacks fill."
+review = "82d6d59a59755576a388f30092154f7f474f125d1d831a9530426918d76dcfeb"
+
+[internal.solar_os_messaging_settings_value]
+reason = "Built-in classes fill one field of a copied form while masking secrets. The registry applies the same secret redaction to all provider callbacks before returning form values."
+review = "42ffb48179bab62837396d063b5e72e3ead73fc48a24628703a40b62aa0a6f42"
+
+[internal.solar_os_messaging_instance_register]
+reason = "Core restores existing profile identities and binds built-in transport instances at boot. Portable classes allocate an ID through create_instance and attach only to matching saved profiles."
+review = "4391c1c56ed0565f211da1ff743051b228c0e8d39831cd67f3642e4af82a6ae4"
+
+[internal.solar_os_messaging_provider_register]
+reason = "Legacy Core registration supplies an existing reserved ID to the profile registry. Portable transports get their IDs from the shared class registry."
+review = "508f8c8537bedb8c808217b178e04b697c05f67a7f3b9d978cfd99277025a172"
+
+[internal.solar_os_sc2_relay_config_valid]
+reason = "Core validates the persisted SC2 format, including admission credentials and reserved version fields. Public profile and message operations validate endpoint syntax and complete configurations through the same service."
+review = "c49ec8339d7ff42ff27f4e6661865cb294208e108ef2ce596fce78b7b842b8e8"
+
+[internal.solar_os_sc2_provider_set_transport]
+reason = "Core binds the SC2 provider to its relay worker at boot. The relay service owns its transport notifications, and portable callers use its start and stop operations and the shared Messaging profile settings."
+review = "0294d27541d0d97de2d970ccd90873815c063b4e2531cbfb90047c9328875b96"
+
+[internal.solar_os_sc2_sync_install]
+reason = "Core installs its provider notification callback during boot. The callback refreshes a running relay worker when a profile changes through Messaging."
+review = "834e85f7358d858306a2cf901166fdede7a36491b7576744936e5c8819f66657"
+
+[internal.solar_os_sc2_sync_prepare_shutdown]
+reason = "The Core shutdown sequence polls the relay worker before powering down network and storage services. The public stop operation requests the same worker shutdown and reports a timeout."
+review = "b3c786db2993b590418c5d0ae0cbe175a79f2f3a59a2a3b5493b98255559f27c"

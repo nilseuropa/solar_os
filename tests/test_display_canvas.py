@@ -192,6 +192,25 @@ esp_err_t solar_os_display_set_claim_policy(const char *name, const char *owner,
     last_values = values;
     return ESP_OK;
 }
+static const void *refresh_holder;
+static uint16_t refresh_rate;
+static bool fail_refresh_restore;
+esp_err_t solar_os_display_set_high_refresh_owned(const char *name, const void *owner,
+                                                  bool enabled, uint16_t rate) {
+    assert(!strcmp(name, target.name) && display_owner[0] && owner);
+    if (enabled) {
+        assert(!refresh_holder || refresh_holder == owner);
+        if (rate != 255) return ESP_ERR_INVALID_ARG;
+        refresh_holder = owner;
+        refresh_rate = rate;
+    } else {
+        assert(refresh_holder == owner && !rate);
+        if (fail_refresh_restore) return ESP_ERR_TIMEOUT;
+        refresh_holder = NULL;
+        refresh_rate = 0;
+    }
+    return ESP_OK;
+}
 esp_err_t solar_os_display_relax(const char *name, const char *owner, unsigned seconds,
                                  bool (*cancelled)(void *), void *user,
                                  solar_os_display_relax_result_t *result, char *busy, size_t capacity) {
@@ -415,12 +434,19 @@ int main(void) {
     assert(display_lease->relax(handle, 0, NULL, NULL, &maintenance) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(!maintenance.cycles && !maintenance.cancelled);
 
+    assert(display_lease->set_high_refresh(handle, 65536) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(display_lease->set_high_refresh(handle, 60) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!display_lease->set_high_refresh(handle, 255) && refresh_rate == 255);
+    fail_refresh_restore = true;
+    assert(display_lease->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(display_owner[0] && !claim_releases && allocations == 1 && refresh_rate == 255);
+    fail_refresh_restore = false;
     fail_release = true;
     assert(display_lease->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
     assert(display_owner[0] && !claim_releases && allocations == 1);
     fail_release = false;
     assert(!solar_os_native_handle_close_owner(&app) && claim_releases == 1);
-    assert(!display_owner[0] && !last_mask && !last_values && !allocations);
+    assert(!display_owner[0] && !last_mask && !last_values && !allocations && !refresh_rate);
     assert(!display_lease->open("display0", "without-gfx", false, &handle, NULL, 0));
     assert(display_lease->gfx_acquire(handle, &gfx) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && !gfx);
     assert(!display_lease->close(handle) && claim_releases == 2 && !allocations);
@@ -434,7 +460,12 @@ int main(void) {
     assert(!display_lease->gfx_acquire(handle, &gfx));
     assert(display_lease->frames_open(handle, &options) == SOLAR_OS_NATIVE_ERROR_BUSY);
     assert(!display_lease->gfx_release(handle));
+    assert(!display_lease->set_high_refresh(handle, 255));
+    options.request_high_refresh = true;
+    assert(display_lease->frames_open(handle, &options) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(!display_lease->set_high_refresh(handle, 0));
     assert(!display_lease->frames_open(handle, &options) && allocations == 2 && have_frames);
+    assert(display_lease->set_high_refresh(handle, 255) == SOLAR_OS_NATIVE_ERROR_BUSY);
     assert(display_lease->gfx_acquire(handle, &gfx) == SOLAR_OS_NATIVE_ERROR_BUSY && !gfx);
     assert(display_lease->relax(handle, 5, NULL, NULL, &maintenance) == SOLAR_OS_NATIVE_ERROR_BUSY);
     assert(frames.options.palette_rgb565 != palette);

@@ -23,4 +23,6 @@ typedef struct {
     /* Optional appended methods. Check struct_size through each field before use. */
     double (*parse_double)(const char *text, char **end);
     double (*scale_double)(double value, int exponent);
+    /* Clear a writable region with stores preserved by optimization. */
+    void (*explicit_bzero)(void *buffer, size_t size);
 } solar_os_native_libc_api_v1_t;

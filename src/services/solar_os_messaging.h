@@ -23,29 +23,19 @@ typedef struct {
     bool required;
 } solar_os_messaging_setting_t;
 
-/* Provider-owned form descriptions have static lifetime. Secret readback is
- * always empty; present indicates a saved value. An unchanged field preserves
- * its current value, including credentials. Changing a secret to empty clears it.
- * Allocate forms outside the task stack. */
-typedef struct {
-    const char *label;
-    const solar_os_messaging_setting_t *fields;
-    size_t count;
-    char worker[48];
-    bool worker_is_resource; /* Resolve a job by its named resource. */
-    bool enabled;
-    char values[SOLAR_OS_MESSAGING_SETTINGS_FIELDS][SOLAR_OS_MESSAGING_SETTING_MAX];
-    bool present[SOLAR_OS_MESSAGING_SETTINGS_FIELDS];
-    bool changed[SOLAR_OS_MESSAGING_SETTINGS_FIELDS];
-} solar_os_messaging_settings_t;
+/* Forms own their copied descriptors and values. The registry clears secret
+ * readback. Allocate forms outside the task stack. */
+typedef solar_os_message_settings_v1_t solar_os_messaging_settings_t;
 
+void solar_os_messaging_settings_form(solar_os_messaging_settings_t *settings, const char *label,
+    const solar_os_messaging_setting_t *fields, size_t count);
 void solar_os_messaging_settings_value(solar_os_messaging_settings_t *settings,
     size_t field, const char *value);
 void solar_os_messaging_settings_clear(solar_os_messaging_settings_t *settings);
 
-/* Class descriptors have static lifetime. Operations lease instance contexts
- * until completion; successful removal destroys them after excluding workers.
- * Operations run outside the Messaging lock. */
+/* Class descriptors stay valid until unregistered. Operations lease their
+ * class and instance contexts. Successful removal excludes workers before
+ * freeing context. Callbacks run outside the Messaging lock. */
 typedef struct {
     const char *name;
     uint32_t capabilities;
@@ -67,15 +57,24 @@ typedef struct {
     esp_err_t (*settings_read)(void *context, unsigned form,
                                solar_os_messaging_settings_t *settings);
     esp_err_t (*settings_write)(void *context, unsigned form, const char *name,
-                                const solar_os_messaging_settings_t *settings,
+                                const solar_os_message_setting_values_v1_t *settings,
                                 solar_os_messaging_provider_id_t *id);
     esp_err_t (*normalize_target)(void *context, const char *target,
                                   char *normalized, size_t size);
-    /* Prepare excludes transport work until finish, including on failure.
-     * No Messaging locks are held by either callback. Finish cannot fail;
+    /* A successful prepare excludes transport work until finish. A failed
+     * prepare leaves the instance active. Finish cannot fail;
      * when removed is true it destroys the context, otherwise it resumes it. */
     esp_err_t (*remove_prepare)(void *context);
     void (*remove_finish)(void *context, bool removed);
+    /* Portable classes supply an owner for class-level dispatch. An instance
+     * may be absent when a settings callback describes a creation form. */
+    void *owner;
+    esp_err_t (*create_owned)(void *owner, const char *name, int argc,
+        const char *const *argv, solar_os_messaging_provider_id_t *id);
+    esp_err_t (*settings_read_owned)(void *owner, void *context, unsigned form,
+        solar_os_messaging_settings_t *settings);
+    esp_err_t (*settings_write_owned)(void *owner, void *context, unsigned form, const char *name,
+        const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id);
 } solar_os_messaging_provider_class_t;
 
 esp_err_t solar_os_messaging_init(void);
@@ -94,6 +93,11 @@ esp_err_t solar_os_messaging_provider_register(
     const char *name);
 esp_err_t solar_os_messaging_class_register(
     const solar_os_messaging_provider_class_t *provider_class);
+esp_err_t solar_os_messaging_class_unregister(const solar_os_messaging_provider_class_t *provider_class);
+esp_err_t solar_os_messaging_instance_attach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner, void *context);
+esp_err_t solar_os_messaging_instance_detach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner);
 esp_err_t solar_os_messaging_instance_register(
     solar_os_messaging_provider_id_t id, const char *class_name,
     const char *name, void *context);
@@ -133,6 +137,9 @@ esp_err_t solar_os_messaging_settings_write(const char *class_name,
     solar_os_messaging_provider_id_t id, unsigned form, const char *name,
     const solar_os_messaging_settings_t *settings,
     solar_os_messaging_provider_id_t *result);
+esp_err_t solar_os_messaging_settings_write_values(const char *class_name,
+    solar_os_messaging_provider_id_t id, unsigned form, const char *name,
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *result);
 esp_err_t solar_os_messaging_join(solar_os_messaging_provider_id_t instance,
     const char *target, solar_os_conversation_id_t *conversation);
 esp_err_t solar_os_messaging_leave(solar_os_conversation_id_t conversation);

@@ -45,11 +45,11 @@ static esp_err_t solar_os_shell_io_write(solar_os_shell_io_t *term, const char *
 #define solar_os_shell_io_printf emit
 #define solar_os_shell_io_table_printf emit
 static const char *solar_os_shell_io_app_exit_key(solar_os_shell_io_t *term) { (void)term; return "Ctrl+]"; }
-static int solar_os_shell_io_kind(solar_os_shell_io_t *term) { return term->kind; }
-static bool solar_os_port_handle_valid(int *port) { (void)port; return !disconnected; }
+static int solar_os_shell_io_kind(const solar_os_shell_io_t *term) { return term->kind; }
+static bool solar_os_port_handle_valid(const int *port) { (void)port; return !disconnected; }
 static size_t read_input(uint8_t *bytes, size_t capacity)
 { size_t n = input_count - input_at; if (n > capacity) n = capacity; memcpy(bytes, input + input_at, n); input_at += n; return n; }
-static esp_err_t solar_os_port_read(int *port, uint8_t *bytes, size_t n, unsigned timeout, size_t *count)
+static esp_err_t solar_os_port_read(const int *port, uint8_t *bytes, size_t n, unsigned timeout, size_t *count)
 { (void)port; (void)timeout; if (disconnected) return ESP_FAIL; *count = read_input(bytes, n); return ESP_OK; }
 static size_t solar_os_input_read_chars(char *bytes, size_t n) { return read_input((uint8_t *)bytes, n); }
 static void vTaskDelay(unsigned ticks) { (void)ticks; assert(!"confirmation unexpectedly waited for input"); }

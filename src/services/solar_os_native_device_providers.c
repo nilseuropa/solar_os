@@ -1,4 +1,6 @@
 #include "solar_os_native_device_providers.h"
+#include "solar_os_native_battery_provider.h"
+#include "solar_os_native_pwm_provider.h"
 #include "solar_os_native_handles.h"
 #include "solar_os_native_support.h"
 #include "solar_os_native.h"
@@ -9,7 +11,9 @@
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_HAPTIC || \
     SOLAR_OS_PACKAGE_SERVICE_CHARGER || SOLAR_OS_PACKAGE_SERVICE_RTC || SOLAR_OS_PACKAGE_SERVICE_RADIO || \
     SOLAR_OS_PACKAGE_SERVICE_EXPANSION || SOLAR_OS_PACKAGE_SERVICE_SENSORS || SOLAR_OS_PACKAGE_SERVICE_IMU || \
-    SOLAR_OS_PACKAGE_SERVICE_GNSS || SOLAR_OS_PACKAGE_SERVICE_CAMERA || SOLAR_OS_PACKAGE_SERVICE_NFC
+    SOLAR_OS_PACKAGE_SERVICE_GNSS || SOLAR_OS_PACKAGE_SERVICE_CAMERA || SOLAR_OS_PACKAGE_SERVICE_NFC || \
+    SOLAR_OS_PACKAGE_SERVICE_MOTOR || SOLAR_OS_PACKAGE_SERVICE_ENCODER || SOLAR_OS_PACKAGE_SERVICE_BATTERY || \
+    SOLAR_OS_PACKAGE_SERVICE_PWM
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
 #include "solar_os_backlight.h"
 #endif
@@ -47,6 +51,18 @@
 #if SOLAR_OS_PACKAGE_SERVICE_NFC
 #include "solar_os_nfc.h"
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+#include "solar_os_motor.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+#include "solar_os_encoder.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+#include "solar_os_battery.h"
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
+#include "solar_os_pwm.h"
+#endif
 /* OS registries pin callbacks while invoking them. Unregister must finish (or
  * return busy) before this state and its code lease can be released. */
 typedef struct {
@@ -82,6 +98,18 @@ typedef struct {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NFC
         solar_os_native_nfc_provider_v1_t nfc;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+        solar_os_native_motor_provider_v1_t motor;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+        solar_os_native_encoder_provider_v1_t encoder;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+        solar_os_native_battery_provider_v1_t battery;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
+        solar_os_native_pwm_provider_callbacks_v1_t pwm;
 #endif
         solar_os_native_haptic_provider_v1_t haptic;
         solar_os_native_charger_provider_v1_t charger;
@@ -169,6 +197,30 @@ static int provider_destroy(void *opaque)
 #if SOLAR_OS_PACKAGE_SERVICE_NFC
         case SOLAR_OS_NATIVE_HANDLE_NFC_PROVIDER:
             error = solar_os_nfc_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+        case SOLAR_OS_NATIVE_HANDLE_MOTOR_PROVIDER:
+            error = solar_os_motor_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+        case SOLAR_OS_NATIVE_HANDLE_ENCODER_PROVIDER:
+            error = solar_os_encoder_unregister_owned(state->name, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+        case SOLAR_OS_NATIVE_HANDLE_BATTERY_PROVIDER:
+            error = solar_os_battery_unregister_provider_owned(state->driver, state);
+            if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+            break;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
+        case SOLAR_OS_NATIVE_HANDLE_PWM_PROVIDER:
+            error = solar_os_pwm_unregister_owned(state->name, state);
             if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
             break;
 #endif
@@ -1029,4 +1081,343 @@ int solar_os_native_nfc_provider_close(solar_os_native_handle_t handle)
 }
 #endif
 
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR || SOLAR_OS_PACKAGE_SERVICE_ENCODER
+static esp_err_t motion_call(native_device_provider_t *state, int (*callback)(void *), void *user)
+{
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, callback(user));
+}
+
+static esp_err_t motion_shutdown(native_device_provider_t *state, int (*callback)(void *), void *user)
+{
+    const esp_err_t error = motion_call(state, callback, user);
+    /* Registry NOT_FOUND means the registration is gone. A callback error
+     * means it remains live and teardown can be retried. */
+    return error == ESP_ERR_NOT_FOUND ? ESP_FAIL : error;
+}
 #endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+static esp_err_t motor_status(void *user, solar_os_motor_status_t *status)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_motor_provider_v1_t *provider = &state->callbacks.motor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->status(provider->user, status));
+}
+
+static esp_err_t motor_drive(void *user, float demand)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_motor_provider_v1_t *provider = &state->callbacks.motor;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->drive(provider->user, demand));
+}
+
+static esp_err_t motor_coast(void *user)
+{
+    native_device_provider_t *state = user;
+    return motion_call(state, state->callbacks.motor.coast, state->callbacks.motor.user);
+}
+
+static esp_err_t motor_brake(void *user)
+{
+    native_device_provider_t *state = user;
+    return motion_call(state, state->callbacks.motor.brake, state->callbacks.motor.user);
+}
+
+static esp_err_t motor_clear(void *user)
+{
+    native_device_provider_t *state = user;
+    return motion_call(state, state->callbacks.motor.clear, state->callbacks.motor.user);
+}
+
+static esp_err_t motor_shutdown(void *user)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_motor_provider_v1_t *provider = &state->callbacks.motor;
+    return motion_shutdown(state, provider->shutdown ? provider->shutdown : provider->coast, provider->user);
+}
+
+int solar_os_native_motor_provider_register(const solar_os_native_motor_provider_v1_t *in,
+                                           solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || !*in->driver || !in->status || !in->coast)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_MOTOR_PROVIDER, in->library_lease,
+        in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.motor = *in;
+    state->callbacks.motor.name = state->name;
+    state->callbacks.motor.driver = state->driver;
+    const solar_os_motor_ops_t ops = {
+        .status = motor_status, .drive = in->drive ? motor_drive : NULL, .coast = motor_coast,
+        .brake = in->brake ? motor_brake : NULL, .clear = in->clear ? motor_clear : NULL,
+        .shutdown = motor_shutdown,
+    };
+    const solar_os_motor_registration_t registration = {
+        .name = state->name, .driver = state->driver, .ops = &ops, .ctx = state,
+    };
+    return provider_finish(state, out, solar_os_native_result(solar_os_motor_register(&registration)));
+}
+
+int solar_os_native_motor_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_MOTOR_PROVIDER);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+static esp_err_t encoder_read(void *user, int32_t *count)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_encoder_provider_v1_t *provider = &state->callbacks.encoder;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->read(provider->user, count));
+}
+
+static esp_err_t encoder_reset(void *user)
+{
+    native_device_provider_t *state = user;
+    return motion_call(state, state->callbacks.encoder.reset, state->callbacks.encoder.user);
+}
+
+static esp_err_t encoder_shutdown(void *user)
+{
+    native_device_provider_t *state = user;
+    return motion_shutdown(state, state->callbacks.encoder.shutdown, state->callbacks.encoder.user);
+}
+
+int solar_os_native_encoder_provider_register(const solar_os_native_encoder_provider_v1_t *in,
+                                             solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || !*in->driver || !in->read)
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_ENCODER_PROVIDER, in->library_lease,
+        in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.encoder = *in;
+    state->callbacks.encoder.name = state->name;
+    state->callbacks.encoder.driver = state->driver;
+    const solar_os_encoder_ops_t ops = {
+        .read = encoder_read, .reset = in->reset ? encoder_reset : NULL,
+        .shutdown = in->shutdown ? encoder_shutdown : NULL,
+    };
+    const solar_os_encoder_registration_t registration = {
+        .name = state->name, .driver = state->driver, .ops = &ops, .mode = in->mode, .ctx = state,
+    };
+    return provider_finish(state, out, solar_os_native_result(solar_os_encoder_register(&registration)));
+}
+
+int solar_os_native_encoder_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_ENCODER_PROVIDER);
+}
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+static esp_err_t battery_provider_read(void *user, solar_os_battery_sample_t *sample)
+{
+    native_device_provider_t *state = user;
+    const solar_os_native_battery_provider_v1_t *provider = &state->callbacks.battery;
+    const bool held = provider_callback_enter(state);
+    return provider_callback_leave(state, held, provider->read(provider->user, sample));
+}
+
+static int battery_provider_register(const solar_os_native_battery_provider_v1_t *in,
+    solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->owner || !*in->owner || !in->read) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_BATTERY_PROVIDER, in->library_lease,
+        NULL, in->owner, out, &state);
+    if (result) return result;
+    state->callbacks.battery = *in;
+    state->callbacks.battery.owner = state->driver;
+    const solar_os_battery_provider_t registration = {.read = battery_provider_read, .user = state};
+    return provider_finish(state, out,
+        solar_os_native_result(solar_os_battery_register_provider(state->driver, &registration)));
+}
+
+static int battery_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_BATTERY_PROVIDER);
+}
+
+static const solar_os_native_battery_provider_api_v1_t battery_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_BATTERY_PROVIDER_ABI, .struct_size = sizeof(battery_provider_api),
+    .register_provider = battery_provider_register, .close = battery_provider_close,
+};
+#endif
+#endif
+
+const void *solar_os_native_battery_provider_get_service(const char *name, uint32_t abi, uint32_t minimum)
+{
+#include "generated/native_battery_provider_dispatch.inc"
+    (void)name;
+    (void)abi;
+    (void)minimum;
+    return NULL;
+}
+
+#if SOLAR_OS_PACKAGE_SERVICE_PWM
+static size_t pwm_provider_output_count(void *user)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const size_t count = state->callbacks.pwm.output_count(state->callbacks.pwm.user);
+    if (held) solar_os_native_handle_release(state->handle);
+    return count;
+}
+
+static bool pwm_provider_output(void *user, size_t index, solar_os_pwm_output_info_t *out)
+{
+    native_device_provider_t *state = user;
+    solar_os_native_pwm_info_v1_t info = {0};
+    const bool held = provider_callback_enter(state);
+    const bool found = state->callbacks.pwm.get_output(state->callbacks.pwm.user, index, &info);
+    if (held) solar_os_native_handle_release(state->handle);
+    if (!found || info.output > UINT16_MAX || info.frequency_group > UINT16_MAX ||
+        info.duty_percent > SOLAR_OS_PWM_DUTY_MAX_PERCENT || info.resolution_bits > UINT8_MAX) {
+        return false;
+    }
+    *out = (solar_os_pwm_output_info_t){
+        .output = info.output,
+        .frequency_group = info.frequency_group,
+        .pin = info.pin,
+        .runtime_allowed = info.runtime_allowed != 0,
+        .active = info.active != 0,
+        .channel = info.channel,
+        .freq_hz = info.frequency_hz,
+        .duty_percent = info.duty_percent,
+        .enabled = info.enabled != 0,
+        .resolution_bits = info.resolution_bits,
+        .pulse_width_us = info.pulse_width_us,
+    };
+    return true;
+}
+
+static esp_err_t pwm_provider_set(void *user, uint16_t output,
+                                  uint32_t frequency, uint32_t value, bool pulse)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.set(state->callbacks.pwm.user,
+                                                output, frequency, value, pulse);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t pwm_provider_open(void *user, uint16_t output,
+                                   uint32_t frequency, const char *owner)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.open(state->callbacks.pwm.user,
+                                                 output, frequency, owner);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t pwm_provider_write(void *user, uint16_t output,
+                                    const char *owner, uint32_t pulse)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.write_pulse(state->callbacks.pwm.user,
+                                                        output, owner, pulse);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t pwm_provider_disable(void *user, uint16_t output, const char *owner)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.disable(state->callbacks.pwm.user, output, owner);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t pwm_provider_close_output(void *user, uint16_t output, const char *owner)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.close(state->callbacks.pwm.user, output, owner);
+    return provider_callback_leave(state, held, result);
+}
+
+static esp_err_t pwm_provider_stop(void *user, uint16_t output)
+{
+    native_device_provider_t *state = user;
+    const bool held = provider_callback_enter(state);
+    const int result = state->callbacks.pwm.stop(state->callbacks.pwm.user, output);
+    return provider_callback_leave(state, held, result);
+}
+
+static int pwm_provider_register(const solar_os_native_pwm_provider_callbacks_v1_t *in,
+                                 solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->name || !in->driver || !in->output_count || !in->get_output ||
+        !in->set || !in->open || !in->write_pulse || !in->disable || !in->close || !in->stop) {
+        return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    native_device_provider_t *state;
+    int result = provider_create(SOLAR_OS_NATIVE_HANDLE_PWM_PROVIDER, in->library_lease,
+                                 in->name, in->driver, out, &state);
+    if (result) return result;
+    state->callbacks.pwm = *in;
+    state->callbacks.pwm.name = state->name;
+    state->callbacks.pwm.driver = state->driver;
+    static const solar_os_pwm_ops_t ops = {
+        .output_count = pwm_provider_output_count,
+        .get_output = pwm_provider_output,
+        .set = pwm_provider_set,
+        .open = pwm_provider_open,
+        .write_pulse = pwm_provider_write,
+        .disable = pwm_provider_disable,
+        .close = pwm_provider_close_output,
+        .stop = pwm_provider_stop,
+    };
+    const solar_os_pwm_registration_t registration = {
+        .name = state->name,
+        .driver = state->driver,
+        .detachable = true,
+        .ops = &ops,
+        .ctx = state,
+    };
+    result = solar_os_native_result(solar_os_pwm_register(&registration));
+    return provider_finish(state, out, result);
+}
+
+static int pwm_provider_close(solar_os_native_handle_t handle)
+{
+    return solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_PWM_PROVIDER);
+}
+
+static const solar_os_native_pwm_provider_api_v1_t pwm_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_PWM_PROVIDER_ABI,
+    .struct_size = sizeof(pwm_provider_api),
+    .register_provider = pwm_provider_register,
+    .close = pwm_provider_close,
+};
+#endif
+
+const void *solar_os_native_pwm_provider_get_service(const char *name, uint32_t abi,
+                                                       uint32_t minimum)
+{
+#include "generated/native_pwm_provider_dispatch.inc"
+    (void)name;
+    (void)abi;
+    (void)minimum;
+    return NULL;
+}

@@ -22,16 +22,11 @@ typedef struct {
     void *ctx;
 } sc2e_test_host_t;
 
-typedef void (*sc2e_report_fn)(void *ctx, const char *name, int rc);
+typedef solar_os_sc2_selftest_fn sc2e_report_fn;
 
-typedef struct {
-    const char *name;
-    uint32_t iterations;
-    uint64_t total_us;
-    int rc;
-} sc2e_bench_result_t;
+typedef solar_os_sc2_benchmark_v1_t sc2e_bench_result_t;
 
-typedef void (*sc2e_bench_fn)(void *ctx, const sc2e_bench_result_t *result);
+typedef solar_os_sc2_benchmark_fn sc2e_bench_fn;
 
 /* In-memory record store implementing the sc2e_platform_t storage hooks. */
 typedef struct sc2e_memstore sc2e_memstore_t;

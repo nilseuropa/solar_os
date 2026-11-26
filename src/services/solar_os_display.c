@@ -79,6 +79,8 @@ typedef struct {
     char layer_owner[SOLAR_OS_DISPLAY_TARGET_OWNER_MAX];
 #if SOLAR_OS_BOARD_HAS_DISPLAY
     solar_os_board_display_t *board_display;
+    const void *refresh_owner;
+    bool refresh_changing;
 #endif
 } display_target_slot_t;
 
@@ -2034,48 +2036,64 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
     return error;
 }
 
-esp_err_t solar_os_display_set_high_refresh_override(const char *name,
-                                                     bool enabled,
-                                                     uint16_t hz_tenths)
+static const char legacy_refresh_owner;
+
+esp_err_t solar_os_display_set_high_refresh_owned(const char *name,
+                                                  const void *owner,
+                                                  bool enabled,
+                                                  uint16_t hz_tenths)
 {
     if (!display_target_name_valid(name, SOLAR_OS_DISPLAY_TARGET_NAME_MAX) ||
-        (enabled && hz_tenths == 0)) {
+        owner == NULL || (enabled && hz_tenths == 0)) {
         return ESP_ERR_INVALID_ARG;
     }
 
 #if !SOLAR_OS_BOARD_HAS_DISPLAY
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    solar_os_board_display_t *board_display = NULL;
-    uint32_t generation = 0;
-    size_t slot_index = 0;
     portENTER_CRITICAL(&display_targets_lock);
-    const int found_index = display_find_slot_locked(name);
-    if (found_index < 0) {
+    const int index = display_find_slot_locked(name);
+    if (index < 0) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_FOUND;
     }
-    slot_index = (size_t)found_index;
-    display_target_slot_t *slot = &display_targets[slot_index];
-    board_display = slot->board_display;
-    if (board_display == NULL) {
+    display_target_slot_t *slot = &display_targets[index];
+    solar_os_board_display_t *board = slot->board_display;
+    if (!board) {
         portEXIT_CRITICAL(&display_targets_lock);
         return ESP_ERR_NOT_SUPPORTED;
     }
-    generation = slot->generation;
+    if (slot->refresh_changing || (slot->refresh_owner && slot->refresh_owner != owner)) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!enabled && !slot->refresh_owner) {
+        portEXIT_CRITICAL(&display_targets_lock);
+        return ESP_OK;
+    }
+    slot->refresh_changing = true;
     slot->refs++;
     portEXIT_CRITICAL(&display_targets_lock);
 
-    const esp_err_t ret = solar_os_board_display_set_high_refresh_override(
-        board_display, enabled, hz_tenths);
+    const esp_err_t err = solar_os_board_display_set_high_refresh_override(board, enabled, hz_tenths);
+
     portENTER_CRITICAL(&display_targets_lock);
-    slot = &display_targets[slot_index];
-    if (slot->generation == generation && slot->refs > 0) {
-        slot->refs--;
+    if (err == ESP_OK || (!enabled && owner == &legacy_refresh_owner)) {
+        slot->refresh_owner = enabled ? owner : NULL;
     }
+    slot->refresh_changing = false;
+    slot->refs--;
     portEXIT_CRITICAL(&display_targets_lock);
-    return ret;
+    return err;
 #endif
+}
+
+esp_err_t solar_os_display_set_high_refresh_override(const char *name,
+                                                     bool enabled,
+                                                     uint16_t hz_tenths)
+{
+    return solar_os_display_set_high_refresh_owned(name, &legacy_refresh_owner,
+                                                    enabled, hz_tenths);
 }
 
 esp_err_t solar_os_display_set_overlay_active(u8g2_t *u8g2, bool active)

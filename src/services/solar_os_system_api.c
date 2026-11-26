@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <pthread.h>
 #include <errno.h>
 #include <stdlib.h>
@@ -92,6 +93,7 @@ static const solar_os_native_libc_api_v1_t native_libc_api = {
     .log_float = logf, .pow_float = powf, .sqrt_float = sqrtf,
     .parse_double = strtod,
     .scale_double = ldexp,
+    .explicit_bzero = explicit_bzero,
 };
 
 static uint32_t native_system_service_count(void);

@@ -21,7 +21,7 @@ typedef struct {
 static const solar_os_native_dsp_api_v1_t *solua_dsp_api(lua_State *L)
 {
     const solar_os_native_dsp_api_v1_t *api = solar_os_native_dsp_get(
-        solar_os_native_host_v1()->get_service,
+        SOLAR_OS_SCRIPT_SERVICE_QUERY(dsp),
         SOLAR_OS_NATIVE_THROUGH(solar_os_native_dsp_api_v1_t, fft_execute));
     if (!api) luaL_error(L, "DSP service unavailable");
     return api;

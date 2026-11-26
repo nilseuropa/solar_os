@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "solar_os_link.h"
+#include "solar_os_link_repeater_types_v1.h"
 
 #define SOLAR_OS_LINK_REPEATER_PENDING_MAX 4U
 #define SOLAR_OS_LINK_REPEATER_CACHE_MAX 16U
@@ -42,21 +43,6 @@ typedef struct {
     uint32_t queue_drops;
     uint32_t invalid_frames;
 } solar_os_link_repeater_t;
-
-typedef struct {
-    size_t queued;
-    uint32_t repeated;
-    uint32_t suppressed;
-    uint32_t queue_drops;
-    uint32_t invalid_frames;
-} solar_os_link_repeater_status_t;
-
-typedef enum {
-    SOLAR_OS_LINK_REPEATER_IGNORED,
-    SOLAR_OS_LINK_REPEATER_QUEUED,
-    SOLAR_OS_LINK_REPEATER_SUPPRESSED,
-    SOLAR_OS_LINK_REPEATER_DROPPED,
-} solar_os_link_repeater_observe_result_t;
 
 void solar_os_link_repeater_reset(solar_os_link_repeater_t *repeater,
                                   uint32_t local_id);

@@ -4,9 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef struct {
-    uint16_t x, y, width, height;
-} solar_os_dlp_region_t;
+#include "solar_os_native_display_raster_abi.h"
+
+typedef solar_os_native_raster_region_v1_t solar_os_dlp_region_t;
 
 /* DLP MONO1 rows are LSB-first and independently byte-padded. Find the changed
  * bounding rectangle, expanding x to byte boundaries (clipped at width).

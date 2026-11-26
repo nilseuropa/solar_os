@@ -20,7 +20,10 @@ class NativeMotionTest(unittest.TestCase):
                 '-include', str(host / 'compat.h'), '-I', str(host / 'pwm_stubs'),
                 '-I', str(host), '-I', str(ROOT / 'include'), '-I', str(ROOT / 'src'),
                 '-I', str(services), str(host / 'native_motion_test.c'),
-                str(services / 'solar_os_native_motion.c')]
+                str(services / 'solar_os_native_motion.c'),
+                str(services / 'solar_os_native_device.c'),
+                str(services / 'solar_os_native_device_providers.c'),
+                str(services / 'solar_os_native_handles.c')]
             if enabled:
                 command += [str(services / f'solar_os_{name}.c') for name in
                             ('motor', 'encoder', 'stream', 'parameters')]

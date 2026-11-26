@@ -519,7 +519,7 @@ class RuntimeBoundaryTest(unittest.TestCase):
         self.assertNotIn("service_uplink", packages)
 
     def test_radio_link_repeater_is_one_hop_and_bounded(self):
-        link_header = (ROOT / "src/services/solar_os_link.h").read_text(
+        link_header = (ROOT / "api/native/definitions/solar_os_link_types_v1.h").read_text(
             encoding="utf-8"
         )
         repeater_header = (

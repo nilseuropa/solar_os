@@ -4,7 +4,7 @@ static const solar_os_native_hid_device_api_v1_t *python_hid_api(void)
 {
     if (!python_hid_cached_api) {
         python_hid_cached_api = solar_os_native_hid_device_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(hid_device),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_hid_device_api_v1_t, release_all));
         if (!python_hid_cached_api) mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("HID service unavailable"));
     }
@@ -17,7 +17,7 @@ static void python_hid_cleanup(void)
     /* Cleanup cannot raise VM errors, including with an unavailable service.
      * Preserve the core's queued typing and neutralize every report type. */
     const solar_os_native_hid_device_api_v1_t *api = python_hid_cached_api;
-    if (!api) api = solar_os_native_hid_device_get(solar_os_native_host_v1()->get_service,
+    if (!api) api = solar_os_native_hid_device_get(SOLAR_OS_SCRIPT_SERVICE_QUERY(hid_device),
         SOLAR_OS_NATIVE_THROUGH(solar_os_native_hid_device_api_v1_t, release_all));
     if (api) api->release_all();
     python_hid_cached_api = NULL;

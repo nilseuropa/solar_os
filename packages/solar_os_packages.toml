@@ -1148,6 +1148,8 @@ sources = [
   "services/solar_os_native_display.c",
   "services/solar_os_native_display_provider.c",
   "services/solar_os_native_display_link.c",
+  "services/solar_os_native_display_raster.c",
+  "services/solar_os_native_display_receiver.c",
   "services/solar_os_native_font_packs.c",
   "services/solar_os_native_audio.c",
   "services/solar_os_native_audio_routes.c",
@@ -1158,8 +1160,11 @@ sources = [
   "services/solar_os_native_schedule.c",
   "services/solar_os_native_jobs.c",
   "services/solar_os_native_messages.c",
+  "services/solar_os_native_message_provider.c",
   "services/solar_os_native_contacts.c",
   "services/solar_os_native_inbox.c",
+  "services/solar_os_native_audio_player.c",
+  "services/solar_os_native_synth.c",
   "services/solar_os_native_sessions.c",
   "services/solar_os_native_ui.c",
   "services/solar_os_native_media_widgets.c",
@@ -1202,7 +1207,10 @@ sources = [
   "services/solar_os_native_fs.c",
   "services/solar_os_native_network.c",
   "services/solar_os_native_http.c",
+  "services/solar_os_native_http_server.c",
   "services/solar_os_native_routing.c",
+  "services/solar_os_native_router_provider.c",
+  "services/solar_os_native_ppp.c",
   "services/solar_os_native_wireguard.c",
   "services/solar_os_native_remote.c",
   "services/solar_os_native_ssh_exec.c",
@@ -1218,11 +1226,26 @@ sources = [
   "services/solar_os_native_io.c",
   "services/solar_os_native_bus.c",
   "services/solar_os_native_diagnostics.c",
+  "services/solar_os_native_input_hardware.c",
   "services/solar_os_native_xml.c",
   "services/solar_os_native_storage_control.c",
+  "services/solar_os_native_zip.c",
+  "services/solar_os_native_agent.c",
+  "services/solar_os_native_agent_run.c",
+  "services/solar_os_native_sc2.c",
+  "services/solar_os_native_sc2_profile.c",
+  "services/solar_os_native_sc2_relay.c",
+  "services/solar_os_native_link.c",
+  "services/solar_os_native_meshcore.c",
+  "services/solar_os_native_irc.c",
+  "services/solar_os_native_link_messaging.c",
+  "services/solar_os_native_port_provider.c",
+  "services/solar_os_native_espnow.c",
   "services/solar_os_native_device.c",
+  "services/solar_os_native_modem_provider.c",
   "services/solar_os_native_expansion.c",
   "services/solar_os_native_device_providers.c",
+  "services/solar_os_native_power_provider.c",
   "services/solar_os_native_motion.c",
 ]
 requires = ["esp_timer", "pthread"]
@@ -1366,6 +1389,7 @@ label = "network.routing"
 sources = [
   "services/solar_os_lwip_route.c",
   "services/solar_os_network.c",
+  "services/solar_os_router.c",
 ]
 requires = ["esp_event", "esp_netif", "lwip", "nvs_flash"]
 
@@ -1517,9 +1541,9 @@ capabilities = ["wifi"]
 [packages.service_mail]
 core = true
 label = "network.mail"
-depends = ["service_inbox", "service_wifi"]
-sources = ["services/solar_os_email.c"]
-requires = ["esp-tls", "heap"]
+depends = ["service_inbox", "service_wifi", "service_script_net"]
+sources = ["services/solar_os_email.c", "services/solar_os_email_sync.c"]
+requires = ["esp_timer", "heap", "nvs_flash"]
 capabilities = ["wifi"]
 
 [packages.service_gateway]
@@ -1531,6 +1555,13 @@ sources = [
 ]
 requires = ["heap", "nvs_flash"]
 capabilities = ["psram"]
+
+[packages.service_gateway_sync]
+core = true
+label = "service.gateway-sync"
+depends = ["chat_transport_gateway"]
+sources = ["services/solar_os_gateway_sync.c"]
+capabilities = ["psram", "wifi"]
 
 [packages.service_messaging]
 core = true
@@ -1601,6 +1632,7 @@ sources = [
   "services/solar_os_agent_reference.c",
   "services/solar_os_agent_openai.c",
   "services/solar_os_agent_tools.c",
+  "services/solar_os_agent_tool_policy.c",
   "services/solar_os_script_agent.c",
 ]
 requires = ["heap", "nvs_flash"]
@@ -1859,8 +1891,10 @@ sources = [
 [packages.service_controls]
 core = true
 label = "service.controls"
+depends = ["service_streams"]
 sources = [
   "services/solar_os_controls.c",
+  "services/solar_os_controls_runtime.c",
 ]
 
 [packages.service_controllers]
@@ -3948,7 +3982,7 @@ capabilities = ["psram", "wifi"]
 
 [packages.job_gateway_sync]
 label = "job.gateway-sync"
-depends = ["chat_transport_gateway"]
+depends = ["service_gateway_sync"]
 sources = ["jobs/solar_os_gateway_sync_job.c"]
 capabilities = ["psram", "wifi"]
 
@@ -3956,7 +3990,6 @@ capabilities = ["psram", "wifi"]
 label = "job.email-sync"
 depends = ["service_mail"]
 sources = ["jobs/solar_os_email_sync_job.c"]
-requires = ["esp-tls", "heap"]
 capabilities = ["wifi"]
 
 [packages.job_slip]
@@ -4240,7 +4273,7 @@ capabilities = ["gfx", "expansion_gpio"]
 [groups.sc2]
 label = "SC2 end-to-end chat security"
 category = "Messaging"
-members = ["service_sc2", "service_sc2_provider", "job_sc2_sync"]
+members = ["service_sc2", "service_sc2_provider", "service_sc2_discovery", "service_sc2_relay", "job_sc2_sync"]
 
 [packages.service_sc2]
 core = true
@@ -4288,11 +4321,24 @@ depends = ["service_sc2", "service_messaging"]
 sources = ["services/solar_os_sc2_provider.c"]
 capabilities = ["psram"]
 
-# Relay transport: sans-IO client plus the TCP/TLS worker.
+[packages.service_sc2_discovery]
+core = true
+label = "messaging.sc2-discovery"
+depends = ["service_sc2"]
+sources = ["services/solar_os_sc2_discover.c"]
+requires = ["esp_http_client", "mbedtls"]
+capabilities = ["psram", "wifi"]
+
+[packages.service_sc2_relay]
+core = true
+label = "messaging.sc2-relay"
+depends = ["service_sc2_provider", "service_network", "service_sc2_discovery"]
+sources = ["services/solar_os_sc2_client.c", "services/solar_os_sc2_sync.c"]
+requires = ["esp-tls", "mbedtls", "esp_netif"]
+capabilities = ["psram", "wifi"]
+
 [packages.job_sc2_sync]
 label = "job.sc2-sync"
-depends = ["service_sc2_provider", "service_network"]
-sources = ["services/solar_os_sc2_client.c", "services/solar_os_sc2_sync.c", "services/solar_os_sc2_discover.c",
-           "jobs/solar_os_sc2_sync_job.c"]
-requires = ["esp-tls", "mbedtls", "esp_netif", "esp_http_client"]
+depends = ["service_sc2_relay"]
+sources = ["jobs/solar_os_sc2_sync_job.c"]
 capabilities = ["psram", "wifi"]

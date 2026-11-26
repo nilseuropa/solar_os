@@ -158,6 +158,38 @@ to the component, and the archive works without the ELF loader. Specialized
 toolchain builds can continue to supply an archive separately, as the C compiler
 does. The Hello app, job, driver and library manifests show standalone builds.
 
+## System ABI
+
+The C service contract is shared by firmware and native modules. Built-in
+components can resolve known providers at link time. Native modules resolve
+service tables through `get_service`. Language bindings belong to their
+interpreter packages. See [Use the C SDK](manual/native-modules.md#use-the-c-sdk).
+
+Public service declarations live in `api/native/definitions/` and their names,
+versions and providers are registered in `api/native/services.toml`. Run
+`python3 scripts/generate_native_api.py` after editing them. The generator
+produces public headers, typed client helpers and provider dispatch code.
+It groups helpers by service domain within the on-device SDK's 32 KiB per-file
+limit. Consumers include `solar_os_native_client.h`.
+
+Append optional methods to a service table and preserve the existing prefix.
+Incompatible table or record changes require a new version. Keep ESP-IDF and
+board details behind public records and handles. Document the owner and lifetime
+of borrowed inputs, returned handles and retained callbacks in the service header.
+
+The ABI lock records public declarations. The Xtensa layout baseline records
+sizes, alignments and member offsets. Use `--update-lock` with the SDK generator
+and `--update-baseline` with `scripts/check_native_layout.py` to record compatible
+additions. Check them with the SDK generator's `--check` and the layout script.
+
+`api/native/system.toml` maps Core declarations to public operations and names
+reviewed private interfaces. For a review, export the declaration inventory with
+`python3 scripts/audit_native_system.py --report inventory.json`. Its
+`review_revision` values pin private interfaces to their declarations and local
+types. Run `python3 scripts/audit_native_system.py --update-lock --require-full`
+after completing a review. CI checks the lock and requires every declaration
+to have a mapping or an explicit review.
+
 ## Service boundaries
 
 Git, device flashing, and the model-zoo catalog/installer are application
@@ -285,5 +317,5 @@ dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.
 
 USB host input and storage are provided by `service.usb-host` and
-`service.usb-storage`. The latter depends on the host service. USB HID
-peripheral output is the separate dormant `service.hid` package.
+`service.usb-storage`. The storage service depends on the host service.
+`service.hid` provides USB HID peripheral output on supported targets.

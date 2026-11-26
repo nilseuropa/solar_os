@@ -13,15 +13,18 @@ static unsigned lookups;
 static bool missing_service;
 static char output[32768];
 static size_t output_length;
-static const void *get_service(const char *name, uint32_t abi, uint32_t size)
+const void *__real_solar_os_native_application_get_service(const char *name, uint32_t abi, uint32_t size);
+const void *__wrap_solar_os_native_application_get_service(const char *name, uint32_t abi, uint32_t size)
 {
     ++lookups;
-    if (missing_service) return NULL;
-    const void *service = solar_os_native_application_get_service(name, abi, size);
-    return service ? service : solar_os_native_gfx_get_service(name, abi, size);
+    return missing_service ? NULL : __real_solar_os_native_application_get_service(name, abi, size);
 }
-const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)
-{ static const solar_os_native_host_api_v1_t host = {.get_service = get_service}; return &host; }
+const void *__real_solar_os_native_gfx_get_service(const char *name, uint32_t abi, uint32_t size);
+const void *__wrap_solar_os_native_gfx_get_service(const char *name, uint32_t abi, uint32_t size)
+{
+    ++lookups;
+    return missing_service ? NULL : __real_solar_os_native_gfx_get_service(name, abi, size);
+}
 bool solar_os_shutdown_requested(void) { return false; }
 const char *esp_err_to_name(esp_err_t error) { (void)error; return "test error"; }
 void solar_os_splash_draw_reboot(solar_os_gfx_t *gfx, const char *status) { (void)gfx; (void)status; }

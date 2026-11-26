@@ -3,12 +3,36 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "solar_os_input.h"
 #include "solar_os_terminal.h"
 
 #define SHELL_IO_DEFAULT_COLS 80
 #define SHELL_IO_DEFAULT_ROWS 24
 #define SHELL_IO_FOOTER_MAX 160
 #define SHELL_IO_REDRAW_TEXT_MAX 256
+
+esp_err_t solar_os_shell_io_poll_input(const solar_os_shell_io_t *io,
+                                        uint8_t *buffer, size_t capacity, size_t *count)
+{
+    if (count == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *count = 0;
+    if (capacity == 0) {
+        return ESP_OK;
+    }
+    if (buffer == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+        if (!solar_os_port_handle_valid(&io->port)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        return solar_os_port_read(&io->port, buffer, capacity, 0U, count);
+    }
+    *count = solar_os_input_read_chars((char *)buffer, capacity);
+    return ESP_OK;
+}
 
 static uint16_t shell_io_nonzero_or_default(uint16_t value, uint16_t fallback)
 {

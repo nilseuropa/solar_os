@@ -181,7 +181,7 @@ static int port_destroy(void *state)
     if (!result) solar_os_memory_free(state);
     return result;
 }
-static int port_claim(const char *name,const char *owner,solar_os_native_handle_t *out)
+int solar_os_native_port_claim(const char *name,const char *owner,solar_os_native_handle_t *out)
 {
     if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     *out=0;
@@ -197,7 +197,7 @@ static int port_claim(const char *name,const char *owner,solar_os_native_handle_
     if (result && !solar_os_native_handle_close_kind(*out,SOLAR_OS_NATIVE_HANDLE_PORT)) *out=0;
     return result;
 }
-static int port_close(solar_os_native_handle_t id)
+int solar_os_native_port_close(solar_os_native_handle_t id)
 { return solar_os_native_handle_close_kind(id,SOLAR_OS_NATIVE_HANDLE_PORT); }
 static bool port_valid(solar_os_native_handle_t id)
 {
@@ -274,9 +274,10 @@ static int port_serial_break(solar_os_native_handle_t id,uint16_t milliseconds)
 }
 static const solar_os_native_ports_api_v1_t ports_api = {
     .abi_version=SOLAR_OS_NATIVE_PORTS_ABI,.struct_size=sizeof(ports_api),
-    .list=ports_list,.info=port_info,.claim=port_claim,.close=port_close,.valid=port_valid,
+    .list=ports_list,.info=port_info,.claim=solar_os_native_port_claim,.close=solar_os_native_port_close,.valid=port_valid,
     .read=port_read,.write=port_write,.serial_get=port_serial_get,.serial_set=port_serial_set,
     .serial_break=port_serial_break,
+    .capabilities_text = solar_os_port_capabilities_text,
 };
 
 static int clock_get(uint32_t zone,solar_os_native_datetime_v1_t *out)

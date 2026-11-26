@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_battery_provider_abi.h"
 
 #define SOLAR_OS_BATTERY_RUNTIME_MAX_MIN (365U * 24U * 60U)
 
@@ -62,17 +63,6 @@ typedef struct {
     uint32_t full_runtime_min; /* Uses the same rate/source as time_left_min. */
 } solar_os_battery_monitor_status_t;
 
-typedef struct {
-    uint16_t battery_mv;
-    bool calibrated;
-    bool percent_valid;
-    uint8_t percent;
-    bool external_power_valid;
-    bool external_power;
-    bool charging_valid;
-    bool charging;
-} solar_os_battery_sample_t;
-
 typedef esp_err_t (*solar_os_battery_provider_read_fn_t)(
     void *user,
     solar_os_battery_sample_t *sample);
@@ -87,6 +77,7 @@ esp_err_t solar_os_battery_register_provider(
     const char *owner,
     const solar_os_battery_provider_t *provider);
 esp_err_t solar_os_battery_unregister_provider(const char *owner);
+esp_err_t solar_os_battery_unregister_provider_owned(const char *owner, const void *user);
 bool solar_os_battery_has_provider(void);
 esp_err_t solar_os_battery_get_status(solar_os_battery_status_t *status);
 void solar_os_battery_get_config(solar_os_battery_config_t *config);

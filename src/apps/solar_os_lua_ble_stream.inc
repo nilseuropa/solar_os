@@ -4,7 +4,7 @@ static const solar_os_native_ble_stream_api_v1_t *solua_ble_stream_api(lua_State
 {
     if (!solua_ble_stream_cached_api) {
         solua_ble_stream_cached_api = solar_os_native_ble_stream_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(ble_stream),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_stream_api_v1_t, status));
         if (!solua_ble_stream_cached_api) luaL_error(L, "Bluetooth stream service unavailable");
     }

@@ -179,13 +179,16 @@ static esp_err_t publish(encoder_t *e)
 static esp_err_t unpublish(encoder_t *e)
 {
     esp_err_t err=ESP_OK;
-    if(e->stream_registered) {
-        err=solar_os_stream_unregister(e->endpoint);
-        if(err!=ESP_OK) return err;
-        e->stream_registered=false;
+    if (e->stream_registered) {
+        const char *id = e->endpoint;
+        const void *owner = e;
+        err = solar_os_stream_unregister_many_owned(&id, &owner, 1);
+        if (err != ESP_OK) return err;
+        e->stream_registered = false;
     }
-    if(e->parameters.token) err=solar_os_parameters_unregister(&e->parameters);
-    return err;
+    if (e->parameters.token) err = solar_os_parameters_unregister(&e->parameters);
+    /* Only a missing device registry entry authorizes discarding its owner. */
+    return err == ESP_ERR_NOT_FOUND ? ESP_FAIL : err;
 }
 static esp_err_t reap_failed(const char *name)
 {

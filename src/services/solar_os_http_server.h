@@ -32,6 +32,9 @@ typedef struct {
 
 esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route);
 esp_err_t solar_os_http_server_unregister_owner(const char *owner);
+/* Stop accepting requests for this callback context. BUSY close is
+ * represented by ESP_ERR_INVALID_STATE and can be retried after drain. */
+esp_err_t solar_os_http_server_unregister_owned(const char *owner, const void *user);
 /*
  * Complete a request accepted by an asynchronous route. The route handler owns
  * its copied request only after returning ESP_OK. It must eventually call this

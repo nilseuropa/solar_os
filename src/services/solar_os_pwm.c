@@ -131,20 +131,30 @@ esp_err_t solar_os_pwm_register(const solar_os_pwm_registration_t *r)
     return ret == ESP_OK ? register_provider(r) : ret;
 }
 
-esp_err_t solar_os_pwm_unregister(const char *name)
+static esp_err_t unregister_provider(const char *name, const void *ctx)
 {
     if (!valid_name(name)) return ESP_ERR_INVALID_ARG;
     ensure_mutex();
     xSemaphoreTake(registry_mutex, portMAX_DELAY);
     pwm_provider_t *p = find_provider_locked(name);
     esp_err_t ret = ESP_ERR_NOT_FOUND;
-    if (p != NULL) {
+    if (p != NULL && (ctx == NULL || p->ctx == ctx)) {
         ret = !p->info.detachable ? ESP_ERR_NOT_ALLOWED :
             (p->refs || p->bindings) ? ESP_ERR_INVALID_STATE : ESP_OK;
         if (ret == ESP_OK) p->active = false;
     }
     xSemaphoreGive(registry_mutex);
     return ret;
+}
+
+esp_err_t solar_os_pwm_unregister(const char *name)
+{
+    return unregister_provider(name, NULL);
+}
+
+esp_err_t solar_os_pwm_unregister_owned(const char *name, const void *ctx)
+{
+    return ctx != NULL ? unregister_provider(name, ctx) : ESP_ERR_INVALID_ARG;
 }
 
 /* A reference protects driver context before waiting for its operation mutex. */
@@ -328,7 +338,11 @@ static esp_err_t operate(const solar_os_pwm_output_t *output, pwm_operation_t op
         case PWM_OPEN: ret = p->ops.open(p->ctx, output->output, frequency, owner); break;
         case PWM_WRITE: ret = p->ops.write_pulse(p->ctx, output->output, owner, value); break;
         case PWM_DISABLE: ret = p->ops.disable(p->ctx, output->output, owner); break;
-        case PWM_CLOSE: ret = p->ops.close(p->ctx, output->output, owner); break;
+        case PWM_CLOSE:
+            ret = p->ops.close(p->ctx, output->output, owner);
+            /* A failed backend close leaves the registry claim intact. */
+            if (ret == ESP_ERR_NOT_FOUND) ret = ESP_ERR_INVALID_STATE;
+            break;
         case PWM_STOP: ret = p->ops.stop(p->ctx, output->output); break;
         }
         if ((ret != ESP_OK && created) || (ret == ESP_OK && (operation == PWM_CLOSE || operation == PWM_STOP))) {

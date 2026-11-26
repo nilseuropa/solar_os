@@ -6,6 +6,7 @@
 #include "solar_os_board_caps.h"
 #include "solar_os_input.h"
 #include "solar_os_log.h"
+#include "solar_os_sync.h"
 
 #if SOLAR_OS_BOARD_HAS_ADC_DPAD
 #include "solar_os_board.h"
@@ -36,6 +37,14 @@ static const solar_os_adc_dpad_axis_def_t dpad_axes[] = SOLAR_OS_BOARD_ADC_DPAD_
 static adc_dpad_axis_state_t dpad_states[sizeof(dpad_axes) / sizeof(dpad_axes[0])];
 static bool dpad_initialized;
 static solar_os_input_source_t dpad_input_source;
+static solar_os_lifecycle_t dpad_lock;
+
+static bool dpad_enter(TickType_t wait)
+{
+    SemaphoreHandle_t mutex = solar_os_mutex_get(&dpad_lock.handle, &dpad_lock.storage);
+    return mutex && xSemaphoreTake(mutex, wait) == pdTRUE;
+}
+
 
 static esp_err_t dpad_read_raw(size_t axis_index, int *raw)
 {
@@ -119,11 +128,9 @@ static void dpad_publish(size_t axis_index,
 }
 #endif
 
-esp_err_t solar_os_adc_dpad_init(void)
+#if SOLAR_OS_BOARD_HAS_ADC_DPAD
+static esp_err_t dpad_init_locked(void)
 {
-#if !SOLAR_OS_BOARD_HAS_ADC_DPAD
-    return ESP_ERR_NOT_SUPPORTED;
-#else
     if (dpad_initialized) {
         return ESP_OK;
     }
@@ -175,6 +182,18 @@ esp_err_t solar_os_adc_dpad_init(void)
     dpad_initialized = true;
     SOLAR_OS_LOGI(TAG, "%u ADC D-pad axes ready", (unsigned)(sizeof(dpad_axes) / sizeof(dpad_axes[0])));
     return ESP_OK;
+}
+#endif
+
+esp_err_t solar_os_adc_dpad_init(void)
+{
+#if !SOLAR_OS_BOARD_HAS_ADC_DPAD
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!dpad_enter(portMAX_DELAY)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = dpad_init_locked();
+    solar_os_lifecycle_leave(&dpad_lock);
+    return err;
 #endif
 }
 
@@ -194,7 +213,8 @@ bool solar_os_adc_dpad_get_axis_status(size_t index, solar_os_adc_dpad_axis_stat
     (void)status;
     return false;
 #else
-    if (status == NULL || index >= sizeof(dpad_axes) / sizeof(dpad_axes[0])) {
+    if (status == NULL || index >= sizeof(dpad_axes) / sizeof(dpad_axes[0]) ||
+        !dpad_enter(portMAX_DELAY)) {
         return false;
     }
 
@@ -221,6 +241,7 @@ bool solar_os_adc_dpad_get_axis_status(size_t index, solar_os_adc_dpad_axis_stat
         .mid_max = state->mid_max,
         .high_min = state->high_min,
     };
+    solar_os_lifecycle_leave(&dpad_lock);
     return true;
 #endif
 }
@@ -230,10 +251,13 @@ esp_err_t solar_os_adc_dpad_calibrate_idle(void)
 #if !SOLAR_OS_BOARD_HAS_ADC_DPAD
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (!dpad_enter(portMAX_DELAY)) return ESP_ERR_NO_MEM;
     if (!dpad_initialized) {
+        solar_os_lifecycle_leave(&dpad_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
+    uint16_t idle_thresholds[sizeof(dpad_axes) / sizeof(dpad_axes[0])];
     for (size_t i = 0; i < sizeof(dpad_axes) / sizeof(dpad_axes[0]); i++) {
         adc_dpad_axis_state_t *state = &dpad_states[i];
         int sum = 0;
@@ -246,7 +270,9 @@ esp_err_t solar_os_adc_dpad_calibrate_idle(void)
             }
         }
         if (samples == 0) {
-            return state->last_read_error;
+            const esp_err_t err = state->last_read_error;
+            solar_os_lifecycle_leave(&dpad_lock);
+            return err;
         }
 
         const int average = sum / samples;
@@ -261,10 +287,15 @@ esp_err_t solar_os_adc_dpad_calibrate_idle(void)
         if (idle_max < 0) {
             idle_max = 0;
         }
-        state->idle_max = (uint16_t)idle_max;
+        idle_thresholds[i] = (uint16_t)idle_max;
+    }
+    for (size_t i = 0; i < sizeof(dpad_axes) / sizeof(dpad_axes[0]); i++) {
+        adc_dpad_axis_state_t *state = &dpad_states[i];
+        state->idle_max = idle_thresholds[i];
         dpad_publish(i, state->zone, SOLAR_OS_INPUT_KEY_RELEASE);
         state->zone = SOLAR_OS_ADC_DPAD_ZONE_IDLE;
     }
+    solar_os_lifecycle_leave(&dpad_lock);
     return ESP_OK;
 #endif
 }
@@ -274,7 +305,9 @@ esp_err_t solar_os_adc_dpad_calibrate_reset(void)
 #if !SOLAR_OS_BOARD_HAS_ADC_DPAD
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (!dpad_enter(portMAX_DELAY)) return ESP_ERR_NO_MEM;
     if (!dpad_initialized) {
+        solar_os_lifecycle_leave(&dpad_lock);
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -288,6 +321,7 @@ esp_err_t solar_os_adc_dpad_calibrate_reset(void)
         dpad_publish(i, state->zone, SOLAR_OS_INPUT_KEY_RELEASE);
         state->zone = SOLAR_OS_ADC_DPAD_ZONE_IDLE;
     }
+    solar_os_lifecycle_leave(&dpad_lock);
     return ESP_OK;
 #endif
 }
@@ -297,7 +331,9 @@ void solar_os_adc_dpad_poll(void)
 #if !SOLAR_OS_BOARD_HAS_ADC_DPAD
     return;
 #else
+    if (!dpad_enter(0)) return;
     if (!dpad_initialized) {
+        solar_os_lifecycle_leave(&dpad_lock);
         return;
     }
 
@@ -315,17 +351,6 @@ void solar_os_adc_dpad_poll(void)
             dpad_publish(i, zone, SOLAR_OS_INPUT_KEY_PRESS);
         }
     }
-#endif
-}
-
-size_t solar_os_adc_dpad_read_chars(char *buffer, size_t buffer_len)
-{
-    solar_os_adc_dpad_poll();
-#if !SOLAR_OS_BOARD_HAS_ADC_DPAD
-    (void)buffer;
-    (void)buffer_len;
-    return 0;
-#else
-    return solar_os_input_read_source_chars(dpad_input_source, buffer, buffer_len);
+    solar_os_lifecycle_leave(&dpad_lock);
 #endif
 }

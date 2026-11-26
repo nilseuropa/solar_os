@@ -209,6 +209,11 @@ esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mod
 esp_err_t solar_os_display_set_high_refresh_override(const char *name,
                                                      bool enabled,
                                                      uint16_t hz_tenths);
+/* The owner must keep its target claimed until disabling the override. */
+esp_err_t solar_os_display_set_high_refresh_owned(const char *name,
+                                                  const void *owner,
+                                                  bool enabled,
+                                                  uint16_t hz_tenths);
 esp_err_t solar_os_display_set_overlay_active(u8g2_t *u8g2, bool active);
 /* Live opaque layer, independent of the foreground display claim. Packed
  * horizontal bits are black when set. Coordinates use the logical display. */

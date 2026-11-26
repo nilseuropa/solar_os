@@ -222,6 +222,7 @@ static const solar_os_native_parameters_api_v1_t parameters_api = {
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_CONTROLS
 #include "solar_os_controls.h"
+#include "solar_os_controls_runtime.h"
 static void config_out(const solar_os_control_config_t *in, solar_os_native_control_config_v1_t *out)
 {
     memset(out, 0, sizeof(*out)); COPY_FIELD(out, in, name); COPY_FIELD(out, in, source);
@@ -291,10 +292,56 @@ static int binding_info(size_t index, solar_os_native_control_binding_v1_t *out)
 #undef SCALAR
     out->error = solar_os_native_result(value.last_error); return SOLAR_OS_NATIVE_OK;
 }
+static int control_publish_sample(const char *name, float value, uint32_t now_ms)
+{
+    return solar_os_native_result(solar_os_control_publish_sample(name, value, now_ms));
+}
+
+static void control_note_read_error(const char *name, int error)
+{
+    if (error != SOLAR_OS_NATIVE_OK) {
+        solar_os_control_note_read_error(name, solar_os_native_callback_result(error));
+    }
+}
+
+static const char *control_target_name(uint32_t target)
+{
+    switch (target) {
+    case SOLAR_OS_NATIVE_CONTROL_PARAMETER:
+        return solar_os_control_target_name(SOLAR_OS_CONTROL_TARGET_PARAMETER);
+    case SOLAR_OS_NATIVE_CONTROL_MIDI_CC:
+        return solar_os_control_target_name(SOLAR_OS_CONTROL_TARGET_MIDI_CC);
+    default:
+        return NULL;
+    }
+}
+
+static int control_pass_result(esp_err_t error)
+{
+    return error == ESP_ERR_INVALID_STATE ? SOLAR_OS_NATIVE_ERROR_BUSY :
+        solar_os_native_result(error);
+}
+
+static int control_sample(uint32_t now_ms, uint32_t window_ms,
+                          solar_os_native_control_pass_v1_t *pass)
+{
+    return control_pass_result(solar_os_controls_sample(now_ms, window_ms, pass));
+}
+
+static int control_apply_bindings(solar_os_native_control_pass_v1_t *pass)
+{
+    return control_pass_result(solar_os_controls_apply_bindings(pass));
+}
+
 static const solar_os_native_controls_api_v1_t controls_api = {
     .abi_version = SOLAR_OS_NATIVE_CONTROLS_ABI, .struct_size = sizeof(controls_api), .create = control_create, .delete_control = control_delete,
     .clear = solar_os_control_clear, .count = solar_os_control_count, .info = control_info, .find = control_find, .get = control_get, .set = control_set,
     .bind_parameter = bind_parameter, .bind_midi_cc = bind_midi_cc, .unbind = control_unbind, .binding_count = solar_os_control_binding_count, .binding_info = binding_info,
+    .publish_sample = control_publish_sample,
+    .note_read_error = control_note_read_error,
+    .target_name = control_target_name,
+    .sample = control_sample,
+    .apply_bindings = control_apply_bindings,
 };
 #endif
 const void *solar_os_native_controls_api_get_service(const char *name, uint32_t abi, uint32_t minimum)

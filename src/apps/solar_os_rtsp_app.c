@@ -10,6 +10,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_ui.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_native_client_ui.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
@@ -721,8 +723,8 @@ static void remove_selected(solar_os_context_t *ctx)
 static esp_err_t start(solar_os_context_t *ctx)
 {
     rtsp.network_done = rtsp.decode_done = true;
-    rtsp.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(rtsp.ui_api->input_text));
-    rtsp.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    rtsp.ui_api = solar_os_native_ui_get(solar_os_native_ui_get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(rtsp.ui_api->input_text));
+    rtsp.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(rtsp.media_ui->player_button_at));
     if (!rtsp.ui_api || !rtsp.media_ui) return ESP_ERR_NOT_SUPPORTED;
     rtsp.stopped = true;

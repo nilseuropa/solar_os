@@ -24,6 +24,8 @@
 #include "solar_os_http_client.h"
 #include "solar_os_log.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_ui.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_native_client_ui.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_memory.h"
@@ -1680,9 +1682,9 @@ static esp_err_t webradio_start(solar_os_context_t *ctx)
     if (webradio_manage_command(ctx, arg_count, args, &err)) {
         return ESP_OK;
     }
-    webradio.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service,
+    webradio.ui_api = solar_os_native_ui_get(solar_os_native_ui_get_service,
         offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(webradio.ui_api->input_text));
-    webradio.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    webradio.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(webradio.media_ui->player_button_at));
     if (!webradio.ui_api || !webradio.media_ui) return ESP_ERR_NOT_SUPPORTED;
     if (arg_count == 1 && solar_os_m3u_path(args[0])) {

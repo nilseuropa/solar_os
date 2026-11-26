@@ -219,7 +219,7 @@ class SpeechServiceTest(unittest.TestCase):
         self.assertIn('"buffer underruns: owner=%s count=%u"', PLAYER_SOURCE)
 
     def test_audio_player_drains_zero_tail_before_stream_close(self):
-        close = PLAYER_SOURCE.split("static void audio_player_close(", 1)[1]
+        close = PLAYER_SOURCE.split("static esp_err_t audio_player_close(", 1)[1]
         close = close.split("static void audio_player_task(", 1)[0]
         self.assertIn("memset(tail, 0, AUDIO_PLAYER_BLOCK_BYTES)", close)
         self.assertIn("audio_player_wait_played(player, written)", close)

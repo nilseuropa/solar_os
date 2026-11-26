@@ -54,9 +54,7 @@ static bool git_exit_key(solar_os_shell_io_t *io)
 {
     uint8_t data[16];
     size_t n = 0;
-    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        if (solar_os_port_read(&io->port, data, sizeof(data), 0, &n) != ESP_OK) return false;
-    } else n = solar_os_input_read_chars((char *)data, sizeof(data));
+    if (solar_os_shell_io_poll_input(io, data, sizeof(data), &n) != ESP_OK) return false;
     for (size_t i = 0; i < n; i++)
         if (data[i] == 0x1d || data[i] == SOLAR_OS_KEY_APP_EXIT) return true;
     return false;

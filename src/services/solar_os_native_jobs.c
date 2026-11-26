@@ -8,6 +8,7 @@
 
 #if SOLAR_OS_PACKAGE_CORE_RUNTIME
 #include "solar_os_jobs.h"
+#include "solar_os_native_core.h"
 
 static int jobs_snapshot(bool found, solar_os_job_inspection_v1_t *entry)
 {
@@ -58,6 +59,47 @@ static const char *jobs_kind_name(uint32_t kind)
     return solar_os_job_kind_name((solar_os_job_kind_t)kind);
 }
 
+static int jobs_owner_name(const char *name, char *owner, size_t capacity)
+{
+    return solar_os_native_result(solar_os_jobs_owner_name(name, owner, capacity));
+}
+
+static int jobs_note_resource(const char *name, uint32_t generation,
+    solar_os_job_resource_type_t type, const char *resource, const char *detail)
+{
+    return solar_os_native_result(solar_os_jobs_note_run_resource(name, generation, type, resource, detail));
+}
+
+static int jobs_clear_resources(const char *name, uint32_t generation)
+{
+    return solar_os_native_result(solar_os_jobs_clear_run_resources(name, generation));
+}
+
+static int jobs_claim_port(const char *name, uint32_t generation, const char *port, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    esp_err_t error = solar_os_jobs_check_generation(name, generation);
+    if (error != ESP_OK) return solar_os_native_result(error);
+    char owner[SOLAR_OS_JOB_OWNER_MAX];
+    error = solar_os_jobs_owner_name(name, owner, sizeof(owner));
+    if (error != ESP_OK) return solar_os_native_result(error);
+    const int claimed = solar_os_native_port_claim(port, owner, out);
+    if (claimed != SOLAR_OS_NATIVE_OK) return claimed;
+
+    /* A stop may have won while the device's claim callback ran. Update the
+     * same generation or release only the port token just obtained. */
+    const int noted = jobs_note_resource(name, generation, SOLAR_OS_JOB_RESOURCE_PORT, port, "rw");
+    if (noted != SOLAR_OS_NATIVE_OK && !solar_os_native_port_close(*out)) *out = 0;
+    return noted;
+}
+
+static int jobs_complete(const char *name, uint32_t generation, int32_t result)
+{
+    const esp_err_t error = solar_os_native_callback_result(result);
+    return solar_os_native_result(solar_os_jobs_mark_stopped(name, generation, error));
+}
+
 static const solar_os_native_jobs_api_v1_t jobs_api = {
     .abi_version = SOLAR_OS_NATIVE_JOBS_ABI,
     .struct_size = sizeof(jobs_api),
@@ -74,6 +116,11 @@ static const solar_os_native_jobs_api_v1_t jobs_api = {
     .resource_type_name = solar_os_job_resource_type_name,
     .start_disposition_name = solar_os_job_start_disposition_name,
     .start_reason_name = solar_os_job_start_reason_name,
+    .owner_name = jobs_owner_name,
+    .note_resource = jobs_note_resource,
+    .clear_resources = jobs_clear_resources,
+    .claim_port = jobs_claim_port,
+    .complete = jobs_complete,
 };
 #endif
 

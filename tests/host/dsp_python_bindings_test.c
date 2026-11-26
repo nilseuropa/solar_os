@@ -16,13 +16,12 @@
 #include <string.h>
 static bool available = true;
 static unsigned lookups;
-static const void *lookup(const char *name, uint32_t abi, uint32_t minimum) {
+static const void *script_query_dsp(const char *name, uint32_t abi, uint32_t minimum) {
     ++lookups;
     return available ? solar_os_native_dsp_get_service(name, abi, minimum) : NULL;
 }
-static const solar_os_native_host_api_v1_t host = {
-    .abi_version = 1, .struct_size = sizeof(host), .get_service = lookup};
-const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void) { return &host; }
+#define SOLAR_OS_SCRIPT_SERVICE_QUERY(id) script_query_##id
+
 static void python_dict_store_cstr(mp_obj_t d, const char *k, const char *v) {
     mp_obj_dict_store(d, mp_obj_new_str(k, strlen(k)), mp_obj_new_str(v, strlen(v)));
 }

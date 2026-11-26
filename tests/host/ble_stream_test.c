@@ -2,9 +2,11 @@
  * The separate CoC harness tests the native host queue and buffer contract. */
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "solar_os_ble_stream.h"
 #include "solar_os_ble_backend.h"
+#include "solar_os_memory.h"
 #include "solar_os_port.h"
 #include "solar_os_stream.h"
 
@@ -12,6 +14,9 @@ static uint32_t sessions, created, closed, channel, next_channel;
 static bool fail_connect, fail_read, fail_channel, bad_descriptor, peripheral_busy;
 static uint16_t seen_conn;
 static solar_os_ble_coc_info_t channel_info;
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
+{ (void)kind; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *data) { free(data); }
 uint64_t solar_os_time_uptime_ms(void) { return 0; }
 esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *value) { *value=0; return ESP_OK; }
 esp_err_t solar_os_ble_session_create(const char *owner, solar_os_ble_session_t *out)

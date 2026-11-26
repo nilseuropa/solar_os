@@ -326,6 +326,18 @@ static int stream_open(solar_os_native_handle_t id,const solar_os_native_http_op
     }
     solar_os_memory_free(headers);solar_os_native_handle_release(id);return result;
 }
+_Static_assert(SOLAR_OS_NATIVE_HTTP_RESPONSE == SOLAR_OS_HTTP_STREAM_EVENT_RESPONSE &&
+               SOLAR_OS_NATIVE_HTTP_HEADER == SOLAR_OS_HTTP_STREAM_EVENT_HEADER &&
+               SOLAR_OS_NATIVE_HTTP_DATA == SOLAR_OS_HTTP_STREAM_EVENT_DATA &&
+               SOLAR_OS_NATIVE_HTTP_COMPLETE == SOLAR_OS_HTTP_STREAM_EVENT_COMPLETE &&
+               SOLAR_OS_NATIVE_HTTP_ERROR == SOLAR_OS_HTTP_STREAM_EVENT_ERROR,
+               "HTTP stream event values");
+
+static const char *stream_event_name(uint32_t type)
+{
+    return solar_os_http_stream_event_type_name((solar_os_http_stream_event_type_t)type);
+}
+
 static int stream_read(solar_os_native_handle_t id,uint32_t stream,uint32_t timeout,solar_os_native_http_event_v1_t *out)
 {
     if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
@@ -339,13 +351,11 @@ static int stream_read(solar_os_native_handle_t id,uint32_t stream,uint32_t time
         memset(value,0,sizeof(*value));
         result=http_result(state,solar_os_http_stream_read(state->streams,stream,timeout,value));
         if (!result) {
-            switch(value->type) {
-            case SOLAR_OS_HTTP_STREAM_EVENT_RESPONSE: out->type=SOLAR_OS_NATIVE_HTTP_RESPONSE;break;
-            case SOLAR_OS_HTTP_STREAM_EVENT_HEADER: out->type=SOLAR_OS_NATIVE_HTTP_HEADER;break;
-            case SOLAR_OS_HTTP_STREAM_EVENT_DATA: out->type=SOLAR_OS_NATIVE_HTTP_DATA;break;
-            case SOLAR_OS_HTTP_STREAM_EVENT_COMPLETE: out->type=SOLAR_OS_NATIVE_HTTP_COMPLETE;break;
-            case SOLAR_OS_HTTP_STREAM_EVENT_ERROR: out->type=SOLAR_OS_NATIVE_HTTP_ERROR;break;
-            default: result=SOLAR_OS_NATIVE_ERROR_INVALID_STATE;break;
+            if (value->type >= SOLAR_OS_HTTP_STREAM_EVENT_RESPONSE &&
+                value->type <= SOLAR_OS_HTTP_STREAM_EVENT_ERROR) {
+                out->type = value->type;
+            } else {
+                result = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
             }
             out->status=value->status_code;out->content_length=value->content_length;
             out->bytes_received=value->bytes_received;out->duration_ms=value->duration_ms;
@@ -446,6 +456,7 @@ static const solar_os_native_http_api_v1_t http_api={
     .response_read=response_read,.response_header=response_header,.connection_open=connection_open,.connection_close=connection_close,
     .stream_open=stream_open,.stream_read=stream_read,.stream_close=stream_close,.close_all=http_close_all,
     .origin_parse=origin_parse,.same_origin=same_origin,.redirect_status=redirect_status,.redirect_url=redirect_url,
+    .stream_event_name = stream_event_name,
 #if SOLAR_OS_PACKAGE_SERVICE_DOWNLOAD
     .download = http_download,
 #endif

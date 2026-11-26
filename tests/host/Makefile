@@ -41,7 +41,7 @@ usb_hid_joystick_report_test: usb_hid_joystick_report_test.c $(USB_HID_CODEC_SOU
 
 cdc_lifecycle_test: cdc_lifecycle_test.c $(ROOT)/src/services/solar_os_cdc.c $(ROOT)/src/services/solar_os_port.c $(ROOT)/src/services/solar_os_resources.c $(ROOT)/src/services/solar_os_native_usb.c $(ROOT)/include/solar_os_native_usb_abi.h $(wildcard usb_stubs/freertos/*.h)
 	$(CC) $(CFLAGS) -DSOLAR_OS_BOARD_HAS_CDC=1 -DSOLAR_OS_BOARD_HAS_USB_HOST=1 -DSOLAR_OS_PACKAGE_SERVICE_USB_CDC=1 -DSOLAR_OS_PACKAGE_SERVICE_RESOURCES=1 -include compat.h -Iusb_stubs -I. \
-		-I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
+		-I$(ROOT)/src -I$(ROOT)/src/drivers -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 usb_hid_input_test: usb_hid_input_test.c input_test.c $(KEYBOARD_LAYOUTS_HEADER) $(ROOT)/src/services/solar_os_usb_hid_input.c $(ROOT)/src/services/solar_os_usb_hid_input.h $(ROOT)/src/services/solar_os_input.c $(ROOT)/src/services/solar_os_keys.c $(USB_HID_CODEC_SOURCES) $(USB_HID_CODEC_HEADERS) usb_receiver_fixture.h usb_joystick_fixture.h usb_leonardo_fixture.h
 	$(CC) $(CFLAGS) -include compat.h -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/drivers \
@@ -284,9 +284,7 @@ epd_scan_worker_test: epd_scan_worker_test.c $(ROOT)/src/drivers/epd_scan_worker
 TARGETS += lc709203f_test
 TARGETS += battery_service_default_test
 
-battery_service_default_test: battery_service_test.c $(ROOT)/src/services/solar_os_battery.c $(ROOT)/src/services/solar_os_battery.h $(ROOT)/src/services/solar_os_battery_trend.c
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH=3000U -include compat.h -I. -I$(ROOT)/src/services \
-		battery_service_test.c $(ROOT)/src/services/solar_os_battery.c $(ROOT)/src/services/solar_os_battery_trend.c -o $@
+battery_service_default_test: override CFLAGS += -DSOLAR_OS_BOARD_DEFAULT_BATTERY_CAPACITY_MAH=3000U
 
 lc709203f_test: lc709203f_test.c $(ROOT)/src/drivers/lc709203f.c $(ROOT)/src/drivers/lc709203f.h \
         $(ROOT)/src/services/solar_os_lc709203f.c $(ROOT)/src/services/solar_os_lc709203f.h
@@ -594,11 +592,23 @@ messages_app_test: override CFLAGS += -I$(ROOT)/src/apps -I$(ROOT)/src/shell
 messages_app_test: private MESSAGES_WIDGETS = $(ROOT)/src/services/solar_os_tui_widgets.c
 messages_app_test: private MESSAGES_WORKER_PARSE = $(ROOT)/src/shell/solar_os_shell_parse.c
 
-messaging_service_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_MESSAGING=1 -DSOLAR_OS_PACKAGE_SERVICE_CONTACTS=1
+messaging_service_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_MESSAGING=1 -DSOLAR_OS_PACKAGE_SERVICE_CONTACTS=1 -DSOLAR_OS_TEST_NATIVE_MESSAGE_PROVIDER=1
 messaging_service_test: private MESSAGES_NATIVE = $(ROOT)/src/services/solar_os_native_messages.c \
-        $(ROOT)/src/services/solar_os_native_contacts.c
+        $(ROOT)/src/services/solar_os_native_contacts.c $(ROOT)/src/services/solar_os_native_message_provider.c \
+        $(ROOT)/src/services/solar_os_native_handles.c
+link_messaging_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_LINK=1 -DSOLAR_OS_PACKAGE_SERVICE_MESSAGING=1
+link_messaging_test: private MESSAGES_NATIVE = $(ROOT)/src/services/solar_os_native_link_messaging.c
+
 chat_settings_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_CREDENTIALS=1
 chat_settings_test: private MESSAGES_NATIVE = $(ROOT)/src/services/solar_os_native_messages.c
+
+gateway_config_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_GATEWAY=1
+gateway_config_test: private MESSAGES_NATIVE = $(ROOT)/src/services/solar_os_native_messages.c
+gateway_config_test: $(ROOT)/src/services/solar_os_native_messages.c $(ROOT)/include/solar_os_native_gateway_abi.h
+
+meshcore_instances_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_MESHCORE=1 -DSOLAR_OS_PACKAGE_SERVICE_MESHCORE_BLE=1
+meshcore_instances_test: private MESSAGES_NATIVE = $(ROOT)/src/services/solar_os_native_meshcore.c
+meshcore_instances_test: $(ROOT)/src/services/solar_os_native_meshcore.c $(ROOT)/include/solar_os_native_meshcore_abi.h
 
 messaging_service_test gateway_config_test link_messaging_test chat_settings_test meshcore_instances_test messages_app_test: %: %.c $(ROOT)/src/services/solar_os_contacts.c \
         $(ROOT)/src/services/solar_os_meshcore_instances.c $(ROOT)/src/services/solar_os_meshcore_instances.h \
@@ -624,9 +634,14 @@ messaging_service_test gateway_config_test link_messaging_test chat_settings_tes
 		-Wl,--wrap=solar_os_storage_remove,--wrap=solar_os_storage_get_usage,--wrap=rename -o $@
 
 messaging_service_test: $(ROOT)/src/services/solar_os_native_messages.c \
+        $(ROOT)/src/services/solar_os_native_message_provider.c $(ROOT)/src/services/solar_os_native_handles.c \
+        $(ROOT)/src/services/generated/native_message_provider_dispatch.inc \
         $(ROOT)/src/services/generated/native_messages_dispatch.inc \
         $(ROOT)/src/services/solar_os_native_contacts.c \
         $(ROOT)/src/services/generated/native_contacts_dispatch.inc
+link_messaging_test: $(ROOT)/src/services/solar_os_native_link_messaging.c \
+        $(ROOT)/src/services/generated/native_link_messaging_dispatch.inc \
+        $(ROOT)/include/solar_os_native_link_messaging_abi.h
 chat_settings_test: $(ROOT)/src/services/solar_os_native_messages.c \
         $(ROOT)/src/services/generated/native_messages_dispatch.inc \
         $(ROOT)/include/solar_os_native_credentials_abi.h
@@ -657,9 +672,11 @@ zoo_test: zoo_test.c $(ROOT)/src/apps/solar_os_zoo.c $(ROOT)/src/services/solar_
 playground_install_test: playground_install_test.c zoo_test.c $(ROOT)/src/services/solar_os_playground.c \
         $(ROOT)/src/services/solar_os_native_components.c $(ROOT)/src/services/generated/native_components_dispatch.inc \
         $(ROOT)/include/solar_os_native_playground_abi.h $(ROOT)/src/services/solar_os_zip.c \
+        $(ROOT)/src/services/solar_os_native_zip.c $(ROOT)/src/services/generated/native_zip_dispatch.inc \
         $(ROOT)/src/services/solar_os_download.c $(ROOT)/src/services/solar_os_json.c
 	$(CC) $(CFLAGS) -O1 -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_APP_PYTHON=1 \
 		-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1 -DSOLAR_OS_PACKAGE_SERVICE_PLAYGROUND=1 \
+		-DSOLAR_OS_PACKAGE_SERVICE_ZIP=1 \
 		-fsanitize=address,undefined -no-pie \
 		-include compat.h -ffunction-sections -fdata-sections -Imodel_bundle_stubs -I. \
 		-I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/apps -I$(CJSON_DIR) \
@@ -1250,10 +1267,11 @@ media_test: media_test.c $(ROOT)/src/services/solar_os_media.c \
 		$(ROOT)/src/services/solar_os_rtp_jpeg.c \
 		$(ROOT)/src/services/solar_os_rtsp.c -o $@
 
-http_server_test: http_server_test.c $(ROOT)/src/services/solar_os_http_server.c $(ROOT)/src/services/solar_os_http_server.h
+http_server_test: http_server_test.c $(ROOT)/src/services/solar_os_http_server.c $(ROOT)/src/services/solar_os_http_server.h \
+        $(ROOT)/src/services/solar_os_native_http_server.c $(ROOT)/src/services/solar_os_native_handles.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -pthread -include compat.h \
-		-Ihttp_server_stubs -I. -I$(ROOT)/src/services \
-		http_server_test.c $(ROOT)/src/services/solar_os_http_server.c -o $@
+		-DSOLAR_OS_PACKAGE_SERVICE_HTTP_SERVER=1 \
+		-Ihttp_server_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services $(filter %.c,$^) -o $@
 
 pca9685_test: pca9685_test.c $(ROOT)/src/drivers/pca9685.c $(ROOT)/src/drivers/pca9685.h
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/drivers \
@@ -1322,7 +1340,8 @@ sim7670_test: sim7670_test.c $(ROOT)/src/drivers/sim7670.c $(ROOT)/src/drivers/s
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -I. -I$(ROOT)/src/drivers \
 		sim7670_test.c $(ROOT)/src/drivers/sim7670.c -o $@
 
-modem_service_test: modem_service_test.c $(ROOT)/src/services/solar_os_modem.c $(ROOT)/src/services/solar_os_modem.h $(ROOT)/src/services/solar_os_native_device.c
+modem_service_test: modem_service_test.c $(ROOT)/src/services/solar_os_modem.c $(ROOT)/src/services/solar_os_modem.h $(ROOT)/src/services/solar_os_native_device.c \
+		$(ROOT)/src/services/solar_os_native_modem_provider.c $(ROOT)/src/services/solar_os_native_handles.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_MODEM=1 -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
 		$(filter %.c,$^) -o $@
 
@@ -1383,10 +1402,11 @@ cl32_keyboard_test: cl32_keyboard_test.c $(ROOT)/src/services/solar_os_cl32_keyb
 	$(CC) $(CFLAGS) -I. -I$(ROOT)/src/services \
 		cl32_keyboard_test.c $(ROOT)/src/services/solar_os_cl32_keyboard.c -o $@
 
-battery_service_test: battery_service_test.c $(ROOT)/src/services/solar_os_battery.c $(ROOT)/src/services/solar_os_battery.h $(ROOT)/src/services/solar_os_battery_trend.c $(ROOT)/src/services/solar_os_battery_trend.h nvs.h freertos/FreeRTOS.h
-	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src/services \
-		battery_service_test.c $(ROOT)/src/services/solar_os_battery.c \
-		$(ROOT)/src/services/solar_os_battery_trend.c -o $@
+battery_service_test battery_service_default_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_BATTERY=1
+battery_service_test battery_service_default_test: battery_service_test.c $(ROOT)/src/services/solar_os_battery.c $(ROOT)/src/services/solar_os_battery.h $(ROOT)/src/services/solar_os_battery_trend.c $(ROOT)/src/services/solar_os_battery_trend.h nvs.h freertos/FreeRTOS.h
+battery_service_test battery_service_default_test: $(ROOT)/src/services/solar_os_native_device_providers.c $(ROOT)/src/services/solar_os_native_handles.c
+	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src -I$(ROOT)/src/services \
+		battery_service_test.c $(filter-out battery_service_test.c,$(filter %.c,$^)) -o $@
 
 batmon_job_test: batmon_job_test.c $(ROOT)/src/jobs/solar_os_batmon_job.c $(ROOT)/src/services/solar_os_shutdown.c
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -I. -I$(ROOT)/src \
@@ -1539,6 +1559,7 @@ $(EXPANSION_PROFILES_HEADER): $(ROOT)/boards/expansion_drivers.toml $(ROOT)/scri
 	python3 $(ROOT)/scripts/generate_expansion_profiles.py --catalog $(ROOT)/boards/expansion_drivers.toml \
 		--packages "expansion_ssd1306 expansion_ssd1683 driver_display_st7305 expansion_ssd1685 expansion_uc8179 expansion_uc8279" --output $@
 
+expansion_tui_test: override CFLAGS += -DSOLAR_OS_PACKAGE_SERVICE_EXPANSION=1
 expansion_tui_test: expansion_tui_test.c $(ROOT)/src/shell/solar_os_shell_expansion_tui.c $(ROOT)/src/services/solar_os_tui_widgets.c $(EXPANSION_PROFILES_HEADER)
 	$(CC) $(CFLAGS) -D_GNU_SOURCE -include compat.h -ffunction-sections -fdata-sections \
 		-Iexpansion_stubs -I. -I$(MANUAL_GENERATED_DIR) -I$(ROOT)/src -I$(ROOT)/src/services -I$(ROOT)/src/shell -I$(ROOT)/src/apps \
@@ -1973,15 +1994,17 @@ TARGETS += sc2_client_lowram_test
 sc2_provider_test: sc2_provider_test.c messaging_service_test.c $(SC2E_DIR)/solar_os_sc2_provider.c \
         $(ROOT)/src/services/solar_os_messaging_rooms.inc \
         $(SC2E_DIR)/solar_os_sc2_provider.h $(ROOT)/src/services/solar_os_contacts.c \
+        $(ROOT)/src/services/solar_os_native_sc2_profile.c $(ROOT)/src/services/generated/native_sc2_profile_dispatch.inc \
         $(ROOT)/src/services/solar_os_messaging.c $(ROOT)/src/services/solar_os_messaging_registry.inc \
         $(ROOT)/src/services/solar_os_messaging_types.c $(ROOT)/src/services/solar_os_messaging.h \
         $(ROOT)/src/services/solar_os_messaging_types.h messaging_stubs/freertos/semphr.h \
         $(ROOT)/src/services/solar_os_storage.c $(ROOT)/src/services/solar_os_storage.h
-	$(CC) $(CFLAGS) -pthread -D_GNU_SOURCE -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
+	$(CC) $(CFLAGS) -pthread -D_GNU_SOURCE -DSOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER=1 -DpdTICKS_TO_MS\(ticks\)=\(ticks\) -include compat.h \
 		-ffunction-sections -fdata-sections \
 		-Imessaging_stubs -I. -I$(ROOT)/src -I$(ROOT)/src/services -I$(SC2_DIR)/include \
 		-I$(ROOT)/src/board -I$(ROOT)/src/drivers \
 		$< $(ROOT)/src/services/solar_os_messaging_types.c $(SC2_DIR)/src/sc2_codec.c \
+        $(ROOT)/src/services/solar_os_native_sc2_profile.c \
 		$(ROOT)/src/services/solar_os_storage.c -Wl,--gc-sections \
 		-Wl,--wrap=solar_os_storage_is_mounted,--wrap=solar_os_storage_sd_is_mounted \
 		-Wl,--wrap=solar_os_storage_flash_is_mounted,--wrap=solar_os_storage_flash_mount_point \

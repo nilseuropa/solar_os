@@ -45,6 +45,7 @@ typedef struct {
 static EXT_RAM_BSS_ATTR solar_os_job_runtime_t job_runtimes[SOLAR_OS_JOB_RUNTIME_CAPACITY];
 static size_t job_runtime_count;
 static size_t static_job_runtime_count;
+static uint32_t next_job_generation;
 static bool jobs_initialized;
 static portMUX_TYPE jobs_lock = portMUX_INITIALIZER_UNLOCKED;
 
@@ -181,10 +182,8 @@ static void job_clear_resources_by_index(size_t index)
 
 static uint32_t job_next_generation(solar_os_job_runtime_t *runtime)
 {
-    runtime->generation++;
-    if (runtime->generation == 0) {
-        runtime->generation++;
-    }
+    if (++next_job_generation == 0) ++next_job_generation;
+    runtime->generation = next_job_generation;
     return runtime->generation;
 }
 
@@ -868,7 +867,8 @@ esp_err_t solar_os_jobs_mark_stopped(const char *name,
         return ESP_ERR_NOT_FOUND;
     }
     solar_os_job_runtime_t *runtime = &job_runtimes[index];
-    if (generation == 0 || runtime->generation != generation || runtime->lifecycle_busy) {
+    if (generation == 0 || runtime->generation != generation ||
+        runtime->state != SOLAR_OS_JOB_RUNNING || runtime->lifecycle_busy) {
         portEXIT_CRITICAL(&jobs_lock);
         return ESP_ERR_INVALID_STATE;
     }
@@ -1081,10 +1081,27 @@ esp_err_t solar_os_jobs_owner_name(const char *name, char *owner, size_t owner_l
     return ESP_OK;
 }
 
-esp_err_t solar_os_jobs_note_resource(const char *name,
-                                      solar_os_job_resource_type_t type,
-                                      const char *resource,
-                                      const char *detail)
+static bool job_generation_matches(const solar_os_job_runtime_t *runtime, uint32_t generation)
+{
+    return runtime->generation == generation &&
+        (runtime->state == SOLAR_OS_JOB_RUNNING || runtime->lifecycle_busy);
+}
+
+esp_err_t solar_os_jobs_check_generation(const char *name, uint32_t generation)
+{
+    if (!generation) return ESP_ERR_INVALID_ARG;
+    const esp_err_t error = solar_os_jobs_init();
+    if (error != ESP_OK) return error;
+    portENTER_CRITICAL(&jobs_lock);
+    const int index = job_index_by_name(name);
+    const esp_err_t result = index < 0 ? ESP_ERR_NOT_FOUND :
+        job_generation_matches(&job_runtimes[index], generation) ? ESP_OK : ESP_ERR_INVALID_STATE;
+    portEXIT_CRITICAL(&jobs_lock);
+    return result;
+}
+
+static esp_err_t job_note_resource(const char *name, uint32_t generation,
+    solar_os_job_resource_type_t type, const char *resource, const char *detail)
 {
     esp_err_t ret = solar_os_jobs_init();
     if (ret != ESP_OK) {
@@ -1104,6 +1121,10 @@ esp_err_t solar_os_jobs_note_resource(const char *name,
     }
 
     solar_os_job_runtime_t *runtime = &job_runtimes[index];
+    if (generation && !job_generation_matches(runtime, generation)) {
+        portEXIT_CRITICAL(&jobs_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
     for (size_t i = 0; i < runtime->resource_count; i++) {
         solar_os_job_resource_t *existing = &runtime->resources[i];
         if (existing->type == type && strcmp(existing->name, resource) == 0) {
@@ -1129,18 +1150,46 @@ esp_err_t solar_os_jobs_note_resource(const char *name,
     return ESP_OK;
 }
 
-void solar_os_jobs_clear_resources(const char *name)
+esp_err_t solar_os_jobs_note_resource(const char *name, solar_os_job_resource_type_t type,
+    const char *resource, const char *detail)
 {
-    if (solar_os_jobs_init() != ESP_OK) {
-        return;
-    }
+    return job_note_resource(name, 0, type, resource, detail);
+}
 
+esp_err_t solar_os_jobs_note_run_resource(const char *name, uint32_t generation,
+    solar_os_job_resource_type_t type, const char *resource, const char *detail)
+{
+    if (!generation || type <= SOLAR_OS_JOB_RESOURCE_NONE || type > SOLAR_OS_JOB_RESOURCE_CUSTOM)
+        return ESP_ERR_INVALID_ARG;
+    return job_note_resource(name, generation, type, resource, detail);
+}
+
+static esp_err_t job_clear_resources(const char *name, uint32_t generation)
+{
+    const esp_err_t error = solar_os_jobs_init();
+    if (error != ESP_OK) return error;
     portENTER_CRITICAL(&jobs_lock);
     const int index = job_index_by_name(name);
+    esp_err_t result = ESP_ERR_NOT_FOUND;
     if (index >= 0) {
-        job_clear_resources_by_index((size_t)index);
+        result = ESP_ERR_INVALID_STATE;
+        if (!generation || job_generation_matches(&job_runtimes[index], generation)) {
+            job_clear_resources_by_index((size_t)index);
+            result = ESP_OK;
+        }
     }
     portEXIT_CRITICAL(&jobs_lock);
+    return result;
+}
+
+void solar_os_jobs_clear_resources(const char *name)
+{
+    (void)job_clear_resources(name, 0);
+}
+
+esp_err_t solar_os_jobs_clear_run_resources(const char *name, uint32_t generation)
+{
+    return generation ? job_clear_resources(name, generation) : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t solar_os_jobs_claim_port(const char *name,

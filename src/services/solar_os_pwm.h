@@ -73,6 +73,7 @@ typedef struct {
  * active, or in flight. The driver retains its context until unregister succeeds. */
 esp_err_t solar_os_pwm_register(const solar_os_pwm_registration_t *registration);
 esp_err_t solar_os_pwm_unregister(const char *name);
+esp_err_t solar_os_pwm_unregister_owned(const char *name, const void *ctx);
 size_t solar_os_pwm_provider_count(void);
 bool solar_os_pwm_get_provider(size_t index, solar_os_pwm_provider_info_t *info);
 bool solar_os_pwm_parse_output(const char *text, solar_os_pwm_output_t *output);

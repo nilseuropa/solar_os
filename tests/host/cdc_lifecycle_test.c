@@ -1,10 +1,12 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "cdc_port.h"
 #include "solar_os_cdc.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_native_usb.h"
 #include "solar_os_stream.h"
 #include "solar_os_resources.h"
@@ -16,6 +18,11 @@ static solar_os_stream_driver_t stream_driver;
 
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
 { assert(!stream_registered); if (fail_register) return ESP_ERR_NO_MEM; stream_driver = *driver; stream_registered = true; return ESP_OK; }
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count)
+{ assert(count == 1); return solar_os_stream_register(drivers); }
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{ (void)cls; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *data) { free(data); }
 esp_err_t solar_os_stream_unregister(const char *name)
 {
     assert(strcmp(name, "cdc0") == 0);
@@ -29,6 +36,9 @@ esp_err_t solar_os_stream_unregister(const char *name)
 }
 esp_err_t solar_os_stream_unregister_many(const char *const *names, size_t count)
 { assert(count == 1); return solar_os_stream_unregister(names[0]); }
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *names, const void *const *owners, size_t count)
+{ assert(owners != NULL); return solar_os_stream_unregister_many(names, count); }
+
 esp_err_t cdc_port_init(const cdc_port_config_t *config)
 { assert(config->rx_buffer_size && config->tx_buffer_size); if (fail_start) return ESP_ERR_NO_MEM; installed = true; return ESP_OK; }
 esp_err_t cdc_port_deinit(void)

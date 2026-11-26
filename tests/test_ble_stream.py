@@ -19,7 +19,7 @@ class BleStreamTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-include", str(HOST / "compat.h"),
                 "-I" + str(HOST / "nimble_stubs"), "-I" + str(HOST / "ble_stubs"),
-                "-I" + str(HOST), "-I" + str(ROOT / "src/services"),
+                "-I" + str(HOST), "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"),
                 "-idirafter", str(ROOT / "include"),
                 *[str(ROOT / source) for source in sources], "-o", str(binary),
             ], check=True)

@@ -6,6 +6,7 @@
 #include <string.h>
 #include "solar_os_jobs.h"
 #include "solar_os_native_jobs.h"
+#include "solar_os_native_core.h"
 #include "solar_os_task.h"
 #include "solar_os_memory.h"
 #include "solar_os_log.h"
@@ -18,6 +19,21 @@ static int allocations, starts, stops;
 static solar_os_job_t *descriptor;
 static solar_os_context_t context;
 static bool callback_active;
+static bool expire_claim;
+static solar_os_native_handle_t claimed_port;
+int solar_os_native_port_claim(const char *name, const char *owner, solar_os_native_handle_t *out)
+{
+    assert(!depth && !claimed_port && !strcmp(name, "uart0") && !strcmp(owner, "job:dynamic"));
+    *out = claimed_port = 42;
+    if (expire_claim) assert(solar_os_jobs_stop(NULL, "dynamic") == ESP_OK);
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_port_close(solar_os_native_handle_t handle)
+{
+    assert(handle && handle == claimed_port);
+    claimed_port = 0;
+    return SOLAR_OS_NATIVE_OK;
+}
 solar_os_context_t *solar_os_application_context(void) { return callback_active ? &context : NULL; }
 void test_enter_critical(void) { ++depth; }
 void test_leave_critical(void)
@@ -113,6 +129,38 @@ int main(void)
     can_create = true; job_retry_pending_start(0,NULL); assert(starts == 2 && !allocations);
     release_job(); assert(stops == 2 && !depth && !allocations);
     register_job();
+    assert(api->start("dynamic", 0, NULL) == SOLAR_OS_NATIVE_OK);
+    assert(!api->find("dynamic", &snapshot));
+    const uint32_t old_generation = snapshot.status.generation;
+    assert(!api->owner_name("dynamic", error, sizeof(error)) && !strcmp(error, "job:dynamic"));
+    assert(!api->note_resource("dynamic", old_generation, SOLAR_OS_JOB_RESOURCE_FILE, "cache", "read"));
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.resource_count == 1);
+    assert(!api->clear_resources("dynamic", old_generation));
+    solar_os_native_handle_t port;
+    expire_claim = true;
+    assert(api->claim_port("dynamic", old_generation, "uart0", &port) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!port && !claimed_port && stops == 3);
+    expire_claim = false;
+    release_job();
+
+    register_job();
+    assert(!api->start("dynamic", 0, NULL) && !api->find("dynamic", &snapshot));
+    const uint32_t generation = snapshot.status.generation;
+    assert(generation != old_generation);
+    assert(api->note_resource("dynamic", old_generation, SOLAR_OS_JOB_RESOURCE_FILE, "cache", NULL) ==
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->claim_port("dynamic", generation, "uart0", &port) && port == claimed_port);
+    assert(api->clear_resources("dynamic", old_generation) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.resource_count == 1);
+    assert(!strcmp(snapshot.status.resources[0].name, "uart0"));
+    assert(!solar_os_native_port_close(port));
+    assert(!api->complete("dynamic", generation, SOLAR_OS_NATIVE_ERROR_TIMEOUT));
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.state == SOLAR_OS_JOB_STOPPED &&
+        snapshot.status.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT && !snapshot.status.resource_count);
+    assert(api->complete("dynamic", generation, SOLAR_OS_NATIVE_OK) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    release_job();
+
+    register_job();
     assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_OK);
     assert(solar_os_shutdown_request() == ESP_OK);
     assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_ERR_INVALID_STATE);
@@ -123,10 +171,10 @@ int main(void)
     job_runtimes[0].state = SOLAR_OS_JOB_RUNNING;
     job_runtimes[0].callback_refs = 1;
     assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_ERR_NOT_FINISHED);
-    assert(stops == 2 && job_runtimes[0].state == SOLAR_OS_JOB_RUNNING);
+    assert(stops == 3 && job_runtimes[0].state == SOLAR_OS_JOB_RUNNING);
     job_runtimes[0].callback_refs = 0;
     assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_OK);
-    assert(stops == 3);
+    assert(stops == 4);
     release_job();
     puts("native job admission/unregister lifetime tests passed");
 }

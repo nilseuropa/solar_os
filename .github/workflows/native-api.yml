@@ -33,7 +33,7 @@ jobs:
             python scripts/generate_native_api.py --check --baseline "$RUNNER_TEMP/native-api-base.json"
           fi
       - name: Check system service coverage
-        run: python scripts/audit_native_system.py --check
+        run: python scripts/audit_native_system.py --check --require-full
       - name: Test compatibility, optional services, ownership, and unload
         env:
           PYTHONDONTWRITEBYTECODE: '1'

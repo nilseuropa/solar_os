@@ -16,6 +16,7 @@
 
 #include "esp_err.h"
 #include "solar_os_messaging.h"
+#include "solar_os_native_sc2_profile_abi.h"
 
 /* 2: fallback relays appended; 3: pinned relay keys appended. Older
  * profiles load with no fallbacks / no pinned keys. */
@@ -30,12 +31,7 @@
 #define SOLAR_OS_SC2_PUBLIC_ROOM_NAME_MAX 59U /* after "pub:", fits a provider key */
 
 /* One relay endpoint (the fallback list; the primary keeps its v1 fields). */
-typedef struct {
-    bool tls;
-    uint16_t port;
-    char url[SOLAR_OS_SC2_RELAY_URL_MAX];       /* empty: unused slot */
-    char pin[SOLAR_OS_SC2_RELAY_PIN_MAX];
-} solar_os_sc2_relay_endpoint_t;
+typedef solar_os_native_sc2_endpoint_v1_t solar_os_sc2_relay_endpoint_t;
 
 typedef struct {
     uint32_t version;
@@ -84,6 +80,7 @@ esp_err_t solar_os_sc2_provider_init(void);
 /* Parse "chats://host:port[#pin=sha256/B64]" or "chat://host:port" into
  * config (url, tls, port, pin). Leaves the other fields untouched. */
 esp_err_t solar_os_sc2_relay_parse_url(const char *text, solar_os_sc2_relay_config_t *config);
+esp_err_t solar_os_sc2_relay_parse_endpoint(const char *text, solar_os_sc2_relay_endpoint_t *endpoint);
 bool solar_os_sc2_relay_config_valid(const solar_os_sc2_relay_config_t *config);
 
 /* Conversation title of a private room: "room " and the first 8 hex. */

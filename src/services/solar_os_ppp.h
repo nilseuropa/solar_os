@@ -113,5 +113,7 @@ esp_err_t solar_os_ppp_receive(solar_os_ppp_t *ppp,
 
 esp_err_t solar_os_ppp_get_status(solar_os_ppp_t *ppp,
                                   solar_os_ppp_status_t *status);
+esp_err_t solar_os_ppp_snapshot(solar_os_ppp_t *ppp, solar_os_ppp_status_t *status,
+    bool *busy, bool *connected);
 bool solar_os_ppp_is_busy(solar_os_ppp_t *ppp);
 bool solar_os_ppp_is_connected(solar_os_ppp_t *ppp);

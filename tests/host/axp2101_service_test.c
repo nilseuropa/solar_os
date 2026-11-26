@@ -13,6 +13,7 @@
 static uint8_t registers[256];
 static esp_err_t write_result = ESP_OK;
 static unsigned unregister_calls;
+static bool charger_registered, battery_registered, power_busy;
 static solar_os_power_off_fn_t off_callback;
 static void *off_user;
 
@@ -23,9 +24,13 @@ esp_err_t solar_os_power_register_off_provider(const char *name,
     off_callback = off; off_user = user;
     return ESP_OK;
 }
-void solar_os_power_unregister_off_provider(void *user)
+esp_err_t solar_os_power_unregister_off_provider(void *user)
 {
-    if (off_user == user) { off_callback = NULL; off_user = NULL; }
+    if (off_user != user) return ESP_ERR_NOT_FOUND;
+    if (power_busy) return ESP_ERR_INVALID_STATE;
+    off_callback = NULL;
+    off_user = NULL;
+    return ESP_OK;
 }
 
 size_t strlcpy(char *dst, const char *src, size_t size)
@@ -72,25 +77,39 @@ esp_err_t solar_os_battery_register_provider(const char *owner,
                                              const solar_os_battery_provider_t *provider)
 {
     assert(strcmp(owner, "power0") == 0 && provider->read != NULL);
+    assert(!battery_registered);
+    battery_registered = true;
     return ESP_OK;
 }
 
 esp_err_t solar_os_battery_unregister_provider(const char *owner)
 {
     assert(strcmp(owner, "power0") == 0);
+    if (!battery_registered) return ESP_ERR_NOT_FOUND;
+    battery_registered = false;
     unregister_calls++;
     return ESP_OK;
+}
+
+esp_err_t solar_os_battery_unregister_provider_owned(const char *owner, const void *user)
+{
+    assert(off_user == user);
+    return solar_os_battery_unregister_provider(owner);
 }
 
 esp_err_t solar_os_charger_register(const solar_os_charger_registration_t *registration)
 {
     assert(strcmp(registration->name, "charger0") == 0);
+    assert(!charger_registered);
+    charger_registered = true;
     return ESP_OK;
 }
 
-esp_err_t solar_os_charger_unregister(const char *name)
+esp_err_t solar_os_charger_unregister_owned(const char *name, const void *ctx)
 {
-    assert(strcmp(name, "charger0") == 0);
+    assert(strcmp(name, "charger0") == 0 && off_user == ctx);
+    if (!charger_registered) return ESP_ERR_NOT_FOUND;
+    charger_registered = false;
     unregister_calls++;
     return ESP_OK;
 }
@@ -126,8 +145,12 @@ int main(void)
     assert(registers[0x90] == 0xA0U);
     solar_os_axp2101_release_aldo3();
     assert(solar_os_axp2101_set_aldo3(true) == ESP_ERR_INVALID_STATE);
+    power_busy = true;
+    assert(solar_os_axp2101_detach("power0") == ESP_ERR_INVALID_STATE);
+    assert(off_callback && unregister_calls == 2U);
+    power_busy = false;
     assert(solar_os_axp2101_detach("power0") == ESP_OK);
-    assert(unregister_calls == 2U);
+    assert(!off_callback && unregister_calls == 2U);
     assert(solar_os_axp2101_attach("power0", bindings, 2U) == ESP_OK);
     assert(solar_os_axp2101_acquire_aldo3("i2c0", 0x34U) == ESP_OK);
     solar_os_axp2101_release_aldo3();

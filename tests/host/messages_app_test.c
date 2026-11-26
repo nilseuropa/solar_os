@@ -68,7 +68,7 @@ static const solar_os_messaging_setting_t fields[] = {
 static esp_err_t fake_read(void *ctx, unsigned form, solar_os_messaging_settings_t *out)
 {
     if (form) return ESP_ERR_NOT_FOUND;
-    out->label = "Test provider"; out->fields = fields; out->count = 2;
+    solar_os_messaging_settings_form(out, "Test provider", fields, 2);
     strlcpy(out->worker, resource_worker ? "test-link" : "test-worker", sizeof(out->worker));
     out->worker_is_resource = resource_worker;
     if (ctx) {
@@ -89,7 +89,7 @@ static esp_err_t fake_create(const char *name, int argc, const char *const *argv
     return solar_os_messaging_instance_register(*id, "test", name, &configs[*id]);
 }
 static esp_err_t fake_write(void *ctx, unsigned form, const char *name,
-    const solar_os_messaging_settings_t *in, solar_os_messaging_provider_id_t *id)
+    const solar_os_message_setting_values_v1_t *in, solar_os_messaging_provider_id_t *id)
 {
     (void)form;
     if (!ctx) { const char *args[] = {in->values[0]}; return fake_create(name, 1, args, id); }
@@ -194,7 +194,7 @@ int main(void)
 
     /* Form editing keeps secrets out of both readback and terminal output. */
     key('e'); assert(app_state.mode == MESSAGES_FORM);
-    assert(app_state.settings.present[1] && !app_state.settings.values[1][0]);
+    assert(app_state.settings.data.present[1] && !app_state.settings.data.values[1][0]);
     assert(!screen_has("synthetic-secret"));
     key('\r'); assert(app_state.mode == MESSAGES_EDIT_FIELD && cursor_visible);
     assert(cursor_row == 3 && cursor_col == strlen("Endpoint: server"));

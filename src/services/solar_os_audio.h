@@ -110,6 +110,7 @@ esp_err_t solar_os_audio_register_device_ex(
 /* Detach may need a retry after an in-flight device control finishes. Keep
  * the provider and its callback data alive until unregistration succeeds. */
 esp_err_t solar_os_audio_unregister_device(const char *id);
+esp_err_t solar_os_audio_unregister_device_owned(const char *id, const void *owner);
 size_t solar_os_audio_device_count(void);
 bool solar_os_audio_device_get(size_t index, solar_os_audio_device_info_t *device);
 esp_err_t solar_os_audio_device_get_info(const char *id,

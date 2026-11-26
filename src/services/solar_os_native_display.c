@@ -293,6 +293,7 @@ typedef struct {
     size_t frame_size;
     bool claimed, gfx_borrowed;
     bool frames_ready, frame_buffer_borrowed;
+    bool refresh_active, frames_own_refresh;
 } native_display_lease_t;
 
 static int display_lease_frames_retire(native_display_lease_t *state)
@@ -302,6 +303,7 @@ static int display_lease_frames_retire(native_display_lease_t *state)
     esp_err_t error = solar_os_frame_presenter_deinit(state->frames);
     if (error != ESP_OK) return solar_os_native_result(error);
     state->frames = NULL;
+    state->frames_own_refresh = false;
     solar_os_memory_free(state->palette);
     state->palette = NULL;
     return SOLAR_OS_NATIVE_OK;
@@ -314,6 +316,11 @@ static int display_lease_destroy(void *value)
     if (state->frames) {
         int result = display_lease_frames_retire(state);
         if (result) return result;
+    }
+    if (state->refresh_active) {
+        const esp_err_t error = solar_os_display_set_high_refresh_owned(state->name, state, false, 0);
+        if (error != ESP_OK) return solar_os_native_result(error);
+        state->refresh_active = false;
     }
     if (state->claimed) {
         const esp_err_t error = solar_os_display_release(state->name, state->owner);
@@ -450,7 +457,10 @@ static int display_lease_frames_open(solar_os_native_handle_t handle,
     int result = display_resource_enter(handle, SOLAR_OS_NATIVE_HANDLE_DISPLAY_LEASE, &resource);
     if (result) return result;
     native_display_lease_t *state = resource;
-    if (state->gfx_borrowed || state->frames) result = SOLAR_OS_NATIVE_ERROR_BUSY;
+    if (state->gfx_borrowed || state->frames ||
+             (state->refresh_active && options->request_high_refresh)) {
+        result = SOLAR_OS_NATIVE_ERROR_BUSY;
+    }
     else if (!state->gfx) result = SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
     if (!result && colors) {
         state->palette = solar_os_memory_alloc(colors * sizeof(*state->palette),
@@ -462,6 +472,7 @@ static int display_lease_frames_open(solar_os_native_handle_t handle,
         solar_os_frame_presenter_options_v1_t config = *options;
         config.palette_rgb565 = state->palette;
         config.palette_size = colors;
+        state->frames_own_refresh = config.request_high_refresh;
         result = solar_os_native_result(solar_os_frame_presenter_init(&state->frames, state->gfx, &config));
         if (result) (void)display_lease_frames_retire(state);
         else {
@@ -592,6 +603,26 @@ static int display_lease_frames_take_stats(solar_os_native_handle_t handle, sola
     return SOLAR_OS_NATIVE_OK;
 }
 
+static int display_lease_set_high_refresh(solar_os_native_handle_t handle, uint32_t rate)
+{
+    if (rate > UINT16_MAX) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    void *resource;
+    int result = display_resource_enter(handle, SOLAR_OS_NATIVE_HANDLE_DISPLAY_LEASE, &resource);
+    if (result) return result;
+    native_display_lease_t *state = resource;
+    if (state->frames_own_refresh) {
+        result = SOLAR_OS_NATIVE_ERROR_BUSY;
+    } else if (!state->claimed) {
+        result = SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    } else if (rate || state->refresh_active) {
+        const esp_err_t error = solar_os_display_set_high_refresh_owned(state->name, state, rate != 0, rate);
+        result = error == ESP_ERR_INVALID_STATE ? SOLAR_OS_NATIVE_ERROR_BUSY : solar_os_native_result(error);
+        if (error == ESP_OK) state->refresh_active = rate != 0;
+    }
+    display_resource_leave(handle, &state->resource);
+    return result;
+}
+
 static const solar_os_native_display_lease_api_v1_t display_lease_api = {
     .abi_version = SOLAR_OS_NATIVE_DISPLAY_LEASE_ABI,
     .struct_size = sizeof(display_lease_api),
@@ -607,6 +638,7 @@ static const solar_os_native_display_lease_api_v1_t display_lease_api = {
     .frames_acquire = display_lease_frames_acquire, .frames_exchange = display_lease_frames_exchange,
     .frames_release = display_lease_frames_release, .frames_redraw = display_lease_frames_redraw,
     .frames_take_stats = display_lease_frames_take_stats,
+    .set_high_refresh = display_lease_set_high_refresh,
 };
 
 typedef struct {

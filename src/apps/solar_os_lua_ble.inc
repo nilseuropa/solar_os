@@ -9,7 +9,7 @@ static const solar_os_native_bluetooth_api_v1_t *solua_ble_api(lua_State *L)
 {
     if (!solua_ble_cached_api) {
         solua_ble_cached_api = solar_os_native_bluetooth_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(bluetooth),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_bluetooth_api_v1_t, hid_request_with_options));
         if (!solua_ble_cached_api) luaL_error(L, "Bluetooth service unavailable");
     }
@@ -33,7 +33,7 @@ static const solar_os_native_ble_keyboard_api_v1_t *solua_ble_keyboard_api(lua_S
 {
     if (!solua_ble_keyboard_cached_api) {
         solua_ble_keyboard_cached_api = solar_os_native_ble_keyboard_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(ble_keyboard),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_keyboard_api_v1_t, parse_addr_type));
         if (!solua_ble_keyboard_cached_api) luaL_error(L, "Bluetooth keyboard service unavailable");
     }

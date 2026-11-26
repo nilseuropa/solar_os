@@ -4,7 +4,7 @@ static const solar_os_native_ble_stream_api_v1_t *python_ble_stream_api(void)
 {
     if (!python_ble_stream_cached_api) {
         python_ble_stream_cached_api = solar_os_native_ble_stream_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(ble_stream),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_stream_api_v1_t, status));
         if (!python_ble_stream_cached_api) mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Bluetooth stream service unavailable"));
     }

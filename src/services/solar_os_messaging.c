@@ -102,6 +102,7 @@ typedef struct messaging_provider_node {
 typedef struct messaging_class_node {
     struct messaging_class_node *next;
     const solar_os_messaging_provider_class_t *type;
+    size_t calls;
 } messaging_class_node_t;
 
 typedef struct {
@@ -132,6 +133,7 @@ typedef struct {
     size_t event_head;
     size_t event_count;
     messaging_provider_node_t *providers;
+    messaging_provider_node_t *provisioning;
     messaging_class_node_t *classes;
     messaging_store_record_t *record_scratch;
     messaging_history_copy_t *history_scratch;

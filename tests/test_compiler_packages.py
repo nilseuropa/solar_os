@@ -40,8 +40,10 @@ class CompilerPackagesTest(unittest.TestCase):
                 typename='solar_os_native_'+('library_service' if name=='library' else name)+'_api_v1_t'
                 if name == 'memory':
                     size = f'offsetof({typename},buffer_destroy)+sizeof((({typename} *)0)->buffer_destroy)'
-                elif module == 'cc' and name == 'libc':
-                    size = f'offsetof({typename},parse_float)'
+                elif name == 'libc':
+                    # Package requirements end before their first unused ABI method.
+                    first_unused = 'parse_float' if module == 'cc' else 'explicit_bzero'
+                    size = f'offsetof({typename},{first_unused})'
                 else:
                     size = f'sizeof({typename})'
                 code.append(f'_Static_assert({size}=={service["minimum_struct_size"]},"{module}: {name} requirement drift");')

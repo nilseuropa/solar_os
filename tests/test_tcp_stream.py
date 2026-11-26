@@ -48,7 +48,7 @@ class TcpStreamTest(unittest.TestCase):
                 "-DSOLAR_OS_PACKAGE_SERVICE_TCP_STREAM=1",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + directory, "-I" + str(ROOT / "tests/host"),
-                "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
+                "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
                 str(ROOT / "src/services/solar_os_tcp_stream.c"),
                 str(ROOT / "src/services/solar_os_port.c"),
                 str(ROOT / "src/services/solar_os_stream.c"),

@@ -96,4 +96,18 @@ typedef struct {
     const char *(*resource_type_name)(solar_os_job_resource_type_t type);
     const char *(*start_disposition_name)(solar_os_job_start_disposition_t disposition);
     const char *(*start_reason_name)(solar_os_job_start_reason_t reason);
+    int (*owner_name)(const char *name, char *owner, size_t capacity);
+    /* Get the current generation from find. An earlier run cannot update
+     * a restarted or reinstalled job. Resource entries are diagnostic. */
+    int (*note_resource)(const char *name, uint32_t generation,
+        solar_os_job_resource_type_t type, const char *resource, const char *detail);
+    int (*clear_resources)(const char *name, uint32_t generation);
+    /* Claims through the regular port registry. Release with port.close.
+     * A nonzero port handle after an error still requires release. */
+    int (*claim_port)(const char *name, uint32_t generation, const char *port,
+        solar_os_native_handle_t *handle);
+    /* Report completion after the worker has released its resources.
+     * This updates scheduler state without invoking the job's stop callback.
+     * Pass SOLAR_OS_NATIVE_OK or a native error code. */
+    int (*complete)(const char *name, uint32_t generation, int32_t result);
 } solar_os_native_jobs_api_v1_t;

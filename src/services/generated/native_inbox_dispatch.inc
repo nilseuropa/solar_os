@@ -5,3 +5,8 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(inbox_api), const solar_o
 if (name && !strcmp(name, "inbox") && abi == 1U &&
     minimum <= sizeof(inbox_api)) return &inbox_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MAIL
+_Static_assert(__builtin_types_compatible_p(__typeof__(email_api), const solar_os_native_email_api_v1_t), "native service table type");
+if (name && !strcmp(name, "email") && abi == 1U &&
+    minimum <= sizeof(email_api)) return &email_api;
+#endif

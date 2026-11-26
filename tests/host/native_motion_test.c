@@ -4,6 +4,9 @@
 
 #include "solar_os_native_client.h"
 #include "solar_os_native_motion.h"
+#include "solar_os_native_device.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_stream.h"
 #include "solar_os_encoder.h"
 #include "solar_os_motor.h"
 #include "solar_os_memory.h"
@@ -57,6 +60,149 @@ static esp_err_t encoder_read(void *ctx, int32_t *out)
     return ESP_OK;
 }
 static esp_err_t encoder_reset(void *ctx) { (void)ctx; count = 0; return ESP_OK; }
+
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+static unsigned leases;
+static int shutdown_result;
+
+int solar_os_native_library_retain(uint32_t lease, uint32_t *out)
+{
+    if (lease != 1) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *out = 2;
+    ++leases;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(uint32_t lease)
+{
+    assert(lease == 2 && leases > 0);
+    --leases;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int provider_motor_status(void *user, solar_os_native_motor_status_v1_t *status)
+{
+    assert(user == &drive && leases > 0);
+    return motor_status(user, status);
+}
+
+static int provider_motor_coast(void *user)
+{
+    assert(user == &drive && leases > 0);
+    return motor_coast(user);
+}
+
+static int provider_encoder_read(void *user, int32_t *reading)
+{
+    assert(user == &count && leases > 0);
+    return encoder_read(user, reading);
+}
+
+static int provider_shutdown(void *user)
+{
+    assert((user == &drive || user == &count) && leases > 0);
+    return shutdown_result;
+}
+
+static esp_err_t replacement_write(void *user, solar_os_stream_handle_t *handle,
+    const void *data, size_t bytes, uint32_t timeout_ms, size_t *written)
+{
+    (void)user;
+    (void)handle;
+    (void)data;
+    (void)timeout_ms;
+    *written = bytes;
+    return ESP_OK;
+}
+
+static void check_providers(const solar_os_native_motion_api_v1_t *motion)
+{
+    const solar_os_native_motor_provider_api_v1_t *motors =
+        solar_os_native_motor_provider_get(solar_os_native_device_get_service, sizeof(*motors));
+    const solar_os_native_encoder_provider_api_v1_t *encoders =
+        solar_os_native_encoder_provider_get(solar_os_native_device_get_service, sizeof(*encoders));
+    assert(motors && encoders);
+    assert(!solar_os_native_device_get_service("motor.provider", 2, sizeof(*motors)));
+    assert(!solar_os_native_encoder_provider_get(solar_os_native_device_get_service, sizeof(*encoders) + 1));
+    assert(!allocations && !leases && !solar_os_native_handle_count());
+
+    char name[] = "native";
+    solar_os_native_motor_provider_v1_t motor = {
+        .name = name, .driver = "test", .library_lease = 1, .user = &drive,
+        .status = provider_motor_status, .drive = motor_drive, .coast = provider_motor_coast,
+        .shutdown = provider_shutdown,
+    };
+    solar_os_native_handle_t motor_handle;
+    assert(!motors->register_provider(&motor, &motor_handle) && motor_handle && leases == 1);
+    solar_os_native_handle_t duplicate;
+    assert(motors->register_provider(&motor, &duplicate) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!duplicate && leases == 1);
+    name[0] = 'X';
+    motor.status = NULL;
+    solar_os_native_motor_status_v1_t status;
+    assert(!motion->motor_command("native", SOLAR_OS_NATIVE_MOTOR_COMMAND_DRIVE, -.25f));
+    assert(!motion->motor_status("native", &status) && status.drive == -.25f);
+
+    uint32_t claim;
+    assert(!motion->motor_claim("native", &claim));
+    assert(motors->close(motor_handle) == SOLAR_OS_NATIVE_ERROR_BUSY && leases == 1);
+    assert(encoders->close(motor_handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!motion->motor_release(claim, false) && drive == 0);
+
+    shutdown_result = SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    assert(motors->close(motor_handle) == SOLAR_OS_NATIVE_ERROR_FAILED && leases == 1);
+    assert(!motion->motor_status("native", &status));
+    shutdown_result = SOLAR_OS_NATIVE_OK;
+
+    /* Replaced streams and motor registrations belong to their new owners. */
+    assert(!solar_os_stream_unregister("mot.native"));
+    solar_os_stream_driver_t replacement_stream = {.user = &count, .write = replacement_write};
+    strcpy(replacement_stream.info.id, "mot.native");
+    strcpy(replacement_stream.info.provider, "replacement");
+    strcpy(replacement_stream.info.device, "motor");
+    strcpy(replacement_stream.info.format, "f32");
+    replacement_stream.info.type = SOLAR_OS_STREAM_TYPE_SCALAR;
+    replacement_stream.info.direction = SOLAR_OS_STREAM_DIRECTION_SINK;
+    assert(!solar_os_stream_register(&replacement_stream));
+    assert(!solar_os_motor_unregister("native"));
+    solar_os_stream_info_t stream;
+    assert(!solar_os_stream_get_info("mot.native", &stream) && !strcmp(stream.provider, "replacement"));
+    assert(!solar_os_stream_unregister("mot.native"));
+
+    const solar_os_motor_ops_t ops = {.status = motor_status, .coast = motor_coast};
+    const solar_os_motor_registration_t replacement = {
+        .name = "native", .driver = "builtin", .ops = &ops,
+    };
+    assert(!solar_os_motor_register(&replacement));
+    assert(!motors->close(motor_handle) && !leases);
+    assert(motors->close(motor_handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!solar_os_motor_unregister("native"));
+
+    solar_os_native_encoder_provider_v1_t encoder = {
+        .name = "native", .driver = "test", .library_lease = 1, .user = &count,
+        .mode = SOLAR_OS_ENCODER_MODE_X4, .read = provider_encoder_read,
+        .reset = encoder_reset, .shutdown = provider_shutdown,
+    };
+    solar_os_native_handle_t encoder_handle;
+    encoder.mode = 0;
+    assert(encoders->register_provider(&encoder, &encoder_handle) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!encoder_handle && !leases);
+    encoder.mode = SOLAR_OS_ENCODER_MODE_X4;
+    assert(!encoders->register_provider(&encoder, &encoder_handle) && leases == 1);
+    assert(!motion->encoder_claim("native", &claim));
+    count = -37;
+    solar_os_native_encoder_sample_v1_t sample;
+    assert(!motion->encoder_sample(claim, &sample) && sample.count == -37);
+    assert(encoders->close(encoder_handle) == SOLAR_OS_NATIVE_ERROR_BUSY && leases == 1);
+    assert(!motion->encoder_release(claim));
+    shutdown_result = SOLAR_OS_NATIVE_ERROR_TIMEOUT;
+    assert(encoders->close(encoder_handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT && leases == 1);
+    assert(!motion->encoder_reset("native") && count == 0);
+    shutdown_result = SOLAR_OS_NATIVE_OK;
+    assert(!encoders->close(encoder_handle) && !motion->encoder_count());
+    assert(!allocations && !leases && !solar_os_native_handle_count());
+}
+#endif
 
 int main(void)
 {
@@ -122,7 +268,12 @@ int main(void)
     assert(!motion->encoder_status("shaft", &encoder_status) && encoder_status.feedback.valid && clock_us == 21000);
     assert(!motion->encoder_reset("shaft") && count == 0);
     assert(!solar_os_encoder_unregister("shaft") && !allocations);
+    check_providers(motion);
 #else
+    assert(!solar_os_native_motor_provider_get(solar_os_native_device_get_service,
+        sizeof(solar_os_native_motor_provider_api_v1_t)));
+    assert(!solar_os_native_encoder_provider_get(solar_os_native_device_get_service,
+        sizeof(solar_os_native_encoder_provider_api_v1_t)));
     assert(!motion->capabilities && !solar_os_native_motion_has_motor_command(motion));
     assert(!solar_os_native_motion_has_encoder_feedback(motion));
     (void)motor_status; (void)motor_coast; (void)encoder_read; (void)encoder_reset;

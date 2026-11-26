@@ -16,6 +16,7 @@ class DisplayControllerModesTest(unittest.TestCase):
         functions = production_functions(source, (
             "display_controller_begin", "display_copy_controller_text",
             "solar_os_display_get_controller_mode", "solar_os_display_set_controller_mode",
+            "solar_os_display_set_high_refresh_owned", "solar_os_display_set_high_refresh_override",
         ))
         harness = r'''
 #include <assert.h>
@@ -44,6 +45,8 @@ typedef struct {
     size_t refs;
     SemaphoreHandle_t present_mutex;
     solar_os_board_display_t *board_display;
+    const void *refresh_owner;
+    bool refresh_changing;
     solar_os_display_target_t target;
 } display_target_slot_t;
 static display_target_slot_t display_targets[1];
@@ -101,7 +104,19 @@ static esp_err_t set_mode(void *context, const char *mode)
     assert(context && mode && owns_present && display_targets[0].refs==1);
     atomic_store(&entered,true); return setter_result;
 }
+static const char legacy_refresh_owner;
 #if SOLAR_OS_BOARD_HAS_DISPLAY
+static esp_err_t refresh_error;
+static unsigned refresh_changes;
+static esp_err_t solar_os_board_display_set_high_refresh_override(
+    solar_os_board_display_t *board, bool enabled, uint16_t rate)
+{
+    assert(board == display_targets[0].board_display && display_targets[0].refs == 1);
+    assert(display_targets[0].refresh_changing);
+    assert(enabled ? rate == 255 : rate == 0);
+    ++refresh_changes;
+    return refresh_error;
+}
 static const char *solar_os_board_display_controller_mode(const solar_os_board_display_t *board)
 { return get_mode(board); }
 static const char *solar_os_board_display_controller_mode_values(const solar_os_board_display_t *board)
@@ -163,6 +178,23 @@ int main(void)
     assert(!strcmp(current,"refresh=auto grayscale=4"));
     assert(solar_os_display_set_controller_mode("display0","grayscale=2")==ESP_OK);
     assert(display_targets[0].refs==0 && display_targets[0].terminal_epoch==2);
+    assert(!solar_os_display_set_high_refresh_override("display0", true, 255));
+    static int owner, other;
+    assert(solar_os_display_set_high_refresh_owned("display0", &owner, true, 255) == ESP_ERR_INVALID_STATE);
+    assert(refresh_changes == 1);
+    assert(!solar_os_display_set_high_refresh_override("display0", false, 0));
+    assert(!solar_os_display_set_high_refresh_owned("display0", &owner, true, 255));
+    assert(solar_os_display_set_high_refresh_override("display0", false, 0) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_display_set_high_refresh_owned("display0", &other, false, 0) == ESP_ERR_INVALID_STATE);
+    assert(refresh_changes == 3);
+    refresh_error = ESP_FAIL;
+    assert(solar_os_display_set_high_refresh_owned("display0", &owner, false, 0) == ESP_FAIL);
+    assert(display_targets[0].refresh_owner == &owner && display_targets[0].refs == 0);
+    refresh_error = ESP_OK;
+    assert(!solar_os_display_set_high_refresh_owned("display0", &owner, false, 0));
+    assert(!display_targets[0].refresh_owner && !display_targets[0].refs);
+#else
+    assert(solar_os_display_set_high_refresh_override("display0", true, 255) == ESP_ERR_NOT_SUPPORTED);
 #endif
     assert(solar_os_display_set_controller_mode("absent","grayscale=2")==ESP_ERR_NOT_FOUND);
     assert(solar_os_display_set_controller_mode("display0",NULL)==ESP_ERR_INVALID_ARG);

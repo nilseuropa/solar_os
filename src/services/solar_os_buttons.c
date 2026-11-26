@@ -314,6 +314,7 @@ void solar_os_buttons_poll(void)
             continue;
         }
         const bool pressed = button_raw_pressed(def);
+        portENTER_CRITICAL(&buttons_edge_lock);
 
         if (!state->initialized) {
             *state = (button_state_t) {
@@ -322,6 +323,7 @@ void solar_os_buttons_poll(void)
                 .stable_pressed = pressed,
                 .raw_changed_ms = now_ms,
             };
+            portEXIT_CRITICAL(&buttons_edge_lock);
             continue;
         }
 
@@ -329,6 +331,7 @@ void solar_os_buttons_poll(void)
             state->last_raw_pressed = pressed;
             state->raw_changed_ms = now_ms;
             state->raw_transitions++;
+            portEXIT_CRITICAL(&buttons_edge_lock);
             continue;
         }
 
@@ -336,12 +339,17 @@ void solar_os_buttons_poll(void)
             !state->long_press_fired &&
             (uint32_t)(now_ms - state->pressed_ms) >= def->long_press_ms) {
             state->long_press_fired = true;
-            state->suppress_release = long_press_handler != NULL &&
-                long_press_handler(def->pin, long_press_user);
+            const solar_os_button_long_press_fn_t handler = long_press_handler;
+            void *user = long_press_user;
+            portEXIT_CRITICAL(&buttons_edge_lock);
+            const bool suppress = handler != NULL && handler(def->pin, user);
+            portENTER_CRITICAL(&buttons_edge_lock);
+            state->suppress_release = suppress;
         }
 
         if (pressed == state->stable_pressed ||
             (uint32_t)(now_ms - state->raw_changed_ms) < BUTTON_DEBOUNCE_MS) {
+            portEXIT_CRITICAL(&buttons_edge_lock);
             continue;
         }
 
@@ -352,11 +360,13 @@ void solar_os_buttons_poll(void)
             state->long_press_fired = false;
             state->suppress_release = false;
         }
+        const bool suppress_release = state->suppress_release;
+        portEXIT_CRITICAL(&buttons_edge_lock);
         if (def->key == 0) {
             continue;
         }
         if (def->emit_on_release) {
-            if (!pressed && !state->suppress_release) {
+            if (!pressed && !suppress_release) {
                 (void)button_write_tap(def, solar_os_input_composition_modifiers());
             }
             continue;
@@ -375,8 +385,10 @@ void solar_os_buttons_poll(void)
 void solar_os_buttons_set_long_press_handler(solar_os_button_long_press_fn_t handler, void *user)
 {
 #if SOLAR_OS_BOARD_HAS_BUTTONS
+    portENTER_CRITICAL(&buttons_edge_lock);
     long_press_handler = handler;
     long_press_user = user;
+    portEXIT_CRITICAL(&buttons_edge_lock);
 #else
     (void)handler;
     (void)user;
@@ -417,17 +429,5 @@ bool solar_os_buttons_debug_get(size_t index, solar_os_button_debug_info_t *info
     };
     portEXIT_CRITICAL(&buttons_edge_lock);
     return true;
-#endif
-}
-
-size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len)
-{
-    solar_os_buttons_poll();
-#if !SOLAR_OS_BOARD_HAS_BUTTONS
-    (void)buffer;
-    (void)buffer_len;
-    return 0;
-#else
-    return solar_os_input_read_source_chars(buttons_input_source, buffer, buffer_len);
 #endif
 }

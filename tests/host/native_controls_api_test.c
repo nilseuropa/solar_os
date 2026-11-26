@@ -31,7 +31,7 @@ int solar_os_native_library_retain(uint32_t lease, uint32_t *retained)
 }
 int solar_os_native_library_release(uint32_t lease)
 {
-    assert(lease == 12 && retained_leases == 1);
+    assert(lease == 12 && retained_leases > 0);
     --retained_leases;
     return SOLAR_OS_NATIVE_OK;
 }
@@ -43,10 +43,46 @@ void *solar_os_memory_calloc(size_t n, size_t size, solar_os_memory_class_t cls,
 void solar_os_memory_free(void *p) { if (p) --allocations; free(p); }
 uint64_t solar_os_time_uptime_ms(void) { return 1; }
 esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *time) { *time = 0; return ESP_ERR_INVALID_STATE; }
-static esp_err_t read_test_source(void *user, const solar_os_stream_read_options_t *options, float *value)
-{ (void)user; (void)options; *value = 0; return ESP_OK; }
-static esp_err_t get_parameter(void *user, float *out) { assert(user == &parameter_value); *out = parameter_value; return ESP_OK; }
-static esp_err_t set_parameter(void *user, float value) { assert(user == &parameter_value); parameter_value = value; return ESP_OK; }
+static const solar_os_native_controls_api_v1_t *control_api;
+static unsigned source_reads;
+static bool source_times_out;
+static bool reenter_apply;
+
+static esp_err_t read_test_source(void *user,
+                                  const solar_os_stream_read_options_t *options,
+                                  float *value)
+{
+    (void)user;
+    assert(options->window_ms == 20);
+    solar_os_native_control_pass_v1_t nested = {99, 99};
+    assert(control_api->sample(0, 20, &nested) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(nested.succeeded == 0 && nested.errors == 0);
+    source_reads++;
+    if (source_times_out) {
+        return ESP_ERR_TIMEOUT;
+    }
+    *value = 0;
+    return ESP_OK;
+}
+
+static esp_err_t get_parameter(void *user, float *out)
+{
+    assert(user == &parameter_value);
+    *out = parameter_value;
+    return ESP_OK;
+}
+
+static esp_err_t set_parameter(void *user, float value)
+{
+    assert(user == &parameter_value);
+    if (reenter_apply) {
+        solar_os_native_control_pass_v1_t nested = {99, 99};
+        assert(control_api->apply_bindings(&nested) == SOLAR_OS_NATIVE_ERROR_BUSY);
+        assert(nested.succeeded == 0 && nested.errors == 0);
+    }
+    parameter_value = value;
+    return ESP_OK;
+}
 
 typedef struct {
     const solar_os_native_parameters_api_v1_t *api;
@@ -170,6 +206,70 @@ static void audio_device_parameters(const solar_os_native_parameters_api_v1_t *p
     assert(solar_os_audio_unregister_device(device.id) == ESP_OK);
     assert(parameters->release(claim) == 0);
     assert(solar_os_audio_device_count() == 0 && parameters->count() == 0);
+}
+
+static const solar_os_native_audio_device_provider_api_v1_t *audio_provider;
+static solar_os_native_handle_t audio_registration;
+static bool request_native_audio_close;
+
+static int native_audio_gain_get(void *user, float *out)
+{
+    assert(retained_leases == 1);
+    return audio_gain_get(user, out);
+}
+
+static int native_audio_gain_set(void *user, float value)
+{
+    assert(retained_leases == 1);
+    if (request_native_audio_close) {
+        assert(audio_provider->close(audio_registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+        assert(retained_leases == 1);
+    }
+    return audio_gain_set(user, value);
+}
+
+static void native_audio_device_parameters(const solar_os_native_parameters_api_v1_t *parameters)
+{
+    audio_provider = solar_os_native_audio_device_provider_get(solar_os_native_audio_routes_get_service,
+        sizeof(*audio_provider));
+    assert(audio_provider);
+    solar_os_audio_route_v1_t route = {
+        .id = "native-mic", .name = "Native microphone", .provider = "module", .capture_stream = "mic.raw",
+        .capabilities = SOLAR_OS_AUDIO_DEVICE_CAP_INPUT | SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN,
+        .format = {.audio_format = SOLAR_OS_NATIVE_STREAM_AUDIO_S16_LE,
+            .sample_rate = 16000, .channels = 1, .bits_per_sample = 16},
+    };
+    const solar_os_native_audio_device_provider_v1_t input = {
+        .route = &route, .library_lease = 8,
+        .controls = {.user = &audio_gain, .get_input_gain = native_audio_gain_get,
+            .set_input_gain = native_audio_gain_set},
+        .input_gain_min_db = 0, .input_gain_max_db = 24, .input_gain_step_db = 3,
+    };
+    assert(!audio_provider->register_device(&input, &audio_registration) && retained_leases == 1);
+    solar_os_native_handle_t duplicate;
+    assert(audio_provider->register_device(&input, &duplicate) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!duplicate && retained_leases == 1);
+    strcpy(route.name, "caller buffer reused");
+    solar_os_audio_device_info_t info;
+    assert(!solar_os_audio_device_get_info("native-mic", &info) && !strcmp(info.name, "Native microphone"));
+
+    char path[SOLAR_OS_PARAMETER_PATH_MAX];
+    assert(!parameters->resource_path("audio", "native-mic", "input-gain", path, sizeof(path)));
+    assert(!parameters->set(path, 18.0f) && audio_gain == 18.0f);
+    float gain;
+    assert(!parameters->get(path, &gain) && gain == 18.0f);
+    request_native_audio_close = true;
+    assert(!parameters->set(path, 3.0f) && audio_gain == 3.0f);
+    request_native_audio_close = false;
+    assert(!audio_provider->close(audio_registration) && !retained_leases && !parameters->count());
+
+    assert(!audio_provider->register_device(&input, &audio_registration) && retained_leases == 1);
+    assert(!solar_os_audio_unregister_device("native-mic"));
+    info.capabilities = SOLAR_OS_AUDIO_DEVICE_CAP_INPUT;
+    assert(!solar_os_audio_register_device_ex(&info, NULL, NULL));
+    assert(!audio_provider->close(audio_registration) && !retained_leases);
+    assert(!solar_os_audio_device_get_info("native-mic", &info) && info.capabilities == SOLAR_OS_AUDIO_DEVICE_CAP_INPUT);
+    assert(!solar_os_audio_unregister_device("native-mic"));
 }
 
 typedef struct {
@@ -446,6 +546,7 @@ int main(void)
     assert(solar_os_stream_register(&source) == ESP_OK);
     const solar_os_native_parameters_api_v1_t *parameters = solar_os_native_controls_api_get_service("parameters", 1, sizeof(*parameters)); assert(parameters);
     audio_device_parameters(parameters);
+    native_audio_device_parameters(parameters);
     audio_routes();
     audio_capture_routes();
     display_parameters(parameters);
@@ -478,13 +579,38 @@ int main(void)
     assert(controls->set("knob", 65536) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(!controls->set("knob", 50000)); uint32_t value; assert(!controls->get("knob", &value) && value == 50000);
     solar_os_native_control_info_v1_t control; assert(!controls->find("knob", &control) && control.config.inverted && !strcmp(control.config.source, "source"));
-    uint32_t binding; assert(!controls->bind_parameter("knob", "test.gain", true, &binding));
-    solar_os_control_binding_note(binding, 123, true, true, 10, 11, ESP_ERR_TIMEOUT, false);
-    solar_os_native_control_binding_v1_t binding_info; assert(!controls->binding_info(0, &binding_info));
-    assert(binding_info.id == binding && binding_info.target == SOLAR_OS_NATIVE_CONTROL_PARAMETER && binding_info.pickup_latched && binding_info.pickup_seen);
-    assert(binding_info.last_generation == 0 && binding_info.pickup_previous == 10 && binding_info.last_target_value == 11 && binding_info.error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
-    solar_os_control_binding_note(binding, 123, true, true, 10, 11, ESP_OK, true);
-    assert(!controls->binding_info(0, &binding_info) && binding_info.last_generation == 123 && binding_info.applied == 1 && binding_info.errors == 1);
+    control_api = controls;
+    solar_os_native_control_pass_v1_t pass;
+    assert(controls->sample(0, 20, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(controls->apply_bindings(NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!strcmp(controls->target_name(SOLAR_OS_NATIVE_CONTROL_PARAMETER), "parameter"));
+    assert(!strcmp(controls->target_name(SOLAR_OS_NATIVE_CONTROL_MIDI_CC), "midi"));
+    assert(!controls->target_name(3));
+    assert(!controls->sample(100, 20, &pass) && pass.succeeded == 1);
+    assert(!controls->find("knob", &control) && control.samples == 1 &&
+           control.source_value == 0 && source_reads == 1);
+    source_times_out = true;
+    assert(!controls->sample(120, 20, &pass) && pass.errors == 1);
+    assert(!controls->find("knob", &control) && control.read_errors == 1 &&
+           control.error == SOLAR_OS_NATIVE_ERROR_TIMEOUT && source_reads == 2);
+    controls->note_read_error("knob", SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!controls->find("knob", &control) && control.read_errors == 2 &&
+           control.error == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    uint32_t binding;
+    assert(!controls->bind_parameter("knob", "test.gain", true, &binding));
+    assert(!controls->apply_bindings(&pass) && pass.succeeded == 0);
+    solar_os_native_control_binding_v1_t binding_info;
+    assert(!controls->binding_info(0, &binding_info) && binding_info.id == binding &&
+           binding_info.target == SOLAR_OS_NATIVE_CONTROL_PARAMETER &&
+           !binding_info.pickup_latched && binding_info.pickup_seen);
+    assert(!controls->publish_sample("knob", -1, 140));
+    reenter_apply = true;
+    assert(!controls->apply_bindings(&pass) && pass.succeeded == 1 &&
+           pass.errors == 0 && parameter_value == 100);
+    reenter_apply = false;
+    assert(!controls->binding_info(0, &binding_info) && binding_info.pickup_latched &&
+           binding_info.applied == 1 && binding_info.errors == 0);
+    assert(!controls->apply_bindings(&pass) && pass.succeeded == 0);
     assert(controls->bind_midi_cc("knob", 256, 1, &binding) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !binding);
     assert(!controls->bind_midi_cc("knob", 1, 127, &binding) && controls->binding_count() == 2);
     assert(!controls->binding_info(1, &binding_info) && binding_info.target == SOLAR_OS_NATIVE_CONTROL_MIDI_CC && binding_info.midi_controller == 127);

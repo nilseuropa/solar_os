@@ -33,24 +33,20 @@ static const solar_os_native_ui_api_v1_t fixture_ui_api = {
     .input_key = solar_os_ui_input_key, .input_text = solar_os_ui_input_text,
     .viewport_reconcile = solar_os_ui_viewport_reconcile, .viewport_key = solar_os_ui_viewport_key,
 };
-static const void *fixture_ui_get_service(const char *name, uint32_t abi, uint32_t minimum)
+const void *solar_os_native_ui_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
-    if (!name || abi != 1) return NULL;
-    if (!strcmp(name, "ui")) {
-        ++fixture_ui_queries;
-        return minimum <= sizeof(fixture_ui_api) ? &fixture_ui_api : NULL;
-    }
-    if (!strcmp(name, "ui.media")) {
-        ++fixture_media_queries;
-        return !fixture_media_unavailable && minimum <= sizeof(fixture_media_api) ? &fixture_media_api : NULL;
-    }
-    return NULL;
+    if (!name || strcmp(name, SOLAR_OS_NATIVE_UI_SERVICE) || abi != SOLAR_OS_NATIVE_UI_ABI)
+        return NULL;
+    ++fixture_ui_queries;
+    return minimum <= sizeof(fixture_ui_api) ? &fixture_ui_api : NULL;
 }
-const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)
+
+const void *solar_os_native_media_widgets_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
-    static const solar_os_native_host_api_v1_t host = {.abi_version = 1, .struct_size = sizeof(host),
-        .get_service = fixture_ui_get_service};
-    return &host;
+    if (!name || strcmp(name, SOLAR_OS_NATIVE_MEDIA_WIDGETS_SERVICE) || abi != SOLAR_OS_NATIVE_MEDIA_WIDGETS_ABI)
+        return NULL;
+    ++fixture_media_queries;
+    return !fixture_media_unavailable && minimum <= sizeof(fixture_media_api) ? &fixture_media_api : NULL;
 }
 
 size_t solar_os_gfx_text_advance(solar_os_gfx_t *gfx, const char *text, size_t length)

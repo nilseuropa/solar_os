@@ -9,7 +9,7 @@ static const solar_os_native_bluetooth_api_v1_t *python_ble_api(void)
 {
     if (!python_ble_cached_api) {
         python_ble_cached_api = solar_os_native_bluetooth_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(bluetooth),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_bluetooth_api_v1_t, hid_request_with_options));
         if (!python_ble_cached_api)
             mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Bluetooth service unavailable"));
@@ -36,7 +36,7 @@ static const solar_os_native_ble_keyboard_api_v1_t *python_ble_keyboard_api(void
 {
     if (!python_ble_keyboard_cached_api) {
         python_ble_keyboard_cached_api = solar_os_native_ble_keyboard_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(ble_keyboard),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_ble_keyboard_api_v1_t, parse_addr_type));
         if (!python_ble_keyboard_cached_api) mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("Bluetooth keyboard service unavailable"));
     }

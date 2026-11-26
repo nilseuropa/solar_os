@@ -5,6 +5,7 @@
 #include "solar_os_native_client.h"
 #include "solar_os_native_io.h"
 #include "solar_os_native_handles.h"
+#include "solar_os_native_pwm_provider.h"
 #include "solar_os_native_runtime.h"
 #include "solar_os_resources.h"
 #include "solar_os_pins.h"
@@ -112,6 +113,90 @@ static esp_err_t pwm_disable(void *user, uint16_t output, const char *owner) { (
 static esp_err_t pwm_close(void *user, uint16_t output, const char *owner)
 { (void)user; assert(output == 65535 && owner); if (fail_pwm_close) return ESP_ERR_TIMEOUT; ++pwm_closes; return ESP_OK; }
 static esp_err_t pwm_stop(void *user, uint16_t output) { (void)user; assert(output == 65535); return ESP_OK; }
+typedef struct {
+    const solar_os_native_pwm_provider_api_v1_t *api;
+    solar_os_native_handle_t handle;
+    bool close_fails;
+    bool invalid_readout;
+} pwm_provider_fixture_t;
+
+static bool native_pwm_get(void *user, size_t index, solar_os_native_pwm_info_v1_t *out)
+{
+    pwm_provider_fixture_t *fixture = user;
+    assert(fixture->api->close(fixture->handle) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_pwm_unregister("portable") == ESP_ERR_INVALID_STATE);
+    if (index) return false;
+    *out = (solar_os_native_pwm_info_v1_t){
+        .provider = "forged", .owner = "forged", .output = 65535, .frequency_group = 4,
+        .pin = -1, .channel = -1, .resolution_bits = fixture->invalid_readout ? 256 : 16,
+    };
+    return true;
+}
+
+static int native_pwm_close(void *user, uint16_t output, const char *owner)
+{
+    pwm_provider_fixture_t *fixture = user;
+    assert(output == 65535 && strstr(owner, "/servo"));
+    return fixture->close_fails ? SOLAR_OS_NATIVE_ERROR_NOT_FOUND : SOLAR_OS_NATIVE_OK;
+}
+
+static void pwm_provider_test(const solar_os_native_pwm_api_v1_t *pwm)
+{
+    const solar_os_native_pwm_provider_api_v1_t *api =
+        solar_os_native_pwm_provider_get_service("pwm.provider", 1, sizeof(*api));
+    assert(api);
+    pwm_provider_fixture_t fixture = {.api = api};
+    char name[] = "portable", driver[] = "test-portable";
+    solar_os_native_pwm_provider_callbacks_v1_t descriptor = {
+        .name = name, .driver = driver, .library_lease = 10, .user = &fixture,
+        .output_count = pwm_count, .get_output = native_pwm_get, .set = pwm_set,
+        .open = pwm_open, .write_pulse = pwm_write, .disable = pwm_disable,
+        .close = native_pwm_close, .stop = pwm_stop,
+    };
+    solar_os_native_handle_t duplicate = 1;
+    assert(!api->register_provider(&descriptor, &fixture.handle) && library_pins == 1);
+    assert(api->register_provider(&descriptor, &duplicate) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!duplicate && library_pins == 1);
+    name[0] = driver[0] = 'x';
+    descriptor.get_output = NULL;
+    solar_os_native_pwm_provider_v1_t provider;
+    assert(!pwm->provider_info(0, &provider) && !strcmp(provider.name, "portable") &&
+           !strcmp(provider.driver, "test-portable") && provider.detachable && provider.output_count == 1);
+    solar_os_native_pwm_info_v1_t info;
+    fixture.invalid_readout = true;
+    assert(pwm->info(0, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    fixture.invalid_readout = false;
+    assert(!pwm->info(0, &info) && !strcmp(info.provider, "portable") && !info.owner[0] &&
+           info.pin == -1 && info.output == 65535 && info.frequency_group == 4 && info.resolution_bits == 16);
+    solar_os_native_pwm_output_v1_t output;
+    assert(!pwm->parse("portable:65535", &output));
+    assert(!pwm->set(&output, 50, 1500, true));
+    assert(api->close(fixture.handle) == SOLAR_OS_NATIVE_ERROR_BUSY && library_pins == 1);
+    assert(!pwm->stop(&output));
+    solar_os_native_handle_t lease;
+    assert(!pwm->open(&output, 50, "servo", &lease));
+    assert(!pwm->write(lease, 1500) && !pwm->disable(lease));
+    assert(!pwm->info(0, &info) && info.reserved && strstr(info.owner, "/servo"));
+    fixture.close_fails = true;
+    assert(pwm->close(lease) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->close(fixture.handle) == SOLAR_OS_NATIVE_ERROR_BUSY && library_pins == 1);
+    fixture.close_fails = false;
+    assert(!pwm->close(lease));
+    assert(!api->close(fixture.handle) && !pwm->provider_count() && !library_pins);
+
+    descriptor.name = "portable";
+    descriptor.driver = "test-portable";
+    descriptor.get_output = native_pwm_get;
+    assert(!api->register_provider(&descriptor, &fixture.handle));
+    assert(!solar_os_pwm_unregister("portable"));
+    const solar_os_pwm_ops_t ops = {pwm_count, pwm_get, pwm_set, pwm_open, pwm_write, pwm_disable, pwm_close, pwm_stop};
+    const solar_os_pwm_registration_t replacement = {"portable", "built-in", true, &ops, NULL};
+    assert(!solar_os_pwm_register(&replacement));
+    assert(!api->close(fixture.handle) && !library_pins);
+    assert(!pwm->provider_info(0, &provider) && !strcmp(provider.driver, "built-in"));
+    assert(!solar_os_pwm_unregister("portable"));
+}
+
 static bool external_level;
 static unsigned acknowledgements;
 static esp_err_t fake_line_config(void *ctx, uint8_t line, solar_os_gpio_line_mode_t mode, solar_os_gpio_line_pull_t pull)
@@ -267,6 +352,8 @@ int main(void)
     fail_pwm_close = false; assert(!pwm->close(lease) && pwm_closes == 1);
     gpio_line_test(gpio);
     gpio_controller_provider_test(gpio);
-    assert(!solar_os_pwm_unregister("expander")); assert(!resources->count() && !allocations && !solar_os_native_handle_count());
+    assert(!solar_os_pwm_unregister("expander"));
+    pwm_provider_test(pwm);
+    assert(!resources->count() && !allocations && !solar_os_native_handle_count());
     puts("native I/O: real resource/PWM registries, owned GPIO writes and retryable cleanup passed"); return 0;
 }

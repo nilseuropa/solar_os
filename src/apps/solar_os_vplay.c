@@ -10,6 +10,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_mpeg.h"
@@ -712,7 +713,7 @@ static void vplay_draw_playlist(solar_os_context_t *ctx);
 static esp_err_t vplay_start(solar_os_context_t *ctx)
 {
     memset(&vplay_state, 0, sizeof(vplay_state));
-    vplay_state.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    vplay_state.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(vplay_state.media_ui->player_button_at));
     if (!vplay_state.media_ui) return ESP_ERR_NOT_SUPPORTED;
     vplay_state.fit = true;

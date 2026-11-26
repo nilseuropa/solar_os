@@ -12,7 +12,11 @@ class StreamEchoTest(unittest.TestCase):
     def test_command_with_real_stream_registry(self):
         source = (ROOT / "src/shell/solar_os_shell_stream_echo.c").read_text()
         source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
-        fixture = '#include "solar_os_imu.h"\n' + (ROOT / "tests/host/stream_echo_test.inc").read_text().replace("/* COMMAND */", source)
+        io_source = (ROOT / "src/shell/solar_os_shell_io.c").read_text()
+        poll_input = production_functions(io_source, ("solar_os_shell_io_poll_input",))
+        fixture = (ROOT / "tests/host/stream_echo_test.inc").read_text()
+        fixture = '#include "solar_os_imu.h"\n' + fixture.replace(
+            "/* POLL INPUT */", poll_input).replace("/* COMMAND */", source)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             (path / "test.c").write_text(fixture)

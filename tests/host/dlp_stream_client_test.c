@@ -7,6 +7,9 @@
 #include "solar_os.h"
 #include "solar_os_display_link_transport.h"
 #include "solar_os_dlp_receiver.h"
+#include "solar_os_dlp_display.h"
+#include "solar_os_display.h"
+#include "solar_os_native_display_link_target_abi.h"
 #include "solar_os_memory.h"
 #include "solar_os_native_display_link.h"
 #include "solar_os_native_handles.h"
@@ -27,6 +30,30 @@ static uint64_t cancel_at;
 static bool fail_cache;
 static unsigned transient_reads, transient_writes;
 static bool graphics;
+static solar_os_display_target_t target;
+static bool target_claimed;
+
+esp_err_t solar_os_display_register_target(const solar_os_display_target_t *in)
+{
+    if (target.u8g2) return ESP_ERR_INVALID_STATE;
+    target = *in;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_unregister_target_owned(const char *name, const u8g2_t *canvas)
+{
+    if (!target.u8g2 || target.u8g2 != canvas || strcmp(target.name, name)) return ESP_ERR_NOT_FOUND;
+    if (target_claimed) return ESP_ERR_INVALID_STATE;
+    memset(&target, 0, sizeof(target));
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_link_surface(void *link, const solar_os_display_surface_t *surface)
+{ assert(link && surface); return ESP_OK; }
+esp_err_t solar_os_display_link_frame(void *link, const solar_os_display_raster_t *frame)
+{ assert(link && frame); return ESP_OK; }
+esp_err_t solar_os_display_link_power_state(void *link)
+{ assert(link); return ESP_OK; }
 static const char *fail_graphics_tag;
 static const solar_os_app_t app = {.name = "display-link-test"};
 const solar_os_app_t *solar_os_application_descriptor(void) { return &app; }
@@ -161,6 +188,43 @@ static void test_native_link(void) {
     assert(!allocations && opens == closes && !solar_os_native_handle_count());
 }
 
+static void test_native_target(void)
+{
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    const solar_os_native_display_link_target_api_v1_t *attach =
+        solar_os_native_display_link_get_service("display.link.target", 1, sizeof(*attach));
+    assert(api && attach);
+    solar_os_native_handle_t handle = 0;
+    const solar_os_native_display_link_options_v1_t options = {.format = -1, .timeout_ms = 100};
+    const uint8_t pixels[26] = {0};
+    assert(!api->open("test0", "native-target", &options, NULL, NULL, &handle));
+    assert(attach->attach(handle, NULL, 0) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!api->present(handle, pixels, sizeof(pixels), NULL, NULL));
+    graphics = true;
+    assert(!attach->attach(handle, "aux-test", 1690));
+    assert(target.u8g2 && target.max_stream_pixels_per_second == 1690 && target.preferred_stream_fps == 10);
+    assert(attach->attach(handle, "second", 0) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->present(handle, pixels, sizeof(pixels), NULL, NULL) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_dlp_display_detach("aux-test") == ESP_ERR_NOT_FOUND);
+
+    target_claimed = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(target.u8g2 && allocations && opens == closes + 1);
+    target_claimed = false;
+    fail_close = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!target.u8g2 && allocations && opens == closes + 1);
+    u8g2_t replacement = {0};
+    strcpy(target.name, "aux-test");
+    target.u8g2 = &replacement;
+    fail_close = false;
+    assert(!api->close(handle));
+    assert(target.u8g2 == &replacement && !allocations && opens == closes);
+    memset(&target, 0, sizeof(target));
+    graphics = false;
+}
+
 int main(void) {
     const solar_os_display_link_call_options_t call = {.cancelled = should_cancel};
     sdlp_info_t info = {.width = 13, .height = 13, .formats = 1,
@@ -278,6 +342,7 @@ int main(void) {
         assert(!allocations && opens == closes);
     }
     test_native_link();
+    test_native_target();
     assert(solar_os_port_unregister("test0") == ESP_OK);
     puts("DLP stream host: compact/legacy, fragmented I/O, delta, cache pressure, reconnect, cancellation, graphics allocation failure and cleanup PASS");
 }

@@ -18,6 +18,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_player_playlist.h"
 #include "solar_os_shell_io.h"
@@ -771,7 +772,7 @@ static bool player_handle_key(solar_os_context_t *ctx, uint8_t key)
 static esp_err_t player_start(solar_os_context_t *ctx)
 {
     memset(&player, 0, sizeof(player));
-    player.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    player.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(player.media_ui->cassette_draw));
     if (!player.media_ui) return ESP_ERR_NOT_SUPPORTED;
     const int argc = solar_os_context_argc(ctx);

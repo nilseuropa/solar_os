@@ -126,11 +126,20 @@ static int router_status(solar_os_native_network_router_v1_t *out)
 }
 static int router_start(void) { return solar_os_native_result(solar_os_network_router_start()); }
 static int router_stop(void) { return solar_os_native_result(solar_os_network_router_stop()); }
+static const char *interface_role_name(uint32_t role)
+{
+    return solar_os_network_interface_role_name((solar_os_network_interface_role_t)role);
+}
+static const char *interface_state_name(uint32_t state)
+{
+    return solar_os_network_interface_state_name((solar_os_network_interface_state_t)state);
+}
 static const solar_os_native_routing_api_v1_t routing_api = {
     .abi_version = SOLAR_OS_NATIVE_ROUTING_ABI, .struct_size = sizeof(routing_api),
     .paths = paths, .preferred = preferred, .priority_set = priority_set, .interfaces = interfaces,
     .interface_publish = interface_publish, .interface_remove = interface_remove,
     .router_status = router_status, .router_start = router_start, .router_stop = router_stop,
+    .role_name = interface_role_name, .state_name = interface_state_name,
 };
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_WIFI

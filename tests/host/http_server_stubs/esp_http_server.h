@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/types.h>
 
 #include "esp_err.h"
 
@@ -17,6 +18,7 @@ typedef struct httpd_req {
     const char *uri;
     httpd_method_t method;
     void *user_ctx;
+    size_t content_len, body_offset;
 } httpd_req_t;
 
 typedef esp_err_t (*httpd_uri_handler_t)(httpd_req_t *req);
@@ -70,3 +72,9 @@ esp_err_t httpd_resp_sendstr(httpd_req_t *req, const char *message);
 esp_err_t httpd_req_async_handler_begin(httpd_req_t *req,
                                         httpd_req_t **out);
 esp_err_t httpd_req_async_handler_complete(httpd_req_t *req);
+
+#define HTTPD_SOCK_ERR_TIMEOUT (-3)
+int httpd_req_recv(httpd_req_t *r, char *data, size_t capacity);
+esp_err_t httpd_resp_set_type(httpd_req_t *r, const char *value);
+esp_err_t httpd_resp_send(httpd_req_t *r, const char *data, ssize_t length);
+esp_err_t httpd_resp_send_chunk(httpd_req_t *r, const char *data, ssize_t length);

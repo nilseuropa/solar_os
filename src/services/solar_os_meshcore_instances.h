@@ -44,6 +44,9 @@ void solar_os_meshcore_current_pause(void);
  * use the sole instance for that backend; multiple matches are ambiguous.
  * Nested calls reuse their existing scope. End every returned lease. */
 esp_err_t solar_os_meshcore_legacy_begin(unsigned kind, void **lease);
+/* A nonzero ID selects an exact messaging instance of the requested backend.
+ * Zero preserves the default/sole-instance resolution. */
+esp_err_t solar_os_meshcore_instance_begin(unsigned kind, solar_os_messaging_provider_id_t id, void **lease);
 void solar_os_meshcore_legacy_end(void *lease);
 
 esp_err_t solar_os_meshcore_instances_bind(unsigned kind, int argc, const char *const *argv);

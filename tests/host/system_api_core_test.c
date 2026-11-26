@@ -1,3 +1,4 @@
+#include "solar_os_native_libc_abi.h"
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,6 +45,13 @@ static int entry(int argc, char **argv)
     assert(argc == 1 && argv && !strcmp(argv[0], "builtin"));
     const solar_os_native_host_api_v1_t *host = solar_os_native_host_v1();
     assert(host->get_service("scope", 1, 8) == scoped && !host->write_utf8("core", 4));
+    const solar_os_native_libc_api_v1_t *libc =
+        host->get_service(SOLAR_OS_NATIVE_LIBC_SERVICE, SOLAR_OS_NATIVE_LIBC_ABI, sizeof(*libc));
+    assert(libc && libc->explicit_bzero);
+    uint8_t sensitive[] = {1, 2, 3, 4, 5};
+    const uint8_t cleared[] = {1, 0, 0, 0, 5};
+    libc->explicit_bzero(sensitive + 1, 3);
+    assert(!memcmp(sensitive, cleared, sizeof(sensitive)));
     return 17;
 }
 static const solar_os_native_library_api_header_v1_t library_table = {1, sizeof(library_table)};

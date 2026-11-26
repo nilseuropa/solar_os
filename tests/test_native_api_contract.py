@@ -76,12 +76,8 @@ class NativeApiContractTest(unittest.TestCase):
                 content = outputs[Path('src/services/generated') / name]
                 self.assertNotIn('_get_service', content)
 
-    def test_system_coverage_is_current_and_pending_work_is_explicit(self):
-        audit.main(['--check'])
-        if any(not entry['operations'] and not entry['internal_reason'] for entry in audit.inventory(ROOT).values()):
-            with self.assertRaisesRegex(ValueError, 'coverage is incomplete'):
-                audit.main(['--require-full'])
-        else: audit.main(['--require-full'])
+    def test_system_coverage_is_current_and_complete(self):
+        audit.main(['--check', '--require-full'])
 
     def system_fixture(self, tmp):
         root=self.clone(tmp)

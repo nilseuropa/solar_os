@@ -69,6 +69,9 @@
 #include "solar_os_port_shell.h"
 #include "solar_os_power.h"
 #include "solar_os_shutdown.h"
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
+#include "solar_os_sc2_sync.h"
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
 #include "solar_os_gnss.h"
 #endif
@@ -970,6 +973,10 @@ static esp_err_t shutdown_step(solar_os_shutdown_stage_t stage, void *user)
         return solar_os_jobs_prepare_shutdown(&os_ctx);
     case SOLAR_OS_SHUTDOWN_RADIOS: {
         esp_err_t err = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
+        err = solar_os_sc2_sync_prepare_shutdown();
+        if (err != ESP_OK) return err;
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_USB_HOST
         err = solar_os_usb_prepare_sleep();
         if (err != ESP_OK) return err;

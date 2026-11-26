@@ -21,7 +21,7 @@ class DlpReceiverTest(unittest.TestCase):
             binary = Path(directory) / "timing"
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
                 "-I" + directory, "-I" + str(ROOT / "src/services"),
                 "-I" + str(ROOT / "protocol/display_link/include"),
                 "-I", str(ROOT / "include"),
@@ -36,9 +36,12 @@ class DlpReceiverTest(unittest.TestCase):
             binary = Path(directory) / "raster"
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                "-I" + str(ROOT / "src/services"),
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
+                "-DSOLAR_OS_PACKAGE_SERVICE_DLP=1",
+                "-I" + str(ROOT / "src"), "-I" + str(ROOT / "tests/host"),
+                "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
                 str(ROOT / "src/services/solar_os_dlp_raster.c"),
+                str(ROOT / "src/services/solar_os_native_display_raster.c"),
                 str(ROOT / "tests/host/dlp_raster_test.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
@@ -48,10 +51,15 @@ class DlpReceiverTest(unittest.TestCase):
             binary = Path(directory) / "receiver"
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
-                "-I" + str(ROOT / "src/services"),
+                "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
+                "-DSOLAR_OS_PACKAGE_SERVICE_DLP=1", "-pthread",
+                "-I" + str(ROOT / "src"), "-I" + str(ROOT / "tests/host"),
+                "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
+                "-I" + str(ROOT / "tests/host/native_abi_stubs"),
                 "-I" + str(ROOT / "protocol/display_link/include"),
                 str(ROOT / "src/services/solar_os_dlp_receiver.c"),
+                str(ROOT / "src/services/solar_os_native_display_receiver.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
                 str(ROOT / "protocol/display_link/src/sdlp.c"),
                 str(ROOT / "tests/host/dlp_receiver_test.c"), "-o", str(binary),
             ], check=True)

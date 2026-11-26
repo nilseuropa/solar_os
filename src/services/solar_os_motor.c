@@ -128,12 +128,12 @@ esp_err_t solar_os_motor_register(const solar_os_motor_registration_t *registrat
     return err;
 }
 
-esp_err_t solar_os_motor_unregister(const char *name)
+static esp_err_t motor_unregister(const char *name, const void *owner)
 {
     if (!valid_name(name, SOLAR_OS_MOTOR_NAME_MAX)) return ESP_ERR_INVALID_ARG;
     lock();
     motor_t *m = find(name);
-    if (m == NULL) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
+    if (m == NULL || (owner && m->ctx != owner)) { xSemaphoreGive(registry_mutex); return ESP_ERR_NOT_FOUND; }
     if (m->refs != 0U || m->cleanup_busy || (m->removing && !m->registration_failed && !m->shutdown_done) || m->claim != 0U) { xSemaphoreGive(registry_mutex); return ESP_ERR_INVALID_STATE; }
     m->cleanup_busy=true;
     m->removing = true;
@@ -154,6 +154,16 @@ esp_err_t solar_os_motor_unregister(const char *name)
         solar_os_memory_free(m);
     }
     return ret;
+}
+
+esp_err_t solar_os_motor_unregister(const char *name)
+{
+    return motor_unregister(name, NULL);
+}
+
+esp_err_t solar_os_motor_unregister_owned(const char *name, const void *owner)
+{
+    return owner != NULL ? motor_unregister(name, owner) : ESP_ERR_INVALID_ARG;
 }
 
 size_t solar_os_motor_count(void)

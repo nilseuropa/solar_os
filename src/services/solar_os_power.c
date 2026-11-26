@@ -29,6 +29,7 @@ static const char *TAG = "solar_os_power";
 static portMUX_TYPE off_lock = portMUX_INITIALIZER_UNLOCKED;
 static solar_os_power_off_fn_t off_provider;
 static void *off_user;
+static bool off_in_progress;
 
 esp_err_t solar_os_power_register_off_provider(const char *name,
                                                solar_os_power_off_fn_t off,
@@ -40,27 +41,47 @@ esp_err_t solar_os_power_register_off_provider(const char *name,
 #else
     if (strcmp(name, SOLAR_OS_BOARD_POWEROFF_PROVIDER) != 0) return ESP_ERR_NOT_SUPPORTED;
     portENTER_CRITICAL(&off_lock);
-    const bool busy = off_provider != NULL && off_user != user;
+    const bool busy = off_in_progress || (off_provider != NULL && off_user != user);
     if (!busy) { off_provider = off; off_user = user; }
     portEXIT_CRITICAL(&off_lock);
     return busy ? ESP_ERR_INVALID_STATE : ESP_OK;
 #endif
 }
 
-void solar_os_power_unregister_off_provider(void *user)
+esp_err_t solar_os_power_unregister_off_provider(void *user)
 {
+    if (!user) return ESP_ERR_INVALID_ARG;
     portENTER_CRITICAL(&off_lock);
-    if (off_user == user) { off_provider = NULL; off_user = NULL; }
+    esp_err_t result = ESP_ERR_NOT_FOUND;
+    if (off_user == user) {
+        result = off_in_progress ? ESP_ERR_INVALID_STATE : ESP_OK;
+        if (result == ESP_OK) {
+            off_provider = NULL;
+            off_user = NULL;
+        }
+    }
     portEXIT_CRITICAL(&off_lock);
+    return result;
 }
 
 esp_err_t solar_os_power_off(void)
 {
     portENTER_CRITICAL(&off_lock);
+    if (off_in_progress || !off_provider) {
+        const esp_err_t result = off_in_progress ? ESP_ERR_INVALID_STATE : ESP_ERR_NOT_SUPPORTED;
+        portEXIT_CRITICAL(&off_lock);
+        return result;
+    }
     const solar_os_power_off_fn_t off = off_provider;
     void *user = off_user;
+    off_in_progress = true;
     portEXIT_CRITICAL(&off_lock);
-    return off != NULL ? off(user) : ESP_ERR_NOT_SUPPORTED;
+
+    const esp_err_t result = off(user);
+    portENTER_CRITICAL(&off_lock);
+    off_in_progress = false;
+    portEXIT_CRITICAL(&off_lock);
+    return result;
 }
 
 static solar_os_power_status_t power_status = {

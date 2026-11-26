@@ -55,6 +55,8 @@ typedef struct {
 } link_ref_t;
 
 static SemaphoreHandle_t link_mutex;
+static StaticSemaphore_t link_mutex_storage;
+static portMUX_TYPE link_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR link_instance_t link_instances[SOLAR_OS_LINK_INSTANCE_MAX];
 static uint32_t link_generation = 1;
 
@@ -66,18 +68,19 @@ static bool link_name_valid(const char *name)
 
 static esp_err_t link_ensure_init(void)
 {
-    if (link_mutex != NULL) {
-        return ESP_OK;
+    portENTER_CRITICAL(&link_init_lock);
+    if (!link_mutex) {
+        link_mutex = xSemaphoreCreateMutexStatic(&link_mutex_storage);
     }
-
-    link_mutex = xSemaphoreCreateMutex();
-    return link_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    const SemaphoreHandle_t mutex = link_mutex;
+    portEXIT_CRITICAL(&link_init_lock);
+    return mutex ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
-static int link_find_locked(const char *name)
+static int link_find_locked(const char *name, bool include_closing)
 {
     for (size_t i = 0; i < SOLAR_OS_LINK_INSTANCE_MAX; i++) {
-        if (link_instances[i].active && !link_instances[i].closing &&
+        if ((link_instances[i].active || (include_closing && link_instances[i].closing)) &&
             strcmp(link_instances[i].name, name) == 0) {
             return (int)i;
         }
@@ -107,7 +110,7 @@ static esp_err_t link_acquire(const char *name, link_ref_t *ref)
     memset(ref, 0, sizeof(*ref));
     ref->index = -1;
     xSemaphoreTake(link_mutex, portMAX_DELAY);
-    const int index = link_find_locked(name);
+    const int index = link_find_locked(name, false);
     if (index < 0) {
         xSemaphoreGive(link_mutex);
         return ESP_ERR_NOT_FOUND;
@@ -289,7 +292,7 @@ esp_err_t solar_os_link_create(const char *name, uint32_t local_id, size_t frame
     }
 
     xSemaphoreTake(link_mutex, portMAX_DELAY);
-    if (link_find_locked(name) >= 0) {
+    if (link_find_locked(name, true) >= 0) {
         xSemaphoreGive(link_mutex);
         solar_os_queue_delete(tx_queue);
         solar_os_queue_delete(rx_queue);
@@ -337,42 +340,42 @@ esp_err_t solar_os_link_destroy(const char *name)
         return ret;
     }
 
-    int index = -1;
-    QueueHandle_t rx_queue = NULL;
-    QueueHandle_t tx_queue = NULL;
     xSemaphoreTake(link_mutex, portMAX_DELAY);
-    index = link_find_locked(name);
+    const int index = link_find_locked(name, true);
     if (index < 0) {
         xSemaphoreGive(link_mutex);
         return ESP_ERR_NOT_FOUND;
     }
     link_instance_t *instance = &link_instances[index];
+    const uint32_t generation = instance->generation;
     instance->active = false;
     instance->closing = true;
-    rx_queue = instance->rx_queue;
-    tx_queue = instance->tx_queue;
     xSemaphoreGive(link_mutex);
 
     const TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(LINK_DESTROY_WAIT_MS);
     for (;;) {
         xSemaphoreTake(link_mutex, portMAX_DELAY);
-        const size_t refs = link_instances[index].refs;
-        xSemaphoreGive(link_mutex);
-        if (refs == 0) {
-            break;
+        if (instance->generation != generation) {
+            /* Another destroy has already retired this instance. */
+            xSemaphoreGive(link_mutex);
+            return ESP_OK;
         }
+        if (instance->refs == 0) {
+            const QueueHandle_t rx_queue = instance->rx_queue;
+            const QueueHandle_t tx_queue = instance->tx_queue;
+            memset(instance, 0, sizeof(*instance));
+            xSemaphoreGive(link_mutex);
+            solar_os_queue_delete(tx_queue);
+            solar_os_queue_delete(rx_queue);
+            return ESP_OK;
+        }
+        xSemaphoreGive(link_mutex);
         if ((int32_t)(deadline - xTaskGetTickCount()) <= 0) {
+            /* A later call can finish the same retired generation. */
             return ESP_ERR_TIMEOUT;
         }
         vTaskDelay(1);
     }
-
-    solar_os_queue_delete(tx_queue);
-    solar_os_queue_delete(rx_queue);
-    xSemaphoreTake(link_mutex, portMAX_DELAY);
-    memset(&link_instances[index], 0, sizeof(link_instances[index]));
-    xSemaphoreGive(link_mutex);
-    return ESP_OK;
 }
 
 size_t solar_os_link_count(void)
@@ -440,7 +443,7 @@ esp_err_t solar_os_link_get_status(const char *name, solar_os_link_status_t *sta
         return ret;
     }
     xSemaphoreTake(link_mutex, portMAX_DELAY);
-    const int index = link_find_locked(name);
+    const int index = link_find_locked(name, false);
     if (index < 0) {
         xSemaphoreGive(link_mutex);
         return ESP_ERR_NOT_FOUND;

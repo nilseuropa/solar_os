@@ -42,7 +42,12 @@ int main(void)
     solar_os_raster_image_pixels_t view = {.data = rgb, .length = 12, .stride = 6, .width = 2, .height = 2};
     solar_os_inference_tensor_t port = {.dtype = SOLAR_OS_TENSOR_INT8, .rank = 4,
         .shape = {1,2,2,1}, .bytes = 4, .exponent_count = 1, .exponents = &exponent};
-    solar_os_tensor_image_options_t o; prepare->defaults(&o); o.color = SOLAR_OS_TENSOR_GRAY;
+    solar_os_tensor_image_options_t o;
+    prepare->defaults(&o);
+    assert(!prepare->option(&o, "color", "GRAY") && o.color == SOLAR_OS_TENSOR_GRAY);
+    assert(!prepare->option(&o, "resize", "letterbox") && o.resize == SOLAR_OS_TENSOR_LETTERBOX);
+    assert(prepare->option(&o, "resize", "bilinear") == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(o.resize == SOLAR_OS_TENSOR_LETTERBOX);
     solar_os_tensor_image_transform_t transform;
     assert(!prepare->inspect(&view, &port, &o, &transform) && transform.bytes == 4);
     cancellation = 1;

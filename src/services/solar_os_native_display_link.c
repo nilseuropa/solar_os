@@ -1,6 +1,7 @@
 #include "solar_os_native_display_link.h"
 #include "solar_os_config.h"
 #include "solar_os_native_display_link_abi.h"
+#include "solar_os_native_display_link_target_abi.h"
 #include <string.h>
 
 #if SOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT
@@ -10,6 +11,11 @@
 #include "solar_os_native_handles.h"
 #include "solar_os_native_support.h"
 #include <stdatomic.h>
+
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+#include "solar_os_display.h"
+#include "solar_os_dlp_display.h"
+#endif
 
 #define CHECK_VALUE(name) _Static_assert(SOLAR_OS_NATIVE_DISPLAY_LINK_##name == SDLP_##name, "DLP " #name)
 CHECK_VALUE(MONO1);
@@ -31,6 +37,9 @@ typedef struct {
     solar_os_display_link_t *link;
     atomic_bool in_operation;
     bool ready;
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+    char target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
+#endif
 } native_display_link_t;
 
 typedef struct {
@@ -51,7 +60,12 @@ static int destroy(void *value)
     native_display_link_t *state = value;
     if (atomic_load(&state->in_operation)) return SOLAR_OS_NATIVE_ERROR_BUSY;
     state->ready = false;
-    esp_err_t error = solar_os_display_link_close(state->link);
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+    const esp_err_t error = state->target[0] ?
+        solar_os_dlp_display_detach_owned(state->target, state) : solar_os_display_link_close(state->link);
+#else
+    const esp_err_t error = solar_os_display_link_close(state->link);
+#endif
     if (error != ESP_OK) return solar_os_native_result(error);
     solar_os_memory_free(state);
     return SOLAR_OS_NATIVE_OK;
@@ -135,6 +149,12 @@ static int present(solar_os_native_handle_t id, const void *pixels, size_t size,
     native_display_link_t *state;
     int result = enter(id, &state);
     if (result) return result;
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+    if (state->target[0]) {
+        leave(id, state);
+        return SOLAR_OS_NATIVE_ERROR_BUSY;
+    }
+#endif
     cancellation_t cancellation = {.fn = cancel, .user = user};
     const solar_os_display_link_call_options_t call = {.cancelled = cancel ? cancelled : NULL,
         .cancel_user = &cancellation};
@@ -147,6 +167,31 @@ static const solar_os_native_display_link_api_v1_t display_link_api = {
     .abi_version = SOLAR_OS_NATIVE_DISPLAY_LINK_ABI, .struct_size = sizeof(display_link_api),
     .open = link_open, .info = info, .present = present, .close = link_close,
 };
+
+#if SOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY
+static int target_attach(solar_os_native_handle_t id, const char *name, uint32_t budget)
+{
+    native_display_link_t *state;
+    int result = enter(id, &state);
+    if (result) return result;
+    if (state->target[0]) {
+        result = SOLAR_OS_NATIVE_ERROR_BUSY;
+    } else {
+        const esp_err_t error = solar_os_dlp_display_register_owned(name, "native-dlp",
+            state->link, budget, state);
+        if (error == ESP_OK) strlcpy(state->target, name, sizeof(state->target));
+        result = solar_os_native_result(error);
+    }
+    leave(id, state);
+    return result;
+}
+
+static const solar_os_native_display_link_target_api_v1_t display_link_target_api = {
+    .abi_version = SOLAR_OS_NATIVE_DISPLAY_LINK_TARGET_ABI,
+    .struct_size = sizeof(display_link_target_api),
+    .attach = target_attach,
+};
+#endif
 #endif
 
 const void *solar_os_native_display_link_get_service(const char *name, uint32_t abi, uint32_t minimum)

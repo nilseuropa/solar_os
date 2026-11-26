@@ -65,4 +65,7 @@ esp_err_t solar_os_audio_player_end_input(solar_os_audio_player_t *player);
 esp_err_t solar_os_audio_player_finish(solar_os_audio_player_t *player,
                                        const volatile bool *cancelled);
 esp_err_t solar_os_audio_player_error(const solar_os_audio_player_t *player);
+/* Close on the opening task in direct mode. Failure leaves the player
+ * intact and permits another close attempt. */
+esp_err_t solar_os_audio_player_destroy_checked(solar_os_audio_player_t *player);
 void solar_os_audio_player_destroy(solar_os_audio_player_t *player);

@@ -482,9 +482,16 @@ static const solar_os_native_inference_api_v1_t inference_api = {
     .dtype_name = solar_os_tensor_dtype_name, .dtype_parse = native_dtype_parse,
     .dtype_bytes = solar_os_tensor_dtype_bytes,
 };
+static int native_tensor_option(solar_os_tensor_image_options_t *options,
+                                 const char *key, const char *value)
+{
+    return native_result(solar_os_tensor_image_option(options, key, value));
+}
+
 static const solar_os_native_tensor_image_api_v1_t tensor_image_api = {
     .abi_version = SOLAR_OS_NATIVE_TENSOR_IMAGE_ABI, .struct_size = sizeof(tensor_image_api),
     .defaults = solar_os_tensor_image_defaults, .inspect = native_tensor_inspect, .prepare = native_tensor_prepare,
+    .option = native_tensor_option,
 };
 #endif
 

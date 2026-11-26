@@ -55,4 +55,6 @@ typedef struct {
         const solar_os_inference_tensor_t *port, const solar_os_tensor_image_options_t *options,
         uint8_t *destination, size_t length, solar_os_tensor_image_transform_t *transform,
         solar_os_native_cancel_fn cancel, void *user);
+    /* Parse a named layout, color or resize mode into existing options. */
+    int (*option)(solar_os_tensor_image_options_t *options, const char *key, const char *value);
 } solar_os_native_tensor_image_api_v1_t;

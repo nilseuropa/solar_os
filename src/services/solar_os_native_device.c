@@ -8,13 +8,7 @@
 #include "solar_os_config.h"
 #include "solar_os_native_sensors_abi.h"
 #include <string.h>
-#if SOLAR_OS_PACKAGE_CORE_RUNTIME
-#include "solar_os_board_caps.h"
-#include "solar_os_identity.h"
-#include "solar_os_backlight.h"
-#include "solar_os_power.h"
-#include "solar_os_shutdown.h"
-#include "esp_sleep.h"
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME || SOLAR_OS_PACKAGE_SERVICE_OTA
 static int copy_text(char *out, size_t capacity, const char *text)
 {
     if (!text) text = "";
@@ -22,6 +16,14 @@ static int copy_text(char *out, size_t capacity, const char *text)
     if (length >= capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     memcpy(out, text, length + 1); return SOLAR_OS_NATIVE_OK;
 }
+#endif
+#if SOLAR_OS_PACKAGE_CORE_RUNTIME
+#include "solar_os_board_caps.h"
+#include "solar_os_identity.h"
+#include "solar_os_backlight.h"
+#include "solar_os_power.h"
+#include "solar_os_shutdown.h"
+#include "esp_sleep.h"
 static int board_capabilities_out(uint64_t value, uint64_t *out)
 {
     uint64_t known = 0; *out = 0;
@@ -978,6 +980,101 @@ static const solar_os_native_nfc_api_v1_t nfc_api = {
     .abi_version = SOLAR_OS_NATIVE_NFC_ABI, .struct_size = sizeof(nfc_api),
     .count = solar_os_nfc_count, .info = solar_os_nfc_get, .set_power = nfc_set_power, .scan = nfc_scan,
     .provider_register = solar_os_native_nfc_provider_register, .provider_close = solar_os_native_nfc_provider_close,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+static const solar_os_native_motor_provider_api_v1_t motor_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_MOTOR_PROVIDER_ABI, .struct_size = sizeof(motor_provider_api),
+    .register_provider = solar_os_native_motor_provider_register,
+    .close = solar_os_native_motor_provider_close,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+static const solar_os_native_encoder_provider_api_v1_t encoder_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_ENCODER_PROVIDER_ABI, .struct_size = sizeof(encoder_provider_api),
+    .register_provider = solar_os_native_encoder_provider_register,
+    .close = solar_os_native_encoder_provider_close,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+#include "solar_os_ota.h"
+
+static int ota_status(solar_os_ota_status_t *status)
+{
+    return solar_os_native_result(solar_os_ota_get_status(status));
+}
+
+static int ota_get_url(char *out, size_t capacity)
+{
+    if (!out || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    char url[SOLAR_OS_OTA_URL_MAX];
+    solar_os_ota_get_url(url, sizeof(url));
+    return copy_text(out, capacity, url);
+}
+
+static int ota_set_url(const char *url)
+{
+    return solar_os_native_result(solar_os_ota_set_url(url));
+}
+
+static int ota_get_flavor(char *out, size_t capacity)
+{
+    if (!out || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+    solar_os_ota_get_flavor(flavor, sizeof(flavor));
+    return copy_text(out, capacity, flavor);
+}
+
+static int ota_set_flavor(const char *flavor)
+{
+    return solar_os_native_result(solar_os_ota_set_flavor(flavor));
+}
+
+static int ota_available_flavor_at(size_t index, char *out, size_t capacity)
+{
+    if (!out || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    char flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+    if (!solar_os_ota_get_available_flavor(index, flavor, sizeof(flavor)))
+        return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    return copy_text(out, capacity, flavor);
+}
+
+static int ota_index_url(char *out, size_t capacity)
+{
+    if (!out || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    char url[SOLAR_OS_OTA_ARTIFACT_URL_MAX];
+    const esp_err_t error = solar_os_ota_get_index_url(url, sizeof(url));
+    return error == ESP_OK ? copy_text(out, capacity, url) : solar_os_native_result(error);
+}
+
+static int ota_check(solar_os_ota_check_result_t *result)
+{
+    if (!result) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *result = (solar_os_ota_check_result_t){.status_code = -1, .content_length = -1};
+    return solar_os_native_result(solar_os_ota_check(result));
+}
+
+static int ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
+{
+    return solar_os_native_result(solar_os_ota_upgrade(progress, user));
+}
+
+static int ota_set_boot_slot(uint8_t slot)
+{
+    return solar_os_native_result(solar_os_ota_set_boot_slot(slot));
+}
+
+static const solar_os_native_ota_api_v1_t ota_api = {
+    .abi_version = SOLAR_OS_NATIVE_OTA_ABI, .struct_size = sizeof(ota_api),
+    .status = ota_status,
+    .get_url = ota_get_url, .set_url = ota_set_url,
+    .get_flavor = ota_get_flavor, .set_flavor = ota_set_flavor,
+    .available_flavors_checked = solar_os_ota_available_flavors_checked,
+    .available_flavor_count = solar_os_ota_available_flavor_count, .available_flavor_at = ota_available_flavor_at,
+    .index_url = ota_index_url, .check = ota_check, .upgrade = ota_upgrade, .set_boot_slot = ota_set_boot_slot,
 };
 #endif
 

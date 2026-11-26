@@ -1,12 +1,14 @@
 /* "sc2" Messaging provider class on the real Messaging registry and on-disk
  * profiles (host filesystem), with the SC2 key store stubbed out. */
-#define SOLAR_OS_PACKAGE_JOB_SC2_SYNC 1
+#define SOLAR_OS_PACKAGE_SERVICE_SC2_DISCOVERY 1
 #define main messaging_existing_tests_main
 #include "messaging_service_test.c"
 #undef main
 #include "../../src/services/solar_os_sc2_provider.c"
 
 #include <ftw.h>
+#include "solar_os_native_sc2_abi.h"
+#include "solar_os_native_sc2_profile.h"
 
 #define PIN_A "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 #define DEVICE_UPPER "00112233445566778899AABBCCDDEEFF"
@@ -310,6 +312,61 @@ static void test_fallbacks(void)
  * version 2 profiles load without pins. */
 #define KEY_A "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
 #define KEY_B "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBA="
+int sc2_rotation_verify(const uint8_t sig[SC2_SIG_LEN], const uint8_t old_key[SC2_KEY_LEN],
+    const char *relay_id, const uint8_t new_key[SC2_KEY_LEN])
+{
+    assert((!strcmp(relay_id, "test-relay") || strlen(relay_id) == SC2_RELAY_ID_MAX) && !old_key[0] && new_key[0]);
+    return sig[0] == 1 ? SC2_OK : SC2_ERR_AUTH;
+}
+
+int sc2_welcome_verify(const uint8_t sig[SC2_SIG_LEN], const uint8_t key[SC2_KEY_LEN],
+    const char *relay_id, const uint8_t nonce[SC2_HELLO_NONCE_LEN],
+    const uint8_t challenge[SC2_AUTH_CHALLENGE_LEN])
+{
+    assert((!strcmp(relay_id, "test-relay") || strlen(relay_id) == SC2_RELAY_ID_MAX) && key[0] && nonce[0] == 2 && challenge[0] == 3);
+    return sig[0] == 4 ? SC2_OK : SC2_ERR_AUTH;
+}
+
+static void rotate_from_native(solar_os_messaging_provider_id_t id, const uint8_t new_key[32])
+{
+    const solar_os_native_sc2_profile_api_v1_t *api = solar_os_native_sc2_profile_get_service(
+        SOLAR_OS_NATIVE_SC2_PROFILE_SERVICE, 1, sizeof(*api));
+    assert(api);
+    solar_os_native_sc2_profile_v1_t profile;
+    assert(!api->read(id, &profile) && profile.admission_configured && profile.relay_count == 3);
+    assert(profile.relays[0].key_pinned && profile.relays[1].key_pinned && !profile.relays[2].key_pinned);
+    assert(profile.relays[0].endpoint.port == 7778 && profile.relays[1].endpoint.tls);
+    assert(!memmem(&profile, sizeof(profile), "code-1", 6));
+    solar_os_native_sc2_endpoint_v1_t endpoint;
+    assert(!api->parse_endpoint("chats://peer.test:7443#pin=" PIN_A, &endpoint) &&
+        endpoint.tls && endpoint.port == 7443 && !strcmp(endpoint.pin, PIN_A));
+    assert(api->parse_endpoint("chat://peer.test:7443#pin=" PIN_A, &endpoint) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    char room[64];
+    assert(api->normalize_target("PUB:Room-1", true, room, sizeof(room)) == SOLAR_OS_NATIVE_SC2_TARGET_PUBLIC_ROOM);
+    assert(!strcmp(room, "pub:room-1"));
+    assert(!api->normalize_target("PUB:Room @", true, room, sizeof(room)) && !room[0]);
+    api->room_title(room, sizeof(room), DEVICE_LOWER);
+    assert(!strcmp(room, "room 00112233"));
+    uint32_t flags;
+    assert(!api->security_flags(id, SOLAR_OS_NATIVE_SC2_TARGET_DEVICE, true, &flags));
+    assert(flags == (SOLAR_OS_SECURITY_TRANSPORT_SECURED | SOLAR_OS_SECURITY_ENCRYPTED | SOLAR_OS_SECURITY_PEER_KEY_KNOWN));
+
+    solar_os_native_sc2_rotation_v1_t proof = {.relay_id = "test-relay", .nonce = {2}, .challenge = {3}};
+    memcpy(proof.new_key, new_key, sizeof(proof.new_key));
+    assert(api->rotate_key(id, 0, &proof) == SOLAR_OS_NATIVE_SC2_ERROR_AUTH);
+    proof.rotation_signature[0] = 1;
+    assert(api->rotate_key(id, 0, &proof) == SOLAR_OS_NATIVE_SC2_ERROR_AUTH);
+    assert(!api->read(id, &profile) && !profile.relays[0].key[0]);
+    proof.welcome_signature[0] = 4;
+    char relay_id[SOLAR_OS_NATIVE_SC2_RELAY_ID_CAPACITY + 1U];
+    memset(relay_id, 'r', sizeof(relay_id));
+    relay_id[sizeof(relay_id) - 1U] = '\0';
+    assert(api->rotate_key_for_relay(id, 0, relay_id, &proof) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    relay_id[sizeof(relay_id) - 2U] = '\0';
+    assert(!api->rotate_key_for_relay(id, 0, relay_id, &proof));
+    assert(api->rotate_key(id, 0, &proof) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+}
+
 static void test_relay_keys(void)
 {
     solar_os_messaging_provider_id_t id = 0;
@@ -340,7 +397,7 @@ static void test_relay_keys(void)
     /* rotation: only from the pin it replaces */
     assert(solar_os_sc2_relay_set_key(id, 0, b, b) == ESP_ERR_INVALID_STATE);
     assert(solar_os_sc2_relay_set_key(id, 2, a, b) == ESP_ERR_INVALID_STATE); /* no pin there */
-    assert(solar_os_sc2_relay_set_key(id, 0, a, b) == ESP_OK);
+    rotate_from_native(id, b);
     restart_provider();
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK);
     assert(solar_os_sc2_relay_key(&config, 0, k) && !memcmp(k, b, 32));
@@ -441,17 +498,17 @@ static void test_settings_forms(void)
     solar_os_messaging_settings_t settings;
     solar_os_messaging_provider_id_t id = 0;
     assert(solar_os_messaging_settings_read("sc2", 0, 0, &settings) == ESP_OK);
-    assert(!strcmp(settings.label, "SC2") && settings.count == 4);
+    assert(!strcmp(settings.label, "SC2") && settings.data.count == 4);
     assert(!strcmp(settings.worker, "sc2-sync") && settings.fields[1].secret);
     assert(solar_os_messaging_settings_read("sc2", 0, 1, &settings) == ESP_ERR_NOT_FOUND);
     assert(solar_os_messaging_settings_read("sc2", 0, 0, &settings) == ESP_OK);
-    strlcpy(settings.values[0], "https://invalid.example:443", sizeof(settings.values[0]));
+    strlcpy(settings.data.values[0], "https://invalid.example:443", sizeof(settings.data.values[0]));
     assert(solar_os_messaging_settings_write("sc2", 0, 0, "form", &settings, &id) == ESP_ERR_INVALID_ARG);
     assert(!solar_os_messaging_provider_find("form"));
-    strlcpy(settings.values[0], "chat.solar-os.eu:1337", sizeof(settings.values[0]));
-    strlcpy(settings.values[1], "private-code", sizeof(settings.values[1]));
-    strlcpy(settings.values[2], PIN_A, sizeof(settings.values[2]));
-    strlcpy(settings.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", sizeof(settings.values[3]));
+    strlcpy(settings.data.values[0], "chat.solar-os.eu:1337", sizeof(settings.data.values[0]));
+    strlcpy(settings.data.values[1], "private-code", sizeof(settings.data.values[1]));
+    strlcpy(settings.data.values[2], PIN_A, sizeof(settings.data.values[2]));
+    strlcpy(settings.data.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", sizeof(settings.data.values[3]));
     assert(solar_os_messaging_settings_write("sc2", 0, 0, "form", &settings, &id) == ESP_OK);
     solar_os_sc2_relay_config_t config;
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK);
@@ -465,31 +522,31 @@ static void test_settings_forms(void)
     assert(solar_os_messaging_instance_configure(id, 2, fallback) == ESP_OK);
     assert(solar_os_messaging_connect(id, true) == ESP_OK);
     assert(solar_os_messaging_settings_read("sc2", id, 0, &settings) == ESP_OK);
-    assert(settings.enabled && settings.present[1] && !settings.values[1][0]);
-    assert(!strcmp(settings.values[2], PIN_A) && !strcmp(settings.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
+    assert(settings.enabled && settings.data.present[1] && !settings.data.values[1][0]);
+    assert(!strcmp(settings.data.values[2], PIN_A) && !strcmp(settings.data.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="));
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_OK);
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK);
     assert(!strcmp(config.admit, "private-code") && config.enabled && config.key_set == 1);
     assert(!strcmp(config.rooms[0], "pub:form") && !strcmp(config.fallback[0].url, "chats://backup.example:1337"));
 
     /* Reject invalid edits without changing the persisted profile. */
-    settings.changed[3] = true;
-    strlcpy(settings.values[3], "bad-key", sizeof(settings.values[3]));
+    settings.data.changed[3] = true;
+    strlcpy(settings.data.values[3], "bad-key", sizeof(settings.data.values[3]));
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_ERR_INVALID_ARG);
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK && config.key_set == 1);
     assert(solar_os_messaging_settings_read("sc2", id, 0, &settings) == ESP_OK);
-    settings.changed[2] = true;
-    strlcpy(settings.values[2], "bad-pin", sizeof(settings.values[2]));
+    settings.data.changed[2] = true;
+    strlcpy(settings.data.values[2], "bad-pin", sizeof(settings.data.values[2]));
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_ERR_INVALID_ARG);
     assert(solar_os_messaging_settings_read("sc2", id, 0, &settings) == ESP_OK);
-    settings.changed[1] = true; /* Explicitly clear the masked admission code. */
+    settings.data.changed[1] = true; /* Explicitly clear the masked admission code. */
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_OK);
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK && !config.admit[0] && config.key_set == 1);
 
     /* URL edits use shell semantics: drop primary pins, retain rooms/fallbacks. */
     assert(solar_os_messaging_settings_read("sc2", id, 0, &settings) == ESP_OK);
-    settings.changed[0] = true;
-    strlcpy(settings.values[0], "chat://lan.local:7777", sizeof(settings.values[0]));
+    settings.data.changed[0] = true;
+    strlcpy(settings.data.values[0], "chat://lan.local:7777", sizeof(settings.data.values[0]));
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_OK);
     assert(conversation_of(room).security_flags == SOLAR_OS_SECURITY_PUBLIC_SIGNED);
     restart_provider();
@@ -545,15 +602,15 @@ static void test_settings_discovery(void)
     solar_os_messaging_settings_t settings;
     solar_os_messaging_provider_id_t id = 0;
     assert(solar_os_messaging_settings_read("sc2", 0, 0, &settings) == ESP_OK);
-    strlcpy(settings.values[0], "relay.example", sizeof(settings.values[0]));
+    strlcpy(settings.data.values[0], "relay.example", sizeof(settings.data.values[0]));
     discovery_error = ESP_ERR_NOT_FOUND;
     assert(solar_os_messaging_settings_write("sc2", 0, 0, "discovery", &settings, &id) == ESP_ERR_NOT_FOUND);
     assert(!solar_os_messaging_provider_find("discovery"));
     discovery_error = ESP_OK;
-    strlcpy(settings.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", sizeof(settings.values[3]));
+    strlcpy(settings.data.values[3], "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", sizeof(settings.data.values[3]));
     assert(solar_os_messaging_settings_write("sc2", 0, 0, "discovery", &settings, &id) == ESP_ERR_INVALID_RESPONSE);
     assert(!solar_os_messaging_provider_find("discovery"));
-    settings.values[3][0] = 0;
+    settings.data.values[3][0] = 0;
     assert(solar_os_messaging_settings_write("sc2", 0, 0, "discovery", &settings, &id) == ESP_OK);
     solar_os_sc2_relay_config_t config;
     assert(solar_os_sc2_relay_get_config(id, &config) == ESP_OK);
@@ -561,7 +618,7 @@ static void test_settings_discovery(void)
     assert(!config.admit[0] && !config.enabled && config.key_set == 3 && config.keys[0][0] == 0x31 && config.keys[1][0] == 0x42);
     assert(!strcmp(config.fallback[0].url, "chats://backup.example:7444") && !strcmp(config.fallback[0].pin, PIN_A));
     assert(solar_os_messaging_settings_read("sc2", id, 0, &settings) == ESP_OK);
-    assert(settings.values[3][0] && settings.present[3]);
+    assert(settings.data.values[3][0] && settings.data.present[3]);
     assert(solar_os_messaging_settings_write("sc2", id, 0, NULL, &settings, &id) == ESP_OK);
     assert(discovery_calls == 3); /* Saving resolved settings does not rediscover. */
     restart_provider();

@@ -45,6 +45,7 @@ typedef struct {
 esp_err_t solar_os_modem_register(
     const solar_os_modem_registration_t *registration);
 esp_err_t solar_os_modem_unregister(const char *name);
+esp_err_t solar_os_modem_unregister_owned(const char *name, const void *context);
 size_t solar_os_modem_count(void);
 bool solar_os_modem_get(size_t index, solar_os_modem_info_t *info);
 

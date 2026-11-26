@@ -24,6 +24,9 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_native_client.h"
+#include "solar_os_native_ui.h"
+#include "solar_os_native_media_widgets.h"
+#include "solar_os_native_controls_api.h"
 #include "solar_os_native_client_ui.h"
 #include "solar_os_shell_io.h"
 #include "solar_os_signal_widgets.h"
@@ -1599,10 +1602,10 @@ static esp_err_t recorder_start(solar_os_context_t *ctx)
     recorder.volume = status.volume <= 100U ? status.volume : 50U;
     recorder.visualizer = RECORDER_VISUALIZER_CASSETTE;
     const bool settings_loaded = recorder_load_settings();
-    recorder.ui_api = solar_os_native_ui_get(solar_os_native_host_v1()->get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(recorder.ui_api->input_text));
-    recorder.media_ui = solar_os_native_media_widgets_get(solar_os_native_host_v1()->get_service,
+    recorder.ui_api = solar_os_native_ui_get(solar_os_native_ui_get_service, offsetof(solar_os_native_ui_api_v1_t, input_text) + sizeof(recorder.ui_api->input_text));
+    recorder.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
         offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(recorder.media_ui->cassette_draw));
-    recorder.parameters = solar_os_native_parameters_get(solar_os_native_host_v1()->get_service,
+    recorder.parameters = solar_os_native_parameters_get(solar_os_native_controls_api_get_service,
         offsetof(solar_os_native_parameters_api_v1_t, resource_path) + sizeof(recorder.parameters->resource_path));
     esp_err_t err = recorder.ui_api && recorder.media_ui ? recorder_set_initial_path(path_arg) : ESP_ERR_NOT_SUPPORTED;
     if (err != ESP_OK) goto fail_state;

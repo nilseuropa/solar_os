@@ -10,8 +10,10 @@
 #include "solar_os_contacts.h"
 #include "solar_os_link.h"
 
-static void stream_link_name(solar_os_messaging_provider_id_t provider, char name[SOLAR_OS_LINK_NAME_MAX])
-{ snprintf(name, SOLAR_OS_LINK_NAME_MAX, "_meshcore-%lu", (unsigned long)provider); }
+static void stream_link_name(uint8_t provider, char name[SOLAR_OS_LINK_NAME_MAX])
+{
+    snprintf(name, SOLAR_OS_LINK_NAME_MAX, "_meshcore-%u", (unsigned)provider);
+}
 #define MESHCORE_STREAM_ACK_DELAY_MS 250U
 #define MESHCORE_STREAM_RETRY_MS 12000U
 #define MESHCORE_STREAM_RETRY_JITTER_MS 4000U
@@ -20,6 +22,7 @@ static void stream_link_name(solar_os_messaging_provider_id_t provider, char nam
 
 typedef struct {
     bool active;
+    uint32_t generation;
     solar_os_messaging_provider_id_t provider;
     char port[SOLAR_OS_PORT_NAME_MAX];
     solar_os_endpoint_id_t endpoint_id;
@@ -32,6 +35,8 @@ typedef struct {
 } meshcore_stream_binding_t;
 
 static SemaphoreHandle_t meshcore_stream_mutex;
+static StaticSemaphore_t meshcore_stream_mutex_storage;
+static portMUX_TYPE meshcore_stream_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static meshcore_stream_binding_t
     meshcore_stream_bindings[SOLAR_OS_MESHCORE_STREAM_MAX];
 static EXT_RAM_BSS_ATTR struct { bool running; uint32_t local_peer_id; }
@@ -39,14 +44,13 @@ static EXT_RAM_BSS_ATTR struct { bool running; uint32_t local_peer_id; }
 
 static esp_err_t meshcore_stream_ensure_init(void)
 {
-    if (meshcore_stream_mutex != NULL) {
-        return ESP_OK;
+    portENTER_CRITICAL(&meshcore_stream_init_lock);
+    if (!meshcore_stream_mutex) {
+        meshcore_stream_mutex = xSemaphoreCreateMutexStatic(&meshcore_stream_mutex_storage);
     }
-    meshcore_stream_mutex = xSemaphoreCreateMutex();
-    if (meshcore_stream_mutex == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    return solar_os_link_stream_init();
+    const SemaphoreHandle_t mutex = meshcore_stream_mutex;
+    portEXIT_CRITICAL(&meshcore_stream_init_lock);
+    return mutex ? solar_os_link_stream_init() : ESP_ERR_NO_MEM;
 }
 
 static int meshcore_stream_find_port_locked(const char *port)
@@ -108,40 +112,14 @@ static bool meshcore_stream_endpoint_trusted(
                SOLAR_OS_MESHCORE_STREAM_PUBLIC_KEY_SIZE;
 }
 
-static void meshcore_stream_prune_removed(void)
+static void meshcore_stream_prune_removed_locked(void)
 {
-    if (meshcore_stream_mutex == NULL) {
-        return;
-    }
-    char ports[SOLAR_OS_MESHCORE_STREAM_MAX][SOLAR_OS_PORT_NAME_MAX] = {{0}};
-    xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
-    for (size_t index = 0U;
-         index < SOLAR_OS_MESHCORE_STREAM_MAX;
-         index++) {
-        if (meshcore_stream_bindings[index].active) {
-            strlcpy(ports[index],
-                    meshcore_stream_bindings[index].port,
-                    sizeof(ports[index]));
-        }
-    }
-    xSemaphoreGive(meshcore_stream_mutex);
-
-    for (size_t index = 0U;
-         index < SOLAR_OS_MESHCORE_STREAM_MAX;
-         index++) {
+    for (size_t i = 0; i < SOLAR_OS_MESHCORE_STREAM_MAX; ++i) {
+        meshcore_stream_binding_t *binding = &meshcore_stream_bindings[i];
+        if (!binding->active) continue;
         solar_os_link_stream_status_t status;
-        if (ports[index][0] == '\0' ||
-            solar_os_link_stream_get_status(ports[index], &status) == ESP_OK) {
-            continue;
-        }
-        xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
-        const int found = meshcore_stream_find_port_locked(ports[index]);
-        if (found >= 0) {
-            memset(&meshcore_stream_bindings[found],
-                   0,
-                   sizeof(meshcore_stream_bindings[found]));
-        }
-        xSemaphoreGive(meshcore_stream_mutex);
+        if (solar_os_link_stream_get_status_tracked(binding->port, binding->generation, &status) == ESP_ERR_NOT_FOUND)
+            memset(binding, 0, sizeof(*binding));
     }
 }
 
@@ -153,9 +131,9 @@ esp_err_t solar_os_meshcore_stream_init(void)
 bool solar_os_meshcore_stream_instance_has_bindings(solar_os_messaging_provider_id_t provider)
 {
     if (meshcore_stream_ensure_init() != ESP_OK) return true;
-    meshcore_stream_prune_removed();
     bool found = false;
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
+    meshcore_stream_prune_removed_locked();
     for (size_t i = 0; i < SOLAR_OS_MESHCORE_STREAM_MAX; i++)
         if (meshcore_stream_bindings[i].active && meshcore_stream_bindings[i].provider == provider) found = true;
     xSemaphoreGive(meshcore_stream_mutex); return found;
@@ -206,7 +184,7 @@ void solar_os_meshcore_stream_transport_stop(solar_os_messaging_provider_id_t pr
 {
     if (!provider || provider > SOLAR_OS_MESSAGING_INSTANCE_ID_MAX) return;
     char link[SOLAR_OS_LINK_NAME_MAX]; stream_link_name(provider, link);
-    if (meshcore_stream_mutex == NULL) {
+    if (meshcore_stream_ensure_init() != ESP_OK) {
         return;
     }
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
@@ -224,7 +202,7 @@ void solar_os_meshcore_stream_transport_stop(solar_os_messaging_provider_id_t pr
 bool solar_os_meshcore_stream_transport_active(solar_os_messaging_provider_id_t provider)
 {
     if (!provider || provider > SOLAR_OS_MESSAGING_INSTANCE_ID_MAX) return false;
-    if (meshcore_stream_mutex == NULL) {
+    if (meshcore_stream_ensure_init() != ESP_OK) {
         return false;
     }
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
@@ -238,6 +216,7 @@ esp_err_t solar_os_meshcore_stream_create(
     solar_os_endpoint_id_t endpoint_id)
 {
     if (port == NULL || port[0] == '\0' ||
+        strnlen(port, SOLAR_OS_PORT_NAME_MAX) >= SOLAR_OS_PORT_NAME_MAX ||
         endpoint_id == SOLAR_OS_ENDPOINT_ID_NONE) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -250,6 +229,7 @@ esp_err_t solar_os_meshcore_stream_create(
         return ESP_ERR_INVALID_STATE;
     }
     solar_os_messaging_provider_id_t provider = endpoint.provider;
+    if (!provider || provider > SOLAR_OS_MESSAGING_INSTANCE_ID_MAX) return ESP_ERR_INVALID_STATE;
     void *lease __attribute__((cleanup(release_instance_lease))) = NULL;
     error = solar_os_messaging_instance_retain(provider, &lease);
     if (error != ESP_OK) return error;
@@ -262,6 +242,7 @@ esp_err_t solar_os_meshcore_stream_create(
         xSemaphoreGive(meshcore_stream_mutex);
         return ESP_ERR_INVALID_STATE;
     }
+    meshcore_stream_prune_removed_locked();
     if (peer_id == transports[provider].local_peer_id ||
         meshcore_stream_find_port_locked(port) >= 0 ||
         meshcore_stream_find_endpoint_locked(endpoint_id) >= 0 ||
@@ -278,8 +259,8 @@ esp_err_t solar_os_meshcore_stream_create(
             break;
         }
     }
-    xSemaphoreGive(meshcore_stream_mutex);
     if (slot < 0) {
+        xSemaphoreGive(meshcore_stream_mutex);
         return ESP_ERR_NO_MEM;
     }
 
@@ -292,23 +273,17 @@ esp_err_t solar_os_meshcore_stream_create(
         .open_interval_ms = MESHCORE_STREAM_OPEN_INTERVAL_MS,
         .peer_timeout_ms = MESHCORE_STREAM_PEER_TIMEOUT_MS,
     };
-    error = solar_os_link_stream_create_configured(
-        link, port, peer_id, &config);
+    uint32_t generation;
+    error = solar_os_link_stream_create_tracked(link, port, peer_id, &config, &generation);
     if (error != ESP_OK) {
+        xSemaphoreGive(meshcore_stream_mutex);
         return error;
     }
 
-    xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
-    if (!transports[provider].running ||
-        meshcore_stream_bindings[slot].active) {
-        xSemaphoreGive(meshcore_stream_mutex);
-        (void)solar_os_link_stream_remove(port);
-        return ESP_ERR_INVALID_STATE;
-    }
-    meshcore_stream_binding_t *binding =
-        &meshcore_stream_bindings[slot];
+    meshcore_stream_binding_t *binding = &meshcore_stream_bindings[slot];
     memset(binding, 0, sizeof(*binding));
     binding->active = true;
+    binding->generation = generation;
     binding->provider = provider;
     strlcpy(binding->port, port, sizeof(binding->port));
     binding->endpoint_id = endpoint_id;
@@ -323,29 +298,25 @@ esp_err_t solar_os_meshcore_stream_create(
 
 esp_err_t solar_os_meshcore_stream_remove(const char *port)
 {
-    if (port == NULL || port[0] == '\0' ||
-        meshcore_stream_ensure_init() != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (!port || !*port) return ESP_ERR_INVALID_ARG;
+    const esp_err_t init_error = meshcore_stream_ensure_init();
+    if (init_error != ESP_OK) return init_error;
+
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
     const int index = meshcore_stream_find_port_locked(port);
-    xSemaphoreGive(meshcore_stream_mutex);
     if (index < 0) {
+        xSemaphoreGive(meshcore_stream_mutex);
         return ESP_ERR_NOT_FOUND;
     }
-    esp_err_t error = solar_os_link_stream_remove(port);
-    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) {
-        return error;
-    }
-    xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
-    const int current = meshcore_stream_find_port_locked(port);
-    if (current >= 0) {
-        memset(&meshcore_stream_bindings[current],
-               0,
-               sizeof(meshcore_stream_bindings[current]));
+    meshcore_stream_binding_t *binding = &meshcore_stream_bindings[index];
+    const esp_err_t error = solar_os_link_stream_remove_tracked(port, binding->generation);
+    if (error == ESP_OK || error == ESP_ERR_NOT_FOUND) {
+        memset(binding, 0, sizeof(*binding));
+        xSemaphoreGive(meshcore_stream_mutex);
+        return ESP_OK;
     }
     xSemaphoreGive(meshcore_stream_mutex);
-    return ESP_OK;
+    return error;
 }
 
 size_t solar_os_meshcore_stream_count(void)
@@ -353,9 +324,9 @@ size_t solar_os_meshcore_stream_count(void)
     if (meshcore_stream_ensure_init() != ESP_OK) {
         return 0U;
     }
-    meshcore_stream_prune_removed();
     size_t count = 0U;
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
+    meshcore_stream_prune_removed_locked();
     for (size_t index = 0U;
          index < SOLAR_OS_MESHCORE_STREAM_MAX;
          index++) {
@@ -381,7 +352,7 @@ static esp_err_t meshcore_stream_fill_status(
     status->mesh_packets_received = binding->mesh_packets_received;
     status->transport_errors = binding->transport_errors;
     status->transport_last_error = binding->transport_last_error;
-    return solar_os_link_stream_get_status(binding->port, &status->stream);
+    return solar_os_link_stream_get_status_tracked(binding->port, binding->generation, &status->stream);
 }
 
 bool solar_os_meshcore_stream_get(size_t index,
@@ -394,6 +365,7 @@ bool solar_os_meshcore_stream_get(size_t index,
     bool found = false;
     size_t current = 0U;
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
+    meshcore_stream_prune_removed_locked();
     for (size_t slot = 0U;
          slot < SOLAR_OS_MESHCORE_STREAM_MAX;
          slot++) {
@@ -437,7 +409,9 @@ void solar_os_meshcore_stream_process(solar_os_messaging_provider_id_t provider,
     if (!solar_os_meshcore_stream_transport_active(provider)) {
         return;
     }
-    meshcore_stream_prune_removed();
+    xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
+    meshcore_stream_prune_removed_locked();
+    xSemaphoreGive(meshcore_stream_mutex);
     solar_os_link_stream_process(link, now_ms);
 }
 
@@ -491,7 +465,7 @@ esp_err_t solar_os_meshcore_stream_take_tx(
 void solar_os_meshcore_stream_note_tx(solar_os_endpoint_id_t endpoint_id,
                                       esp_err_t error)
 {
-    if (meshcore_stream_mutex == NULL) {
+    if (meshcore_stream_ensure_init() != ESP_OK) {
         return;
     }
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
@@ -521,6 +495,7 @@ esp_err_t solar_os_meshcore_stream_ingest(
     if (peer_public_key == NULL || envelope == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (!solar_os_meshcore_stream_transport_active(provider)) return ESP_ERR_INVALID_STATE;
     const uint8_t *frame = NULL;
     size_t frame_len = 0U;
     esp_err_t error = solar_os_meshcore_stream_envelope_decode(
@@ -545,6 +520,7 @@ esp_err_t solar_os_meshcore_stream_ingest(
         provider, peer_id, peer_public_key);
     const bool accepted = index >= 0 &&
         meshcore_stream_bindings[index].endpoint_id == endpoint.id;
+    const uint32_t generation = accepted ? meshcore_stream_bindings[index].generation : 0;
     const uint32_t local_peer_id = transports[provider].local_peer_id;
     xSemaphoreGive(meshcore_stream_mutex);
     if (!accepted) {
@@ -571,7 +547,7 @@ esp_err_t solar_os_meshcore_stream_ingest(
     xSemaphoreTake(meshcore_stream_mutex, portMAX_DELAY);
     const int current = meshcore_stream_find_peer_locked(
         provider, peer_id, peer_public_key);
-    if (current >= 0) {
+    if (current >= 0 && meshcore_stream_bindings[current].generation == generation) {
         meshcore_stream_binding_t *binding =
             &meshcore_stream_bindings[current];
         binding->transport_last_error = error;

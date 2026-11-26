@@ -18,6 +18,15 @@ class PlaygroundInstallTest(unittest.TestCase):
             storage, server = Path(root, "sd"), Path(root, "server")
             storage.mkdir()
             server.mkdir()
+            fixture = server / "entries.zip"
+            payload = b"stored ZIP entry"
+            with ZipFile(fixture, "w") as entries:
+                entries.writestr("example", payload)
+                entries.writestr("empty", b"")
+            data = fixture.read_bytes()
+            (server / "bad-crc.zip").write_bytes(
+                data.replace(payload, b"x" + payload[1:], 1)
+            )
             archive = server / "tool.sopkg"
             with ZipFile(archive, "w") as package:
                 package.writestr("manifest.json", json.dumps({

@@ -29,7 +29,8 @@ static native_handle_slot_t *find_handle(uint32_t id)
     return NULL;
 }
 static int handle_create(uint32_t kind, void *state,
-    solar_os_native_handle_destroy_fn destroy, const void *owner, solar_os_native_handle_t *out)
+    solar_os_native_handle_destroy_fn destroy, const void *owner,
+    uint32_t references, solar_os_native_handle_t *out)
 {
     if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     *out=0;
@@ -40,7 +41,7 @@ static int handle_create(uint32_t kind, void *state,
         if (!handles[i].id) { slot=&handles[i]; break; }
     if (slot && next_handle != UINT32_MAX) {
         ++next_handle;
-        *slot=(native_handle_slot_t){.id=next_handle,.kind=kind,.state=state,.destroy=destroy,.owner=owner};
+        *slot=(native_handle_slot_t){.id=next_handle,.kind=kind,.reference_state=references,.state=state,.destroy=destroy,.owner=owner};
         *out=next_handle;
     }
     portEXIT_CRITICAL(&handles_lock);
@@ -48,7 +49,7 @@ static int handle_create(uint32_t kind, void *state,
 }
 int solar_os_native_handle_create(uint32_t kind, void *state,
     solar_os_native_handle_destroy_fn destroy, solar_os_native_handle_t *out)
-{ return handle_create(kind, state, destroy, NULL, out); }
+{ return handle_create(kind, state, destroy, NULL, 0, out); }
 int solar_os_native_handle_create_owned(uint32_t kind, void *state,
     solar_os_native_handle_destroy_fn destroy, const void *owner, solar_os_native_handle_t *out)
 {
@@ -56,7 +57,12 @@ int solar_os_native_handle_create_owned(uint32_t kind, void *state,
         if (out) *out=0;
         return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
     }
-    return handle_create(kind, state, destroy, owner, out);
+    return handle_create(kind, state, destroy, owner, 0, out);
+}
+int solar_os_native_handle_create_exclusive(uint32_t kind, void *state,
+    solar_os_native_handle_destroy_fn destroy, const void *owner, solar_os_native_handle_t *out)
+{
+    return handle_create(kind, state, destroy, owner, NATIVE_HANDLE_EXCLUSIVE, out);
 }
 static void *handle_acquire(solar_os_native_handle_t id, uint32_t kind, const void *owner)
 {
@@ -108,7 +114,8 @@ void solar_os_native_handle_release_exclusive(solar_os_native_handle_t id)
     if (slot && slot->reference_state == NATIVE_HANDLE_EXCLUSIVE) slot->reference_state = 0;
     portEXIT_CRITICAL(&handles_lock);
 }
-static int handle_close(solar_os_native_handle_t id, uint32_t kind, const void *owner)
+static int handle_close(solar_os_native_handle_t id, uint32_t kind, const void *owner,
+                        bool exclusive)
 {
     void *state=NULL;
     solar_os_native_handle_destroy_fn destroy=NULL;
@@ -117,7 +124,8 @@ static int handle_close(solar_os_native_handle_t id, uint32_t kind, const void *
     int result=SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
     if (slot && (!kind || slot->kind==kind) && (!owner || slot->owner==owner)) {
         result=SOLAR_OS_NATIVE_ERROR_BUSY;
-        if (!slot->reference_state) {
+        const uint32_t expected = exclusive ? NATIVE_HANDLE_EXCLUSIVE : 0;
+        if (slot->reference_state == expected) {
             slot->reference_state=NATIVE_HANDLE_CLOSING;state=slot->state;destroy=slot->destroy;
         }
     }
@@ -131,12 +139,14 @@ static int handle_close(solar_os_native_handle_t id, uint32_t kind, const void *
     portEXIT_CRITICAL(&handles_lock);
     return result;
 }
+int solar_os_native_handle_close_exclusive(solar_os_native_handle_t id, uint32_t kind)
+{ return handle_close(id, kind, NULL, true); }
 int solar_os_native_handle_close_kind(solar_os_native_handle_t id, uint32_t kind)
-{ return handle_close(id, kind, NULL); }
+{ return handle_close(id, kind, NULL, false); }
 int solar_os_native_handle_close_owned(solar_os_native_handle_t id, uint32_t kind, const void *owner)
-{ return owner ? handle_close(id, kind, owner) : SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT; }
+{ return owner ? handle_close(id, kind, owner, false) : SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT; }
 int solar_os_native_handle_close(solar_os_native_handle_t id)
-{ return handle_close(id,0,NULL); }
+{ return handle_close(id,0,NULL, false); }
 int solar_os_native_handle_close_owner(const void *owner)
 {
     if (!owner) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
@@ -147,7 +157,7 @@ int solar_os_native_handle_close_owner(const void *owner)
             if (handles[i].owner==owner && handles[i].id>last) last=handles[i].id;
         portEXIT_CRITICAL(&handles_lock);
         if (!last) return SOLAR_OS_NATIVE_OK;
-        const int result=handle_close(last,0,owner);
+        const int result=handle_close(last,0,owner, false);
         if (result && result!=SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
     }
 }

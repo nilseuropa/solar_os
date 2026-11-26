@@ -46,4 +46,3 @@ bool solar_os_adc_dpad_get_axis_status(size_t index, solar_os_adc_dpad_axis_stat
 esp_err_t solar_os_adc_dpad_calibrate_idle(void);
 esp_err_t solar_os_adc_dpad_calibrate_reset(void);
 void solar_os_adc_dpad_poll(void);
-size_t solar_os_adc_dpad_read_chars(char *buffer, size_t buffer_len);

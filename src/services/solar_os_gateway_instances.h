@@ -31,3 +31,8 @@ esp_err_t solar_os_gateway_instance_get_status(solar_os_messaging_provider_id_t 
     solar_os_chat_status_t *status);
 size_t solar_os_gateway_instance_channels(solar_os_messaging_provider_id_t id,
     solar_os_chat_channel_t *channels, size_t capacity);
+esp_err_t solar_os_gateway_instance_update(solar_os_messaging_provider_id_t id,
+    const char *url, const char *token, solar_os_gateway_connection_v1_t connection);
+esp_err_t solar_os_gateway_instance_delete_channel(solar_os_messaging_provider_id_t id, const char *channel);
+esp_err_t solar_os_gateway_instance_read_event(solar_os_messaging_provider_id_t id,
+    uint32_t *cursor, solar_os_chat_event_t *event, uint32_t timeout_ms);

@@ -273,8 +273,12 @@ int main(void) {
 #include <assert.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include "esp_err.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_power_provider.h"
+#include "solar_os_memory.h"
 #define portENTER_CRITICAL(x) ((void)(x))
 #define portEXIT_CRITICAL(x) ((void)(x))
 #define SOLAR_OS_BOARD_POWEROFF_PROVIDER "power0"
@@ -282,24 +286,79 @@ typedef esp_err_t (*solar_os_power_off_fn_t)(void *);
 static int off_lock, calls;
 static solar_os_power_off_fn_t off_provider;
 static void *off_user;
-static esp_err_t callback(void *user) { assert(user); calls++; return ESP_FAIL; }
+static bool off_in_progress;
+static unsigned pins, allocations;
+static const solar_os_native_power_provider_api_v1_t *api;
+static solar_os_native_handle_t handle;
+static int native_callback(void *user) {
+    assert(user && pins == 1);
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_native_handle_count() == 1);
+    return SOLAR_OS_NATIVE_ERROR_TIMEOUT;
+}
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained) {
+    if (lease != 1) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *retained = 2;
+    pins++;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_library_release(uint32_t lease) {
+    assert(lease == 2 && pins);
+    pins--;
+    return SOLAR_OS_NATIVE_OK;
+}
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *label) {
+    assert(kind == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && label);
+    void *memory = calloc(count, size);
+    if (memory) allocations++;
+    return memory;
+}
+void solar_os_memory_free(void *memory) {
+    if (memory) {
+        assert(allocations);
+        allocations--;
+        free(memory);
+    }
+}
 '''
         for name in ("solar_os_power_register_off_provider",
                      "solar_os_power_unregister_off_provider", "solar_os_power_off"):
             source += function("src/services/solar_os_power.c", name) + "\n"
         run_c(source + r'''
+static esp_err_t callback(void *user) {
+    assert(user);
+    assert(solar_os_power_unregister_off_provider(user) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_power_register_off_provider("power0", callback, user) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_power_off() == ESP_ERR_INVALID_STATE);
+    calls++;
+    return ESP_FAIL;
+}
 int main(void) {
     int a, b;
     assert(solar_os_power_off() == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_power_register_off_provider("expansion-pmic", callback, &a) == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_power_register_off_provider("power0", callback, &a) == ESP_OK);
     assert(solar_os_power_register_off_provider("power0", callback, &b) == ESP_ERR_INVALID_STATE);
-    solar_os_power_unregister_off_provider(&b);
+    assert(solar_os_power_unregister_off_provider(&b) == ESP_ERR_NOT_FOUND);
     assert(solar_os_power_off() == ESP_FAIL && calls == 1);
-    solar_os_power_unregister_off_provider(&a);
+    assert(!solar_os_power_unregister_off_provider(&a));
     assert(solar_os_power_off() == ESP_ERR_NOT_SUPPORTED && calls == 1);
+    api = solar_os_native_power_provider_get_service("power.provider", 1, sizeof(*api));
+    assert(api);
+    solar_os_native_power_off_provider_v1_t descriptor = {
+        .name = "expansion", .library_lease = 1, .off = native_callback, .user = &a,
+    };
+    assert(api->register_off(&descriptor, &handle) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!handle && !allocations && !pins);
+    descriptor.name = "power0";
+    assert(!api->register_off(&descriptor, &handle));
+    assert(solar_os_power_off() == ESP_ERR_TIMEOUT && pins == 1);
+    assert(!api->close(handle) && !pins && !allocations && !solar_os_native_handle_count());
+    assert(solar_os_power_off() == ESP_ERR_NOT_SUPPORTED);
 }
-''')
+''', "-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1", "-I", str(ROOT / "src"),
+            "-I", str(ROOT / "src/services"), str(ROOT / "src/services/solar_os_native_power_provider.c"),
+            str(ROOT / "src/services/solar_os_native_handles.c"))
 
     def test_shutdown_key_only_cold_boot_fallback(self):
         source = (ROOT / "src/main.c").read_text()

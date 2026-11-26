@@ -16,7 +16,7 @@
 #include "solar_os_memory.h"
 #include "solar_os_config.h"
 #include "solar_os_sc2.h"
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_DISCOVERY
 #include "solar_os_sc2_discover.h"
 #endif
 
@@ -46,7 +46,7 @@ static esp_err_t sc2p_create(const char *name, int argc, const char *const *argv
 static esp_err_t sc2p_configure(void *context, int argc, const char *const *argv);
 static esp_err_t sc2p_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings);
 static esp_err_t sc2p_settings_write(void *context, unsigned form, const char *name,
-                                    const solar_os_messaging_settings_t *settings,
+                                    const solar_os_message_setting_values_v1_t *settings,
                                     solar_os_messaging_provider_id_t *id);
 static esp_err_t sc2p_normalize(void *context, const char *target, char *out, size_t size);
 static esp_err_t sc2p_remove_prepare(void *context);
@@ -145,9 +145,9 @@ static bool sc2p_admit_valid(const char *admit, size_t cap)
     return true;
 }
 
-esp_err_t solar_os_sc2_relay_parse_url(const char *text, solar_os_sc2_relay_config_t *config)
+esp_err_t solar_os_sc2_relay_parse_endpoint(const char *text, solar_os_sc2_relay_endpoint_t *endpoint)
 {
-    if (text == NULL || config == NULL) {
+    if (text == NULL || endpoint == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     bool tls;
@@ -194,13 +194,27 @@ esp_err_t solar_os_sc2_relay_parse_url(const char *text, solar_os_sc2_relay_conf
     } else if (*p != '\0') {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!sc2p_copy(config->url, sizeof(config->url), text, (size_t)(url_end - text))) {
+    if (!sc2p_copy(endpoint->url, sizeof(endpoint->url), text, (size_t)(url_end - text))) {
         return ESP_ERR_INVALID_SIZE;
     }
-    config->tls = tls;
-    config->port = (uint16_t)port;
-    memcpy(config->pin, pin, sizeof(config->pin));
+    endpoint->tls = tls;
+    endpoint->port = (uint16_t)port;
+    memcpy(endpoint->pin, pin, sizeof(endpoint->pin));
     return ESP_OK;
+}
+
+esp_err_t solar_os_sc2_relay_parse_url(const char *text, solar_os_sc2_relay_config_t *config)
+{
+    if (!config) return ESP_ERR_INVALID_ARG;
+    solar_os_sc2_relay_endpoint_t endpoint;
+    const esp_err_t error = solar_os_sc2_relay_parse_endpoint(text, &endpoint);
+    if (error == ESP_OK) {
+        config->tls = endpoint.tls;
+        config->port = endpoint.port;
+        strlcpy(config->url, endpoint.url, sizeof(config->url));
+        memcpy(config->pin, endpoint.pin, sizeof(config->pin));
+    }
+    return error;
 }
 
 solar_os_sc2_target_kind_t solar_os_sc2_target_normalize(const char *target, bool want_room, char *out,
@@ -268,7 +282,7 @@ size_t solar_os_sc2_relay_endpoint(const solar_os_sc2_relay_config_t *config, si
 }
 
 /* Fallback slots are packed from the front; each parses like a primary URL. */
-static bool sc2p_fallbacks_valid(const solar_os_sc2_relay_config_t *config, solar_os_sc2_relay_config_t *parsed)
+static bool sc2p_fallbacks_valid(const solar_os_sc2_relay_config_t *config, solar_os_sc2_relay_endpoint_t *parsed)
 {
     bool end = false;
     for (size_t i = 0; i < SOLAR_OS_SC2_RELAY_FALLBACK_MAX; i++) {
@@ -283,7 +297,7 @@ static bool sc2p_fallbacks_valid(const solar_os_sc2_relay_config_t *config, sola
             }
             continue;
         }
-        if (end || solar_os_sc2_relay_parse_url(ep->url, parsed) != ESP_OK || parsed->tls != ep->tls ||
+        if (end || solar_os_sc2_relay_parse_endpoint(ep->url, parsed) != ESP_OK || parsed->tls != ep->tls ||
             parsed->port != ep->port || parsed->pin[0] != '\0' || (ep->pin[0] != '\0' && (!ep->tls || !sc2p_pin_valid(ep->pin)))) {
             return false;
         }
@@ -333,16 +347,12 @@ bool solar_os_sc2_relay_config_valid(const solar_os_sc2_relay_config_t *config)
         !sc2p_admit_valid(config->admit, sizeof(config->admit))) {
         return false;
     }
-    solar_os_sc2_relay_config_t *parsed = sc2p_config_alloc();
-    if (parsed == NULL) {
-        return false;
-    }
-    bool ok = solar_os_sc2_relay_parse_url(config->url, parsed) == ESP_OK && parsed->tls == config->tls &&
-              parsed->port == config->port && parsed->pin[0] == '\0' &&
+    solar_os_sc2_relay_endpoint_t parsed;
+    bool ok = solar_os_sc2_relay_parse_endpoint(config->url, &parsed) == ESP_OK && parsed.tls == config->tls &&
+              parsed.port == config->port && parsed.pin[0] == '\0' &&
               (config->pin[0] == '\0' || (config->tls && sc2p_pin_valid(config->pin))) &&
-              sc2p_fallbacks_valid(config, parsed) &&
+              sc2p_fallbacks_valid(config, &parsed) &&
               (config->key_set >> solar_os_sc2_relay_endpoint(config, 0, NULL)) == 0;
-    sc2p_config_free(parsed);
     for (size_t i = 0; ok && i < SOLAR_OS_SC2_RELAY_ROOM_CAPACITY; i++) {
         const char *room = config->rooms[i];
         if (room[0] == '\0') {
@@ -613,11 +623,13 @@ esp_err_t solar_os_sc2_relay_get_config(solar_os_messaging_provider_id_t id, sol
     if (error != ESP_OK) {
         return error;
     }
-    sc2p_relay_t *node = sc2p_find(id);
-    if (node != NULL) {
-        sc2p_snapshot(node, config);
-        return ESP_OK;
-    }
+    xSemaphoreTake(sc2p.lock, portMAX_DELAY);
+    const sc2p_relay_t *node = sc2p.relays;
+    while (node && node->id != id) node = node->next;
+    const bool found = node != NULL;
+    if (found) *config = node->config;
+    xSemaphoreGive(sc2p.lock);
+    if (found) return ESP_OK;
     if (!solar_os_messaging_provider_is_class(id, SC2P_CLASS)) {
         return ESP_ERR_NOT_FOUND;
     }
@@ -635,15 +647,15 @@ esp_err_t solar_os_sc2_relay_set_key(solar_os_messaging_provider_id_t id, size_t
     if (error != ESP_OK) {
         return error;
     }
+    solar_os_sc2_relay_config_t *config = sc2p_config_alloc();
+    if (config == NULL) return ESP_ERR_NO_MEM;
+    xSemaphoreTake(sc2p.edit_lock, portMAX_DELAY);
     sc2p_relay_t *node = sc2p_find(id);
-    if (node == NULL) {
+    if (!node) {
+        xSemaphoreGive(sc2p.edit_lock);
+        sc2p_config_free(config);
         return ESP_ERR_NOT_FOUND;
     }
-    solar_os_sc2_relay_config_t *config = sc2p_config_alloc();
-    if (config == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    xSemaphoreTake(sc2p.edit_lock, portMAX_DELAY);
     sc2p_snapshot(node, config);
     /* only replaces the pin it was asked to replace */
     uint8_t cur[SOLAR_OS_SC2_RELAY_KEY_LEN];
@@ -678,7 +690,7 @@ static esp_err_t sc2p_settings_endpoint(const char *address, const uint8_t *expe
         int n = snprintf(url, sizeof(url), "chats://%s", address);
         return n > 0 && (size_t)n < sizeof(url) ? solar_os_sc2_relay_parse_url(url, config) : ESP_ERR_INVALID_SIZE;
     }
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_DISCOVERY
     sc2_desc_t *descriptor = solar_os_memory_calloc(1, sizeof(*descriptor),
         SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "sc2.settings.discovery");
     if (!descriptor) return ESP_ERR_NO_MEM;
@@ -720,9 +732,7 @@ static esp_err_t sc2p_settings_endpoint(const char *address, const uint8_t *expe
 static esp_err_t sc2p_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
 {
     if (form) return ESP_ERR_NOT_FOUND;
-    settings->label = "SC2";
-    settings->fields = sc2p_settings_fields;
-    settings->count = sizeof(sc2p_settings_fields) / sizeof(sc2p_settings_fields[0]);
+    solar_os_messaging_settings_form(settings, "SC2", sc2p_settings_fields, sizeof(sc2p_settings_fields) / sizeof(sc2p_settings_fields[0]));
     strlcpy(settings->worker, "sc2-sync", sizeof(settings->worker));
     if (!context) return ESP_OK;
     solar_os_sc2_relay_config_t *config = sc2p_config_alloc();
@@ -734,16 +744,16 @@ static esp_err_t sc2p_settings_read(void *context, unsigned form, solar_os_messa
     solar_os_messaging_settings_value(settings, 2, config->pin);
     if (solar_os_sc2_relay_key(config, 0, NULL)) {
         size_t length = 0;
-        (void)sc2_b64_encode(settings->values[3], sizeof(settings->values[3]), &length,
+        (void)sc2_b64_encode(settings->data.values[3], sizeof(settings->data.values[3]), &length,
                              config->keys[0], SOLAR_OS_SC2_RELAY_KEY_LEN);
-        settings->present[3] = true;
+        settings->data.present[3] = true;
     }
     sc2p_config_free(config);
     return ESP_OK;
 }
 
 static esp_err_t sc2p_settings_write(void *context, unsigned form, const char *name,
-                                    const solar_os_messaging_settings_t *settings,
+                                    const solar_os_message_setting_values_v1_t *settings,
                                     solar_os_messaging_provider_id_t *id)
 {
     if (form) return ESP_ERR_NOT_FOUND;

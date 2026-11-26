@@ -77,21 +77,11 @@ static const solar_os_native_media_widgets_api_v1_t media_ui = {
     .player_controls_draw = solar_os_media_player_controls_draw,
 };
 
-static const void *lookup(const char *name, uint32_t abi, uint32_t minimum)
+const void *solar_os_native_media_widgets_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
     if (strcmp(name, SOLAR_OS_NATIVE_MEDIA_WIDGETS_SERVICE) || abi != media_ui.abi_version ||
         minimum > media_ui.struct_size) return NULL;
     return &media_ui;
-}
-
-const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void)
-{
-    static const solar_os_native_host_api_v1_t host = {
-        .abi_version = SOLAR_OS_NATIVE_ABI_VERSION,
-        .struct_size = sizeof(host),
-        .get_service = lookup,
-    };
-    return &host;
 }
 
 bool solar_os_m3u_path(const char *path) { return path && strstr(path, ".m3u") != NULL; }

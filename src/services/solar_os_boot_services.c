@@ -13,7 +13,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER
 #include "solar_os_sc2_provider.h"
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
 #include "solar_os_sc2_sync.h"
 #endif
 #endif
@@ -231,7 +231,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (irc_err != ESP_OK) SOLAR_OS_LOGW(TAG, "IRC unavailable: %s", esp_err_to_name(irc_err));
 #endif
 
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
     solar_os_sc2_sync_install(); /* notify an already-running worker of instance changes */
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER

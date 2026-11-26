@@ -7,8 +7,24 @@
 static char wire[8192];
 static size_t wire_length;
 static bool fail_write, short_write;
+static esp_err_t read_status;
 bool solar_os_port_handle_valid(const solar_os_port_handle_t *port)
 { return port && port->index==0 && port->token==1; }
+esp_err_t solar_os_port_read(const solar_os_port_handle_t *port, uint8_t *bytes, size_t capacity,
+                             uint32_t timeout_ms, size_t *read_count)
+{
+    assert(solar_os_port_handle_valid(port) && capacity > 0 && timeout_ms == 0);
+    if (read_status != ESP_OK) return read_status;
+    bytes[0] = 0xff;
+    *read_count = 1;
+    return ESP_OK;
+}
+size_t solar_os_input_read_chars(char *buffer, size_t capacity)
+{
+    assert(capacity > 0);
+    buffer[0] = 'q';
+    return 1;
+}
 esp_err_t solar_os_port_write(const solar_os_port_handle_t *port, const uint8_t *bytes, size_t size, size_t *written)
 {
     assert(solar_os_port_handle_valid(port) && wire_length+size<sizeof(wire));
@@ -37,6 +53,16 @@ int main(void)
     assert(solar_os_shell_io_with_fallback(&ctx, &fallback, true) == &io);
     pthread_t thread;assert(!pthread_create(&thread,NULL,foreign,NULL) && !pthread_join(thread,NULL));
     assert(api->current()==&io);
+    uint8_t input[1];
+    size_t count;
+    assert(api->poll_input(&io, input, sizeof(input), &count) == SOLAR_OS_NATIVE_OK);
+    assert(count == 1 && input[0] == 0xff);
+    read_status = ESP_ERR_TIMEOUT;
+    assert(api->poll_input(&io, input, sizeof(input), &count) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(count == 0);
+    assert(api->poll_input(&io, NULL, sizeof(input), &count) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(api->poll_input(&io, NULL, 0, &count) == SOLAR_OS_NATIVE_OK && count == 0);
+    assert(api->poll_input(&fallback, input, sizeof(input), &count) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     api->set_terminal_profile(&io,SOLAR_OS_SHELL_TERMINAL_PROFILE_ANSI);
     assert(api->is_cursor_addressable(&io) && api->cols(&io)==10 && api->rows(&io)==8);
     assert(!api->printf(&io,"%d %.1f %s\n",42,1.5,"A") && !strcmp(wire,"42 1.5 A\r\n"));
@@ -54,6 +80,7 @@ int main(void)
     fail_write=false;short_write=true;assert(api->write(&io,"partial")==SOLAR_OS_NATIVE_ERROR_FAILED);short_write=false;
     assert(api->write(NULL,"x")==SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     solar_os_application_scope_leave(&scope);assert(!api->current());
+    assert(api->poll_input(&io, input, sizeof(input), &count) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     solar_os_application_scope_enter(&scope,NULL,&ctx);assert(!api->current());solar_os_application_scope_leave(&scope);
 
     uint8_t buffer[52*52*8];u8g2_t u={0};
@@ -70,6 +97,8 @@ int main(void)
     assert(solar_os_shell_io_with_fallback(&ctx, &io, true) == &io);
     solar_os_application_scope_enter(&scope, &app, &ctx);
     assert(api->current() == &io && api->terminal(api->current()) == terminal);
+    assert(api->poll_input(&io, input, sizeof(input), &count) == SOLAR_OS_NATIVE_OK);
+    assert(count == 1 && input[0] == 'q');
     solar_os_application_scope_leave(&scope);
     solar_os_context_set_shell_io(&ctx, NULL);
     assert(solar_os_shell_io_with_fallback(&ctx, &io, false) == &io);

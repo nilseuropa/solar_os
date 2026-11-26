@@ -11,20 +11,19 @@
 
 static bool script_ble_available = true;
 static unsigned script_ble_lookups, script_ble_adapter_allocations;
-static const void *script_ble_lookup(const char *name, uint32_t abi, uint32_t minimum)
-{
-    ++script_ble_lookups;
-    if (!script_ble_available) return NULL;
-    const void *api = solar_os_native_ble_get_service(name, abi, minimum);
-    if (api) return api;
-    api = solar_os_native_ble_keyboard_get_service(name, abi, minimum);
-    if (!api) api = solar_os_native_ble_stream_get_service(name, abi, minimum);
-    return api ? api : solar_os_native_tcp_stream_get_service(name, abi, minimum);
-}
-static const solar_os_native_host_api_v1_t script_ble_host = {
-    .abi_version = 1, .struct_size = sizeof(script_ble_host), .get_service = script_ble_lookup,
-};
-const solar_os_native_host_api_v1_t *solar_os_native_host_v1(void) { return &script_ble_host; }
+#define SCRIPT_QUERY_WRAPPER(id, provider) \
+    static const void *script_query_##id(const char *name, uint32_t abi, uint32_t minimum) \
+    { \
+        ++script_ble_lookups; \
+        return script_ble_available ? solar_os_native_##provider##_get_service(name, abi, minimum) : NULL; \
+    }
+SCRIPT_QUERY_WRAPPER(bluetooth, ble)
+SCRIPT_QUERY_WRAPPER(ble_keyboard, ble_keyboard)
+SCRIPT_QUERY_WRAPPER(ble_stream, ble_stream)
+SCRIPT_QUERY_WRAPPER(tcp_stream, tcp_stream)
+#undef SCRIPT_QUERY_WRAPPER
+#define SOLAR_OS_SCRIPT_SERVICE_QUERY(id) script_query_##id
+
 void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
 {
     (void)kind; (void)tag;

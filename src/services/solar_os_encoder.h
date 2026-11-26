@@ -33,6 +33,7 @@ typedef solar_os_native_encoder_sample_v1_t solar_os_encoder_sample_t;
  * The provider owns its context until unregister succeeds. */
 esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *registration);
 esp_err_t solar_os_encoder_unregister(const char *name);
+esp_err_t solar_os_encoder_unregister_owned(const char *name, const void *owner);
 size_t solar_os_encoder_count(void);
 bool solar_os_encoder_get(size_t index, solar_os_encoder_info_t *info);
 /* Fresh calibrated feedback. Idle encoders use a 20 ms measurement window;

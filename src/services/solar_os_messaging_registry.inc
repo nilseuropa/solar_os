@@ -1,4 +1,4 @@
-/* Registry labels never move or disappear. Transport contexts can be destroyed
+/* Provider instance labels never move or disappear. Transport contexts can be destroyed
  * once leased callbacks and workers are excluded. Callbacks run without locks
  * owned by Messaging. */
 #define MESSAGING_PROFILE_MAGIC 0x46525053U
@@ -9,11 +9,33 @@ typedef struct {
     char class_name[16];
 } messaging_profile_header_t;
 
-static const solar_os_messaging_provider_class_t *messaging_class_locked(const char *name)
+static messaging_class_node_t *messaging_class_node_locked(const char *name)
 {
     for (messaging_class_node_t *node = messaging.classes; node; node = node->next)
-        if (strcmp(node->type->name, name) == 0) return node->type;
+        if (strcmp(node->type->name, name) == 0) return node;
     return NULL;
+}
+
+static const solar_os_messaging_provider_class_t *messaging_class_locked(const char *name)
+{
+    const messaging_class_node_t *node = messaging_class_node_locked(name);
+    return node ? node->type : NULL;
+}
+
+static messaging_class_node_t *messaging_class_acquire(const char *name)
+{
+    messaging_lock();
+    messaging_class_node_t *node = messaging_class_node_locked(name);
+    if (node) node->calls++;
+    messaging_unlock();
+    return node;
+}
+
+static void messaging_class_release(messaging_class_node_t *node)
+{
+    messaging_lock();
+    node->calls--;
+    messaging_unlock();
 }
 
 esp_err_t solar_os_messaging_class_register(const solar_os_messaging_provider_class_t *type)
@@ -41,6 +63,43 @@ esp_err_t solar_os_messaging_class_register(const solar_os_messaging_provider_cl
     return ESP_OK;
 }
 
+esp_err_t solar_os_messaging_class_unregister(const solar_os_messaging_provider_class_t *type)
+{
+    if (!type || !type->owner) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_messaging_init();
+    if (error != ESP_OK) return error;
+    messaging_lock();
+    messaging_class_node_t **link = &messaging.classes;
+    while (*link && (*link)->type != type) link = &(*link)->next;
+    messaging_class_node_t *removed = *link;
+    if (!removed) {
+        messaging_unlock();
+        return ESP_ERR_NOT_FOUND;
+    }
+    if (removed->calls) {
+        messaging_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    for (const messaging_provider_node_t *node = messaging.providers; node; node = node->next) {
+        if (!strcmp(node->status.class_name, type->name) &&
+            (node->context || node->operations || node->removing)) {
+            messaging_unlock();
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    *link = removed->next;
+    for (messaging_provider_node_t *node = messaging.providers; node; node = node->next) {
+        if (!strcmp(node->status.class_name, type->name)) {
+            node->status.capabilities = 0;
+            node->status.connection_oriented = false;
+        }
+    }
+    messaging_note_generation_locked();
+    messaging_unlock();
+    solar_os_memory_free(removed);
+    return ESP_OK;
+}
+
 bool solar_os_messaging_class_next(const char *after, solar_os_messaging_class_status_t *status)
 {
     if (!after || !status || solar_os_messaging_init() != ESP_OK) return false;
@@ -52,9 +111,18 @@ bool solar_os_messaging_class_next(const char *after, solar_os_messaging_class_s
     }
     if (found) {
         strlcpy(status->name, found->name, sizeof(status->name));
-        status->capabilities = found->capabilities; status->creatable = found->create != NULL;
+        status->capabilities = found->capabilities; status->creatable = found->create != NULL || found->create_owned != NULL;
     }
     messaging_unlock(); return found != NULL;
+}
+
+static void messaging_provider_insert_locked(messaging_provider_node_t *node)
+{
+    const solar_os_messaging_provider_class_t *type = messaging_class_locked(node->status.class_name);
+    node->status.capabilities = type ? type->capabilities : 0;
+    node->status.connection_oriented = type ? type->connection_oriented : false;
+    node->next = messaging.providers;
+    messaging.providers = node;
 }
 
 esp_err_t solar_os_messaging_instance_register(solar_os_messaging_provider_id_t id,
@@ -69,6 +137,10 @@ esp_err_t solar_os_messaging_instance_register(solar_os_messaging_provider_id_t 
     if (!fresh) return ESP_ERR_NO_MEM;
     messaging_lock();
     messaging_provider_node_t *node = messaging_provider_node_locked(id);
+    if (messaging.provisioning &&
+        (messaging.provisioning->status.id == id || !strcmp(messaging.provisioning->status.name, name))) {
+        messaging_unlock(); solar_os_memory_free(fresh); return ESP_ERR_INVALID_STATE;
+    }
     for (messaging_provider_node_t *other = messaging.providers; other; other = other->next) {
         if (other != node && !other->status.removed && strcmp(other->status.name, name) == 0) {
             messaging_unlock(); solar_os_memory_free(fresh); return ESP_ERR_INVALID_ARG;
@@ -84,15 +156,72 @@ esp_err_t solar_os_messaging_instance_register(solar_os_messaging_provider_id_t 
         node->status.id = id; node->status.registered = true;
         strlcpy(node->status.name, name, sizeof(node->status.name));
         strlcpy(node->status.class_name, class_name, sizeof(node->status.class_name));
-        node->next = messaging.providers; messaging.providers = node;
+        messaging_provider_insert_locked(node);
     }
     if (context) node->context = context;
-    const solar_os_messaging_provider_class_t *type = messaging_class_locked(class_name);
-    node->status.capabilities = type ? type->capabilities : 0;
-    node->status.connection_oriented = type ? type->connection_oriented : false;
     messaging_note_generation_locked();
     messaging_unlock(); solar_os_memory_free(fresh);
     return ESP_OK;
+}
+
+esp_err_t solar_os_messaging_instance_attach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner, void *context)
+{
+    if (!owner || !owner->owner || !context || !messaging_provider_valid(id))
+        return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_messaging_init();
+    if (error != ESP_OK) return error;
+    messaging_lock();
+    messaging_provider_node_t *node = messaging_provider_node_locked(id);
+    if (!node || node->status.removed || strcmp(node->status.class_name, owner->name) ||
+        messaging_class_locked(owner->name) != owner) {
+        error = ESP_ERR_NOT_FOUND;
+    } else if (node->context || node->removing || node->operations) {
+        error = ESP_ERR_INVALID_STATE;
+    } else {
+        node->context = context;
+        messaging_note_generation_locked();
+    }
+    messaging_unlock();
+    return error;
+}
+
+esp_err_t solar_os_messaging_instance_detach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner)
+{
+    if (!owner || !owner->owner || !messaging_provider_valid(id) ||
+        !owner->remove_prepare || !owner->remove_finish) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_messaging_init();
+    if (error != ESP_OK) return error;
+
+    messaging_lock();
+    messaging_provider_node_t *node = messaging_provider_node_locked(id);
+    void *context = NULL;
+    if (!node || node->status.removed || strcmp(node->status.class_name, owner->name) ||
+        messaging_class_locked(owner->name) != owner) {
+        error = ESP_ERR_NOT_FOUND;
+    } else if (node->operations || node->removing) {
+        error = ESP_ERR_INVALID_STATE;
+    } else if (node->context) {
+        context = node->context;
+        node->removing = true;
+    }
+    messaging_unlock();
+    if (!context) return error;
+
+    error = owner->remove_prepare(context);
+    if (error == ESP_OK) {
+        owner->remove_finish(context, true);
+        (void)solar_os_messaging_provider_set_status(id, false, false, ESP_OK, NULL);
+    }
+    messaging_lock();
+    if (error == ESP_OK) {
+        node->context = NULL;
+        messaging_note_generation_locked();
+    }
+    node->removing = false;
+    messaging_unlock();
+    return error;
 }
 
 const char *solar_os_messaging_instance_name(solar_os_messaging_provider_id_t id)
@@ -191,11 +320,11 @@ static esp_err_t messaging_profile_write(const solar_os_messaging_provider_statu
     if (fclose(file) != 0) ok = false;
     if (!ok) { unlink(temp); return ESP_FAIL; }
     void *verify = solar_os_memory_calloc(1, size ? size : 1, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.profile.verify");
-    if (!verify) return ESP_ERR_NO_MEM;
+    if (!verify) { unlink(temp); return ESP_ERR_NO_MEM; }
     messaging_profile_header_t checked;
     error = messaging_profile_read(temp, &checked, verify, size, true);
-    memset(verify, 0, size); solar_os_memory_free(verify);
-    if (error != ESP_OK) return error;
+    explicit_bzero(verify, size); solar_os_memory_free(verify);
+    if (error != ESP_OK) { unlink(temp); return error; }
     error = solar_os_storage_replace_file(temp, path, backup);
     if (error != ESP_OK) unlink(temp);
     return error;
@@ -237,7 +366,8 @@ esp_err_t solar_os_messaging_profile_load(solar_os_messaging_provider_id_t id, v
     error = messaging_profile_read(path, &header, data, size, true);
     if (error != ESP_OK && snprintf(backup, sizeof(backup), "%s.bak", path) < (int)sizeof(backup))
         error = messaging_profile_read(backup, &header, data, size, true);
-    if (error == ESP_OK && header.id != id) error = ESP_ERR_INVALID_ARG;
+    if (error == ESP_OK && (header.id != id || strcmp(header.name, status.name) ||
+        strcmp(header.class_name, status.class_name))) error = ESP_ERR_INVALID_ARG;
     xSemaphoreGive(messaging.io_lock); return error;
 }
 
@@ -248,27 +378,47 @@ esp_err_t solar_os_messaging_instance_create(const char *class_name, const char 
         !messaging_text_valid(name, SOLAR_OS_MESSAGING_LABEL_MAX, false)) return ESP_ERR_INVALID_ARG;
     esp_err_t error = solar_os_messaging_init();
     if (error != ESP_OK) return error;
+    messaging_provider_node_t *fresh = solar_os_memory_calloc(1, sizeof(*fresh),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.instance");
+    if (!fresh) return ESP_ERR_NO_MEM;
+
     xSemaphoreTake(messaging.io_lock, portMAX_DELAY);
     messaging_lock();
     uint32_t next = 4;
     bool duplicate = false;
-    for (messaging_provider_node_t *node = messaging.providers; node; node = node->next) {
+    for (const messaging_provider_node_t *node = messaging.providers; node; node = node->next) {
         if (node->status.id >= next) next = node->status.id + 1;
         if (!node->status.removed && strcmp(node->status.name, name) == 0) duplicate = true;
     }
     /* Never reuse a history-only ID whose profile media is unavailable. */
-    for (size_t i = 0; i < messaging.message_count; i++)
+    for (size_t i = 0; i < messaging.message_count; ++i)
         if (messaging.messages[i].message.provider >= next) next = messaging.messages[i].message.provider + 1;
-    messaging_unlock();
-    solar_os_messaging_provider_status_t status = {.id = next};
-    strlcpy(status.name, name, sizeof(status.name));
-    strlcpy(status.class_name, class_name, sizeof(status.class_name));
+
     if (duplicate) error = ESP_ERR_INVALID_ARG;
     else if (!messaging_provider_valid(next)) error = ESP_ERR_NO_MEM;
-    else error = messaging_profile_write(&status, config, size);
-    if (error == ESP_OK) error = solar_os_messaging_instance_register(next, class_name, name, NULL);
-    if (error == ESP_OK) *id = next;
-    xSemaphoreGive(messaging.io_lock); return error;
+    else {
+        fresh->status.id = next;
+        fresh->status.registered = true;
+        strlcpy(fresh->status.name, name, sizeof(fresh->status.name));
+        strlcpy(fresh->status.class_name, class_name, sizeof(fresh->status.class_name));
+        messaging.provisioning = fresh;
+    }
+    messaging_unlock();
+    if (error == ESP_OK) {
+        error = messaging_profile_write(&fresh->status, config, size);
+        messaging_lock();
+        messaging.provisioning = NULL;
+        if (error == ESP_OK) {
+            messaging_provider_insert_locked(fresh);
+            messaging_note_generation_locked();
+            *id = next;
+            fresh = NULL;
+        }
+        messaging_unlock();
+    }
+    xSemaphoreGive(messaging.io_lock);
+    solar_os_memory_free(fresh);
+    return error;
 }
 
 static void messaging_profiles_restore(void)
@@ -351,20 +501,37 @@ void solar_os_messaging_settings_clear(solar_os_messaging_settings_t *settings)
     for (size_t i = 0; i < sizeof(*settings); i++) p[i] = 0;
 }
 
+void solar_os_messaging_settings_form(solar_os_messaging_settings_t *settings,
+    const char *label, const solar_os_messaging_setting_t *fields, size_t count)
+{
+    if (!settings || !label || !fields || count > SOLAR_OS_MESSAGING_SETTINGS_FIELDS) return;
+    strlcpy(settings->label, label, sizeof(settings->label));
+    settings->data.count = count;
+    for (size_t i = 0; i < count; ++i) {
+        const solar_os_messaging_setting_t *field = &fields[i];
+        solar_os_message_setting_v1_t *copy = &settings->fields[i];
+        strlcpy(copy->label, field->label, sizeof(copy->label));
+        strlcpy(copy->hint, field->hint ? field->hint : "", sizeof(copy->hint));
+        copy->capacity = field->capacity;
+        copy->required = field->required;
+        copy->secret = field->secret;
+    }
+}
+
 void solar_os_messaging_settings_value(solar_os_messaging_settings_t *settings,
     size_t field, const char *value)
 {
-    if (!settings || field >= settings->count || field >= SOLAR_OS_MESSAGING_SETTINGS_FIELDS) return;
-    settings->present[field] = value && value[0];
+    if (!settings || field >= settings->data.count || field >= SOLAR_OS_MESSAGING_SETTINGS_FIELDS) return;
+    settings->data.present[field] = value && value[0];
     if (!settings->fields[field].secret)
-        strlcpy(settings->values[field], value ? value : "", sizeof(settings->values[field]));
+        strlcpy(settings->data.values[field], value ? value : "", sizeof(settings->data.values[field]));
 }
 
 static esp_err_t messaging_settings_acquire(const char *class_name,
     solar_os_messaging_provider_id_t id, messaging_provider_node_t **node,
-    const solar_os_messaging_provider_class_t **type, void **context)
+    messaging_class_node_t **class, const solar_os_messaging_provider_class_t **type, void **context)
 {
-    *node = NULL; *context = NULL; *type = NULL;
+    *node = NULL; *class = NULL; *context = NULL; *type = NULL;
     if (!class_name) return ESP_ERR_INVALID_ARG;
     esp_err_t error = solar_os_messaging_init();
     if (error != ESP_OK) return error;
@@ -375,8 +542,10 @@ static esp_err_t messaging_settings_acquire(const char *class_name,
         messaging_instance_release(*node); *node = NULL;
         return ESP_ERR_NOT_FOUND;
     }
-    messaging_lock(); *type = messaging_class_locked(class_name); messaging_unlock();
-    return *type ? ESP_OK : ESP_ERR_NOT_FOUND;
+    *class = messaging_class_acquire(class_name);
+    if (!*class) return ESP_ERR_NOT_FOUND;
+    *type = (*class)->type;
+    return ESP_OK;
 }
 
 static esp_err_t messaging_settings_read_leased(
@@ -384,15 +553,18 @@ static esp_err_t messaging_settings_read_leased(
     solar_os_messaging_settings_t *settings)
 {
     solar_os_messaging_settings_clear(settings);
-    esp_err_t error = type->settings_read ? type->settings_read(context, form, settings) : ESP_ERR_NOT_SUPPORTED;
-    if (error == ESP_OK && (!settings->fields || !settings->count ||
-        settings->count > SOLAR_OS_MESSAGING_SETTINGS_FIELDS)) error = ESP_ERR_INVALID_SIZE;
-    for (size_t i = 0; error == ESP_OK && i < settings->count; i++) {
-        const solar_os_messaging_setting_t *field = &settings->fields[i];
-        if (!field->label || !field->capacity || field->capacity > SOLAR_OS_MESSAGING_SETTING_MAX ||
-            !memchr(settings->values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
-        if (field->secret) memset(settings->values[i], 0, sizeof(settings->values[i]));
-        settings->changed[i] = false;
+    esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    if (type->settings_read_owned) error = type->settings_read_owned(type->owner, context, form, settings);
+    else if (type->settings_read) error = type->settings_read(context, form, settings);
+    if (error == ESP_OK && (!settings->data.count || settings->data.count > SOLAR_OS_MESSAGING_SETTINGS_FIELDS ||
+        !memchr(settings->label, 0, sizeof(settings->label)) || !memchr(settings->worker, 0, sizeof(settings->worker)))) error = ESP_ERR_INVALID_SIZE;
+    for (size_t i = 0; error == ESP_OK && i < settings->data.count; i++) {
+        const solar_os_message_setting_v1_t *field = &settings->fields[i];
+        if (!field->label[0] || !memchr(field->label, 0, sizeof(field->label)) ||
+            !memchr(field->hint, 0, sizeof(field->hint)) || !field->capacity || field->capacity > SOLAR_OS_MESSAGING_SETTING_MAX ||
+            !memchr(settings->data.values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
+        if (field->secret) memset(settings->data.values[i], 0, sizeof(settings->data.values[i]));
+        settings->data.changed[i] = false;
     }
     if (error != ESP_OK) solar_os_messaging_settings_clear(settings);
     return error;
@@ -403,10 +575,47 @@ esp_err_t solar_os_messaging_settings_read(const char *class_name,
 {
     if (!settings) return ESP_ERR_INVALID_ARG;
     solar_os_messaging_settings_clear(settings);
-    messaging_provider_node_t *node; const solar_os_messaging_provider_class_t *type; void *context;
-    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &type, &context);
+    messaging_provider_node_t *node;
+    messaging_class_node_t *class;
+    const solar_os_messaging_provider_class_t *type;
+    void *context;
+    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &class, &type, &context);
     if (error == ESP_OK) error = messaging_settings_read_leased(type, context, form, settings);
     if (node) messaging_instance_release(node);
+    if (class) messaging_class_release(class);
+    return error;
+}
+
+esp_err_t solar_os_messaging_settings_write_values(const char *class_name,
+    solar_os_messaging_provider_id_t id, unsigned form, const char *name,
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *result)
+{
+    if (!settings || !result || (!id && !messaging_text_valid(name, SOLAR_OS_MESSAGING_LABEL_MAX, false))) return ESP_ERR_INVALID_ARG;
+    messaging_provider_node_t *node;
+    messaging_class_node_t *class;
+    const solar_os_messaging_provider_class_t *type;
+    void *context;
+    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &class, &type, &context);
+    if (error != ESP_OK) return error;
+    solar_os_messaging_settings_t *schema = solar_os_memory_calloc(1, sizeof(*schema),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.settings");
+    if (!schema) error = ESP_ERR_NO_MEM;
+    else error = messaging_settings_read_leased(type, context, form, schema);
+    if (error == ESP_OK && schema->data.count != settings->count) error = ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; error == ESP_OK && i < schema->data.count; i++) {
+        const solar_os_message_setting_v1_t *field = &schema->fields[i];
+        if (!memchr(settings->values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
+        else if (field->required && (!id || settings->changed[i]) && !settings->values[i][0]) error = ESP_ERR_INVALID_ARG;
+    }
+    if (error == ESP_OK) {
+        if (type->settings_write_owned)
+            error = type->settings_write_owned(type->owner, context, form, name, settings, result);
+        else if (type->settings_write) error = type->settings_write(context, form, name, settings, result);
+        else error = ESP_ERR_NOT_SUPPORTED;
+    }
+    solar_os_messaging_settings_clear(schema); solar_os_memory_free(schema);
+    if (node) messaging_instance_release(node);
+    if (class) messaging_class_release(class);
     return error;
 }
 
@@ -414,25 +623,8 @@ esp_err_t solar_os_messaging_settings_write(const char *class_name,
     solar_os_messaging_provider_id_t id, unsigned form, const char *name,
     const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *result)
 {
-    if (!settings || !result || (!id && !messaging_text_valid(name, SOLAR_OS_MESSAGING_LABEL_MAX, false))) return ESP_ERR_INVALID_ARG;
-    messaging_provider_node_t *node; const solar_os_messaging_provider_class_t *type; void *context;
-    esp_err_t error = messaging_settings_acquire(class_name, id, &node, &type, &context);
-    if (error != ESP_OK) return error;
-    solar_os_messaging_settings_t *schema = solar_os_memory_calloc(1, sizeof(*schema),
-        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "messages.settings");
-    if (!schema) error = ESP_ERR_NO_MEM;
-    else error = messaging_settings_read_leased(type, context, form, schema);
-    if (error == ESP_OK && schema->count != settings->count) error = ESP_ERR_INVALID_ARG;
-    for (size_t i = 0; error == ESP_OK && i < schema->count; i++) {
-        const solar_os_messaging_setting_t *field = &schema->fields[i];
-        if (!memchr(settings->values[i], 0, field->capacity)) error = ESP_ERR_INVALID_SIZE;
-        else if (field->required && (!id || settings->changed[i]) && !settings->values[i][0]) error = ESP_ERR_INVALID_ARG;
-    }
-    if (error == ESP_OK) error = type->settings_write ?
-        type->settings_write(context, form, name, settings, result) : ESP_ERR_NOT_SUPPORTED;
-    solar_os_messaging_settings_clear(schema); solar_os_memory_free(schema);
-    if (node) messaging_instance_release(node);
-    return error;
+    return solar_os_messaging_settings_write_values(class_name, id, form, name,
+        settings ? &settings->data : NULL, result);
 }
 
 esp_err_t solar_os_messaging_instance_retain(solar_os_messaging_provider_id_t id, void **lease)
@@ -452,10 +644,14 @@ esp_err_t solar_os_messaging_instance_add(const char *class_name, const char *na
 {
     if (!class_name || !name || !id || argc < 0 || (argc && !argv)) return ESP_ERR_INVALID_ARG;
     esp_err_t error = solar_os_messaging_init(); if (error != ESP_OK) return error;
-    messaging_lock();
-    const solar_os_messaging_provider_class_t *type = messaging_class_locked(class_name);
-    messaging_unlock();
-    return type && type->create ? type->create(name, argc, argv, id) : ESP_ERR_NOT_SUPPORTED;
+    messaging_class_node_t *class = messaging_class_acquire(class_name);
+    if (!class) return ESP_ERR_NOT_SUPPORTED;
+    const solar_os_messaging_provider_class_t *type = class->type;
+    error = ESP_ERR_NOT_SUPPORTED;
+    if (type->create_owned) error = type->create_owned(type->owner, name, argc, argv, id);
+    else if (type->create) error = type->create(name, argc, argv, id);
+    messaging_class_release(class);
+    return error;
 }
 
 esp_err_t solar_os_messaging_instance_configure(solar_os_messaging_provider_id_t id,

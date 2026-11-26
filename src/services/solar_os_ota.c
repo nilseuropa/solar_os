@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <inttypes.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,7 +17,8 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
+#include "freertos/semphr.h"
+#include "solar_os_task.h"
 #include "nvs.h"
 #include "sdkconfig.h"
 #include "solar_os_board.h"
@@ -28,6 +30,9 @@
 #define OTA_NVS_NAMESPACE "ota"
 #define OTA_NVS_URL_KEY "url"
 #define OTA_NVS_FLAVOR_KEY "flavor"
+#define OTA_WORKER_STACK 16384U
+#define OTA_WORKER_WAIT_MS 100U
+SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(OTA_WORKER_STACK);
 #define OTA_HTTP_TIMEOUT_MS 15000
 #define OTA_INDEX_MAX 32768
 #define OTA_INDEX_SIGNATURE_MAX 512
@@ -44,6 +49,10 @@
 static char ota_url[SOLAR_OS_OTA_URL_MAX] = SOLAR_OS_OTA_DEFAULT_URL;
 static char ota_target_flavor[SOLAR_OS_OTA_FLAVOR_MAX] = SOLAR_OS_FLAVOR_NAME;
 static bool ota_loaded;
+static StaticSemaphore_t ota_settings_storage;
+static SemaphoreHandle_t ota_settings_mutex;
+static portMUX_TYPE ota_settings_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_flag ota_operation = ATOMIC_FLAG_INIT;
 static const char *TAG = "solar_os_ota";
 
 typedef struct {
@@ -68,7 +77,8 @@ typedef struct {
     bool hash_failed;
 } ota_firmware_verify_t;
 
-static void ota_load(void);
+static void ota_lock_settings(void);
+static void ota_unlock_settings(void);
 static esp_err_t ota_join_url(const char *base_url,
                               const char *path,
                               char *out,
@@ -246,18 +256,19 @@ static esp_err_t ota_build_index_url(char *out, size_t out_len)
         return ESP_ERR_INVALID_ARG;
     }
 
-    ota_load();
+    char url[SOLAR_OS_OTA_URL_MAX];
+    solar_os_ota_get_url(url, sizeof(url));
 
-    if (ota_url_has_suffix(ota_url, ".json")) {
-        return strlcpy(out, ota_url, out_len) < out_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    if (ota_url_has_suffix(url, ".json")) {
+        return strlcpy(out, url, out_len) < out_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
     }
 
-    const size_t url_len = strlen(ota_url);
-    const bool has_slash = url_len > 0 && ota_url[url_len - 1] == '/';
+    const size_t url_len = strlen(url);
+    const bool has_slash = url_len > 0 && url[url_len - 1] == '/';
     const int written = snprintf(out,
                                  out_len,
                                  "%s%s%s",
-                                 ota_url,
+                                 url,
                                  has_slash ? "" : "/",
                                  SOLAR_OS_OTA_INDEX_FILE);
     return written >= 0 && (size_t)written < out_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
@@ -357,7 +368,7 @@ static esp_err_t ota_join_url(const char *base_url,
     return written >= 0 && (size_t)written < out_len ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
 
-static void ota_load(void)
+static void ota_load_locked(void)
 {
     if (ota_loaded) {
         return;
@@ -389,23 +400,38 @@ static void ota_load(void)
     }
 }
 
-static esp_err_t ota_save(void)
+static void ota_lock_settings(void)
+{
+    portENTER_CRITICAL(&ota_settings_init_lock);
+    if (!ota_settings_mutex) ota_settings_mutex = xSemaphoreCreateMutexStatic(&ota_settings_storage);
+    portEXIT_CRITICAL(&ota_settings_init_lock);
+    xSemaphoreTake(ota_settings_mutex, portMAX_DELAY);
+    ota_load_locked();
+}
+
+static void ota_unlock_settings(void)
+{
+    xSemaphoreGive(ota_settings_mutex);
+}
+
+static esp_err_t ota_save_setting(const char *key, const char *value)
 {
     nvs_handle_t nvs;
-    esp_err_t ret = nvs_open(OTA_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    ret = nvs_set_str(nvs, OTA_NVS_URL_KEY, ota_url);
-    if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, OTA_NVS_FLAVOR_KEY, ota_target_flavor);
-    }
-    if (ret == ESP_OK) {
-        ret = nvs_commit(nvs);
-    }
+    esp_err_t error = nvs_open(OTA_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (error != ESP_OK) return error;
+    error = nvs_set_str(nvs, key, value);
+    if (error == ESP_OK) error = nvs_commit(nvs);
     nvs_close(nvs);
-    return ret;
+    return error;
+}
+
+static esp_err_t ota_store_setting(const char *key, const char *value, char *storage, size_t capacity)
+{
+    ota_lock_settings();
+    esp_err_t error = ota_save_setting(key, value);
+    if (error == ESP_OK) strlcpy(storage, value, capacity);
+    ota_unlock_settings();
+    return error;
 }
 
 static esp_err_t ota_http_event(esp_http_client_event_t *event)
@@ -983,51 +1009,44 @@ static const esp_partition_t *ota_find_slot(uint8_t slot)
 
 esp_err_t solar_os_ota_init(void)
 {
-    ota_load();
+    ota_lock_settings();
+    ota_unlock_settings();
     return ESP_OK;
 }
 
 void solar_os_ota_get_url(char *url, size_t len)
 {
-    if (url == NULL || len == 0) {
-        return;
-    }
-
-    ota_load();
+    if (!url || !len) return;
+    ota_lock_settings();
     strlcpy(url, ota_url, len);
+    ota_unlock_settings();
 }
 
 esp_err_t solar_os_ota_set_url(const char *url)
 {
-    ota_load();
-    if (!ota_url_is_valid(url)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    strlcpy(ota_url, url, sizeof(ota_url));
-    ota_available_flavors_clear();
-    return ota_save();
+    if (!ota_url_is_valid(url)) return ESP_ERR_INVALID_ARG;
+    if (atomic_flag_test_and_set(&ota_operation)) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = ota_store_setting(OTA_NVS_URL_KEY, url, ota_url, sizeof(ota_url));
+    if (error == ESP_OK) ota_available_flavors_clear();
+    atomic_flag_clear(&ota_operation);
+    return error;
 }
 
 void solar_os_ota_get_flavor(char *flavor, size_t len)
 {
-    if (flavor == NULL || len == 0) {
-        return;
-    }
-
-    ota_load();
+    if (!flavor || !len) return;
+    ota_lock_settings();
     strlcpy(flavor, ota_target_flavor, len);
+    ota_unlock_settings();
 }
 
 esp_err_t solar_os_ota_set_flavor(const char *flavor)
 {
-    ota_load();
-    if (!ota_flavor_is_valid(flavor)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    strlcpy(ota_target_flavor, flavor, sizeof(ota_target_flavor));
-    return ota_save();
+    if (!ota_flavor_is_valid(flavor)) return ESP_ERR_INVALID_ARG;
+    if (atomic_flag_test_and_set(&ota_operation)) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = ota_store_setting(OTA_NVS_FLAVOR_KEY, flavor, ota_target_flavor, sizeof(ota_target_flavor));
+    atomic_flag_clear(&ota_operation);
+    return error;
 }
 
 bool solar_os_ota_available_flavors_checked(void)
@@ -1075,9 +1094,11 @@ esp_err_t solar_os_ota_get_status(solar_os_ota_status_t *status)
     }
 
     memset(status, 0, sizeof(*status));
-    solar_os_ota_get_url(status->url, sizeof(status->url));
+    ota_lock_settings();
+    strlcpy(status->url, ota_url, sizeof(status->url));
+    strlcpy(status->target_flavor, ota_target_flavor, sizeof(status->target_flavor));
+    ota_unlock_settings();
     strlcpy(status->compiled_flavor, SOLAR_OS_FLAVOR_NAME, sizeof(status->compiled_flavor));
-    solar_os_ota_get_flavor(status->target_flavor, sizeof(status->target_flavor));
     status->ota_partition_count = esp_ota_get_app_partition_count();
 
     ota_fill_partition(&status->running, esp_ota_get_running_partition());
@@ -1093,10 +1114,13 @@ esp_err_t solar_os_ota_set_boot_slot(uint8_t slot)
         return ESP_ERR_NOT_FOUND;
     }
 
-    return esp_ota_set_boot_partition(partition);
+    if (atomic_flag_test_and_set(&ota_operation)) return ESP_ERR_INVALID_STATE;
+    esp_err_t error = esp_ota_set_boot_partition(partition);
+    atomic_flag_clear(&ota_operation);
+    return error;
 }
 
-esp_err_t solar_os_ota_check(solar_os_ota_check_result_t *result)
+static esp_err_t ota_check(solar_os_ota_check_result_t *result)
 {
     ota_available_flavors_clear();
     return ota_resolve_artifact(result, true);
@@ -1111,7 +1135,7 @@ static void ota_report_progress(solar_os_ota_progress_cb_t cb,
     }
 }
 
-esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
+static esp_err_t ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
 {
     solar_os_ota_check_result_t *artifact = ota_malloc(sizeof(*artifact));
     solar_os_ota_progress_t *event = ota_malloc(sizeof(*event));
@@ -1279,8 +1303,11 @@ esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
 
     /* Persist a renamed target only after the verified update has finished.
      * Failed checks/downloads leave the user's configured flavor untouched. */
-    if (strcmp(ota_target_flavor, artifact->target_flavor)) {
-        esp_err_t save_error = solar_os_ota_set_flavor(artifact->target_flavor);
+    char current_flavor[SOLAR_OS_OTA_FLAVOR_MAX];
+    solar_os_ota_get_flavor(current_flavor, sizeof(current_flavor));
+    if (strcmp(current_flavor, artifact->target_flavor)) {
+        esp_err_t save_error = ota_store_setting(OTA_NVS_FLAVOR_KEY, artifact->target_flavor,
+            ota_target_flavor, sizeof(ota_target_flavor));
         if (save_error != ESP_OK)
             SOLAR_OS_LOGW(TAG, "upgrade flavor save failed: %s", esp_err_to_name(save_error));
     }
@@ -1301,4 +1328,53 @@ cleanup:
     ota_free(event);
     ota_free(artifact);
     return err;
+}
+
+typedef struct {
+    solar_os_ota_check_result_t *check;
+    solar_os_ota_progress_cb_t progress;
+    void *user;
+    esp_err_t result;
+    atomic_bool done;
+} ota_worker_t;
+
+static void ota_worker(void *arg)
+{
+    ota_worker_t *worker = arg;
+    worker->result = worker->check ? ota_check(worker->check) : ota_upgrade(worker->progress, worker->user);
+    SOLAR_OS_LOGI(TAG, "OTA %s worker stopped stack_min_free=%u bytes",
+        worker->check ? "check" : "upgrade", (unsigned)uxTaskGetStackHighWaterMark(NULL));
+    atomic_store(&worker->done, true);
+    solar_os_task_delete_internal(NULL);
+}
+
+static esp_err_t ota_run(ota_worker_t *worker)
+{
+    if (atomic_flag_test_and_set(&ota_operation)) return ESP_ERR_INVALID_STATE;
+    atomic_init(&worker->done, false);
+    const char *name = worker->check ? "ota_check" : "ota_upgrade";
+    if (solar_os_task_create_pinned_internal(ota_worker, name, OTA_WORKER_STACK,
+        worker, tskIDLE_PRIORITY + 2, NULL, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
+        SOLAR_OS_LOGW(TAG, "OTA worker create failed for %s stack=%u", name, (unsigned)OTA_WORKER_STACK);
+        atomic_flag_clear(&ota_operation);
+        return ESP_ERR_NO_MEM;
+    }
+
+    const TickType_t wait_ticks = pdMS_TO_TICKS(OTA_WORKER_WAIT_MS);
+    while (!atomic_load(&worker->done)) vTaskDelay(wait_ticks ? wait_ticks : 1);
+    atomic_flag_clear(&ota_operation);
+    return worker->result;
+}
+
+esp_err_t solar_os_ota_check(solar_os_ota_check_result_t *result)
+{
+    if (!result) return ESP_ERR_INVALID_ARG;
+    ota_worker_t worker = {.check = result};
+    return ota_run(&worker);
+}
+
+esp_err_t solar_os_ota_upgrade(solar_os_ota_progress_cb_t progress, void *user)
+{
+    ota_worker_t worker = {.progress = progress, .user = user};
+    return ota_run(&worker);
 }

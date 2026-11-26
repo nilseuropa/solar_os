@@ -77,6 +77,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_DSP || SOLAR_OS_PACKAGE_SERVICE_BLE || SOLAR_OS_PACKAGE_SERVICE_HID || SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
 #include "solar_os_native_client.h"
+#include "solar_os_script_service_query.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"

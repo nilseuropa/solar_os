@@ -118,6 +118,8 @@ const char *solar_os_network_interface_state_name(
 
 esp_err_t solar_os_network_router_register(
     const solar_os_network_router_provider_t *provider);
+esp_err_t solar_os_network_router_select(const char *name, const void *context);
+esp_err_t solar_os_network_router_unregister_owned(const char *name, const void *context);
 esp_err_t solar_os_network_router_start(void);
 esp_err_t solar_os_network_router_stop(void);
 void solar_os_network_router_get_status(solar_os_network_router_status_t *status);

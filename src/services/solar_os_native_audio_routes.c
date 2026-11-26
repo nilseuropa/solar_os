@@ -8,6 +8,10 @@
 
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_audio_device_provider_abi.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_runtime.h"
 #include "solar_os_native_stream.h"
 
 static int route_copy(solar_os_audio_route_v1_t *out, const solar_os_audio_device_info_t *in)
@@ -114,6 +118,143 @@ static const solar_os_native_audio_routes_api_v1_t audio_routes_api = {
     .capture_frames = solar_os_native_stream_capture_audio,
     .measure_level = solar_os_native_stream_measure_audio,
     .board_status = route_board_status,
+};
+typedef struct {
+    solar_os_native_audio_device_controls_v1_t callbacks;
+    char id[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    uint32_t library;
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    void *driver_pin;
+#endif
+    bool registered;
+} audio_provider_t;
+
+static esp_err_t audio_provider_volume(void *user, uint8_t volume)
+{
+    audio_provider_t *state = user;
+    return solar_os_native_callback_result(state->callbacks.set_volume(state->callbacks.user, volume));
+}
+
+static esp_err_t audio_provider_get_gain(void *user, float *gain)
+{
+    audio_provider_t *state = user;
+    return solar_os_native_callback_result(state->callbacks.get_input_gain(state->callbacks.user, gain));
+}
+
+static esp_err_t audio_provider_set_gain(void *user, float gain)
+{
+    audio_provider_t *state = user;
+    return solar_os_native_callback_result(state->callbacks.set_input_gain(state->callbacks.user, gain));
+}
+
+static int audio_provider_destroy(void *opaque)
+{
+    audio_provider_t *state = opaque;
+    if (state->registered) {
+        const esp_err_t error = solar_os_audio_unregister_device_owned(state->id, state);
+        if (error == ESP_ERR_INVALID_STATE) return SOLAR_OS_NATIVE_ERROR_BUSY;
+        if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return solar_os_native_result(error);
+        state->registered = false;
+    }
+    if (state->library) {
+        const int result = solar_os_native_library_release(state->library);
+        if (result != SOLAR_OS_NATIVE_OK && result != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
+    }
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    if (state->driver_pin) solar_os_native_driver_unpin(state->driver_pin);
+#endif
+    solar_os_memory_free(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int audio_provider_pin(audio_provider_t *state, const solar_os_native_audio_device_provider_v1_t *in)
+{
+    if (!in->controls.set_volume && !in->controls.get_input_gain && !in->controls.set_input_gain) return SOLAR_OS_NATIVE_OK;
+    if (in->library_lease) return solar_os_native_library_retain(in->library_lease, &state->library);
+#if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
+    state->driver_pin = solar_os_native_driver_pin();
+    if (state->driver_pin) return SOLAR_OS_NATIVE_OK;
+#endif
+    return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+}
+
+static bool audio_provider_route_valid(const solar_os_native_audio_device_provider_v1_t *in)
+{
+    const solar_os_audio_route_v1_t *route = in->route;
+    const uint32_t caps = SOLAR_OS_AUDIO_DEVICE_CAP_INPUT | SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT |
+        SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME | SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN;
+    return memchr(route->id, 0, sizeof(route->id)) && memchr(route->name, 0, sizeof(route->name)) &&
+        memchr(route->provider, 0, sizeof(route->provider)) &&
+        memchr(route->capture_stream, 0, sizeof(route->capture_stream)) &&
+        memchr(route->playback_stream, 0, sizeof(route->playback_stream)) &&
+        route->capabilities && !(route->capabilities & ~caps) &&
+        ((route->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME) != 0) == (in->controls.set_volume != NULL) &&
+        ((route->capabilities & SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN) != 0) ==
+            (in->controls.get_input_gain != NULL || in->controls.set_input_gain != NULL) &&
+        route->format.audio_format == SOLAR_OS_NATIVE_STREAM_AUDIO_S16_LE &&
+        route->format.bits_per_sample == 16;
+}
+
+static int audio_provider_register(const solar_os_native_audio_device_provider_v1_t *in,
+    solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    if (!in || !in->route || !audio_provider_route_valid(in)) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+
+    audio_provider_t *state = solar_os_memory_calloc(1, sizeof(*state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "native.audio.device");
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    solar_os_native_handle_t handle;
+    int result = solar_os_native_handle_create(SOLAR_OS_NATIVE_HANDLE_AUDIO_DEVICE_PROVIDER,
+        state, audio_provider_destroy, &handle);
+    if (result) {
+        solar_os_memory_free(state);
+        return result;
+    }
+    state->callbacks = in->controls;
+    strlcpy(state->id, in->route->id, sizeof(state->id));
+    result = audio_provider_pin(state, in);
+    if (!result) {
+        const solar_os_audio_route_v1_t *route = in->route;
+        solar_os_audio_device_info_t device = {
+            .capabilities = route->capabilities,
+            .native_format = {.sample_format = SOLAR_OS_STREAM_AUDIO_S16_LE,
+                .sample_rate = route->format.sample_rate, .channels = route->format.channels,
+                .bits_per_sample = route->format.bits_per_sample, .frames_per_block = route->format.frames_per_block},
+            .input_gain_min_db = in->input_gain_min_db, .input_gain_max_db = in->input_gain_max_db,
+            .input_gain_step_db = in->input_gain_step_db,
+        };
+        strlcpy(device.id, route->id, sizeof(device.id));
+        strlcpy(device.name, route->name, sizeof(device.name));
+        strlcpy(device.provider, route->provider, sizeof(device.provider));
+        strlcpy(device.capture_stream, route->capture_stream, sizeof(device.capture_stream));
+        strlcpy(device.playback_stream, route->playback_stream, sizeof(device.playback_stream));
+        const solar_os_audio_device_ops_t ops = {
+            .set_volume = in->controls.set_volume ? audio_provider_volume : NULL,
+            .get_input_gain = in->controls.get_input_gain ? audio_provider_get_gain : NULL,
+            .set_input_gain = in->controls.set_input_gain ? audio_provider_set_gain : NULL,
+        };
+        result = solar_os_native_result(solar_os_audio_register_device_ex(&device, &ops, state));
+        state->registered = result == SOLAR_OS_NATIVE_OK;
+    }
+    if (result) {
+        const int closed = solar_os_native_handle_close_kind(handle, SOLAR_OS_NATIVE_HANDLE_AUDIO_DEVICE_PROVIDER);
+        if (closed == SOLAR_OS_NATIVE_OK || closed == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) return result;
+    }
+    *out = handle;
+    return result;
+}
+
+static int audio_provider_close(solar_os_native_handle_t registration)
+{
+    return solar_os_native_handle_close_kind(registration, SOLAR_OS_NATIVE_HANDLE_AUDIO_DEVICE_PROVIDER);
+}
+
+static const solar_os_native_audio_device_provider_api_v1_t audio_provider_api = {
+    .abi_version = SOLAR_OS_NATIVE_AUDIO_DEVICE_PROVIDER_ABI,
+    .struct_size = sizeof(audio_provider_api), .register_device = audio_provider_register,
+    .close = audio_provider_close,
 };
 #endif
 

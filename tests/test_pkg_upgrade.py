@@ -52,7 +52,10 @@ class PackageUpgradeTest(unittest.TestCase):
         source = (ROOT / 'src/shell/solar_os_shell_system.c').read_text()
         definitions = source[source.index('typedef struct {', source.index('#define PKG_NETWORK_WAIT_MS')):
                              source.index('static esp_err_t pkg_read_input(')]
-        functions = production_functions(source, (
+        poll_input = production_functions((ROOT / 'src/shell/solar_os_shell_io.c').read_text(), (
+            'solar_os_shell_io_poll_input',
+        ))
+        functions = poll_input + '\n' + production_functions(source, (
             'pkg_read_input', 'pkg_install_cancelled', 'pkg_install_progress',
             'pkg_print_upgrade_plan', 'pkg_confirm_upgrade', 'pkg_update_or_upgrade',
             'solar_os_shell_cmd_pkg',

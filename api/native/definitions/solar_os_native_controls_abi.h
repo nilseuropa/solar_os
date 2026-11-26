@@ -21,6 +21,10 @@ typedef struct {
     char control[24], parameter[64];
     int32_t error;
 } solar_os_native_control_binding_v1_t;
+typedef struct {
+    uint32_t succeeded;
+    uint32_t errors;
+} solar_os_native_control_pass_v1_t;
 /* Configurations and status are copied. Named controls and their target
  * bindings are OS registry objects, with explicit delete/clear operations.
  * Values use the OS normalized 0..65535 range. */
@@ -39,4 +43,13 @@ typedef struct {
     int (*unbind)(const char *control, size_t *removed);
     size_t (*binding_count)(void);
     int (*binding_info)(size_t index, solar_os_native_control_binding_v1_t *info);
+    /* Raw source samples use the configured calibration, filtering, and
+     * deadband. Pass timestamps are monotonic milliseconds modulo 2^32. */
+    int (*publish_sample)(const char *name, float value, uint32_t now_ms);
+    void (*note_read_error)(const char *name, int error);
+    const char *(*target_name)(uint32_t target);
+    /* Passes are serialized separately. A pass already in progress returns
+     * BUSY. Sampling may block on streams. The report must be non-null. */
+    int (*sample)(uint32_t now_ms, uint32_t window_ms, solar_os_native_control_pass_v1_t *pass);
+    int (*apply_bindings)(solar_os_native_control_pass_v1_t *pass);
 } solar_os_native_controls_api_v1_t;

@@ -4,6 +4,8 @@
 #include <string.h>
 #include "solar_os_native_client.h"
 #include "solar_os_native_routing.h"
+#include "solar_os_native_router_provider.h"
+#include "solar_os_native_runtime.h"
 #include "solar_os_native_handles.h"
 #include "solar_os_network.h"
 #include "solar_os_wifi.h"
@@ -63,10 +65,100 @@ esp_err_t solar_os_network_interface_publish(const solar_os_network_interface_in
     assert(!strcmp(in->peer, "2001:db8::1")); return ESP_OK;
 }
 esp_err_t solar_os_network_interface_remove(const char *name) { assert(!strcmp(name, "tunnel")); return ESP_OK; }
-void solar_os_network_router_get_status(solar_os_network_router_status_t *out)
-{ *out = (solar_os_network_router_status_t){.available = true, .active = true, .client_count = 65535}; strcpy(out->label, "router"); }
-esp_err_t solar_os_network_router_start(void) { return ESP_OK; }
-esp_err_t solar_os_network_router_stop(void) { return ESP_ERR_NOT_SUPPORTED; }
+#include "network_names.inc"
+
+static bool builtin_router_active = true;
+static void builtin_router_status(void *context, solar_os_network_router_status_t *out)
+{
+    (void)context;
+    out->active = builtin_router_active;
+    out->client_count = UINT16_MAX;
+    strcpy(out->label, "router");
+}
+static esp_err_t builtin_router_start(void *context) { (void)context; return ESP_OK; }
+static esp_err_t builtin_router_stop(void *context) { (void)context; return ESP_ERR_NOT_SUPPORTED; }
+
+size_t strlcpy(char *out, const char *in, size_t capacity)
+{
+    const size_t length = strlen(in);
+    if (capacity) {
+        const size_t count = length < capacity - 1U ? length : capacity - 1U;
+        memcpy(out, in, count);
+        out[count] = 0;
+    }
+    return length;
+}
+
+static unsigned pins;
+int solar_os_native_library_retain(solar_os_native_handle_t lease, solar_os_native_handle_t *out)
+{
+    assert(lease == 11);
+    ++pins;
+    *out = 22;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_library_release(solar_os_native_handle_t lease)
+{
+    assert(lease == 22 && pins);
+    --pins;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+typedef struct {
+    const solar_os_native_router_provider_api_v1_t *provider;
+    solar_os_native_handle_t registration;
+    bool active, fail_stop;
+} router_fixture_t;
+
+static int portable_router_start(void *opaque)
+{
+    router_fixture_t *fixture = opaque;
+    assert(fixture->provider->close(fixture->registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    fixture->active = true;
+    return SOLAR_OS_NATIVE_OK;
+}
+static int portable_router_stop(void *opaque)
+{
+    router_fixture_t *fixture = opaque;
+    if (fixture->fail_stop) return SOLAR_OS_NATIVE_ERROR_TIMEOUT;
+    fixture->active = false;
+    return SOLAR_OS_NATIVE_OK;
+}
+static void portable_router_status(void *opaque, solar_os_native_network_router_v1_t *status)
+{
+    router_fixture_t *fixture = opaque;
+    assert(pins);
+    status->enabled = status->active = fixture->active;
+    status->client_count = UINT32_MAX;
+    strcpy(status->label, "portable");
+}
+
+static void verify_native_router(void)
+{
+    router_fixture_t fixture = {.provider = solar_os_native_router_provider_get_service(
+        SOLAR_OS_NATIVE_ROUTER_PROVIDER_SERVICE, 1, sizeof(solar_os_native_router_provider_api_v1_t))};
+    assert(fixture.provider);
+    char name[] = "portable";
+    solar_os_native_router_provider_v1_t provider = {
+        .name = name, .library_lease = 11, .user = &fixture,
+        .start = portable_router_start, .stop = portable_router_stop, .status = portable_router_status,
+    };
+    assert(!fixture.provider->register_router(&provider, &fixture.registration) && pins == 1);
+    memset(name, '?', sizeof(name) - 1);
+    assert(fixture.provider->select(fixture.registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    builtin_router_active = false;
+    assert(!fixture.provider->select(fixture.registration));
+    assert(!routing->router_start() && fixture.active);
+    solar_os_native_network_router_v1_t status;
+    assert(!routing->router_status(&status) && status.active && status.client_count == UINT16_MAX);
+    assert(!strcmp(status.downstream, "portable"));
+    fixture.fail_stop = true;
+    assert(fixture.provider->close(fixture.registration) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(pins == 1 && fixture.active);
+    fixture.fail_stop = false;
+    assert(!fixture.provider->close(fixture.registration) && !pins && !fixture.active);
+    assert(!routing->router_status(&status) && !strcmp(status.downstream, "wifi-ap"));
+}
 bool solar_os_wifi_enabled_for_current_boot(void) { return false; }
 bool solar_os_wifi_enabled_for_next_boot(void) { return true; }
 esp_err_t solar_os_wifi_set_enabled_for_next_boot(bool enabled) { return enabled ? ESP_OK : ESP_ERR_INVALID_STATE; }
@@ -135,6 +227,13 @@ int main(void)
     assert(!routing->interface_publish(&interface_info));
     interface_info.role = SOLAR_OS_NATIVE_ROUTING_UPLINK; assert(routing->interface_publish(&interface_info) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     allocation_fail = true; assert(routing->interfaces(&interface_info, 1, &count) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY); allocation_fail = false;
+    const solar_os_network_router_provider_t builtin = {
+        .name = "wifi-ap", .start = builtin_router_start, .stop = builtin_router_stop,
+        .get_status = builtin_router_status,
+    };
+    assert(solar_os_network_router_register(&builtin) == ESP_OK);
+    assert(!strcmp(routing->role_name(SOLAR_OS_NATIVE_ROUTING_UPLINK), "uplink") &&
+        !strcmp(routing->state_name(SOLAR_OS_NATIVE_ROUTING_CONNECTING), "connecting"));
     solar_os_native_network_router_v1_t router; assert(!routing->router_status(&router) && router.client_count == 65535 && !strcmp(router.label, "router"));
     assert(!routing->priority_set("wifi", 17) && routing->router_stop() == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
     assert(!wifi->boot_enabled(false) && wifi->boot_enabled(true)); assert(!wifi->boot_enable(true));
@@ -162,5 +261,6 @@ int main(void)
     release_fail = false; assert(!wifi->lease_close(latency) && wifi_latency_count == 1 && release_attempts == 2);
     assert(!wifi->lease_close(latency_other) && !wifi->lease_close(other_lease));
     assert(claims == 4 && releases == 2 && release_attempts == 4 && !wifi_latency_count && !wifi_connectionless_active);
+    verify_native_router();
     assert(!allocations && !solar_os_native_handle_count()); puts("native routing, DNS, WiFi values and radio ownership passed"); return 0;
 }

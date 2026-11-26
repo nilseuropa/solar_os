@@ -67,4 +67,8 @@ typedef struct {
     int (*vprintf_bold)(solar_os_shell_io_t *io, const char *fmt, va_list args);
     int (*table_vprintf)(solar_os_shell_io_t *io, const char *fmt, va_list args);
     int (*table_vprintf_bold)(solar_os_shell_io_t *io, const char *fmt, va_list args);
+    /* Poll the current callback's channel. A terminal yields translated key
+     * bytes and a port yields its raw bytes. The call never waits for input. */
+    int (*poll_input)(const solar_os_shell_io_t *io, uint8_t *buffer,
+                      size_t capacity, size_t *count);
 } solar_os_native_shell_io_api_v1_t;

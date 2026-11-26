@@ -7,6 +7,9 @@
 #include "../../src/services/solar_os_link_messaging.c"
 #undef TAG
 
+#include "solar_os_native_link_messaging.h"
+#include "solar_os_native_link_messaging_abi.h"
+
 static unsigned sends_a, sends_b;
 uint32_t esp_random(void) { static uint32_t next; return ++next; }
 esp_err_t solar_os_link_get_status(const char *name, solar_os_link_status_t *status)
@@ -32,19 +35,24 @@ esp_err_t solar_os_link_decode(const uint8_t *frame, size_t length, solar_os_lin
 
 int main(void)
 {
+    const solar_os_native_link_messaging_api_v1_t *api = solar_os_native_link_messaging_get_service(
+        SOLAR_OS_NATIVE_LINK_MESSAGING_SERVICE, SOLAR_OS_NATIVE_LINK_MESSAGING_ABI, sizeof(*api));
+    assert(api != NULL && api->struct_size == sizeof(*api));
+    assert(!solar_os_native_link_messaging_get_service(
+        SOLAR_OS_NATIVE_LINK_MESSAGING_SERVICE, SOLAR_OS_NATIVE_LINK_MESSAGING_ABI + 1, sizeof(*api)));
     assert(mkdtemp(test_root));
     assert(solar_os_link_messaging_init() == ESP_OK);
-    assert(solar_os_link_messaging_start("a") == ESP_OK);
-    assert(solar_os_link_messaging_start("b") == ESP_OK);
-    assert(solar_os_link_messaging_start("a") == ESP_ERR_INVALID_STATE);
+    assert(api->start("a") == SOLAR_OS_NATIVE_OK);
+    assert(api->start("b") == SOLAR_OS_NATIVE_OK);
+    assert(api->start("a") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
     solar_os_messaging_provider_id_t a = find_link("a")->provider, b = find_link("b")->provider;
     assert(a == SOLAR_OS_MESSAGING_PROVIDER_LINK && a != b);
     solar_os_messaging_settings_t form;
     assert(solar_os_messaging_settings_read("link", a, 0, &form) == ESP_OK);
-    assert(form.enabled && form.count == 1 && !strcmp(form.values[0], "a") && form.worker_is_resource);
+    assert(form.enabled && form.data.count == 1 && !strcmp(form.data.values[0], "a") && form.worker_is_resource);
     solar_os_messaging_provider_id_t saved;
     assert(solar_os_messaging_settings_write("link", a, 0, NULL, &form, &saved) == ESP_OK && saved == a);
-    form.changed[0] = true; strlcpy(form.values[0], "b", sizeof(form.values[0]));
+    form.data.changed[0] = true; strlcpy(form.data.values[0], "b", sizeof(form.data.values[0]));
     assert(solar_os_messaging_settings_write("link", a, 0, NULL, &form, &saved) == ESP_ERR_INVALID_STATE);
     solar_os_messaging_provider_id_t duplicate;
     const char *binding[] = {"b"};
@@ -65,15 +73,15 @@ int main(void)
     solar_os_message_key_t key_a, key_b;
     assert(solar_os_messaging_send(direct_a, "A", true, &key_a) == ESP_OK);
     assert(solar_os_messaging_send(direct_b, "B", true, &key_b) == ESP_OK);
-    solar_os_link_messaging_process("a", 100);
-    solar_os_link_messaging_process("b", 100);
+    api->process("a", 100);
+    api->process("b", 100);
     assert(sends_a == 1 && sends_b == 1);
     solar_os_link_frame_t frame = {0};
-    solar_os_link_messaging_note_transmit("a", &frame, ESP_OK, 101);
-    solar_os_link_messaging_note_transmit("b", &frame, ESP_OK, 101);
+    api->note_transmit("a", &frame, SOLAR_OS_NATIVE_OK, 101);
+    api->note_transmit("b", &frame, SOLAR_OS_NATIVE_OK, 101);
     solar_os_link_ingest_result_t ack = {.acknowledgement = true,
         .message = {.source = 0x1234, .sequence = 1}};
-    assert(solar_os_link_messaging_note_ingest("b", &ack, 102) == ESP_OK);
+    assert(api->note_ingest("b", &ack, 102) == SOLAR_OS_NATIVE_OK);
     solar_os_messaging_message_t message;
     assert(solar_os_messaging_message_get(key_b, &message) == ESP_OK && message.delivery == SOLAR_OS_DELIVERY_DELIVERED);
     assert(solar_os_messaging_message_get(key_a, &message) == ESP_OK && message.delivery == SOLAR_OS_DELIVERY_SENDING);
@@ -88,7 +96,9 @@ int main(void)
     restart_messages();
     assert(solar_os_link_messaging_init() == ESP_OK);
     assert(!find_link("a") && find_link("b")->provider == b && find_link("b")->config.enabled);
-    assert(solar_os_link_messaging_start("b") == ESP_OK);
+    assert(api->start("b") == SOLAR_OS_NATIVE_OK);
+    api->stop("b");
+    assert(!find_link("b")->active);
     assert(solar_os_messaging_instance_remove(b) == ESP_OK);
     const char *files[] = {".chat/profiles/003.bin", ".chat/profiles/004.bin", ".contacts/contacts.bin", ".messages/history.bin", ".messages/location"};
     char path[160];

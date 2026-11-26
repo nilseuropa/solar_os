@@ -23,7 +23,7 @@ static const mp_obj_type_t solaros_dsp_processor_type;
 static const solar_os_native_dsp_api_v1_t *python_dsp_api(void)
 {
     const solar_os_native_dsp_api_v1_t *api = solar_os_native_dsp_get(
-        solar_os_native_host_v1()->get_service,
+        SOLAR_OS_SCRIPT_SERVICE_QUERY(dsp),
         SOLAR_OS_NATIVE_THROUGH(solar_os_native_dsp_api_v1_t, fft_execute));
     if (!api) mp_raise_msg(&mp_type_RuntimeError, MP_ERROR_TEXT("DSP service unavailable"));
     return api;

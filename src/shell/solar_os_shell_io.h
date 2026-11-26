@@ -61,6 +61,9 @@ void solar_os_shell_io_set_charset(solar_os_shell_io_t *io, solar_os_shell_chars
 solar_os_shell_charset_t solar_os_shell_io_charset(const solar_os_shell_io_t *io);
 bool solar_os_shell_io_is_cursor_addressable(const solar_os_shell_io_t *io);
 const char *solar_os_shell_io_app_exit_key(const solar_os_shell_io_t *io);
+/* Poll the explicit channel. A NULL channel selects local keyboard input. */
+esp_err_t solar_os_shell_io_poll_input(const solar_os_shell_io_t *io,
+                                        uint8_t *buffer, size_t capacity, size_t *count);
 esp_err_t solar_os_shell_io_write(solar_os_shell_io_t *io, const char *text);
 esp_err_t solar_os_shell_io_write_len(solar_os_shell_io_t *io, const char *text, size_t len);
 esp_err_t solar_os_shell_io_write_raw(solar_os_shell_io_t *io, const char *data, size_t len);

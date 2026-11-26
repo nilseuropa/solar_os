@@ -84,6 +84,39 @@ static const void *(*const providers[])(const char *, uint32_t, uint32_t) = {
 #if SOLAR_OS_PACKAGE_SERVICE_WIREGUARD
     solar_os_native_wireguard_get_service,
 #endif
+    solar_os_native_zip_get_service,
+    solar_os_native_sc2_get_service,
+    solar_os_native_link_get_service,
+    solar_os_native_espnow_get_service,
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+    solar_os_native_link_messaging_get_service,
+#endif
+    solar_os_native_port_provider_get_service,
+#if SOLAR_OS_PACKAGE_SERVICE_MESHCORE_COMMON
+    solar_os_native_meshcore_get_service,
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_SYNTH
+    solar_os_native_synth_get_service,
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BATTERY
+    solar_os_native_battery_provider_get_service,
+#endif
+    solar_os_native_pwm_provider_get_service,
+    solar_os_native_agent_get_service,
+    solar_os_native_agent_run_get_service,
+    solar_os_native_input_hardware_get_service,
+    solar_os_native_http_server_get_service,
+    solar_os_native_irc_get_service,
+    solar_os_native_power_provider_get_service,
+    solar_os_native_audio_player_get_service,
+    solar_os_native_display_raster_get_service,
+    solar_os_native_display_receiver_get_service,
+    solar_os_native_modem_provider_get_service,
+    solar_os_native_router_provider_get_service,
+    solar_os_native_ppp_get_service,
+    solar_os_native_message_provider_get_service,
+    solar_os_native_sc2_profile_get_service,
+    solar_os_native_sc2_relay_get_service,
     NULL,
 };
 for (size_t i = 0; providers[i]; ++i) {

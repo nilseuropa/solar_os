@@ -93,6 +93,19 @@ static int shell_io_table_vprintf(solar_os_shell_io_t *io, const char *fmt, va_l
 static int shell_io_table_vprintf_bold(solar_os_shell_io_t *io, const char *fmt, va_list args)
 { return solar_os_native_result(solar_os_shell_io_table_vprintf_bold(io, fmt, args)); }
 
+static int shell_io_poll_input(const solar_os_shell_io_t *io, uint8_t *buffer,
+                               size_t capacity, size_t *count)
+{
+    if (io == NULL || io != shell_io_current() ||
+        solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
+        if (count != NULL) {
+            *count = 0;
+        }
+        return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    }
+    return solar_os_native_result(solar_os_shell_io_poll_input(io, buffer, capacity, count));
+}
+
 static const solar_os_native_shell_io_api_v1_t shell_io_api = {
     .abi_version = SOLAR_OS_NATIVE_SHELL_IO_ABI, .struct_size = sizeof(shell_io_api),
     .current = shell_io_current,
@@ -147,6 +160,7 @@ static const solar_os_native_shell_io_api_v1_t shell_io_api = {
     .vprintf_bold = shell_io_vprintf_bold,
     .table_vprintf = shell_io_table_vprintf,
     .table_vprintf_bold = shell_io_table_vprintf_bold,
+    .poll_input = shell_io_poll_input,
 };
 #endif
 

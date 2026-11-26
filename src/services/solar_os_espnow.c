@@ -9,14 +9,17 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_saved_config.h"
 #include "solar_os_link.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
 #include "solar_os_wifi.h"
 
 #define ESPNOW_RX_QUEUE_DEPTH 4U
-#define ESPNOW_TX_QUEUE_DEPTH 2U
+#define ESPNOW_TX_QUEUE_DEPTH 1U
 #define ESPNOW_NVS_NAMESPACE "espnow"
 #define ESPNOW_NVS_PEERS_KEY "peers"
 #define ESPNOW_PEER_STORE_MAGIC UINT32_C(0x45534e50)
@@ -41,9 +44,10 @@ typedef struct {
 } espnow_peer_store_t;
 
 typedef struct {
-    uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN];
-    esp_now_send_status_t status;
-} espnow_send_event_t;
+    QueueHandle_t rx_queue;
+    QueueHandle_t tx_queue;
+    unsigned references;
+} espnow_session_t;
 
 typedef struct {
     bool loaded;
@@ -51,14 +55,14 @@ typedef struct {
     bool suspended;
     bool channel_auto;
     bool send_inflight;
+    bool send_result_queued;
     bool protocol_changed;
     uint8_t channel;
     uint8_t previous_protocol;
     solar_os_espnow_phy_t phy;
     char owner[SOLAR_OS_ESPNOW_OWNER_MAX];
     solar_os_espnow_peer_t peers[SOLAR_OS_ESPNOW_PEER_MAX];
-    QueueHandle_t rx_queue;
-    QueueHandle_t tx_queue;
+    espnow_session_t *session;
     uint32_t tx_packets;
     uint32_t tx_errors;
     uint32_t rx_packets;
@@ -69,9 +73,98 @@ typedef struct {
 
 static EXT_RAM_BSS_ATTR espnow_state_t espnow_state;
 static portMUX_TYPE espnow_lock = portMUX_INITIALIZER_UNLOCKED;
-static volatile bool espnow_callbacks_active;
-static QueueHandle_t espnow_callback_rx_queue;
-static QueueHandle_t espnow_callback_tx_queue;
+static StaticSemaphore_t espnow_control_storage;
+static SemaphoreHandle_t espnow_control;
+static bool espnow_callbacks_active;
+static unsigned espnow_callbacks_inflight;
+
+/* Serialize driver transitions and peer configuration transactions. Queue
+ * readers and Wi-Fi callbacks only need the short state lock. */
+static void espnow_control_lock(void)
+{
+    portENTER_CRITICAL(&espnow_lock);
+    if (espnow_control == NULL) {
+        espnow_control = xSemaphoreCreateMutexStatic(&espnow_control_storage);
+    }
+    portEXIT_CRITICAL(&espnow_lock);
+    xSemaphoreTake(espnow_control, portMAX_DELAY);
+}
+
+static espnow_session_t *espnow_session_create(void)
+{
+    espnow_session_t *session = solar_os_memory_calloc(1, sizeof(*session),
+        SOLAR_OS_MEMORY_INTERNAL_CRITICAL, "espnow.session");
+    if (session != NULL) {
+        session->references = 1U;
+    }
+    return session;
+}
+
+static espnow_session_t *espnow_session_acquire(bool callback)
+{
+    portENTER_CRITICAL(&espnow_lock);
+    espnow_session_t *session = espnow_state.session;
+    if (callback && !espnow_callbacks_active) {
+        session = NULL;
+    }
+    if (session != NULL) {
+        session->references++;
+        if (callback) {
+            espnow_callbacks_inflight++;
+        }
+    }
+    portEXIT_CRITICAL(&espnow_lock);
+    return session;
+}
+
+static void espnow_session_release(espnow_session_t *session, bool callback)
+{
+    portENTER_CRITICAL(&espnow_lock);
+    const bool destroy = --session->references == 0U;
+    if (callback) {
+        espnow_callbacks_inflight--;
+    }
+    portEXIT_CRITICAL(&espnow_lock);
+    if (destroy) {
+        if (session->rx_queue != NULL) {
+            vQueueDelete(session->rx_queue);
+        }
+        if (session->tx_queue != NULL) {
+            vQueueDelete(session->tx_queue);
+        }
+        solar_os_memory_free(session);
+    }
+}
+
+/* Preserve arrivals' queue wakeups and recheck retirement during long waits. */
+static esp_err_t espnow_receive_queue(espnow_session_t *session, QueueHandle_t queue,
+                                    void *item, uint32_t timeout_ms)
+{
+    const uint64_t ticks = (uint64_t)timeout_ms * configTICK_RATE_HZ / 1000U;
+    TickType_t remaining = ticks < portMAX_DELAY ? (TickType_t)ticks : portMAX_DELAY - 1U;
+    const TickType_t close_poll = pdMS_TO_TICKS(20U) + 1U;
+    TimeOut_t start;
+    if (remaining != 0U) {
+        vTaskSetTimeOutState(&start);
+    }
+
+    for (;;) {
+        const TickType_t wait = remaining < close_poll ? remaining : close_poll;
+        const bool received = xQueueReceive(queue, item, wait) == pdTRUE;
+        portENTER_CRITICAL(&espnow_lock);
+        const bool current = espnow_state.session == session;
+        portEXIT_CRITICAL(&espnow_lock);
+        if (!current) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (received) {
+            return ESP_OK;
+        }
+        if (remaining == 0U || xTaskCheckForTimeOut(&start, &remaining) == pdTRUE) {
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+}
 
 static bool espnow_phy_valid(solar_os_espnow_phy_t phy)
 {
@@ -347,19 +440,22 @@ static void espnow_receive_callback(const esp_now_recv_info_t *info,
                                     const uint8_t *data,
                                     int data_len)
 {
-    if (!espnow_callbacks_active || espnow_callback_rx_queue == NULL ||
-        info == NULL || info->src_addr == NULL || data == NULL ||
+    if (info == NULL || info->src_addr == NULL || data == NULL ||
         data_len <= 0 || data_len > (int)SOLAR_OS_ESPNOW_FRAME_MTU) {
         return;
     }
 
+    espnow_session_t *session = espnow_session_acquire(true);
+    if (session == NULL) {
+        return;
+    }
     solar_os_espnow_packet_t packet = {
         .rssi = info->rx_ctrl != NULL ? info->rx_ctrl->rssi : 0,
         .len = (size_t)data_len,
     };
     memcpy(packet.source_mac, info->src_addr, sizeof(packet.source_mac));
     memcpy(packet.data, data, packet.len);
-    const bool queued = xQueueSend(espnow_callback_rx_queue, &packet, 0) == pdTRUE;
+    const bool queued = xQueueSend(session->rx_queue, &packet, 0) == pdTRUE;
 
     portENTER_CRITICAL(&espnow_lock);
     if (queued) {
@@ -369,36 +465,55 @@ static void espnow_receive_callback(const esp_now_recv_info_t *info,
         espnow_state.last_error = ESP_ERR_NO_MEM;
     }
     portEXIT_CRITICAL(&espnow_lock);
+    espnow_session_release(session, true);
+}
+
+static void espnow_complete_send(espnow_session_t *session, esp_now_send_status_t status)
+{
+    portENTER_CRITICAL(&espnow_lock);
+    const bool pending = espnow_state.session == session &&
+        espnow_state.send_inflight && !espnow_state.send_result_queued;
+    if (pending) {
+        espnow_state.send_result_queued = true;
+    }
+    portEXIT_CRITICAL(&espnow_lock);
+    if (!pending) {
+        return;
+    }
+
+    if (xQueueSend(session->tx_queue, &status, 0) != pdTRUE) {
+        portENTER_CRITICAL(&espnow_lock);
+        if (espnow_state.session == session) {
+            espnow_state.tx_errors++;
+            espnow_state.last_error = ESP_ERR_NO_MEM;
+            espnow_state.send_inflight = false;
+            espnow_state.send_result_queued = false;
+        }
+        portEXIT_CRITICAL(&espnow_lock);
+    }
 }
 
 static void espnow_send_callback(const esp_now_send_info_t *info,
                                  esp_now_send_status_t status)
 {
-    if (!espnow_callbacks_active || espnow_callback_tx_queue == NULL ||
-        info == NULL || info->des_addr == NULL) {
+    if (info == NULL || info->des_addr == NULL) {
         return;
     }
-    espnow_send_event_t event = {.status = status};
-    memcpy(event.mac, info->des_addr, sizeof(event.mac));
-    if (xQueueSend(espnow_callback_tx_queue, &event, 0) != pdTRUE) {
-        portENTER_CRITICAL(&espnow_lock);
-        espnow_state.tx_errors++;
-        espnow_state.last_error = ESP_ERR_NO_MEM;
-        espnow_state.send_inflight = false;
-        portEXIT_CRITICAL(&espnow_lock);
+    espnow_session_t *session = espnow_session_acquire(true);
+    if (session == NULL) {
+        return;
     }
+    espnow_complete_send(session, status);
+    espnow_session_release(session, true);
 }
 
-static esp_err_t espnow_driver_start(QueueHandle_t rx_queue,
-                                     QueueHandle_t tx_queue)
+static esp_err_t espnow_driver_start(void)
 {
     esp_err_t ret = esp_now_init();
     if (ret != ESP_OK) {
         return ret;
     }
 
-    espnow_callback_rx_queue = rx_queue;
-    espnow_callback_tx_queue = tx_queue;
     ret = esp_now_register_recv_cb(espnow_receive_callback);
     if (ret == ESP_OK) {
         ret = esp_now_register_send_cb(espnow_send_callback);
@@ -415,13 +530,9 @@ static esp_err_t espnow_driver_start(QueueHandle_t rx_queue,
         }
     }
     if (ret == ESP_OK) {
-        espnow_callbacks_active = true;
         return ESP_OK;
     }
 
-    espnow_callbacks_active = false;
-    espnow_callback_rx_queue = NULL;
-    espnow_callback_tx_queue = NULL;
     (void)esp_now_unregister_recv_cb();
     (void)esp_now_unregister_send_cb();
     (void)esp_now_deinit();
@@ -430,16 +541,21 @@ static esp_err_t espnow_driver_start(QueueHandle_t rx_queue,
 
 static esp_err_t espnow_driver_stop(void)
 {
+    portENTER_CRITICAL(&espnow_lock);
     espnow_callbacks_active = false;
+    while (espnow_callbacks_inflight != 0U) {
+        portEXIT_CRITICAL(&espnow_lock);
+        vTaskDelay(1);
+        portENTER_CRITICAL(&espnow_lock);
+    }
+    portEXIT_CRITICAL(&espnow_lock);
+
     (void)esp_now_unregister_recv_cb();
     (void)esp_now_unregister_send_cb();
-    const esp_err_t ret = esp_now_deinit();
-    espnow_callback_rx_queue = NULL;
-    espnow_callback_tx_queue = NULL;
-    return ret;
+    return esp_now_deinit();
 }
 
-esp_err_t solar_os_espnow_start(const char *owner,
+static esp_err_t espnow_start(const char *owner,
                                 uint8_t requested_channel,
                                 solar_os_espnow_phy_t phy)
 {
@@ -468,17 +584,15 @@ esp_err_t solar_os_espnow_start(const char *owner,
         return ret;
     }
 
-    QueueHandle_t rx_queue = xQueueCreate(ESPNOW_RX_QUEUE_DEPTH,
-                                          sizeof(solar_os_espnow_packet_t));
-    QueueHandle_t tx_queue = xQueueCreate(ESPNOW_TX_QUEUE_DEPTH,
-                                          sizeof(espnow_send_event_t));
-    if (rx_queue == NULL || tx_queue == NULL) {
-        if (rx_queue != NULL) {
-            vQueueDelete(rx_queue);
-        }
-        if (tx_queue != NULL) {
-            vQueueDelete(tx_queue);
-        }
+    espnow_session_t *session = espnow_session_create();
+    if (session == NULL) {
+        (void)solar_os_wifi_connectionless_release(owner);
+        return ESP_ERR_NO_MEM;
+    }
+    session->rx_queue = xQueueCreate(ESPNOW_RX_QUEUE_DEPTH, sizeof(solar_os_espnow_packet_t));
+    session->tx_queue = xQueueCreate(ESPNOW_TX_QUEUE_DEPTH, sizeof(esp_now_send_status_t));
+    if (session->rx_queue == NULL || session->tx_queue == NULL) {
+        espnow_session_release(session, false);
         (void)solar_os_wifi_connectionless_release(owner);
         return ESP_ERR_NO_MEM;
     }
@@ -489,8 +603,7 @@ esp_err_t solar_os_espnow_start(const char *owner,
                                   &previous_protocol,
                                   &protocol_changed);
     if (ret != ESP_OK) {
-        vQueueDelete(rx_queue);
-        vQueueDelete(tx_queue);
+        espnow_session_release(session, false);
         (void)solar_os_wifi_connectionless_release(owner);
         return ret;
     }
@@ -500,11 +613,10 @@ esp_err_t solar_os_espnow_start(const char *owner,
     espnow_state.protocol_changed = protocol_changed;
     portEXIT_CRITICAL(&espnow_lock);
 
-    ret = espnow_driver_start(rx_queue, tx_queue);
+    ret = espnow_driver_start();
     if (ret != ESP_OK) {
         (void)espnow_restore_protocol(previous_protocol, protocol_changed);
-        vQueueDelete(rx_queue);
-        vQueueDelete(tx_queue);
+        espnow_session_release(session, false);
         (void)solar_os_wifi_connectionless_release(owner);
         portENTER_CRITICAL(&espnow_lock);
         espnow_state.phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
@@ -520,8 +632,9 @@ esp_err_t solar_os_espnow_start(const char *owner,
     espnow_state.channel_auto = requested_channel == 0U;
     espnow_state.channel = actual_channel;
     espnow_state.send_inflight = false;
-    espnow_state.rx_queue = rx_queue;
-    espnow_state.tx_queue = tx_queue;
+    espnow_state.send_result_queued = false;
+    espnow_state.session = session;
+    espnow_callbacks_active = true;
     espnow_state.tx_packets = 0U;
     espnow_state.tx_errors = 0U;
     espnow_state.rx_packets = 0U;
@@ -541,7 +654,15 @@ esp_err_t solar_os_espnow_start(const char *owner,
     return ESP_OK;
 }
 
-esp_err_t solar_os_espnow_stop(const char *owner)
+esp_err_t solar_os_espnow_start(const char *owner, uint8_t requested_channel, solar_os_espnow_phy_t phy)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_start(owner, requested_channel, phy);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_stop(const char *owner)
 {
     if (owner == NULL || owner[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
@@ -556,16 +677,15 @@ esp_err_t solar_os_espnow_stop(const char *owner)
         portEXIT_CRITICAL(&espnow_lock);
         return ESP_ERR_INVALID_STATE;
     }
-    QueueHandle_t rx_queue = espnow_state.rx_queue;
-    QueueHandle_t tx_queue = espnow_state.tx_queue;
+    espnow_session_t *session = espnow_state.session;
     const bool suspended = espnow_state.suspended;
     const uint8_t previous_protocol = espnow_state.previous_protocol;
     const bool protocol_changed = espnow_state.protocol_changed;
     espnow_state.running = false;
     espnow_state.suspended = false;
     espnow_state.send_inflight = false;
-    espnow_state.rx_queue = NULL;
-    espnow_state.tx_queue = NULL;
+    espnow_state.send_result_queued = false;
+    espnow_state.session = NULL;
     espnow_state.phy = SOLAR_OS_ESPNOW_PHY_NORMAL;
     espnow_state.previous_protocol = 0U;
     espnow_state.protocol_changed = false;
@@ -575,36 +695,34 @@ esp_err_t solar_os_espnow_stop(const char *owner)
     const esp_err_t deinit_ret = suspended ? ESP_OK : espnow_driver_stop();
     const esp_err_t protocol_ret =
         espnow_restore_protocol(previous_protocol, protocol_changed);
-    if (rx_queue != NULL) {
-        vQueueDelete(rx_queue);
-    }
-    if (tx_queue != NULL) {
-        vQueueDelete(tx_queue);
-    }
+    espnow_session_release(session, false);
     const esp_err_t release_ret = solar_os_wifi_connectionless_release(owner);
     SOLAR_OS_LOGI(TAG, "stopped owner=%s", owner);
     return deinit_ret != ESP_OK ? deinit_ret :
         (protocol_ret != ESP_OK ? protocol_ret : release_ret);
 }
 
-esp_err_t solar_os_espnow_prepare_sleep(void)
+esp_err_t solar_os_espnow_stop(const char *owner)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_stop(owner);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_prepare_sleep(void)
 {
     portENTER_CRITICAL(&espnow_lock);
     if (!espnow_state.running || espnow_state.suspended) {
         portEXIT_CRITICAL(&espnow_lock);
         return ESP_OK;
     }
-    const bool send_inflight = espnow_state.send_inflight;
-    QueueHandle_t tx_queue = espnow_state.tx_queue;
+    espnow_session_t *session = espnow_state.session;
     espnow_state.suspended = true;
-    espnow_state.send_inflight = false;
     portEXIT_CRITICAL(&espnow_lock);
 
     const esp_err_t ret = espnow_driver_stop();
-    if (send_inflight && tx_queue != NULL) {
-        const espnow_send_event_t failed = {.status = ESP_NOW_SEND_FAIL};
-        (void)xQueueSend(tx_queue, &failed, 0);
-    }
+    espnow_complete_send(session, ESP_NOW_SEND_FAIL);
     portENTER_CRITICAL(&espnow_lock);
     espnow_state.last_error = ret;
     portEXIT_CRITICAL(&espnow_lock);
@@ -614,24 +732,31 @@ esp_err_t solar_os_espnow_prepare_sleep(void)
     return ret;
 }
 
-esp_err_t solar_os_espnow_resume(void)
+esp_err_t solar_os_espnow_prepare_sleep(void)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_prepare_sleep();
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_resume(void)
 {
     portENTER_CRITICAL(&espnow_lock);
     if (!espnow_state.running || !espnow_state.suspended) {
         portEXIT_CRITICAL(&espnow_lock);
         return ESP_OK;
     }
-    QueueHandle_t rx_queue = espnow_state.rx_queue;
-    QueueHandle_t tx_queue = espnow_state.tx_queue;
     portEXIT_CRITICAL(&espnow_lock);
 
     esp_err_t ret = espnow_reapply_protocol();
     if (ret == ESP_OK) {
-        ret = espnow_driver_start(rx_queue, tx_queue);
+        ret = espnow_driver_start();
     }
     portENTER_CRITICAL(&espnow_lock);
     if (ret == ESP_OK) {
         espnow_state.suspended = false;
+        espnow_callbacks_active = true;
     }
     espnow_state.last_error = ret;
     portEXIT_CRITICAL(&espnow_lock);
@@ -641,7 +766,15 @@ esp_err_t solar_os_espnow_resume(void)
     return ret;
 }
 
-void solar_os_espnow_get_status(solar_os_espnow_status_t *status)
+esp_err_t solar_os_espnow_resume(void)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_resume();
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static void espnow_get_status(solar_os_espnow_status_t *status)
 {
     if (status == NULL) {
         return;
@@ -677,7 +810,14 @@ void solar_os_espnow_get_status(solar_os_espnow_status_t *status)
     portEXIT_CRITICAL(&espnow_lock);
 }
 
-size_t solar_os_espnow_peer_count(void)
+void solar_os_espnow_get_status(solar_os_espnow_status_t *status)
+{
+    espnow_control_lock();
+    espnow_get_status(status);
+    xSemaphoreGive(espnow_control);
+}
+
+static size_t espnow_peer_count(void)
 {
     (void)espnow_load_configured_peers();
     size_t count = 0U;
@@ -689,7 +829,15 @@ size_t solar_os_espnow_peer_count(void)
     return count;
 }
 
-bool solar_os_espnow_peer_get(size_t index, solar_os_espnow_peer_t *peer)
+size_t solar_os_espnow_peer_count(void)
+{
+    espnow_control_lock();
+    const size_t result = espnow_peer_count();
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static bool espnow_peer_get(size_t index, solar_os_espnow_peer_t *peer)
 {
     if (peer == NULL || espnow_load_configured_peers() != ESP_OK) {
         return false;
@@ -711,7 +859,15 @@ bool solar_os_espnow_peer_get(size_t index, solar_os_espnow_peer_t *peer)
     return found;
 }
 
-esp_err_t solar_os_espnow_peer_set(
+bool solar_os_espnow_peer_get(size_t index, solar_os_espnow_peer_t *peer)
+{
+    espnow_control_lock();
+    const bool result = espnow_peer_get(index, peer);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_peer_set(
     uint32_t link_id,
     const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN])
 {
@@ -752,7 +908,7 @@ esp_err_t solar_os_espnow_peer_set(
         };
         memcpy(espnow_state.peers[selected].mac, mac, SOLAR_OS_ESPNOW_MAC_LEN);
     }
-    const bool running = espnow_state.running;
+    const bool running = espnow_state.running && !espnow_state.suspended;
     portEXIT_CRITICAL(&espnow_lock);
     if (selected < 0) {
         return ESP_ERR_NO_MEM;
@@ -786,7 +942,15 @@ esp_err_t solar_os_espnow_peer_set(
     return ret;
 }
 
-esp_err_t solar_os_espnow_peer_remove(uint32_t link_id)
+esp_err_t solar_os_espnow_peer_set(uint32_t link_id, const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN])
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_peer_set(link_id, mac);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_peer_remove(uint32_t link_id)
 {
     if (!espnow_link_id_valid(link_id)) {
         return ESP_ERR_INVALID_ARG;
@@ -805,7 +969,7 @@ esp_err_t solar_os_espnow_peer_remove(uint32_t link_id)
     if (index >= 0) {
         configured = espnow_state.peers[index].configured;
         memset(&espnow_state.peers[index], 0, sizeof(espnow_state.peers[index]));
-        running = espnow_state.running;
+        running = espnow_state.running && !espnow_state.suspended;
     }
     portEXIT_CRITICAL(&espnow_lock);
     if (index < 0) {
@@ -839,7 +1003,15 @@ esp_err_t solar_os_espnow_peer_remove(uint32_t link_id)
     return ret;
 }
 
-esp_err_t solar_os_espnow_peer_learn(
+esp_err_t solar_os_espnow_peer_remove(uint32_t link_id)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_peer_remove(link_id);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_peer_learn(
     uint32_t link_id,
     const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN],
     int8_t rssi,
@@ -849,6 +1021,10 @@ esp_err_t solar_os_espnow_peer_learn(
         return ESP_ERR_INVALID_ARG;
     }
 
+    const esp_err_t load = espnow_load_configured_peers();
+    if (load != ESP_OK) {
+        return load;
+    }
     solar_os_espnow_peer_t before[SOLAR_OS_ESPNOW_PEER_MAX];
     int selected = -1;
     portENTER_CRITICAL(&espnow_lock);
@@ -892,7 +1068,7 @@ esp_err_t solar_os_espnow_peer_learn(
         };
         memcpy(espnow_state.peers[selected].mac, mac, SOLAR_OS_ESPNOW_MAC_LEN);
     }
-    const bool running = espnow_state.running;
+    const bool running = espnow_state.running && !espnow_state.suspended;
     portEXIT_CRITICAL(&espnow_lock);
     if (selected < 0) {
         return ESP_ERR_NO_MEM;
@@ -914,7 +1090,16 @@ esp_err_t solar_os_espnow_peer_learn(
     return ret;
 }
 
-esp_err_t solar_os_espnow_send(uint32_t link_destination,
+esp_err_t solar_os_espnow_peer_learn(uint32_t link_id, const uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN],
+                                    int8_t rssi, uint32_t now_ms)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_peer_learn(link_id, mac, rssi, now_ms);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
+static esp_err_t espnow_send(uint32_t link_destination,
                               const uint8_t *data,
                               size_t len)
 {
@@ -957,35 +1142,45 @@ esp_err_t solar_os_espnow_send(uint32_t link_destination,
     return ret;
 }
 
+esp_err_t solar_os_espnow_send(uint32_t link_destination, const uint8_t *data, size_t len)
+{
+    espnow_control_lock();
+    const esp_err_t result = espnow_send(link_destination, data, len);
+    xSemaphoreGive(espnow_control);
+    return result;
+}
+
 esp_err_t solar_os_espnow_take_send_result(esp_err_t *result,
                                            uint32_t timeout_ms)
 {
     if (result == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    portENTER_CRITICAL(&espnow_lock);
-    QueueHandle_t queue = espnow_state.tx_queue;
-    const bool running = espnow_state.running;
-    portEXIT_CRITICAL(&espnow_lock);
-    if (!running || queue == NULL) {
+    espnow_session_t *session = espnow_session_acquire(false);
+    if (session == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-
-    espnow_send_event_t event;
-    if (xQueueReceive(queue, &event, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
+    esp_now_send_status_t completion;
+    esp_err_t ret = espnow_receive_queue(session, session->tx_queue, &completion, timeout_ms);
+    if (ret == ESP_OK) {
+        portENTER_CRITICAL(&espnow_lock);
+        if (espnow_state.session == session) {
+            *result = completion == ESP_NOW_SEND_SUCCESS ? ESP_OK : ESP_FAIL;
+            espnow_state.send_inflight = false;
+            espnow_state.send_result_queued = false;
+            espnow_state.last_error = *result;
+            if (*result == ESP_OK) {
+                espnow_state.tx_packets++;
+            } else {
+                espnow_state.tx_errors++;
+            }
+        } else {
+            ret = ESP_ERR_INVALID_STATE;
+        }
+        portEXIT_CRITICAL(&espnow_lock);
     }
-    *result = event.status == ESP_NOW_SEND_SUCCESS ? ESP_OK : ESP_FAIL;
-    portENTER_CRITICAL(&espnow_lock);
-    espnow_state.send_inflight = false;
-    espnow_state.last_error = *result;
-    if (*result == ESP_OK) {
-        espnow_state.tx_packets++;
-    } else {
-        espnow_state.tx_errors++;
-    }
-    portEXIT_CRITICAL(&espnow_lock);
-    return ESP_OK;
+    espnow_session_release(session, false);
+    return ret;
 }
 
 esp_err_t solar_os_espnow_receive(solar_os_espnow_packet_t *packet,
@@ -994,15 +1189,13 @@ esp_err_t solar_os_espnow_receive(solar_os_espnow_packet_t *packet,
     if (packet == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    portENTER_CRITICAL(&espnow_lock);
-    QueueHandle_t queue = espnow_state.rx_queue;
-    const bool running = espnow_state.running;
-    portEXIT_CRITICAL(&espnow_lock);
-    if (!running || queue == NULL) {
+    espnow_session_t *session = espnow_session_acquire(false);
+    if (session == NULL) {
         return ESP_ERR_INVALID_STATE;
     }
-    return xQueueReceive(queue, packet, pdMS_TO_TICKS(timeout_ms)) == pdTRUE ?
-        ESP_OK : ESP_ERR_TIMEOUT;
+    const esp_err_t ret = espnow_receive_queue(session, session->rx_queue, packet, timeout_ms);
+    espnow_session_release(session, false);
+    return ret;
 }
 
 bool solar_os_espnow_parse_mac(const char *text,

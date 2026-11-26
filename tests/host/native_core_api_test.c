@@ -128,6 +128,12 @@ esp_err_t solar_os_port_get_info(const char *name,solar_os_port_info_t *info)
     info->capabilities=SOLAR_OS_PORT_CAP_READ|SOLAR_OS_PORT_CAP_WRITE|SOLAR_OS_PORT_CAP_CONFIG|SOLAR_OS_PORT_CAP_SERIAL;
     info->claimed=claimed;return ESP_OK;
 }
+const char *solar_os_port_capabilities_text(uint32_t capabilities, char *buffer, size_t capacity)
+{
+    (void)capabilities;
+    if (capacity) buffer[0] = '\0';
+    return buffer;
+}
 size_t solar_os_port_list(solar_os_port_info_t *ports,size_t capacity)
 { if(capacity)assert(!solar_os_port_get_info("serial0",ports));return 1; }
 esp_err_t solar_os_port_read(const solar_os_port_handle_t *port,uint8_t *data,size_t capacity,

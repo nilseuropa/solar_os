@@ -65,3 +65,18 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(nfc_api), const solar_os_
 if (name && !strcmp(name, "nfc") && abi == 1U &&
     minimum <= sizeof(nfc_api)) return &nfc_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_MOTOR
+_Static_assert(__builtin_types_compatible_p(__typeof__(motor_provider_api), const solar_os_native_motor_provider_api_v1_t), "native service table type");
+if (name && !strcmp(name, "motor.provider") && abi == 1U &&
+    minimum <= sizeof(motor_provider_api)) return &motor_provider_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_ENCODER
+_Static_assert(__builtin_types_compatible_p(__typeof__(encoder_provider_api), const solar_os_native_encoder_provider_api_v1_t), "native service table type");
+if (name && !strcmp(name, "encoder.provider") && abi == 1U &&
+    minimum <= sizeof(encoder_provider_api)) return &encoder_provider_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_OTA
+_Static_assert(__builtin_types_compatible_p(__typeof__(ota_api), const solar_os_native_ota_api_v1_t), "native service table type");
+if (name && !strcmp(name, "ota") && abi == 1U &&
+    minimum <= sizeof(ota_api)) return &ota_api;
+#endif

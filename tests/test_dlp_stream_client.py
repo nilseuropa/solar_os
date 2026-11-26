@@ -23,7 +23,14 @@ class DlpStreamClientTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             (path / "u8g2.h").write_text("#pragma once\n"
-                "typedef struct { int unused; } u8g2_t;\n"
+                "typedef void u8g2_cb_t;\n"
+                "typedef struct { const u8g2_cb_t *cb; } u8g2_t;\n"
+                "#define U8G2_R1 ((const u8g2_cb_t *)1)\n"
+                "#define U8G2_R2 ((const u8g2_cb_t *)2)\n"
+                "#define U8G2_R3 ((const u8g2_cb_t *)3)\n"
+                "#define u8g2_GetUserPtr(p) ((void *)(p))\n"
+                "#define u8g2_GetDisplayWidth(p) ((void)(p), 0)\n"
+                "#define u8g2_GetDisplayHeight(p) ((void)(p), 0)\n"
                 "typedef struct { unsigned tile_width, tile_height, pixel_width, pixel_height; } u8x8_display_info_t;\n"
                 "#define u8g2_SetupDisplay(...) ((void)0)\n"
                 "#define u8g2_SetupBuffer(...) ((void)0)\n"
@@ -42,7 +49,7 @@ class DlpStreamClientTest(unittest.TestCase):
             (path / "dlp_client_core.inc").write_text(core)
             binary = path / "test"
             subprocess.run(["cc", "-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror",
-                "-DSOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT=1",
+                "-DSOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT=1", "-DSOLAR_OS_PACKAGE_SERVICE_DLP_DISPLAY=1",
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + directory, "-I" + str(ROOT / "tests/host"),
@@ -51,6 +58,7 @@ class DlpStreamClientTest(unittest.TestCase):
                 "-I" + str(ROOT / "include"), "-I" + str(ROOT / "protocol/display_link/include"),
                 str(ROOT / "tests/host/dlp_stream_client_test.c"),
                 str(ROOT / "src/services/solar_os_dlp_stream.c"),
+                str(ROOT / "src/services/solar_os_dlp_display.c"),
                 str(ROOT / "src/services/solar_os_dlp_receiver.c"),
                 str(ROOT / "src/services/solar_os_port.c"),
                 str(ROOT / "src/services/solar_os_stream.c"),

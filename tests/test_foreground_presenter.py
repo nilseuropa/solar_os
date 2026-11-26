@@ -59,12 +59,13 @@ class ForegroundPresenterTest(unittest.TestCase):
                 '#pragma once\n#include "solar_os_keys.h"\n'
                 '#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n'
                 '#define SOLAR_OS_BOARD_BUTTONS { '
-                '{.pin=4, .key=SOLAR_OS_KEY_UP, .active_low=true}, '
+                '{.pin=4, .name=\"up\", .key=SOLAR_OS_KEY_UP, .active_low=true}, '
                 '{.pin=5, .key=SOLAR_OS_KEY_ENTER, .emit_on_release=true} }\n')
             write_keyboard_layouts(tmp)
             binary = Path(tmp, "buttons")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1", "-DSOLAR_OS_PACKAGE_SERVICE_BUTTONS=1",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I", tmp, "-I", str(ROOT / "tests/host/gpio_controller_stubs"),
                 "-I", str(ROOT / "tests/host"),
@@ -75,6 +76,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 str(ROOT / "src/services/solar_os_keys.c"),
                 str(ROOT / "src/services/solar_os_input_composition.c"),
                 str(ROOT / "src/services/solar_os_buttons.c"),
+                str(ROOT / "src/services/solar_os_native_input_hardware.c"),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

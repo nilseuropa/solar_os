@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 
 #include "sdkconfig.h"
 
@@ -53,6 +54,7 @@ struct solar_os_ppp {
     volatile bool worker_done;
     bool netif_bound;
     bool session_active;
+    size_t io_refs;
     bool link_open;
     bool transitioning;
     char if_key[SOLAR_OS_PPP_NAME_MAX + 5U];
@@ -62,6 +64,52 @@ struct solar_os_ppp {
 };
 
 static const char *TAG = "ppp";
+static portMUX_TYPE ppp_io_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static bool ppp_io_acquire(solar_os_ppp_t *ppp)
+{
+    portENTER_CRITICAL(&ppp_io_lock);
+    const bool acquired = ppp->session_active;
+    if (acquired) ppp->io_refs++;
+    portEXIT_CRITICAL(&ppp_io_lock);
+    return acquired;
+}
+
+static void ppp_io_release(solar_os_ppp_t *ppp)
+{
+    portENTER_CRITICAL(&ppp_io_lock);
+    ppp->io_refs--;
+    portEXIT_CRITICAL(&ppp_io_lock);
+}
+
+static bool ppp_io_busy(solar_os_ppp_t *ppp)
+{
+    portENTER_CRITICAL(&ppp_io_lock);
+    const bool busy = ppp->io_refs != 0U;
+    portEXIT_CRITICAL(&ppp_io_lock);
+    return busy;
+}
+
+static bool ppp_busy_locked(solar_os_ppp_t *ppp)
+{
+    return ppp->session_active || ppp->link_open || ppp->transitioning || ppp_io_busy(ppp);
+}
+
+static bool ppp_connected_locked(solar_os_ppp_t *ppp)
+{
+    return ppp->session_active && ppp->status.state == SOLAR_OS_PPP_STATE_UP;
+}
+
+/* Writers hold the session mutex as well as the short I/O lock. Teardown
+ * rejects new I/O before waiting for an outstanding callback to return. */
+static bool ppp_set_session_locked(solar_os_ppp_t *ppp, bool active)
+{
+    portENTER_CRITICAL(&ppp_io_lock);
+    ppp->session_active = active;
+    const bool idle = ppp->io_refs == 0U;
+    portEXIT_CRITICAL(&ppp_io_lock);
+    return idle;
+}
 
 static void secure_zero(void *data, size_t size)
 {
@@ -138,7 +186,7 @@ static esp_err_t ppp_transmit(void *handle, void *buffer, size_t length)
 {
     solar_os_ppp_t *ppp = handle;
     if (ppp == NULL || buffer == NULL || length == 0U ||
-        !ppp->session_active) {
+        !ppp_io_acquire(ppp)) {
         return ESP_ERR_INVALID_STATE;
     }
     size_t written = 0U;
@@ -146,6 +194,7 @@ static esp_err_t ppp_transmit(void *handle, void *buffer, size_t length)
                                                 buffer,
                                                 length,
                                                 &written);
+    ppp_io_release(ppp);
     return ret == ESP_OK && written == length ? ESP_OK :
         (ret == ESP_OK ? ESP_ERR_INVALID_SIZE : ret);
 }
@@ -278,6 +327,7 @@ static void ppp_event_handler(void *arg,
         }
         xSemaphoreGive(ppp->mutex);
     }
+    if (bits & PPP_EVENT_ERROR) set_netif_ready(ppp, false);
     if (bits != 0U && ppp->events != NULL) {
         xEventGroupSetBits(ppp->events, bits);
     }
@@ -287,13 +337,12 @@ esp_err_t solar_os_ppp_receive(solar_os_ppp_t *ppp,
                                const uint8_t *data,
                                size_t length)
 {
-    if (ppp == NULL || data == NULL || length == 0U) {
+    if (ppp == NULL || data == NULL || length == 0U || length > INT_MAX)
         return ESP_ERR_INVALID_ARG;
-    }
-    if (!ppp->session_active || ppp->netif == NULL) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    return esp_netif_receive(ppp->netif, (void *)data, length, NULL);
+    if (!ppp_io_acquire(ppp)) return ESP_ERR_INVALID_STATE;
+    const esp_err_t error = esp_netif_receive(ppp->netif, (void *)data, length, NULL);
+    ppp_io_release(ppp);
+    return error;
 }
 
 static void ppp_worker(void *arg)
@@ -313,15 +362,17 @@ static void ppp_worker(void *arg)
             ppp->status.error = ret;
             ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
             xSemaphoreGive(ppp->mutex);
+            set_netif_ready(ppp, false);
             xEventGroupSetBits(ppp->events, PPP_EVENT_ERROR);
             break;
         }
-        if (received > 0U &&
-            solar_os_ppp_receive(ppp, buffer, received) != ESP_OK) {
+        if (received > sizeof(buffer) ||
+            (received > 0U && solar_os_ppp_receive(ppp, buffer, received) != ESP_OK)) {
             xSemaphoreTake(ppp->mutex, portMAX_DELAY);
             ppp->status.error = ESP_FAIL;
             ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
             xSemaphoreGive(ppp->mutex);
+            set_netif_ready(ppp, false);
             xEventGroupSetBits(ppp->events, PPP_EVENT_ERROR);
             break;
         }
@@ -512,7 +563,7 @@ esp_err_t solar_os_ppp_destroy(solar_os_ppp_t *ppp)
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
-    if (ppp->session_active || ppp->link_open || ppp->transitioning) {
+    if (ppp_busy_locked(ppp)) {
         xSemaphoreGive(ppp->mutex);
         return ESP_ERR_INVALID_STATE;
     }
@@ -543,7 +594,7 @@ esp_err_t solar_os_ppp_start(solar_os_ppp_t *ppp,
         xSemaphoreGive(ppp->mutex);
         return ESP_OK;
     }
-    if (ppp->session_active || ppp->link_open || ppp->transitioning) {
+    if (ppp_busy_locked(ppp)) {
         xSemaphoreGive(ppp->mutex);
         return ESP_ERR_INVALID_STATE;
     }
@@ -583,7 +634,7 @@ esp_err_t solar_os_ppp_start(solar_os_ppp_t *ppp,
 
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
     ppp->link_open = ppp->transport.start != NULL;
-    ppp->session_active = true;
+    (void)ppp_set_session_locked(ppp, true);
     ppp->worker_stop_requested = false;
     ppp->worker_done = false;
     xSemaphoreGive(ppp->mutex);
@@ -599,7 +650,7 @@ esp_err_t solar_os_ppp_start(solar_os_ppp_t *ppp,
             tskNO_AFFINITY,
             SOLAR_OS_TASK_ROLE_SYSTEM) != pdPASS) {
         xSemaphoreTake(ppp->mutex, portMAX_DELAY);
-        ppp->session_active = false;
+        (void)ppp_set_session_locked(ppp, false);
         ppp->worker_done = true;
         ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
         ppp->status.error = ESP_ERR_NO_MEM;
@@ -665,7 +716,12 @@ esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp)
         return ESP_ERR_INVALID_STATE;
     }
     if (!ppp->session_active && !ppp->link_open) {
+        if (ppp_io_busy(ppp)) {
+            xSemaphoreGive(ppp->mutex);
+            return ESP_ERR_NOT_FINISHED;
+        }
         ppp->status.state = SOLAR_OS_PPP_STATE_DOWN;
+        ppp->status.error = ESP_OK;
         xSemaphoreGive(ppp->mutex);
         return ESP_OK;
     }
@@ -706,7 +762,13 @@ esp_err_t solar_os_ppp_disconnect(solar_os_ppp_t *ppp)
     ppp->worker = NULL;
     ppp->worker_stop_requested = false;
     ppp->worker_done = false;
-    ppp->session_active = false;
+    if (!ppp_set_session_locked(ppp, false)) {
+        ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
+        ppp->status.error = ESP_ERR_NOT_FINISHED;
+        ppp->transitioning = false;
+        xSemaphoreGive(ppp->mutex);
+        return ESP_ERR_NOT_FINISHED;
+    }
     const bool link_open = ppp->link_open;
     xSemaphoreGive(ppp->mutex);
 
@@ -766,7 +828,13 @@ esp_err_t solar_os_ppp_notify_transport_reset(solar_os_ppp_t *ppp)
     ppp->worker = NULL;
     ppp->worker_stop_requested = false;
     ppp->worker_done = false;
-    ppp->session_active = false;
+    if (!ppp_set_session_locked(ppp, false)) {
+        ppp->status.state = SOLAR_OS_PPP_STATE_FAILED;
+        ppp->status.error = ESP_ERR_NOT_FINISHED;
+        ppp->transitioning = false;
+        xSemaphoreGive(ppp->mutex);
+        return ESP_ERR_NOT_FINISHED;
+    }
     ppp->link_open = false;
     ppp->status.state = SOLAR_OS_PPP_STATE_DOWN;
     ppp->status.error = 0;
@@ -777,16 +845,23 @@ esp_err_t solar_os_ppp_notify_transport_reset(solar_os_ppp_t *ppp)
     return ESP_OK;
 }
 
-esp_err_t solar_os_ppp_get_status(solar_os_ppp_t *ppp,
-                                  solar_os_ppp_status_t *status)
+esp_err_t solar_os_ppp_snapshot(solar_os_ppp_t *ppp, solar_os_ppp_status_t *status,
+    bool *busy, bool *connected)
 {
     if (ppp == NULL || status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
     *status = ppp->status;
+    if (busy) *busy = ppp_busy_locked(ppp);
+    if (connected) *connected = ppp_connected_locked(ppp);
     xSemaphoreGive(ppp->mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_ppp_get_status(solar_os_ppp_t *ppp, solar_os_ppp_status_t *status)
+{
+    return solar_os_ppp_snapshot(ppp, status, NULL, NULL);
 }
 
 bool solar_os_ppp_is_busy(solar_os_ppp_t *ppp)
@@ -795,8 +870,7 @@ bool solar_os_ppp_is_busy(solar_os_ppp_t *ppp)
         return false;
     }
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
-    const bool busy = ppp->session_active || ppp->link_open ||
-        ppp->transitioning;
+    const bool busy = ppp_busy_locked(ppp);
     xSemaphoreGive(ppp->mutex);
     return busy;
 }
@@ -807,8 +881,7 @@ bool solar_os_ppp_is_connected(solar_os_ppp_t *ppp)
         return false;
     }
     xSemaphoreTake(ppp->mutex, portMAX_DELAY);
-    const bool connected = ppp->session_active &&
-        ppp->status.state == SOLAR_OS_PPP_STATE_UP;
+    const bool connected = ppp_connected_locked(ppp);
     xSemaphoreGive(ppp->mutex);
     return connected;
 }

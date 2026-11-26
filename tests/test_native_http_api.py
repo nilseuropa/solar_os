@@ -14,7 +14,8 @@ class NativeHttpApiTest(unittest.TestCase):
     def test_values_copied_requests_cancellation_and_retryable_shutdown(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'http_copy_options.inc').write_text(production_functions(
-                (ROOT / 'src/services/solar_os_http_stream.c').read_text(), ('http_stream_copy_options',)))
+                (ROOT / 'src/services/solar_os_http_stream.c').read_text(),
+                ('http_stream_copy_options', 'solar_os_http_stream_event_type_name')))
             binary = Path(tmp) / 'http'
             subprocess.run(['cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror', '-pthread',
                 '-fsanitize=address,undefined', '-fno-pie', '-no-pie',

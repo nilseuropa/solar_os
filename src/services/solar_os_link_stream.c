@@ -41,6 +41,8 @@ typedef struct {
 
 typedef struct {
     bool active;
+    bool publishing;
+    bool removing;
     uint32_t generation;
     char port[SOLAR_OS_PORT_NAME_MAX];
     char link[SOLAR_OS_LINK_NAME_MAX];
@@ -98,6 +100,8 @@ typedef struct {
 } link_stream_action_t;
 
 static SemaphoreHandle_t stream_mutex;
+static StaticSemaphore_t stream_mutex_storage;
+static portMUX_TYPE stream_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR link_stream_t streams[SOLAR_OS_LINK_STREAM_MAX];
 static uint32_t stream_generation = 1U;
 static size_t stream_next_index;
@@ -169,11 +173,13 @@ static uint32_t stream_read_u32(const uint8_t *src)
 
 static esp_err_t stream_ensure_init(void)
 {
-    if (stream_mutex != NULL) {
-        return ESP_OK;
+    portENTER_CRITICAL(&stream_init_lock);
+    if (!stream_mutex) {
+        stream_mutex = xSemaphoreCreateMutexStatic(&stream_mutex_storage);
     }
-    stream_mutex = xSemaphoreCreateMutex();
-    return stream_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    const SemaphoreHandle_t mutex = stream_mutex;
+    portEXIT_CRITICAL(&stream_init_lock);
+    return mutex ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static int stream_find_port_locked(const char *port)
@@ -271,7 +277,7 @@ static esp_err_t stream_port_open(void *user)
         return ESP_ERR_INVALID_STATE;
     }
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
-    if (!stream->active || stream->port_open) {
+    if (!stream->active || stream->publishing || stream->removing || stream->port_open) {
         xSemaphoreGive(stream_mutex);
         return ESP_ERR_INVALID_STATE;
     }
@@ -431,12 +437,10 @@ esp_err_t solar_os_link_stream_create(const char *link,
         link, port, peer_id, &config);
 }
 
-esp_err_t solar_os_link_stream_create_configured(
-    const char *link,
-    const char *port,
-    uint32_t peer_id,
-    const solar_os_link_stream_config_t *config)
+static esp_err_t stream_create(const char *link, const char *port, uint32_t peer_id,
+    const solar_os_link_stream_config_t *config, uint32_t *generation)
 {
+    if (generation) *generation = 0;
     if (link == NULL || link[0] == '\0' || port == NULL || port[0] == '\0' ||
         strnlen(link, SOLAR_OS_LINK_NAME_MAX) >= SOLAR_OS_LINK_NAME_MAX ||
         strnlen(port, SOLAR_OS_PORT_NAME_MAX) >= SOLAR_OS_PORT_NAME_MAX ||
@@ -501,6 +505,7 @@ esp_err_t solar_os_link_stream_create_configured(
 
     memset(stream, 0, sizeof(*stream));
     stream->active = true;
+    stream->publishing = true;
     stream->generation = stream_generation++;
     if (stream_generation == 0U) {
         stream_generation = 1U;
@@ -529,11 +534,13 @@ esp_err_t solar_os_link_stream_create_configured(
         .user = stream,
     };
     error = solar_os_port_register(&driver);
+    xSemaphoreTake(stream_mutex, portMAX_DELAY);
     if (error == ESP_OK) {
+        stream->publishing = false;
+        if (generation) *generation = stream->generation;
+        xSemaphoreGive(stream_mutex);
         return ESP_OK;
     }
-
-    xSemaphoreTake(stream_mutex, portMAX_DELAY);
     memset(stream, 0, sizeof(*stream));
     xSemaphoreGive(stream_mutex);
     solar_os_queue_delete(tx_queue);
@@ -541,25 +548,47 @@ esp_err_t solar_os_link_stream_create_configured(
     return error;
 }
 
-esp_err_t solar_os_link_stream_remove(const char *port)
+esp_err_t solar_os_link_stream_create_configured(const char *link, const char *port,
+    uint32_t peer_id, const solar_os_link_stream_config_t *config)
+{
+    return stream_create(link, port, peer_id, config, NULL);
+}
+
+esp_err_t solar_os_link_stream_create_tracked(const char *link, const char *port,
+    uint32_t peer_id, const solar_os_link_stream_config_t *config, uint32_t *generation)
+{
+    if (!generation) return ESP_ERR_INVALID_ARG;
+    return stream_create(link, port, peer_id, config, generation);
+}
+
+static esp_err_t stream_remove(const char *port, uint32_t generation)
 {
     if (port == NULL || port[0] == '\0' || stream_ensure_init() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     const int index = stream_find_port_locked(port);
-    xSemaphoreGive(stream_mutex);
-    if (index < 0) {
+    if (index < 0 || (generation && streams[index].generation != generation)) {
+        xSemaphoreGive(stream_mutex);
         return ESP_ERR_NOT_FOUND;
     }
+    link_stream_t *stream = &streams[index];
+    if (stream->publishing || stream->removing) {
+        xSemaphoreGive(stream_mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    stream->removing = true;
+    xSemaphoreGive(stream_mutex);
 
-    esp_err_t error = solar_os_port_unregister(port);
+    const void *owner = stream;
+    const esp_err_t error = solar_os_port_unregister_many_owned(&port, &owner, 1);
+    xSemaphoreTake(stream_mutex, portMAX_DELAY);
     if (error != ESP_OK) {
+        stream->removing = false;
+        xSemaphoreGive(stream_mutex);
         return error;
     }
 
-    xSemaphoreTake(stream_mutex, portMAX_DELAY);
-    link_stream_t *stream = &streams[index];
     QueueHandle_t rx_queue = stream->rx_queue;
     QueueHandle_t tx_queue = stream->tx_queue;
     memset(stream, 0, sizeof(*stream));
@@ -567,6 +596,16 @@ esp_err_t solar_os_link_stream_remove(const char *port)
     solar_os_queue_delete(rx_queue);
     xSemaphoreGive(stream_mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_link_stream_remove(const char *port)
+{
+    return stream_remove(port, 0);
+}
+
+esp_err_t solar_os_link_stream_remove_tracked(const char *port, uint32_t generation)
+{
+    return generation ? stream_remove(port, generation) : ESP_ERR_INVALID_ARG;
 }
 
 size_t solar_os_link_stream_count(void)
@@ -577,7 +616,7 @@ size_t solar_os_link_stream_count(void)
     size_t count = 0U;
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     for (size_t i = 0; i < SOLAR_OS_LINK_STREAM_MAX; i++) {
-        if (streams[i].active) {
+        if (streams[i].active && !streams[i].publishing) {
             count++;
         }
     }
@@ -595,7 +634,7 @@ bool solar_os_link_stream_get(size_t index,
     size_t current = 0U;
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     for (size_t i = 0; i < SOLAR_OS_LINK_STREAM_MAX; i++) {
-        if (!streams[i].active) {
+        if (!streams[i].active || streams[i].publishing) {
             continue;
         }
         if (current++ == index) {
@@ -608,8 +647,7 @@ bool solar_os_link_stream_get(size_t index,
     return false;
 }
 
-esp_err_t solar_os_link_stream_get_status(const char *port,
-                                          solar_os_link_stream_status_t *status)
+static esp_err_t stream_status(const char *port, uint32_t generation, solar_os_link_stream_status_t *status)
 {
     if (port == NULL || status == NULL || stream_ensure_init() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
@@ -617,13 +655,25 @@ esp_err_t solar_os_link_stream_get_status(const char *port,
     const uint32_t now_ms = pdTICKS_TO_MS(xTaskGetTickCount());
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     const int index = stream_find_port_locked(port);
-    if (index < 0) {
+    if (index < 0 || streams[index].publishing ||
+        (generation && streams[index].generation != generation)) {
         xSemaphoreGive(stream_mutex);
         return ESP_ERR_NOT_FOUND;
     }
     stream_fill_status_locked(&streams[index], now_ms, status);
     xSemaphoreGive(stream_mutex);
     return ESP_OK;
+}
+
+esp_err_t solar_os_link_stream_get_status(const char *port, solar_os_link_stream_status_t *status)
+{
+    return stream_status(port, 0, status);
+}
+
+esp_err_t solar_os_link_stream_get_status_tracked(const char *port, uint32_t generation,
+    solar_os_link_stream_status_t *status)
+{
+    return generation ? stream_status(port, generation, status) : ESP_ERR_INVALID_ARG;
 }
 
 static esp_err_t stream_decode(const solar_os_link_message_t *message,
@@ -758,7 +808,7 @@ static void stream_note_decode_error(const char *link,
     }
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     const int index = stream_find_peer_locked(link, message->source);
-    if (index >= 0) {
+    if (index >= 0 && !streams[index].publishing) {
         streams[index].counters.decode_errors++;
         streams[index].counters.dropped++;
         streams[index].counters.last_decode_issue = issue;
@@ -810,7 +860,7 @@ esp_err_t solar_os_link_stream_ingest(const char *link,
 
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     const int index = stream_find_peer_locked(link, message->source);
-    if (index < 0) {
+    if (index < 0 || streams[index].publishing) {
         xSemaphoreGive(stream_mutex);
         return ESP_ERR_NOT_FOUND;
     }
@@ -1105,7 +1155,7 @@ void solar_os_link_stream_process_with_window(const char *link,
     xSemaphoreTake(stream_mutex, portMAX_DELAY);
     for (size_t offset = 0; offset < SOLAR_OS_LINK_STREAM_MAX; offset++) {
         const size_t i = (stream_next_index + offset) % SOLAR_OS_LINK_STREAM_MAX;
-        if (streams[i].active && strcmp(streams[i].link, link) == 0) {
+        if (streams[i].active && !streams[i].publishing && strcmp(streams[i].link, link) == 0) {
             streams[i].window_frames = streams[i].config.window_frames < window_limit
                 ? streams[i].config.window_frames : window_limit;
             streams[i].transport_stopped = false;

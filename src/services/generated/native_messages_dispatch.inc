@@ -10,3 +10,13 @@ _Static_assert(__builtin_types_compatible_p(__typeof__(credentials_api), const s
 if (name && !strcmp(name, "credentials") && abi == 1U &&
     minimum <= sizeof(credentials_api)) return &credentials_api;
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY
+_Static_assert(__builtin_types_compatible_p(__typeof__(gateway_api), const solar_os_native_gateway_api_v1_t), "native service table type");
+if (name && !strcmp(name, "messages.gateway") && abi == 1U &&
+    minimum <= sizeof(gateway_api)) return &gateway_api;
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_GATEWAY_SYNC
+_Static_assert(__builtin_types_compatible_p(__typeof__(gateway_sync_api), const solar_os_native_gateway_sync_api_v1_t), "native service table type");
+if (name && !strcmp(name, "messages.gateway_sync") && abi == 1U &&
+    minimum <= sizeof(gateway_sync_api)) return &gateway_sync_api;
+#endif

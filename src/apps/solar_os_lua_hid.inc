@@ -4,7 +4,7 @@ static const solar_os_native_hid_device_api_v1_t *solua_hid_api(lua_State *L)
 {
     if (!solua_hid_cached_api) {
         solua_hid_cached_api = solar_os_native_hid_device_get(
-            solar_os_native_host_v1()->get_service,
+            SOLAR_OS_SCRIPT_SERVICE_QUERY(hid_device),
             SOLAR_OS_NATIVE_THROUGH(solar_os_native_hid_device_api_v1_t, release_all));
         if (!solua_hid_cached_api) luaL_error(L, "HID service unavailable");
     }
@@ -17,7 +17,7 @@ static void solua_hid_cleanup(void)
     /* Cleanup cannot raise VM errors, including with an unavailable service.
      * Preserve the core's queued typing and neutralize every report type. */
     const solar_os_native_hid_device_api_v1_t *api = solua_hid_cached_api;
-    if (!api) api = solar_os_native_hid_device_get(solar_os_native_host_v1()->get_service,
+    if (!api) api = solar_os_native_hid_device_get(SOLAR_OS_SCRIPT_SERVICE_QUERY(hid_device),
         SOLAR_OS_NATIVE_THROUGH(solar_os_native_hid_device_api_v1_t, release_all));
     if (api) api->release_all();
     solua_hid_cached_api = NULL;

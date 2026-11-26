@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "solar_os_dlp_raster.h"
+#include "solar_os_native_display_raster.h"
 
 static void check_pixels(const uint8_t *image, unsigned width,
     const solar_os_dlp_region_t *region)
@@ -22,6 +23,30 @@ static void check_pixels(const uint8_t *image, unsigned width,
         }
     }
     assert(output[size] == 0xa5);
+}
+
+static void check_native_raster(void)
+{
+    const solar_os_native_display_raster_api_v1_t *raster =
+        solar_os_native_display_raster_get_service(SOLAR_OS_NATIVE_DISPLAY_RASTER_SERVICE, 1, sizeof(*raster));
+    assert(raster);
+    uint8_t bytes[] = {0, 1, 0, 0};
+    uint8_t prior[sizeof(bytes)] = {0};
+    solar_os_native_mono_raster_v1_t image = {.pixels = bytes, .size = sizeof(bytes), .width = 13, .height = 2};
+    const solar_os_native_mono_raster_v1_t previous = {.pixels = prior, .size = sizeof(prior), .width = 13, .height = 2};
+    solar_os_native_raster_region_v1_t region;
+    size_t count;
+    assert(!raster->mono_damage(&image, &previous, &region, 1, &count) && count == 1);
+    assert(region.x == 8 && region.width == 5 && !region.y && region.height == 1);
+    uint8_t output[2] = {0xa5, 0xa5};
+    assert(raster->mono_to_index2(&image, &region, output, 1) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(output[0] == 0xa5 && output[1] == 0xa5);
+    assert(!raster->mono_to_index2(&image, &region, output, sizeof(output)));
+    assert(output[0] == 3 && output[1] == 0);
+    ++region.x;
+    assert(raster->mono_to_index2(&image, &region, output, 2) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    --image.size;
+    assert(raster->mono_damage(&image, &previous, &region, 1, &count) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !count);
 }
 
 int main(void)
@@ -86,6 +111,7 @@ int main(void)
             assert(covered);
         }
     }
+    check_native_raster();
     puts("DLP batched conversion, all byte values, odd widths, crops and padding PASS");
     return 0;
 }

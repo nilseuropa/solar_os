@@ -85,4 +85,9 @@ typedef struct {
     int (*frames_release)(solar_os_native_handle_t lease, const uint8_t *pixels);
     int (*frames_redraw)(solar_os_native_handle_t lease);
     int (*frames_take_stats)(solar_os_native_handle_t lease, solar_os_native_frame_presenter_stats_v1_t *stats);
+    /* Take the target's refresh override at a supported rate in tenths of
+     * a hertz. Zero restores the prior policy. Close also restores it and
+     * retains the lease on failure for retry. A frame presenter that requests
+     * its own high-refresh mode is mutually exclusive with this setting. */
+    int (*set_high_refresh)(solar_os_native_handle_t lease, uint32_t rate_tenths);
 } solar_os_native_display_lease_api_v1_t;

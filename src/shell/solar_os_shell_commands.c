@@ -49,7 +49,6 @@
 #include "solar_os_jobs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
-#include "solar_os_task.h"
 #if SOLAR_OS_PACKAGE_SERVICE_OTA
 #include "solar_os_ota.h"
 #endif
@@ -88,12 +87,6 @@
 #define LOG_SHOW_DEFAULT 40
 #define OTA_PROGRESS_BAR_WIDTH 24
 #define OTA_PROGRESS_STEP_BYTES (64U * 1024U)
-#define OTA_CHECK_TASK_STACK 16384
-#define OTA_UPGRADE_TASK_STACK 16384
-SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(OTA_CHECK_TASK_STACK);
-SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(OTA_UPGRADE_TASK_STACK);
-#define OTA_CHECK_WAIT_MS 100U
-#define OTA_UPGRADE_WAIT_MS 100U
 
 #ifndef SOLAR_OS_VERSION
 #define SOLAR_OS_VERSION "0.0.0"
@@ -622,12 +615,8 @@ static bool display_relax_cancel_key(void *user)
     uint8_t chars[16];
     size_t count = 0;
     do {
-        if (solar_os_shell_io_kind(term) == SOLAR_OS_SHELL_IO_KIND_PORT) {
-            if (solar_os_port_read(&term->port, chars, sizeof(chars), 0, &count) != ESP_OK)
-                return true;
-        } else {
-            count = solar_os_input_read_chars((char *)chars, sizeof(chars));
-        }
+        if (solar_os_shell_io_poll_input(term, chars, sizeof(chars), &count) != ESP_OK)
+            return true;
         for (size_t i = 0; i < count; ++i) {
             if (chars[i] == SOLAR_OS_KEY_APP_EXIT || chars[i] == 0x1d ||
                 chars[i] == 0x03 || chars[i] == SOLAR_OS_KEY_ESCAPE) return true;
@@ -972,18 +961,6 @@ typedef struct {
     bool last_known;
 } ota_shell_progress_t;
 
-typedef struct {
-    ota_shell_progress_t progress;
-    esp_err_t result;
-    volatile bool done;
-} ota_upgrade_worker_t;
-
-typedef struct {
-    solar_os_ota_check_result_t *check;
-    esp_err_t result;
-    volatile bool done;
-} ota_check_worker_t;
-
 static const char *ota_stage_name(solar_os_ota_progress_stage_t stage)
 {
     switch (stage) {
@@ -1134,115 +1111,6 @@ static void ota_shell_progress_cb(const solar_os_ota_progress_t *progress, void 
     }
 }
 
-static void ota_upgrade_task(void *arg)
-{
-    ota_upgrade_worker_t *worker = (ota_upgrade_worker_t *)arg;
-    if (worker != NULL) {
-        worker->result = solar_os_ota_upgrade(ota_shell_progress_cb, &worker->progress);
-        SOLAR_OS_LOGI("solar_os_shell",
-                      "OTA upgrade task stopped stack_min_free=%u bytes",
-                      (unsigned)uxTaskGetStackHighWaterMark(NULL));
-        worker->done = true;
-    }
-    solar_os_task_delete_internal(NULL);
-}
-
-static void ota_check_task(void *arg)
-{
-    ota_check_worker_t *worker = (ota_check_worker_t *)arg;
-    if (worker != NULL) {
-        worker->result = solar_os_ota_check(worker->check);
-        SOLAR_OS_LOGI("solar_os_shell",
-                      "OTA check task stopped stack_min_free=%u bytes",
-                      (unsigned)uxTaskGetStackHighWaterMark(NULL));
-        worker->done = true;
-    }
-    solar_os_task_delete_internal(NULL);
-}
-
-static esp_err_t ota_run_check_worker(solar_os_ota_check_result_t *result)
-{
-    if (result == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    ota_check_worker_t worker = {
-        .check = result,
-        .result = ESP_FAIL,
-        .done = false,
-    };
-
-    TaskHandle_t task = NULL;
-    if (solar_os_task_create_pinned_internal(ota_check_task,
-                                             "ota_check",
-                                             OTA_CHECK_TASK_STACK,
-                                             &worker,
-                                             tskIDLE_PRIORITY + 2,
-                                             &task,
-                                             tskNO_AFFINITY,
-                                             SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
-        SOLAR_OS_LOGW("solar_os_shell",
-                      "OTA check task create failed stack=%u internal_free=%u "
-                      "internal_largest=%u",
-                      (unsigned)OTA_CHECK_TASK_STACK,
-                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-        return ESP_ERR_NO_MEM;
-    }
-
-    TickType_t wait_ticks = pdMS_TO_TICKS(OTA_CHECK_WAIT_MS);
-    if (wait_ticks == 0) {
-        wait_ticks = 1;
-    }
-    while (!worker.done) {
-        vTaskDelay(wait_ticks);
-    }
-
-    return worker.result;
-}
-
-static esp_err_t ota_run_upgrade_worker(ota_shell_progress_t *progress)
-{
-    if (progress == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    ota_upgrade_worker_t worker = {
-        .progress = *progress,
-        .result = ESP_FAIL,
-        .done = false,
-    };
-
-    TaskHandle_t task = NULL;
-    if (solar_os_task_create_pinned_internal(ota_upgrade_task,
-                                             "ota_upgrade",
-                                             OTA_UPGRADE_TASK_STACK,
-                                             &worker,
-                                             tskIDLE_PRIORITY + 2,
-                                             &task,
-                                             tskNO_AFFINITY,
-                                             SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
-        SOLAR_OS_LOGW("solar_os_shell",
-                      "OTA upgrade task create failed stack=%u internal_free=%u "
-                      "internal_largest=%u",
-                      (unsigned)OTA_UPGRADE_TASK_STACK,
-                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                      (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-        return ESP_ERR_NO_MEM;
-    }
-
-    TickType_t wait_ticks = pdMS_TO_TICKS(OTA_UPGRADE_WAIT_MS);
-    if (wait_ticks == 0) {
-        wait_ticks = 1;
-    }
-    while (!worker.done) {
-        vTaskDelay(wait_ticks);
-    }
-
-    *progress = worker.progress;
-    return worker.result;
-}
-
 static bool ota_parse_slot(const char *text, uint8_t *slot)
 {
     if (text == NULL || slot == NULL) {
@@ -1302,7 +1170,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
         result->status_code = -1;
         solar_os_shell_io_writeln(term, "ota: checking");
         solar_os_shell_io_flush(term);
-        const esp_err_t err = ota_run_check_worker(result);
+        const esp_err_t err = solar_os_ota_check(result);
         if (err == ESP_OK) {
             ota_print_check_result(term, result);
         } else if (err == ESP_ERR_NOT_FOUND &&
@@ -1341,7 +1209,7 @@ void solar_os_shell_cmd_ota(solar_os_context_t *ctx, int argc, char **argv)
             .last_stage = SOLAR_OS_OTA_PROGRESS_CONNECTING,
             .last_percent = 255,
         };
-        const esp_err_t err = ota_run_upgrade_worker(&progress);
+        const esp_err_t err = solar_os_ota_upgrade(ota_shell_progress_cb, &progress);
         if (progress.row_valid) {
             const size_t rows = solar_os_shell_io_rows(term);
             solar_os_shell_io_set_cursor(term,

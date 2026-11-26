@@ -163,7 +163,7 @@ class FlavorPackagesTest(unittest.TestCase):
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
         for package in ("app_python", "app_playground", "app_edit", "app_less",
-                        "service_audio", "service_messaging"):
+                        "service_audio", "service_messaging", "service_sc2_discovery", "service_sc2_relay"):
             with self.subTest(shared=package):
                 self.assertTrue(packages[package])
                 self.assertTrue(compact_packages[package])
