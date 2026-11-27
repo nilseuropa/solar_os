@@ -1,0 +1,17 @@
+schema_version = 2
+type = "app"
+id = "lua"
+name = "Lua runtime"
+version = "1.0.0"
+description = "Run Lua scripts, the interactive REPL, and Lua apps from Playground."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 2
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "lua.app.elf"
+required_services = [
+    { name = "libc", abi = 1, minimum_struct_size = 48 },
+    { name = "fs", abi = 1, minimum_struct_size = 72 },
+    { name = "memory", abi = 1, minimum_struct_size = 60 },
+]

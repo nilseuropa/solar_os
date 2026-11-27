@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs.h"
+#include "solar_os_app_registry.h"
 #include "solar_os_board_caps.h"
 #include "solar_os_config.h"
 #include "solar_os_crypto.h"
@@ -306,21 +307,23 @@ static bool playground_relative_path_valid(const char *path)
 
 static bool playground_runtime_available(solar_os_playground_runtime_t runtime)
 {
-    switch (runtime) {
-    case SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON:
-#if SOLAR_OS_PACKAGE_APP_PYTHON
-        return true;
-#else
+    if (runtime != SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON &&
+        runtime != SOLAR_OS_PLAYGROUND_RUNTIME_LUA) {
         return false;
-#endif
-    case SOLAR_OS_PLAYGROUND_RUNTIME_LUA:
-#if SOLAR_OS_PACKAGE_APP_LUA
-        return true;
-#else
-        return false;
-#endif
-    default:
-        return false;
+    }
+    const solar_os_app_registry_entry_t *entry =
+        solar_os_app_registry_find(solar_os_playground_runtime_name(runtime));
+    return entry != NULL && entry->app != NULL;
+}
+
+static void playground_check_runtime(solar_os_playground_app_info_t *app)
+{
+    if (app->compatible && !playground_runtime_available(app->runtime)) {
+        app->compatible = false;
+        strlcpy(app->incompatibility,
+                app->runtime == SOLAR_OS_PLAYGROUND_RUNTIME_LUA ?
+                "Lua unavailable (pkg install lua)" : "python unavailable",
+                sizeof(app->incompatibility));
     }
 }
 
@@ -682,14 +685,8 @@ static esp_err_t playground_parse_app(
     }
 
     app->compatible = true;
-    if (!playground_runtime_available(app->runtime)) {
-        app->compatible = false;
-        snprintf(app->incompatibility,
-                 sizeof(app->incompatibility),
-                 "%s unavailable",
-                 solar_os_playground_runtime_name(app->runtime));
-    } else if (!playground_version_at_least(SOLAR_OS_VERSION,
-                                            app->min_solaros)) {
+    if (!playground_version_at_least(SOLAR_OS_VERSION,
+                                     app->min_solaros)) {
         app->compatible = false;
         snprintf(app->incompatibility,
                  sizeof(app->incompatibility),
@@ -2022,6 +2019,9 @@ bool solar_os_playground_get_app(size_t index,
         *app = playground_catalog->apps[index];
     }
     portEXIT_CRITICAL(&playground_lock);
+    if (found) {
+        playground_check_runtime(app);
+    }
     return found;
 }
 
@@ -2081,6 +2081,9 @@ bool solar_os_playground_find_app(const char *id,
         }
     }
     portEXIT_CRITICAL(&playground_lock);
+    if (found && app != NULL) {
+        playground_check_runtime(app);
+    }
     return found;
 }
 
@@ -2150,7 +2153,8 @@ static esp_err_t playground_install_package(
     solar_os_playground_progress_fn progress_fn,
     void *progress_user)
 {
-    if (app == NULL || !app->compatible) {
+    if (app == NULL || !app->compatible ||
+        !playground_runtime_available(app->runtime)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     playground_package_progress_t state = {.callback = progress_fn, .user = progress_user, .cancel = cancel};

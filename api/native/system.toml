@@ -3394,7 +3394,7 @@ review = "7e6d68fc3a26b62ca762abc1df27b7d4bda04e4c5e1d6f1d3276c478a7aa148b"
 
 [internal.solar_os_module_packages_init]
 reason = "Boot activates installed resident job and driver packages. Libraries are loaded by the separate library acquisition lifecycle."
-review = "783b7eeb4aa037a3ce38ddeb0ae7129b40b353e1e424c24924708ee42d2dc002"
+review = "8f78bd5190b4c4333a123fcf3569ad91bd5890ae6a1eeca0daacc95effd100ab"
 
 [internal.solar_os_onewire_init]
 reason = "Boot and the bus service initialize the private OneWire registry and driver dependencies before transfers."
@@ -4288,17 +4288,21 @@ review = "31ce4aa611b3eac83e3ae14a114c30b20be013be4a1d51465600bf8a27e34fb5"
 reason = "The screen keyboard converts bits from its private u8g2 raster into the Core layer format. Portable layers accept the documented packed format without exposing the driver canvas."
 review = "1fc87579524a656c3d4b15b9379d67aed11fd19baadd8a0bd270bad7c7a7c449"
 
+[internal.solar_os_app_registry_prefers_builtin]
+reason = "The package browser uses the Core app registry's firmware precedence rule to identify catalog apps already provided by firmware. Public application lookup resolves that precedence internally."
+review = "5f5adc85b31af1f77901496d9c845b3556f8e03649656ce12c27e9a8722fe9ad"
+
 [internal.solar_os_app_registry_find_by_app]
 reason = "Core identifies an app from its private scheduler descriptor when accounting for session ownership. Public discovery uses the application name and copied records."
-review = "0fd6f1c7681dc4b956ac8a417684dff2682160435f8a4dcfee07fcb04f564f8e"
+review = "a1e45d780f7820fb42cd34111888b9c3a6c556c68c412d43fa10ef5ad82c86a0"
 
 [internal.solar_os_app_registry_claim]
 reason = "The session owner reserves an app and admits its worker as one step of the launch lifecycle."
-review = "947365e12f2c6a0d4ff75ccb2c1d15117cf62e0d54470743a6c144de2c26e32d"
+review = "0e8fadceee77cd4cd61b5bb5c80d43c316bcc32dd8d97dc47393be52b6529542"
 
 [internal.solar_os_app_registry_release]
 reason = "The scheduler releases an app claim when session cleanup finishes."
-review = "c02e11716583569fd0a6a4bdad5e7b91e98df39533ea38ff7d288df8be434f4b"
+review = "97b28dc004c81984f49b359dd3fdc98fe02bd8974111c517a80a3fe7a1ccb0bf"
 
 [internal.solar_os_playground_init]
 reason = "The Core service initializes stored Playground source and storage preferences and refreshes shell aliases. The public preference and catalog operations initialize it on demand."

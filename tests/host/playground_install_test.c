@@ -4,12 +4,26 @@
 #undef main
 #include <dirent.h>
 #include "solar_os_board_caps.h"
+#include "solar_os_app_registry.h"
 #include "solar_os_components.h"
 #include "solar_os_native_components.h"
 #include "solar_os_native_zip.h"
 #include "solar_os_native_zip_abi.h"
 #include "solar_os_zip.h"
 #include "solar_os_playground.h"
+
+static bool lua_installed;
+
+const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name)
+{
+    static const solar_os_app_t runtime = {0};
+    static const solar_os_app_registry_entry_t python = {.name = "python", .app = &runtime};
+    static const solar_os_app_registry_entry_t lua = {.name = "lua", .app = &runtime};
+    if (strcmp(name, "python") == 0) {
+        return &python;
+    }
+    return lua_installed && strcmp(name, "lua") == 0 ? &lua : NULL;
+}
 
 size_t solar_os_component_count(void) { return 0; }
 const solar_os_component_t *solar_os_component_get(size_t index) { (void)index; return NULL; }
@@ -105,17 +119,25 @@ static void test_portable_catalog(void)
     assert(api->catalog(SOLAR_OS_PLAYGROUND_CATALOG_REFRESH, cancel_catalog, (void *)api) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
     assert(!api->catalog_available());
     assert(!api->catalog(SOLAR_OS_PLAYGROUND_CATALOG_REFRESH, NULL, NULL));
-    assert(api->catalog_available() && api->category_count() == 1 && api->app_count() == 1);
+    assert(api->catalog_available() && api->category_count() == 1 && api->app_count() == 2);
     assert(!api->catalog(SOLAR_OS_PLAYGROUND_CATALOG_RELOAD, NULL, NULL));
     solar_os_playground_category_t category;
     assert(api->category(0, &category) && !strcmp(category.id, "tools"));
     solar_os_playground_app_info_t app;
-    size_t index = 1;
-    assert(api->find("tool", &index, &app) && !index && app.compatible);
+    size_t index;
+    assert(api->find("lua-tool", &index, &app) && !app.compatible);
+    assert(strstr(app.incompatibility, "pkg install lua") != NULL);
+    assert(api->install("lua-tool", SOLAR_OS_PLAYGROUND_TARGET_AUTO, NULL, NULL) ==
+           SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    lua_installed = true;
+    assert(api->app(index, &app) && app.compatible && !app.incompatibility[0]);
+    lua_installed = false;
+    assert(api->find("lua-tool", NULL, &app) && !app.compatible);
+    assert(api->find("tool", &index, &app) && app.compatible);
     assert(!api->install("tool", SOLAR_OS_PLAYGROUND_TARGET_AUTO, NULL, NULL));
     assert(api->find_installed("tool", &app) && !strcmp(app.entry, "main.py"));
     char id[SOLAR_OS_PLAYGROUND_ID_MAX];
-    assert(api->installed_id(0, id, sizeof(id)) && !strcmp(id, "tool"));
+    assert(api->installed_id(index, id, sizeof(id)) && !strcmp(id, "tool"));
     char version[SOLAR_OS_PLAYGROUND_VERSION_MAX];
     assert(api->installed("tool", version, sizeof(version)) && !strcmp(version, "1.0.0"));
     char path[SOLAR_OS_STORAGE_PATH_MAX];

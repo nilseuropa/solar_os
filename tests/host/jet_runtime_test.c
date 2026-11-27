@@ -101,6 +101,8 @@ int solar_os_native_library_retain(uint32_t lease,uint32_t *retained) {
 }
 const solar_os_app_t *solar_os_application_descriptor(void) {return running_app;}
 solar_os_context_t *solar_os_application_context(void) {return running_app ? &application_context : NULL;}
+static bool console_gfx;
+solar_os_gfx_t *solar_os_native_foreground_console_gfx(void) {return console_gfx ? &gfx : NULL;}
 solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx) {assert(ctx==&application_context);return &gfx;}
 esp_err_t solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,solar_os_gfx_t *target,const solar_os_frame_presenter_options_v1_t *c) {
     assert(target==&gfx);
@@ -146,6 +148,7 @@ void jet_test_reset(bool mono) {
     gfx=(struct solar_os_gfx){64,48,mono?SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT:SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT};
     attempts=presented=0;installed=join_ok=release_ok=true;display_busy=bad_api=false;fail_at=-1;
     callback_release_ok=true;running_app=NULL;
+    console_gfx = false;
 }
 solar_os_gfx_t *jet_test_gfx(void) {return &gfx;}
 void jet_test_assert_clean(void) {
@@ -227,6 +230,14 @@ static void test_native_scene(void)
     assert(!native_api->set_suspended(scene, false) && claims);
     assert(!solar_os_native_handle_close_owner(&owner_app));
     assert(native_api->close(scene) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    jet_test_assert_clean();
+
+    running_app = NULL;
+    console_gfx = true;
+    assert(!native_api->open(&options, 0, &scene, NULL, 0));
+    assert(!native_api->uses_foreground(scene, &uses_foreground) && uses_foreground);
+    assert(!native_api->render(scene, NULL, NULL));
+    assert(!native_api->close(scene));
     jet_test_assert_clean();
 }
 

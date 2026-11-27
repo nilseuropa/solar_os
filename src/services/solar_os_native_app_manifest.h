@@ -10,7 +10,8 @@ static inline bool solar_os_native_app_manifest_valid(const solar_os_native_app_
         (app->app_class != SOLAR_OS_NATIVE_APP_CLASS_TUI &&
          app->app_class != SOLAR_OS_NATIVE_APP_CLASS_GUI) ||
         (app->flags & ~(SOLAR_OS_NATIVE_APP_RESUMABLE | SOLAR_OS_NATIVE_APP_POINTER_EVENTS |
-                       SOLAR_OS_NATIVE_APP_AXIS_EVENTS)) != 0U ||
+                       SOLAR_OS_NATIVE_APP_AXIS_EVENTS | SOLAR_OS_NATIVE_APP_CONSOLE)) != 0U ||
+        ((app->flags & SOLAR_OS_NATIVE_APP_CONSOLE) && app->app_class != SOLAR_OS_NATIVE_APP_CLASS_TUI) ||
         app->worker_stack_bytes < 2048U || app->worker_stack_bytes > 65536U ||
         app->worker_priority < 1U || app->worker_priority > 4U ||
         app->minimum_internal_bytes > 512U * 1024U ||

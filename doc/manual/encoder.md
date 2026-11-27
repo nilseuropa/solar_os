@@ -14,9 +14,9 @@ and C. The `pcnt-encoder` expansion driver uses the ESP32 pulse-counter
 peripheral to count A/B signals in hardware. Multiple encoders can run
 independently, subject to available GPIOs and PCNT units.
 
-The common encoder service is part of the core. Select `pcnt_encoder` for
-the hardware driver; `full` includes it on supported boards. The provider
-supports ESP32 and ESP32-S3; it requires no Arduino or external encoder library.
+Select `pcnt_encoder` for the common encoder service and hardware driver.
+`full` includes it on supported boards. The provider supports ESP32 and ESP32-S3
+using the built-in pulse-counter peripheral.
 
 ## Quick reference
 

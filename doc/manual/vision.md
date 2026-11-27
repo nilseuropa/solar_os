@@ -13,7 +13,7 @@ agent_reference_sections = true
 
 ## Quick reference
 
-- Vision and imlib are core services on supported boards with PSRAM.
+- The `vision` group selects Vision and imlib on supported boards with PSRAM.
   A camera or display is optional.
 - `solaros.vision.qrcodes(image[, options])` reads a native `solaros.image`
   handle and returns QR payloads, four corners, and processing statistics.

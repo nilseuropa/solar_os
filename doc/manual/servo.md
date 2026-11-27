@@ -9,7 +9,7 @@ packages_any = ["service_servo"]
 # Servo outputs
 
 The servo service binds calibrated positional servos to named PWM outputs.
-It is part of the core in every flavor. Use `pwm providers` to discover controllers
+The `servo` group selects this service. Use `pwm providers` to discover controllers
 and `pwm status` to discover their outputs.
 
 Outputs use `provider:number`. The built-in ESP32 provider is `native`; its

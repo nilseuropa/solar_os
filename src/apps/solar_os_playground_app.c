@@ -9,15 +9,10 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "solar_os_app_registry.h"
 #include "solar_os_config.h"
 #include "solar_os_keys.h"
-#if SOLAR_OS_PACKAGE_APP_LUA
-#include "solar_os_lua.h"
-#endif
 #include "solar_os_playground.h"
-#if SOLAR_OS_PACKAGE_APP_PYTHON
-#include "solar_os_python.h"
-#endif
 #include "solar_os_shell_io.h"
 #include "solar_os_task.h"
 #include "solar_os_terminal.h"
@@ -679,27 +674,13 @@ static esp_err_t playground_launch_app(
     if (err != ESP_OK) {
         return err;
     }
-    char app_name[SOLAR_OS_APP_ARG_LEN];
-    char app_path[SOLAR_OS_APP_ARG_LEN];
-    char *argv[] = {app_name, app_path};
-    const solar_os_app_t *runtime = NULL;
-    strlcpy(app_path, path, sizeof(app_path));
-    if (app->runtime == SOLAR_OS_PLAYGROUND_RUNTIME_PYTHON) {
-#if SOLAR_OS_PACKAGE_APP_PYTHON
-        runtime = &solar_os_python_app;
-        strlcpy(app_name, "python", sizeof(app_name));
-#endif
-    } else {
-#if SOLAR_OS_PACKAGE_APP_LUA
-        runtime = &solar_os_lua_app;
-        strlcpy(app_name, "lua", sizeof(app_name));
-#endif
-    }
-    if (runtime == NULL) {
+    const char *runtime = solar_os_playground_runtime_name(app->runtime);
+    const char *args[] = {path};
+    err = solar_os_app_registry_request_launch(ctx, runtime, 1U, args);
+    if (err == ESP_ERR_NOT_FOUND) {
         return ESP_ERR_NOT_SUPPORTED;
     }
-    return solar_os_context_request_launch_ex(
-        ctx, runtime, 2, argv, SOLAR_OS_LAUNCH_CHILD_RETURN);
+    return err;
 }
 
 static bool playground_launch_selected(solar_os_context_t *ctx)

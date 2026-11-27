@@ -5,6 +5,7 @@ description = "Standard SolarOS build with scripting, applications, hardware ser
 [groups]
 screen_keyboard = true
 hardware_shell = true
+usb_hid = true
 filesystem = true
 wifi = true
 bluetooth = true

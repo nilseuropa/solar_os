@@ -26,7 +26,9 @@
 #include "solar_os_task.h"
 #include "solar_os_queue.h"
 #include "solar_os_shell.h"
+#include "solar_os_shell_io.h"
 #include "solar_os_sessions.h"
+#include "solar_os_terminal.h"
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
 #endif
@@ -40,6 +42,12 @@
 #define FOREGROUND_COOPERATE_INTERVAL_US (50000ULL)
 #define FOREGROUND_KEY_PULSE_US (140000ULL)
 #define FOREGROUND_KEY_PULSE_MAX 24U
+#define FOREGROUND_CONSOLE_QUEUE_LENGTH 8U
+
+typedef struct {
+    size_t length;
+    char text[128];
+} foreground_console_output_t;
 
 typedef struct {
     solar_os_native_foreground_key_v1_t release;
@@ -54,6 +62,8 @@ typedef struct {
     solar_os_gfx_t *gfx;
     bool keyboard_captured;
     QueueHandle_t keys;
+    QueueHandle_t console;
+    atomic_bool console_gfx_requested, console_gfx_applied;
     QueueHandle_t pointers;
     atomic_bool pointer_reset;
     QueueHandle_t axes;
@@ -861,6 +871,37 @@ static int foreground_guest_suspend(void)
     return result;
 }
 
+static int foreground_console_gfx(bool enabled)
+{
+    foreground_state_t *state = foreground_current();
+    if (!foreground_caller() || !state->console) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+    if (!state->gfx || state->presenter) return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    atomic_store(&state->console_gfx_requested, enabled);
+    while (atomic_load(&state->console_gfx_applied) != enabled) {
+        if (atomic_load(&state->stop_requested)) return SOLAR_OS_NATIVE_ERROR_CANCELLED;
+        if (atomic_load(&state->suspend_requested)) {
+            const int result = foreground_guest_suspend();
+            if (result) return result;
+        }
+        foreground_sleep_ms(1);
+    }
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int foreground_console_gfx_acquire(solar_os_gfx_t **gfx)
+{
+    if (!gfx) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *gfx = NULL;
+    int result = foreground_console_gfx(true);
+    if (!result) *gfx = foreground_current()->gfx;
+    return result;
+}
+
+static int foreground_console_gfx_release(void)
+{
+    return foreground_console_gfx(false);
+}
+
 static const solar_os_native_foreground_api_v1_t foreground_api = {
     .abi_version = 1U, .struct_size = sizeof(foreground_api),
     .time_us = foreground_time_us, .sleep_ms = foreground_sleep_ms, .restart = foreground_restart,
@@ -888,6 +929,8 @@ static const solar_os_native_foreground_api_v1_t foreground_api = {
     .cooperate = foreground_cooperate,
     .set_memory_reclaimer = foreground_set_memory_reclaimer,
     .video_open_mono1 = foreground_video_open_mono1,
+    .console_gfx_acquire = foreground_console_gfx_acquire,
+    .console_gfx_release = foreground_console_gfx_release,
 };
 
 
@@ -906,6 +949,20 @@ static esp_err_t foreground_write(const char *text, size_t length, void *user)
 {
     foreground_state_t *state = user;
     if (!text) return ESP_ERR_INVALID_ARG;
+    if (state->console) {
+        while (length) {
+            if (atomic_load(&state->stop_requested) || atomic_load(&state->suspend_requested))
+                return ESP_ERR_INVALID_STATE;
+            foreground_console_output_t chunk = {0};
+            chunk.length = length < sizeof(chunk.text) ? length : sizeof(chunk.text);
+            memcpy(chunk.text, text, chunk.length);
+            if (xQueueSend(state->console, &chunk, 1) == pdTRUE) {
+                text += chunk.length;
+                length -= chunk.length;
+            }
+        }
+        return ESP_OK;
+    }
     if (length >= sizeof(state->detail)) length = sizeof(state->detail) - 1U;
     memcpy(state->detail, text, length);
     state->detail[length] = '\0';
@@ -1007,6 +1064,8 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
     if (admission != ESP_OK) return admission;
     atomic_store(&((foreground_slot_t *)state->slot)->active, true);
     atomic_init(&state->done, true);
+    atomic_init(&state->console_gfx_requested, false);
+    atomic_init(&state->console_gfx_applied, false);
     atomic_init(&state->worker, NULL);
     atomic_init(&state->input_reset, false);
     atomic_init(&state->pointer_reset, false);
@@ -1021,7 +1080,8 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
     atomic_init(&state->cache_reclaiming, false);
     state->stop_deadline_us = 0;
     state->worker_started = false;
-    if (!ctx->gfx || ctx->argc < 1) {
+    const bool console = (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_CONSOLE) != 0U;
+    if ((!ctx->gfx && !(console && ctx->shell_io)) || ctx->argc < 1) {
         atomic_store(&((foreground_slot_t *)state->slot)->active, false);
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -1033,21 +1093,28 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
     atomic_store(&state->done, false);
     state->exit_code = 1;
     state->keys = xQueueCreate(64U, sizeof(solar_os_native_foreground_key_v1_t));
+    if (console) {
+        state->console = solar_os_queue_create(FOREGROUND_CONSOLE_QUEUE_LENGTH,
+                                               sizeof(foreground_console_output_t));
+    }
     if (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS)
         state->pointers = xQueueCreate(32U, sizeof(solar_os_native_foreground_pointer_v1_t));
     if (state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS)
         state->axes = solar_os_queue_create(32U, sizeof(solar_os_native_foreground_axis_v1_t));
-    if (!state->keys || ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS) && !state->pointers) ||
+    if (!state->keys || (console && !state->console) ||
+        ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_POINTER_EVENTS) && !state->pointers) ||
         ((state->slot->manifest.flags & SOLAR_OS_NATIVE_APP_AXIS_EVENTS) && !state->axes)) {
         if (state->keys) vQueueDelete(state->keys);
         if (state->pointers) vQueueDelete(state->pointers);
         if (state->axes) solar_os_queue_delete(state->axes);
+        if (state->console) solar_os_queue_delete(state->console);
+        state->console = NULL;
         state->keys = state->pointers = state->axes = NULL;
         atomic_store(&state->done, true);
         atomic_store(&((foreground_slot_t *)state->slot)->active, false);
         return ESP_ERR_NO_MEM;
     }
-    solar_os_context_set_streaming_graphics_active(ctx, true);
+    if (!console) solar_os_context_set_streaming_graphics_active(ctx, true);
     if (solar_os_task_create_pinned_internal(foreground_worker, state->slot->manifest.id, state->slot->manifest.worker_stack_bytes,
         state, tskIDLE_PRIORITY + state->slot->manifest.worker_priority, NULL, tskNO_AFFINITY,
         SOLAR_OS_TASK_ROLE_FOREGROUND) != pdPASS) {
@@ -1056,6 +1123,8 @@ static esp_err_t foreground_start(solar_os_context_t *ctx)
         if (state->pointers) vQueueDelete(state->pointers);
         state->pointers = NULL;
         if (state->axes) solar_os_queue_delete(state->axes);
+        if (state->console) solar_os_queue_delete(state->console);
+        state->console = NULL;
         state->axes = NULL;
         solar_os_context_set_streaming_graphics_active(ctx, false);
         atomic_store(&((foreground_slot_t *)state->slot)->active, false);
@@ -1097,6 +1166,8 @@ static void foreground_stop(solar_os_context_t *ctx)
     state->pointers = NULL;
     if (state->axes) solar_os_queue_delete(state->axes);
     state->axes = NULL;
+    if (state->console) solar_os_queue_delete(state->console);
+    state->console = NULL;
     atomic_store(&((foreground_slot_t *)state->slot)->active, false);
 }
 
@@ -1143,7 +1214,8 @@ static void foreground_resume(solar_os_context_t *ctx)
     atomic_store(&state->pointer_reset, true);
     if (state->axes) xQueueReset(state->axes);
     atomic_store(&state->axis_reset, true);
-    solar_os_context_set_streaming_graphics_active(ctx, true);
+    solar_os_context_set_streaming_graphics_active(ctx,
+        !state->console || atomic_load(&state->console_gfx_applied));
     atomic_store(&state->suspend_requested, false);
     const uint64_t deadline = foreground_time_us() + FOREGROUND_STOP_WAIT_US;
     while (atomic_load(&state->suspended) && !atomic_load(&state->done)) {
@@ -1236,10 +1308,32 @@ static bool foreground_event(solar_os_context_t *ctx, const solar_os_event_t *ev
         return true;
     }
     if (event->type == SOLAR_OS_EVENT_TICK) {
-        if (atomic_load(&state->done)) solar_os_context_finish(ctx,
-            state->result == ESP_OK ? 0 : 1, state->detail[0] ? state->detail : "app: module returned");
+        const bool done = atomic_load(&state->done);
+        if (state->console) {
+            const bool graphics = !done && atomic_load(&state->console_gfx_requested);
+            if (graphics != atomic_load(&state->console_gfx_applied)) {
+                solar_os_context_set_graphics_active(ctx, graphics);
+                if (!graphics && ctx->terminal) solar_os_terminal_invalidate_render(ctx->terminal);
+                atomic_store(&state->console_gfx_applied, graphics);
+            }
+            solar_os_shell_io_t fallback;
+            solar_os_shell_io_t *io = ctx->shell_io;
+            if (!io) {
+                solar_os_shell_io_init_terminal(&fallback, ctx->terminal);
+                io = &fallback;
+            }
+            foreground_console_output_t chunk;
+            for (unsigned pass = 0; pass < FOREGROUND_CONSOLE_QUEUE_LENGTH; ++pass) {
+                if (xQueueReceive(state->console, &chunk, 0) != pdTRUE) break;
+                (void)solar_os_shell_io_write_len(io, chunk.text, chunk.length);
+            }
+            if (done) solar_os_context_request_terminal_preserve(ctx);
+        }
+        if (done) solar_os_context_finish(ctx,
+            state->result == ESP_OK ? 0 : 1, state->detail[0] ? state->detail :
+                (state->console ? NULL : "app: module returned"));
         else {
-            foreground_poll_keyboard(state);
+            if (state->gfx) foreground_poll_keyboard(state);
             if (atomic_load(&state->stop_requested) &&
                 foreground_time_us() >= state->stop_deadline_us && !atomic_load(&state->done))
                 esp_restart();
@@ -1302,6 +1396,7 @@ static esp_err_t foreground_prepare_slot(const char *path,
     slot->registry = (solar_os_app_registry_entry_t){
         .name = slot->manifest.id, .summary = slot->manifest.summary, .app = &slot->app,
         .capabilities = SOLAR_OS_APP_CAP_DISPLAY | SOLAR_OS_APP_CAP_TEXT |
+            ((manifest.flags & SOLAR_OS_NATIVE_APP_CONSOLE) ? SOLAR_OS_APP_CAP_PORT : 0U) |
             (manifest.app_class == SOLAR_OS_NATIVE_APP_CLASS_GUI ? SOLAR_OS_APP_CAP_GRAPHICS : 0U),
         .min_argc = 1U, .max_argc = SOLAR_OS_APP_ARG_MAX,
         .file_extensions = slot->manifest.file_extensions,
@@ -1375,10 +1470,23 @@ esp_err_t solar_os_native_foreground_resolve(const char *path,
 #endif
 }
 
+solar_os_gfx_t *solar_os_native_foreground_console_gfx(void)
+{
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
+    foreground_state_t *state = foreground_current();
+    if (foreground_caller() && state->console && atomic_load(&state->console_gfx_applied))
+        return state->gfx;
+#endif
+    return NULL;
+}
+
 esp_err_t solar_os_native_foreground_launch(solar_os_context_t *ctx,
     const solar_os_app_t *app, int argc, char **argv)
 {
-    if (!ctx || !ctx->gfx || !app) return ESP_ERR_NOT_SUPPORTED;
+    if (!ctx || !app) return ESP_ERR_NOT_SUPPORTED;
+    const foreground_slot_t *slot = foreground_find_slot(app);
+    if (!ctx->gfx && (!ctx->shell_io || !slot ||
+        !(slot->manifest.flags & SOLAR_OS_NATIVE_APP_CONSOLE))) return ESP_ERR_NOT_SUPPORTED;
     if (argc < 1 || argc > SOLAR_OS_APP_ARG_MAX) return ESP_ERR_INVALID_ARG;
     char cwd[sizeof(ctx->launch_cwd)] = {0};
     esp_err_t err = ctx->shell_session ?

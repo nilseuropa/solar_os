@@ -4,6 +4,8 @@
 #include "solar_os_key_codes.h"
 #include "solar_os_native_service_abi.h"
 
+typedef struct solar_os_gfx solar_os_gfx_t;
+
 /* Application lifecycle 1 is a synchronous command. Lifecycle 2 is a
  * foreground session whose ELF and guest state remain resident until close. */
 #define SOLAR_OS_NATIVE_APP_LIFECYCLE_ABI 2U
@@ -12,6 +14,8 @@
 #define SOLAR_OS_NATIVE_APP_RESUMABLE (1U << 0)
 #define SOLAR_OS_NATIVE_APP_POINTER_EVENTS (1U << 1)
 #define SOLAR_OS_NATIVE_APP_AXIS_EVENTS (1U << 2)
+/* TUI worker with shell output and optional worker-owned graphics. */
+#define SOLAR_OS_NATIVE_APP_CONSOLE (1U << 3)
 #define SOLAR_OS_NATIVE_APP_CLASS_TUI 2U
 #define SOLAR_OS_NATIVE_APP_CLASS_GUI 3U
 
@@ -186,6 +190,11 @@ typedef struct {
      * pixel first; one=black, zero=white. Frame acquire/exchange uses this same
      * packed size. Optional; check struct_size before accessing. */
     int (*video_open_mono1)(uint16_t width, uint16_t height, uint16_t fps);
+    /* Available to console workers. Acquire suppresses terminal rendering
+     * before returning the session surface. Draw only on the entry task.
+     * Release after closing any display resources and before returning to text. */
+    int (*console_gfx_acquire)(solar_os_gfx_t **gfx);
+    int (*console_gfx_release)(void);
 } solar_os_native_foreground_api_v1_t;
 
 static inline bool solar_os_native_foreground_has_exchange(

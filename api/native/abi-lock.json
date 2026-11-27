@@ -426,6 +426,7 @@
     "SOLAR_OS_NATIVE_APP_AXIS_EVENTS": "( 1U < < 2 )",
     "SOLAR_OS_NATIVE_APP_CLASS_GUI": "3U",
     "SOLAR_OS_NATIVE_APP_CLASS_TUI": "2U",
+    "SOLAR_OS_NATIVE_APP_CONSOLE": "( 1U < < 3 )",
     "SOLAR_OS_NATIVE_APP_LIFECYCLE_ABI": "2U",
     "SOLAR_OS_NATIVE_APP_LINKAGE": "extern \"C\"",
     "SOLAR_OS_NATIVE_APP_MANIFEST": "SOLAR_OS_NATIVE_APP_LINKAGE __attribute__ ( ( used , visibility ( \"default\" ) ) ) const solar_os_native_app_manifest_v2_t solar_os_native_app_manifest",
@@ -5460,7 +5461,9 @@
         "int ( * set_memory_reclaimer ) ( size_t ( * ) ( void * ) , void * )",
         "int ( * read_axis ) ( solar_os_native_foreground_axis_v1_t * , bool * )",
         "uint8_t ( * joystick_source ) ( void )",
-        "int ( * video_open_mono1 ) ( uint16_t , uint16_t , uint16_t )"
+        "int ( * video_open_mono1 ) ( uint16_t , uint16_t , uint16_t )",
+        "int ( * console_gfx_acquire ) ( solar_os_gfx_t * * )",
+        "int ( * console_gfx_release ) ( void )"
       ]
     },
     "solar_os_native_foreground_audio_render_v1_t": {

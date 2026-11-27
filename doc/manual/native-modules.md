@@ -64,7 +64,10 @@ signed catalog without a network request and checks its signature and host
 compatibility again. Apps, Jobs, Libraries and Drivers appear as collapsible
 folders, including when empty. Arrows navigate the
 tree, Enter opens a folder or module details, and Left returns to the parent.
-Installed entries show `[I]` and incompatible entries show `[!]`.
+Entries provided by the firmware show `[B] Built in`. Installed downloads show
+`[I]` and incompatible entries show `[!]`. On firmware with built-in Lua, the
+`lua` command uses that runtime. `U` can still remove a downloaded copy of Lua
+from storage.
 
 Press `R` to refresh and save the signed catalog, `I` to install or replace the
 selected module, or `U` to remove it. Install and removal require confirmation.

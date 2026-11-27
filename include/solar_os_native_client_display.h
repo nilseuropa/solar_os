@@ -137,7 +137,9 @@ SOLAR_OS_NATIVE_DECLARE_GET(foreground, "foreground", solar_os_native_foreground
     M(set_memory_reclaimer) \
     M(read_axis) \
     M(joystick_source) \
-    M(video_open_mono1)
+    M(video_open_mono1) \
+    M(console_gfx_acquire) \
+    M(console_gfx_release)
 SOLAR_OS_NATIVE_CLIENT_METHODS(SOLAR_OS_NATIVE_CLIENT_METHOD)
 #undef SOLAR_OS_NATIVE_CLIENT_METHODS
 #undef SOLAR_OS_NATIVE_CLIENT_METHOD

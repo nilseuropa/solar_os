@@ -35,13 +35,15 @@ class PlaygroundInstallTest(unittest.TestCase):
                 package.writestr("main.py", "print('fixture')\n")
             data = archive.read_bytes()
             digest = hashlib.sha256(data).hexdigest()
+            tool = {"id": "tool", "entry": "main.py", "runtime": "python", "version": "1.0.0",
+                    "name": "Tool", "category": "tools", "author": "SolarOS", "description": "Test tool",
+                    "tags": [], "requires": [], "min_solaros": "0.0.0", "archive": archive.name,
+                    "sha256": digest, "size": len(data)}
             (server / "catalog.json").write_text(json.dumps({
                 "schema": "solaros.playground.catalog", "schema_version": 1,
                 "categories": [{"id": "tools", "title": "Tools", "order": 0}],
-                "apps": [{"id": "tool", "entry": "main.py", "runtime": "python", "version": "1.0.0",
-                          "name": "Tool", "category": "tools", "author": "SolarOS", "description": "Test tool",
-                          "tags": [], "requires": [], "min_solaros": "0.0.0", "archive": archive.name,
-                          "sha256": digest, "size": len(data)}],
+                "apps": [tool, {**tool, "id": "lua-tool", "entry": "main.lua", "runtime": "lua",
+                                "name": "Lua Tool", "archive": "lua-tool.sopkg"}],
             }))
             subprocess.run([str(HOST / "playground_install_test"), str(storage), str(server),
                             digest, str(len(data))], check=True)

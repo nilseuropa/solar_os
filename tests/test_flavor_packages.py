@@ -152,22 +152,21 @@ class FlavorPackagesTest(unittest.TestCase):
                     for pin in (19, 20):
                         self.assertIn("USB", pins[pin]["role"])
 
-    def test_tcp_byte_stream_service_is_core(self):
+    def test_full_selects_optional_tcp_byte_stream_service(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
-            self.assertTrue(groups["tcp_streams"])
-            self.assertTrue(packages["service_tcp_stream"])
+            self.assertEqual(groups["tcp_streams"], flavor == "full", flavor)
+            self.assertEqual(packages["service_tcp_stream"], flavor == "full", flavor)
 
     def test_classic_preserves_compact_core_and_hardware_controls(self):
         _, _, _, compact_packages = self.resolve("writerdeck")
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
-        for package in ("app_python", "app_playground", "app_edit", "app_less",
-                        "service_audio", "service_messaging", "service_sc2_discovery", "service_sc2_relay"):
+        for package in ("app_python", "app_playground", "app_edit", "app_less"):
             with self.subTest(shared=package):
                 self.assertTrue(packages[package])
                 self.assertTrue(compact_packages[package])
-        for package in ("app_files", "app_ssh", "job_sc2_sync"):
+        for package in ("app_files", "app_ssh", "service_audio", "service_messaging"):
             with self.subTest(writerdeck_only=package):
                 self.assertFalse(packages[package])
                 self.assertTrue(compact_packages[package])
@@ -179,10 +178,10 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertNotIn("lua", requires)
         self.assertIn("micropython_embed", requires)
 
-    def test_servo_service_is_core_and_native_backend_requires_pwm_gpio(self):
-        _, _, core_groups, core_packages = self.resolve("writerdeck")
-        self.assertTrue(core_groups["servo"])
-        self.assertTrue(core_packages["service_servo"])
+    def test_servo_is_optional_and_native_backend_requires_pwm_gpio(self):
+        _, _, writerdeck_groups, writerdeck_packages = self.resolve("writerdeck")
+        self.assertFalse(writerdeck_groups["servo"])
+        self.assertFalse(writerdeck_packages["service_servo"])
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["servo"])
         self.assertTrue(packages["service_servo"])
@@ -256,7 +255,7 @@ class FlavorPackagesTest(unittest.TestCase):
             _, _, groups, packages = generate_flavor_config.load_flavor(path, self.catalog)
         self.assertTrue(packages["service_motor"])
         self.assertFalse(packages["drv8830"])
-        self.assertTrue(packages["service_i2c"])
+        self.assertFalse(packages["service_i2c"])
         _, pruned = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, set())
         self.assertTrue(pruned["service_motor"])
@@ -335,10 +334,10 @@ class FlavorPackagesTest(unittest.TestCase):
                 pruned = generate_flavor_config.apply_target_pruning(
                     self.catalog, pruned, board["target"]["mcu"]
                 )
-                for package in ("service_resources", "service_i2c",
-                                "service_expansion"):
+                for package in ("service_resources", "service_expansion"):
                     self.assertTrue(pruned[package], package)
                 if flavor == "full":
+                    self.assertTrue(pruned["service_i2c"])
                     self.assertTrue(pruned["expansion_cardkb"])
                     self.assertTrue(pruned["expansion_tab5_keyboard"])
                     self.assertTrue(pruned["expansion_inputronic_keyboard"])
@@ -1108,9 +1107,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "player",
             "recorder",
             "audio_pwm",
-            "pcm5102",
             "web_browser",
-            "uart",
             "wireguard",
             "espnow",
             "contacts",
@@ -1146,16 +1143,13 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_view",
             "app_player",
             "app_recorder",
-            "service_speech",
+            "service_jet",
             "expansion_audio_pwm",
-            "expansion_pcm5102",
             "service_wireguard",
             "service_contacts",
             "service_inbox",
             "service_messaging",
-            "service_uart",
             "job_espnow_link",
-            "app_com",
             "app_web",
             "app_clock",
             "app_calc",
@@ -1193,6 +1187,12 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_logic",
             "app_synth",
             "job_controls",
+            "service_imlib",
+            "service_meshcore",
+            "service_mpeg",
+            "service_rtsp_client",
+            "service_speech",
+            "service_synth",
         ):
             self.assertFalse(packages[package], package)
 
@@ -1242,17 +1242,17 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(pruned["service_wireguard"])
         self.assertFalse(pruned["job_espnow_link"])
 
-    def test_standard_flavors_include_hid_service(self):
-        for flavor in ("full", "writerdeck"):
+    def test_full_selects_optional_hid_service(self):
+        for flavor in ("full", "writerdeck", "core"):
             _, _, groups, packages = self.resolve(flavor)
-            self.assertTrue(groups["usb_hid"], flavor)
-            self.assertTrue(packages["service_hid"], flavor)
+            self.assertEqual(groups["usb_hid"], flavor == "full", flavor)
+            self.assertEqual(packages["service_hid"], flavor == "full", flavor)
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
         _, _, _, core = self.resolve("core")
         self.assertFalse(core["app_media_preferences"])
-        self.assertTrue(core["service_media_playlist"])
+        self.assertFalse(core["service_media_playlist"])
         _, pruned = generate_flavor_config.apply_board_capability_pruning(
             self.catalog,
             groups,
@@ -1382,7 +1382,8 @@ class FlavorPackagesTest(unittest.TestCase):
         manifest_dir = REPOSITORY / "boards/manifests"
         drivers = load_driver_catalog(REPOSITORY / "boards/expansion_drivers.toml")
         cases = [("writerdeck", board) for board in
-                 ("elecrow_crowpanel_esp32_s3_5_79_epaper",
+                 ("solar_writer", "elecrow_crowpanel_esp32_s3_4_2_epaper",
+                  "elecrow_crowpanel_esp32_s3_5_79_epaper",
                   "freenove_esp32_wrover_v3", "ttgo_vga32_v14")]
         cases += [("classic", board) for board in
                   ("odroid_go", "esp32_devkitc_v4_wrover",
@@ -1390,11 +1391,9 @@ class FlavorPackagesTest(unittest.TestCase):
         for flavor, board_id in cases:
             with self.subTest(flavor=flavor, board=board_id):
                 _, _, groups, packages = self.resolve(flavor)
-                board = tomllib.loads((REPOSITORY / "boards/manifests" /
-                                       f"{board_id}.toml").read_text())
+                board = load_board_manifest(manifest_dir / f"{board_id}.toml", manifest_dir)
                 selected = generate_flavor_config.enable_required_packages(
-                    self.catalog, packages, set(required_packages(
-                        load_board_manifest(manifest_dir / f"{board_id}.toml", manifest_dir), drivers)))
+                    self.catalog, packages, set(required_packages(board, drivers)))
                 selected = generate_flavor_config.apply_target_pruning(
                     self.catalog, selected, board["target"]["mcu"])
                 _, selected = generate_flavor_config.apply_board_capability_pruning(
@@ -1403,12 +1402,14 @@ class FlavorPackagesTest(unittest.TestCase):
                 self.assertTrue(selected["app_playground"])
                 self.assertEqual(selected["service_native_modules"],
                                  board["target"]["mcu"] == "esp32s3")
+                if flavor == "writerdeck" and board["target"]["mcu"] == "esp32s3":
+                    self.assertTrue(selected["service_jet"])
                 if board_id == "ttgo_vga32_v14":
                     self.assertTrue(selected["expansion_ps2_keyboard"])
                     self.assertTrue(selected["service_ps2"])
                 if board_id == "odroid_go":
-                    for package in ("service_buttons", "service_adc_dpad",
-                                    "driver_display_ili9341", "driver_audio_esp32_dac",
+                    for package in ("service_buttons", "service_adc_dpad", "service_gpio",
+                                    "driver_display_ili9341", "service_vector", "driver_audio_esp32_dac",
                                     "expansion_sdspi"):
                         self.assertTrue(selected[package], package)
 

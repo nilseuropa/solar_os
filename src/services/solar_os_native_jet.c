@@ -1,4 +1,5 @@
 #include "solar_os_native_jet.h"
+#include "solar_os_native_foreground.h"
 #include "solar_os_config.h"
 #include <string.h>
 
@@ -18,6 +19,12 @@ typedef struct {
     uint32_t callback_library;
     bool ready;
 } native_jet_t;
+
+static solar_os_gfx_t *jet_foreground_gfx(void)
+{
+    solar_os_context_t *ctx = solar_os_application_context();
+    return ctx ? solar_os_context_gfx(ctx) : solar_os_native_foreground_console_gfx();
+}
 
 static int jet_destroy(void *opaque)
 {
@@ -54,9 +61,8 @@ static int jet_open(const solar_os_jet_options_t *options, uint32_t callback_lib
     }
     if (callback_library) result = solar_os_native_library_retain(callback_library, &state->callback_library);
     if (!result) {
-        solar_os_context_t *ctx = solar_os_application_context();
-        solar_os_gfx_t *gfx = ctx ? solar_os_context_gfx(ctx) : NULL;
-        result = solar_os_native_result(solar_os_jet_open(options, gfx, &state->scene, detail, capacity));
+        result = solar_os_native_result(solar_os_jet_open(options, jet_foreground_gfx(),
+            &state->scene, detail, capacity));
     }
     state->ready = result == SOLAR_OS_NATIVE_OK;
     if (!result || state->scene || solar_os_native_handle_close_kind(handle, JET_HANDLE_KIND)) *out = handle;
@@ -101,8 +107,7 @@ static int jet_uses_foreground(solar_os_native_handle_t id, bool *out)
     native_jet_t *state;
     const int result = jet_acquire(id, &state);
     if (result) return result;
-    solar_os_context_t *ctx = solar_os_application_context();
-    solar_os_gfx_t *gfx = ctx ? solar_os_context_gfx(ctx) : NULL;
+    solar_os_gfx_t *gfx = jet_foreground_gfx();
     *out = gfx && solar_os_jet_uses_gfx(state->scene, gfx);
     return jet_finish(id, ESP_OK);
 }
