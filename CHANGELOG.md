@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.19.0** — 2026-11-27 — Native modules can now access more SolarOS
+  services through a shared system interface. Added a minimal Core firmware
+  profile and a slimmer Classic profile that keeps Python. Fixed rendering
+  in file browsers, popups, and the on-screen keyboard.
 - **4.18.4** — 2026-11-24 — Added `pkg update` and `pkg upgrade` for
   checking and updating installed native modules. Added ILI9488 SPI display
   and XPT2046 resistive touch support. Fixed expansion touch polling and
