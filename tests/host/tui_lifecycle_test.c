@@ -18,8 +18,10 @@ int main(void)
     fail_at=UINT_MAX;
     assert(!solar_os_tui_screen_begin(&tui,&ctx) && attached_tui==&tui && live_allocations==4);
     assert(!solar_os_tui_addstr(&tui,0,0,"test",SOLAR_OS_TUI_ATTR_BOLD));
+    assert(!solar_os_tui_box(&tui, 2, 1, 3, 4, SOLAR_OS_TUI_ATTR_NORMAL));
     solar_os_tui_refresh(&tui);
     assert(strstr(wire,"test"));
+    assert(strstr(wire, "\xe2\x94\x8c\xe2\x94\x80\xe2\x94\x80\xe2\x94\x90"));
     solar_os_tui_end(&tui);assert(!attached_tui && !live_allocations && io.bold && !io.cursor_visible);
 
     uint8_t buffer[52*52*8];u8g2_t u={0};
@@ -44,12 +46,25 @@ int main(void)
     assert(!solar_os_terminal_status_bar_visible(terminal));
     fail_at=allocations;
     assert(!solar_os_tui_addstr(&tui,0,0,"Local",SOLAR_OS_TUI_ATTR_NORMAL));
+    assert(!solar_os_tui_box(&tui, 1, 1, 3, 8, SOLAR_OS_TUI_ATTR_NORMAL));
+    assert(!solar_os_tui_addstr(&tui, 2, 2, "\xc3\xa5.txt", SOLAR_OS_TUI_ATTR_NORMAL));
     const size_t last_row=solar_os_tui_rows(&tui)-1,last_col=solar_os_tui_cols(&tui)-1;
     assert(!solar_os_tui_putch(&tui,last_row,last_col,'Z',SOLAR_OS_TUI_ATTR_INVERSE));
     assert(!terminal->lines[0][0] && !frames);
     solar_os_tui_refresh(&tui);
     assert(terminal->lines[0][0]=='L' && frames && allocations==before+4 && live_allocations==live_before+4);
     assert(terminal->lines[last_row][last_col]=='Z');
+    assert(terminal->lines[1][1] == 0x250c && terminal->lines[1][8] == 0x2510);
+    assert(terminal->lines[3][1] == 0x2514 && terminal->lines[3][8] == 0x2518);
+    assert(terminal->lines[1][2] == 0x2500 && terminal->lines[2][1] == 0x2502);
+    assert(terminal->lines[2][2] == 0x00e5 && terminal->lines[2][3] == '.');
+
+    solar_os_tui_rect_t popup;
+    assert(!solar_os_tui_text_popup(&tui, NULL, "Copy", "Overwrite?", &popup));
+    solar_os_tui_refresh(&tui);
+    assert(terminal->lines[popup.row][popup.col] == 0x250c);
+    assert(terminal->lines[popup.row][popup.col + 1] == 0x2500);
+    assert(terminal->lines[popup.row + 1][popup.col] == 0x2502);
     solar_os_tui_end(&tui);assert(live_allocations==live_before && !attached_tui);
     solar_os_terminal_deinit(terminal);free(terminal);assert(!live_allocations);
     assert(attaches==2 && detaches==2);

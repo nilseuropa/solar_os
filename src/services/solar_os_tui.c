@@ -673,6 +673,9 @@ static esp_err_t tui_emit_codepoint(solar_os_tui_t *tui, uint32_t codepoint)
     codepoint = tui_output_codepoint(tui, codepoint);
     char bytes[4];
     const size_t len = tui_encode_utf8(codepoint, bytes);
+    if (solar_os_shell_io_kind(tui->io) == SOLAR_OS_SHELL_IO_KIND_TERMINAL) {
+        return solar_os_shell_io_write_len(tui->io, bytes, len);
+    }
     const esp_err_t err = solar_os_shell_io_write_raw(tui->io, bytes, len);
     if (err == ESP_OK) {
         tui_track_cell(tui);
