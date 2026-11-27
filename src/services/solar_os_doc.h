@@ -9,27 +9,8 @@
 #include "solar_os_storage.h"
 #include "solar_os_paged_array.h"
 
-typedef enum {
-    SOLAR_OS_DOC_BLOCK_PARAGRAPH,
-    SOLAR_OS_DOC_BLOCK_HEADING,
-    SOLAR_OS_DOC_BLOCK_LIST_ITEM,
-    SOLAR_OS_DOC_BLOCK_QUOTE,
-    SOLAR_OS_DOC_BLOCK_PRE,
-    SOLAR_OS_DOC_BLOCK_RULE,
-    SOLAR_OS_DOC_BLOCK_TABLE_ROW,
-    SOLAR_OS_DOC_BLOCK_IMAGE,
-    SOLAR_OS_DOC_BLOCK_BLANK,
-} solar_os_doc_block_type_t;
-
-typedef enum {
-    SOLAR_OS_DOC_RUN_PLAIN = 0,
-    SOLAR_OS_DOC_RUN_BOLD = 1U << 0,
-    SOLAR_OS_DOC_RUN_ITALIC = 1U << 1,
-    SOLAR_OS_DOC_RUN_CODE = 1U << 2,
-    SOLAR_OS_DOC_RUN_LINK = 1U << 3,
-    SOLAR_OS_DOC_RUN_UNDERLINE = 1U << 4,
-    SOLAR_OS_DOC_RUN_TABLE_SEPARATOR = 1U << 5, /* Structural pipe, excluded from cell text. */
-} solar_os_doc_run_style_t;
+#include "solar_os_native_document_abi.h"
+#include "solar_os_native_document_layout_abi.h"
 
 typedef esp_err_t (*solar_os_doc_asset_read_cb_t)(void *user,
                                                   const char *document_path,
@@ -51,14 +32,6 @@ typedef struct {
     esp_err_t status;
     bool attempted;
 } solar_os_doc_image_t;
-
-typedef struct {
-    size_t text_offset;
-    size_t text_len;
-    size_t source_start;
-    size_t source_end;
-    uint8_t style;
-} solar_os_doc_run_t;
 
 typedef struct {
     solar_os_doc_block_type_t type;
@@ -87,54 +60,6 @@ typedef struct {
     size_t run_capacity;
     solar_os_doc_asset_provider_t assets;
 } solar_os_doc_t;
-
-typedef struct {
-    int x;
-    int y;
-    int width;
-    int height;
-    int scroll_y;
-    int zoom;
-} solar_os_doc_view_t;
-
-typedef struct {
-    int y;
-    size_t block_index;
-    size_t run_index;
-    size_t text_offset;
-    size_t text_len;
-    size_t source_start;
-    size_t source_end;
-    solar_os_gfx_font_t font;
-    int16_t x;
-    int16_t width;
-    int16_t height;
-    int16_t baseline;
-    int16_t char_w;
-    uint16_t pixel_size;
-    uint8_t style;
-    uint8_t face;
-    bool raw_source;
-    char literal[8];
-} solar_os_doc_layout_run_t;
-
-typedef struct {
-    size_t start;
-    size_t end;
-} solar_os_doc_reveal_range_t;
-
-typedef struct {
-    int y;
-    size_t block_index;
-    size_t run_start;
-    size_t run_count;
-    size_t source_start;
-    size_t source_end;
-    int16_t x;
-    int16_t width;
-    int16_t height;
-    int16_t baseline;
-} solar_os_doc_layout_line_t;
 
 typedef struct {
     /* Borrowed document; keep its text unchanged until the layout is rebuilt. */

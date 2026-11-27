@@ -29,7 +29,9 @@ static esp_err_t discovery_url(const char *domain, char *url, size_t capacity)
 
 bool solar_os_sc2_discover_domain_valid(const char *domain)
 {
-    size_t n = domain != NULL ? strlen(domain) : 0;
+    if (domain == NULL) return false;
+    size_t n = 0;
+    while (n <= SC2_DESC_HOST_MAX && domain[n] != '\0') ++n;
     if (n == 0 || n > SC2_DESC_HOST_MAX || domain[0] == '.' || domain[0] == '-' || domain[n - 1] == '.' ||
         domain[n - 1] == '-' || strchr(domain, '.') == NULL || strstr(domain, "..") != NULL) {
         return false;
@@ -58,7 +60,7 @@ esp_err_t solar_os_sc2_discover(const char *domain, const uint8_t *expect_key, s
         return ESP_ERR_INVALID_ARG;
     }
     if (!solar_os_sc2_discover_domain_valid(domain)) {
-        return fail(err, err_cap, ESP_ERR_INVALID_ARG, "not a domain name: %s", domain);
+        return fail(err, err_cap, ESP_ERR_INVALID_ARG, "not a domain name: %.63s", domain);
     }
 #if !CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
     return fail(err, err_cap, ESP_ERR_NOT_SUPPORTED, "%sthis build has no CA bundle; discovery needs one", NULL);
@@ -133,7 +135,7 @@ esp_err_t solar_os_sc2_discover(const char *domain, const uint8_t *expect_key, s
     solar_os_memory_free(body);
     if (result != ESP_OK) {
         memset(out, 0, sizeof(*out));
-        SOLAR_OS_LOGW(TAG, "%s: %s", domain, err != NULL ? err : "failed");
+        SOLAR_OS_LOGW(TAG, "%s: %s", domain, err != NULL && err_cap != 0 ? err : "failed");
     }
     return result;
 #endif

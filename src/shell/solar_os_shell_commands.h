@@ -7,7 +7,7 @@
 void solar_os_shell_cmd_cc(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 
-#if SOLAR_OS_PACKAGE_SERVICE_GIT
+#if SOLAR_OS_PACKAGE_APP_GIT
 void solar_os_shell_cmd_git(solar_os_context_t *ctx, int argc, char **argv);
 #endif
 

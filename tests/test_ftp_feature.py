@@ -22,7 +22,7 @@ class FtpFeatureTest(unittest.TestCase):
         source += section("static ftp_app_entry_t *ftp_app_selected", "static const char *ftp_app_default_viewer")
         source += section("static void ftp_app_restore_position", "static esp_err_t ftp_app_change_local_dir")
         source += section("static void ftp_app_poll", "static void ftp_app_open_selected")
-        types = section("typedef struct {\n    char name[SOLAR_OS_FTP_NAME_MAX]", "static void *ftp_app_state")
+        types = section("typedef struct {\n    char name[SOLAR_OS_REMOTE_FILE_NAME_MAX]", "#if SOLAR_OS_PACKAGE_APP_FTP")
         harness = (ROOT / "tests/host/ftp_selection_test.inc").read_text()
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
@@ -37,7 +37,7 @@ class FtpFeatureTest(unittest.TestCase):
     def test_paging_and_hidden_items_on_foreground_panes(self):
         def function(start, end):
             return start + FTP_APP.split(start, 1)[1].split(end, 1)[0]
-        source = function("typedef struct {\n    char name[SOLAR_OS_FTP_NAME_MAX]", "typedef enum {")
+        source = function("typedef struct {\n    char name[SOLAR_OS_REMOTE_FILE_NAME_MAX]", "typedef enum {")
         source += function("static int ftp_app_name_compare", "static bool ftp_app_join")
         source += function("static void ftp_app_filter_hidden", "static size_t ftp_app_selection_count")
         source += function("static void ftp_app_page", "static bool ftp_app_event")
@@ -90,7 +90,7 @@ class FtpFeatureTest(unittest.TestCase):
         self.assertIn("ftp_app.connection.field = FTP_APP_CONNECT_PASSWORD", poll)
 
     def test_connection_failures_keep_human_readable_socket_diagnostics(self):
-        self.assertIn("char *error;", (ROOT / "src/services/solar_os_ftp.h").read_text())
+        self.assertIn("char *error;", (ROOT / "src/services/solar_os_remote_files.h").read_text())
         self.assertIn("connect_error == ECONNREFUSED", SERVICE)
         self.assertIn('const char *message = "server unavailable"', SERVICE)
         self.assertIn('message = "connection refused"', SERVICE)

@@ -13,10 +13,14 @@ class AudioPlayerTest(unittest.TestCase):
             source.write_text((ROOT / 'src/services/solar_os_audio_player.c').read_text())
             binary = Path(directory, 'player')
             subprocess.run(['cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror',
-                '-pthread', '-fsanitize=address,undefined', '-fno-omit-frame-pointer',
+                '-pthread', '-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie',
+                '-DSOLAR_OS_PACKAGE_SERVICE_AUDIO=1',
                 '-include', str(ROOT / 'tests/host/compat.h'),
                 '-I' + str(ROOT / 'tests/host/audio_player_stubs'),
                 '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src'),
                 '-I' + str(ROOT / 'src/services'),
-                str(source), str(ROOT / 'tests/host/audio_player_test.c'), '-o', str(binary)], check=True)
+                '-I' + str(ROOT / 'include'),
+                str(source), str(ROOT / 'tests/host/audio_player_test.c'),
+                str(ROOT / 'src/services/solar_os_native_audio_player.c'),
+                str(ROOT / 'src/services/solar_os_native_handles.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True, timeout=20)

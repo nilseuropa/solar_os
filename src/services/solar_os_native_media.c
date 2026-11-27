@@ -1,5 +1,13 @@
 #include "solar_os_native_media.h"
 #include "solar_os_native_data.h"
+#include "solar_os_native_emotion.h"
+#include "solar_os_native_jet.h"
+#include "solar_os_native_media_protocol.h"
+#include "solar_os_native_mjpeg.h"
+#include "solar_os_native_mpeg.h"
+#include "solar_os_native_rtsp_auth.h"
+#include "solar_os_native_rtsp_client.h"
+#include "solar_os_native_speech.h"
 #include <string.h>
 #include "esp_err.h"
 #include "solar_os_config.h"
@@ -9,8 +17,32 @@
 #include "solar_os_native_inference_abi.h"
 #include "solar_os_memory.h"
 
+static void *native_memory_alloc_class(size_t bytes, uint32_t memory_class, const char *tag)
+{
+    if (memory_class >= SOLAR_OS_MEMORY_CLASS_COUNT) return NULL;
+    return solar_os_memory_alloc(bytes, memory_class, tag);
+}
+
+static void *native_memory_calloc_class(size_t count, size_t bytes, uint32_t memory_class,
+                                        const char *tag)
+{
+    if (memory_class >= SOLAR_OS_MEMORY_CLASS_COUNT) return NULL;
+    return solar_os_memory_calloc(count, bytes, memory_class, tag);
+}
+
+static void *native_memory_realloc_class(void *buffer, size_t bytes, uint32_t memory_class,
+                                         const char *tag)
+{
+    if (!bytes) {
+        solar_os_memory_free(buffer);
+        return NULL;
+    }
+    if (memory_class >= SOLAR_OS_MEMORY_CLASS_COUNT) return NULL;
+    return solar_os_memory_realloc(buffer, bytes, memory_class, tag);
+}
+
 static void *native_memory_alloc(size_t bytes)
-{ return bytes ? solar_os_memory_alloc(bytes, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "native.buffer") : NULL; }
+{ return bytes ? native_memory_alloc_class(bytes, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "native.buffer") : NULL; }
 static void *native_memory_alloc_internal(size_t bytes)
 {
     if (!bytes) return NULL;
@@ -32,8 +64,10 @@ static size_t native_memory_largest_free_bytes(bool external)
     solar_os_memory_get_status(&status);
     return external ? status.external.largest_free : status.internal.largest_free;
 }
+static solar_os_native_memory_buffer_t *native_buffer_create_tagged(size_t bytes, const char *owner)
+{ return (solar_os_native_memory_buffer_t *)solar_os_memory_buffer_create(bytes, owner); }
 static solar_os_native_memory_buffer_t *native_buffer_create(size_t bytes)
-{ return (solar_os_native_memory_buffer_t *)solar_os_memory_buffer_create(bytes, "native.movable"); }
+{ return native_buffer_create_tagged(bytes, "native.movable"); }
 static void *native_buffer_pin(solar_os_native_memory_buffer_t *buffer)
 { return solar_os_memory_buffer_pin((solar_os_memory_buffer_t *)buffer); }
 static bool native_buffer_unpin(solar_os_native_memory_buffer_t *buffer)
@@ -47,6 +81,8 @@ static const solar_os_native_memory_api_v1_t memory_api = {
     .largest_free_bytes = native_memory_largest_free_bytes,
     .buffer_create = native_buffer_create, .buffer_pin = native_buffer_pin,
     .buffer_unpin = native_buffer_unpin, .buffer_destroy = native_buffer_destroy,
+    .alloc_class = native_memory_alloc_class, .calloc_class = native_memory_calloc_class,
+    .realloc_class = native_memory_realloc_class, .buffer_create_tagged = native_buffer_create_tagged,
 };
 
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE || SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA || \
@@ -162,11 +198,18 @@ static int native_image_pixels(const solar_os_raster_image_t *image, solar_os_ra
 static int native_image_convert(const solar_os_raster_image_t *image,
     const solar_os_raster_image_convert_options_t *options, uint8_t *data, size_t length, size_t stride)
 { return native_result(solar_os_raster_image_convert(image, options, data, length, stride)); }
+static int native_image_draw(const solar_os_raster_image_t *image, solar_os_gfx_t *gfx,
+    int32_t x, int32_t y, uint32_t width, uint32_t height)
+{ return native_result(solar_os_raster_image_draw(image, gfx, x, y, width, height)); }
+static int native_image_present(solar_os_raster_image_t *image, solar_os_gfx_t *gfx,
+    int32_t x, int32_t y, uint32_t width, uint32_t height)
+{ return native_result(solar_os_raster_image_present(image, gfx, x, y, width, height)); }
 static const solar_os_native_image_api_v1_t image_api = {
     .abi_version = SOLAR_OS_NATIVE_IMAGE_ABI, .struct_size = sizeof(image_api),
     .open = native_image_open, .decode = native_image_decode,
     .from_pixels = native_image_from_pixels, .retain = solar_os_raster_image_retain,
     .release = solar_os_raster_image_release, .pixels = native_image_pixels, .convert = native_image_convert,
+    .draw = native_image_draw, .present = native_image_present,
 };
 #endif
 
@@ -193,6 +236,8 @@ static int native_imlib_run(solar_os_raster_image_t *image, solar_os_raster_imag
 static const solar_os_native_imlib_api_v1_t imlib_api = {
     .abi_version = SOLAR_OS_NATIVE_IMLIB_ABI, .struct_size = sizeof(imlib_api),
     .defaults = native_imlib_defaults, .run = native_imlib_run, .result_free = solar_os_imlib_result_free,
+    .operation_name = solar_os_imlib_operation_name, .is_transform = solar_os_imlib_is_transform,
+    .option_allowed = solar_os_imlib_option_allowed,
 };
 #endif
 
@@ -230,7 +275,7 @@ static int native_media_open(solar_os_native_media_t *session, const char *id,
      * microphone, or GPIO stream using video-union options. */
     int error = native_video_source(id);
     if (error) return error;
-    return native_result(solar_os_script_media_open(session, id, &o, source));
+    return native_result(solar_os_script_media_open_typed(session, id, SOLAR_OS_STREAM_TYPE_VIDEO, &o, source));
 }
 static int native_media_close(solar_os_native_media_t *session, uint32_t source)
 { return native_result(solar_os_script_media_close(session, source)); }
@@ -259,15 +304,37 @@ static int native_media_snapshot(solar_os_native_media_t *session, const char *i
     int error = native_video_source(id);
     return error ? error : native_result(solar_os_script_media_snapshot(session, id, width, height, quality, frame));
 }
-static int native_media_rtsp_open(solar_os_native_media_t *session, const char *url, uint32_t *source)
+static int native_media_reset(solar_os_native_media_t *session)
+{
+    return native_result(solar_os_script_media_close_all(session));
+}
+
+static int native_media_save_frame(solar_os_native_media_t *session, uint32_t frame,
+                                   const char *path, int *file_errno)
+{
+    return native_result(solar_os_script_media_save(session, frame, path, file_errno));
+}
+
+static int native_media_rtsp_open_tracks(solar_os_native_media_t *session,
+    const char *url, bool video, bool audio, uint32_t *source)
 {
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
-    return native_result(solar_os_script_media_rtsp_open(session, url, true, false, source));
+    if (!source) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *source = 0;
+    if (!video && !audio) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    return native_result(solar_os_script_media_rtsp_open(session, url, video, audio, source));
 #else
-    (void)session; (void)url; if (source) *source = 0;
+    (void)session; (void)url; (void)video; (void)audio;
+    if (source) *source = 0;
     return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
 #endif
 }
+
+static int native_media_rtsp_open(solar_os_native_media_t *session, const char *url, uint32_t *source)
+{
+    return native_media_rtsp_open_tracks(session, url, true, false, source);
+}
+
 static int native_media_rtsp_read(solar_os_native_media_t *session, uint32_t source,
     uint32_t timeout_ms, uint32_t *frame)
 {
@@ -278,16 +345,62 @@ static int native_media_rtsp_read(solar_os_native_media_t *session, uint32_t sou
     return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
 #endif
 }
-static int native_media_rtsp_ended(solar_os_native_media_t *session, uint32_t source, bool *ended)
+static int native_media_rtsp_status(solar_os_native_media_t *session, uint32_t source,
+                                    solar_os_rtsp_client_status_t *status, bool *ended)
 {
+    if (status) *status = (solar_os_rtsp_client_status_t){0};
+    if (ended) *ended = true;
 #if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
-    solar_os_rtsp_client_status_t status;
-    return native_result(solar_os_script_media_rtsp_status(session, source, &status, ended));
+    const esp_err_t error = solar_os_script_media_rtsp_status(session, source, status, ended);
+    if (error == ESP_OK) status->error = native_result(status->error);
+    return native_result(error);
 #else
-    (void)session; (void)source; if (ended) *ended = true;
+    (void)session; (void)source;
     return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
 #endif
 }
+
+static int native_media_rtsp_ended(solar_os_native_media_t *session, uint32_t source, bool *ended)
+{
+    solar_os_rtsp_client_status_t status;
+    return native_media_rtsp_status(session, source, &status, ended);
+}
+
+static int native_media_rtsp_lateness(solar_os_native_media_t *session, uint32_t source,
+                                      uint32_t frame, int64_t *lateness_us)
+{
+    if (lateness_us) *lateness_us = 0;
+#if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
+    return native_result(solar_os_script_media_rtsp_lateness(session, source, frame, lateness_us));
+#else
+    (void)session; (void)source; (void)frame;
+    return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static int native_media_rtsp_normalize_url(const char *address, char *url, size_t capacity)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
+    return native_result(solar_os_rtsp_url_normalize(address, url, capacity));
+#else
+    (void)address;
+    if (url && capacity) *url = 0;
+    return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static int native_media_rtsp_redact_url(const char *url, char *label, size_t capacity)
+{
+#if SOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT
+    if (!label || !capacity) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    return native_result(solar_os_rtsp_url_redact(url, label, capacity));
+#else
+    (void)url;
+    if (label && capacity) *label = 0;
+    return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+#endif
+}
+
 static const solar_os_native_media_api_v1_t media_api = {
     .abi_version = SOLAR_OS_NATIVE_MEDIA_ABI, .struct_size = sizeof(media_api),
     .capabilities = SOLAR_OS_NATIVE_MEDIA_LOCAL
@@ -298,6 +411,13 @@ static const solar_os_native_media_api_v1_t media_api = {
     .open = native_media_open, .close = native_media_close, .acquire = native_media_acquire,
     .frame = native_media_frame, .release_frame = native_media_release, .snapshot = native_media_snapshot,
     .rtsp_open = native_media_rtsp_open, .rtsp_read = native_media_rtsp_read, .rtsp_ended = native_media_rtsp_ended,
+    .reset = native_media_reset,
+    .save_frame = native_media_save_frame,
+    .rtsp_open_tracks = native_media_rtsp_open_tracks,
+    .rtsp_status = native_media_rtsp_status,
+    .rtsp_lateness = native_media_rtsp_lateness,
+    .rtsp_normalize_url = native_media_rtsp_normalize_url,
+    .rtsp_redact_url = native_media_rtsp_redact_url,
 };
 #endif
 
@@ -344,6 +464,10 @@ static int native_tensor_prepare(const solar_os_raster_image_pixels_t *source,
     uint8_t *data, size_t length, solar_os_tensor_image_transform_t *transform,
     solar_os_native_cancel_fn cancel, void *user)
 { return native_result(solar_os_tensor_image_prepare(source, port, options, data, length, transform, cancel, user)); }
+static int native_mode_parse(const char *name, solar_os_inference_mode_t *mode)
+{ return native_result(solar_os_inference_mode_parse(name, mode)); }
+static int native_dtype_parse(const char *name, solar_os_tensor_dtype_t *dtype)
+{ return native_result(solar_os_tensor_dtype_parse(name, dtype)); }
 static const solar_os_native_inference_api_v1_t inference_api = {
     .abi_version = SOLAR_OS_NATIVE_INFERENCE_ABI, .struct_size = sizeof(inference_api),
     .create = native_inference_create, .destroy = solar_os_inference_destroy,
@@ -354,43 +478,375 @@ static const solar_os_native_inference_api_v1_t inference_api = {
     .unload = native_inference_unload, .unload_all = native_inference_unload_all,
     .retain = native_inference_retain, .release = native_inference_release,
     .result_free = solar_os_inference_result_free,
+    .mode_name = solar_os_inference_mode_name, .mode_parse = native_mode_parse,
+    .dtype_name = solar_os_tensor_dtype_name, .dtype_parse = native_dtype_parse,
+    .dtype_bytes = solar_os_tensor_dtype_bytes,
 };
+static int native_tensor_option(solar_os_tensor_image_options_t *options,
+                                 const char *key, const char *value)
+{
+    return native_result(solar_os_tensor_image_option(options, key, value));
+}
+
 static const solar_os_native_tensor_image_api_v1_t tensor_image_api = {
     .abi_version = SOLAR_OS_NATIVE_TENSOR_IMAGE_ABI, .struct_size = sizeof(tensor_image_api),
     .defaults = solar_os_tensor_image_defaults, .inspect = native_tensor_inspect, .prepare = native_tensor_prepare,
+    .option = native_tensor_option,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE
+#include "solar_os.h"
+#include "solar_os_media_sample.h"
+#include "solar_os_media_sample_source.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_support.h"
+
+static int media_sample_destroy(void *state)
+{
+    solar_os_media_sample_release(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int media_sample_handle(solar_os_media_sample_t *sample, solar_os_native_handle_t *out)
+{
+    const solar_os_app_t *owner = solar_os_application_descriptor();
+    const uint32_t kind = SOLAR_OS_NATIVE_HANDLE_MEDIA_SAMPLE;
+    const int result = owner ? solar_os_native_handle_create_owned(kind, sample, media_sample_destroy, owner, out) :
+        solar_os_native_handle_create(kind, sample, media_sample_destroy, out);
+    if (result) solar_os_media_sample_release(sample);
+    return result;
+}
+
+static int media_sample_copy(uint32_t kind, const void *data, size_t length,
+    const solar_os_media_sample_metadata_t *metadata, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    solar_os_media_sample_t *sample = NULL;
+    esp_err_t error;
+    switch (kind) {
+    case SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE: error = solar_os_media_sample_copy_image(data, length, metadata, &sample); break;
+    case SOLAR_OS_NATIVE_MEDIA_SAMPLE_AUDIO: error = solar_os_media_sample_copy_audio(data, length, metadata, &sample); break;
+    default: return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    return error ? solar_os_native_result(error) : media_sample_handle(sample, out);
+}
+
+static int media_sample_open(uint32_t kind, const char *resolved_path, size_t max_bytes,
+    solar_os_media_sample_cancel_fn cancel, void *user, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    solar_os_media_sample_t *sample = NULL;
+    esp_err_t error;
+    switch (kind) {
+    case SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE:
+        error = solar_os_media_sample_open_image_cancellable(resolved_path, max_bytes, cancel, user, &sample);
+        break;
+    case SOLAR_OS_NATIVE_MEDIA_SAMPLE_AUDIO:
+        error = solar_os_media_sample_open_audio_bounded(resolved_path, max_bytes, cancel, user, &sample);
+        break;
+    default: return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    }
+    return error ? solar_os_native_result(error) : media_sample_handle(sample, out);
+}
+
+static int media_sample_read_source(const char *source, const solar_os_media_sample_source_options_t *options,
+    solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+#if SOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE_SOURCE
+    solar_os_media_sample_t *sample = NULL;
+    const esp_err_t error = solar_os_media_sample_source_read(source, options, &sample);
+    return error ? solar_os_native_result(error) : media_sample_handle(sample, out);
+#else
+    (void)source; (void)options;
+    return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+#endif
+}
+
+static int media_sample_visit(solar_os_native_handle_t id, solar_os_native_media_sample_visit_fn visit, void *user)
+{
+    if (!visit) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    const solar_os_media_sample_t *sample = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_MEDIA_SAMPLE);
+    if (!sample) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    const solar_os_media_sample_image_t *image = solar_os_media_sample_image(sample);
+    const solar_os_media_sample_audio_t *audio = solar_os_media_sample_audio(sample);
+    const solar_os_native_media_sample_view_v1_t view = image ? (solar_os_native_media_sample_view_v1_t){
+        .kind = SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE, .data = image->data, .length = image->length,
+        .encoding = image->mime_type, .metadata = image->metadata,
+    } : (solar_os_native_media_sample_view_v1_t){
+        .kind = SOLAR_OS_NATIVE_MEDIA_SAMPLE_AUDIO, .data = audio->data, .length = audio->length,
+        .encoding = audio->format, .metadata = audio->metadata,
+    };
+    const int result = visit(&view, user);
+    solar_os_native_handle_release(id);
+    return result;
+}
+
+static int media_sample_retain(solar_os_native_handle_t id, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    solar_os_media_sample_t *sample = solar_os_native_handle_acquire(id, SOLAR_OS_NATIVE_HANDLE_MEDIA_SAMPLE);
+    if (!sample) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    solar_os_media_sample_retain(sample);
+    solar_os_native_handle_release(id);
+    return media_sample_handle(sample, out);
+}
+
+static int media_sample_close(solar_os_native_handle_t id)
+{
+    return solar_os_native_handle_close_kind(id, SOLAR_OS_NATIVE_HANDLE_MEDIA_SAMPLE);
+}
+
+static const solar_os_native_media_sample_api_v1_t media_sample_api = {
+    .abi_version = SOLAR_OS_NATIVE_MEDIA_SAMPLE_ABI, .struct_size = sizeof(media_sample_api),
+    .copy = media_sample_copy, .open = media_sample_open, .read_source = media_sample_read_source,
+    .visit = media_sample_visit, .retain = media_sample_retain, .close = media_sample_close,
+};
+#endif
+
+#if SOLAR_OS_PACKAGE_SERVICE_PIPELINE
+#include "freertos/FreeRTOS.h"
+#include "solar_os_pipeline.h"
+#include "solar_os_processor.h"
+
+#define PROCESSOR_HANDLE_KIND SOLAR_OS_NATIVE_HANDLE_PROCESSOR
+_Static_assert(SOLAR_OS_NATIVE_PROCESSOR_UPLOAD_REPLACE == SOLAR_OS_PROCESSOR_UPLOAD_REPLACE, "processor upload flag");
+
+enum {
+    PROCESSOR_IDLE,
+    PROCESSOR_ACTIVE,
+    PROCESSOR_CANCELLING,
+    PROCESSOR_CLOSING,
+};
+
+typedef struct {
+    solar_os_processor_t *processor;
+    unsigned activity;
+} native_processor_t;
+
+static portMUX_TYPE processor_lock = portMUX_INITIALIZER_UNLOCKED;
+
+static bool processor_cancelled(void *opaque)
+{
+    const native_processor_t *state = opaque;
+    portENTER_CRITICAL(&processor_lock);
+    const bool cancelled = state->activity == PROCESSOR_CANCELLING;
+    portEXIT_CRITICAL(&processor_lock);
+    return cancelled;
+}
+
+static int processor_destroy(void *opaque)
+{
+    native_processor_t *state = opaque;
+    portENTER_CRITICAL(&processor_lock);
+    state->activity = PROCESSOR_CLOSING;
+    portEXIT_CRITICAL(&processor_lock);
+    const esp_err_t error = solar_os_processor_close_checked(state->processor);
+    if (error) return error == ESP_ERR_INVALID_STATE ? SOLAR_OS_NATIVE_ERROR_BUSY : solar_os_native_result(error);
+    solar_os_memory_free(state);
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int processor_create(const char *kind, uint32_t model, uint32_t timeout, solar_os_native_handle_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    native_processor_t *state = solar_os_memory_calloc(1, sizeof(*state),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "processor.native");
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    const esp_err_t error = solar_os_processor_create(kind, model, timeout, processor_cancelled, state, &state->processor);
+    if (error) {
+        solar_os_memory_free(state);
+        return solar_os_native_result(error);
+    }
+    const solar_os_app_t *owner = solar_os_application_descriptor();
+    const int result = owner ? solar_os_native_handle_create_owned(PROCESSOR_HANDLE_KIND, state,
+        processor_destroy, owner, out) : solar_os_native_handle_create(PROCESSOR_HANDLE_KIND, state, processor_destroy, out);
+    if (result) {
+        solar_os_processor_destroy(state->processor);
+        solar_os_memory_free(state);
+    }
+    return result;
+}
+
+static int processor_begin(solar_os_native_handle_t id, native_processor_t **out)
+{
+    *out = NULL;
+    native_processor_t *state = solar_os_native_handle_acquire(id, PROCESSOR_HANDLE_KIND);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    portENTER_CRITICAL(&processor_lock);
+    const unsigned activity = state->activity;
+    if (activity == PROCESSOR_IDLE) state->activity = PROCESSOR_ACTIVE;
+    portEXIT_CRITICAL(&processor_lock);
+    if (activity != PROCESSOR_IDLE) {
+        solar_os_native_handle_release(id);
+        return activity == PROCESSOR_CLOSING ? SOLAR_OS_NATIVE_ERROR_INVALID_STATE : SOLAR_OS_NATIVE_ERROR_BUSY;
+    }
+    *out = state;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void processor_end(solar_os_native_handle_t id, native_processor_t *state)
+{
+    portENTER_CRITICAL(&processor_lock);
+    state->activity = PROCESSOR_IDLE;
+    portEXIT_CRITICAL(&processor_lock);
+    solar_os_native_handle_release(id);
+}
+
+static bool processor_captures(solar_os_native_handle_t id)
+{
+    native_processor_t *state = solar_os_native_handle_acquire(id, PROCESSOR_HANDLE_KIND);
+    if (!state) return false;
+    const bool result = solar_os_processor_captures(state->processor);
+    solar_os_native_handle_release(id);
+    return result;
+}
+
+static int processor_bind(solar_os_native_handle_t id, const char *source)
+{
+    native_processor_t *state;
+    const int result = processor_begin(id, &state);
+    if (result) return result;
+    const esp_err_t error = solar_os_processor_bind_source(state->processor, source);
+    processor_end(id, state);
+    return solar_os_native_result(error);
+}
+
+static int processor_capture(solar_os_native_handle_t id, const char *source, uint64_t sequence,
+    solar_os_native_handle_t *out, char **json)
+{
+    if (!out || !json) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = 0;
+    *json = NULL;
+    native_processor_t *state;
+    int result = processor_begin(id, &state);
+    if (result) return result;
+    solar_os_media_sample_t *sample;
+    const esp_err_t error = solar_os_processor_capture(state->processor, source, sequence, &sample, json);
+    if (error) result = solar_os_native_result(error);
+    else {
+        result = media_sample_handle(sample, out);
+        if (result) {
+            solar_os_memory_free(*json);
+            *json = NULL;
+        }
+    }
+    processor_end(id, state);
+    return result;
+}
+
+static int processor_run_image(solar_os_native_handle_t id, solar_os_raster_image_t *image, char **json)
+{
+    if (!json) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *json = NULL;
+    native_processor_t *state;
+    const int result = processor_begin(id, &state);
+    if (result) return result;
+    const esp_err_t error = solar_os_processor_run(state->processor, image, json);
+    processor_end(id, state);
+    return solar_os_native_result(error);
+}
+
+static int processor_run_sample(solar_os_native_handle_t id, solar_os_native_handle_t sample,
+    char **json, uint64_t *decode_us)
+{
+    if (!json || !decode_us) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *json = NULL;
+    *decode_us = 0;
+    native_processor_t *state;
+    const int result = processor_begin(id, &state);
+    if (result) return result;
+    const solar_os_media_sample_t *image = solar_os_native_handle_acquire(sample, SOLAR_OS_NATIVE_HANDLE_MEDIA_SAMPLE);
+    const esp_err_t error = image ? solar_os_processor_run_sample(state->processor, image, json, decode_us) : ESP_ERR_NOT_FOUND;
+    if (image) solar_os_native_handle_release(sample);
+    processor_end(id, state);
+    return solar_os_native_result(error);
+}
+
+static int processor_cancel(solar_os_native_handle_t id)
+{
+    native_processor_t *state = solar_os_native_handle_acquire(id, PROCESSOR_HANDLE_KIND);
+    if (!state) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    portENTER_CRITICAL(&processor_lock);
+    const bool requested = state->activity == PROCESSOR_ACTIVE || state->activity == PROCESSOR_CANCELLING;
+    if (requested) state->activity = PROCESSOR_CANCELLING;
+    portEXIT_CRITICAL(&processor_lock);
+    solar_os_native_handle_release(id);
+    return requested ? SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+}
+
+static int processor_close(solar_os_native_handle_t id)
+{ return solar_os_native_handle_close_kind(id, PROCESSOR_HANDLE_KIND); }
+
+static int processor_query(const char *kind, const char *source, const char *query, char **json)
+{ return solar_os_native_result(solar_os_processor_query(kind, source, query, json)); }
+static int processor_select(const char *kind, const char *source, uint32_t slot,
+    solar_os_native_cancel_fn cancel, void *user, char **json)
+{ return solar_os_native_result(solar_os_processor_select(kind, source, slot, cancel, user, json)); }
+static int processor_upload(const char *kind, const char *source, const char *bundle, uint32_t slot,
+    uint32_t flags, solar_os_native_cancel_fn cancel, solar_os_native_processor_progress_fn progress, void *user, char **json)
+{ return solar_os_native_result(solar_os_processor_upload(kind, source, bundle, slot, flags, cancel, progress, user, json)); }
+
+static const solar_os_native_processor_api_v1_t processor_api = {
+    .abi_version = SOLAR_OS_NATIVE_PROCESSOR_ABI, .struct_size = sizeof(processor_api),
+    .kind_valid = solar_os_processor_kind_valid, .query = processor_query, .select = processor_select, .upload = processor_upload,
+    .create = processor_create, .captures = processor_captures, .bind_source = processor_bind, .capture = processor_capture,
+    .run_image = processor_run_image, .run_sample = processor_run_sample, .cancel = processor_cancel, .close = processor_close,
+};
+
+static int pipeline_start(const solar_os_pipeline_config_t *config, uint32_t *id)
+{ return solar_os_native_result(solar_os_pipeline_start(config, id)); }
+
+static int pipeline_list(uint32_t *ids, size_t capacity, size_t *count)
+{ return solar_os_native_result(solar_os_pipeline_list(ids, capacity, count)); }
+
+static int pipeline_status(uint32_t id, solar_os_pipeline_status_t *out)
+{
+    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    *out = (solar_os_pipeline_status_t){0};
+    const esp_err_t error = solar_os_pipeline_status(id, out);
+    if (!error) out->last_error = solar_os_native_result(out->last_error);
+    return solar_os_native_result(error);
+}
+
+static int pipeline_result(uint32_t id, uint64_t after, char **json, solar_os_native_handle_t *out)
+{
+    if (out) *out = 0;
+    solar_os_media_sample_t *sample = NULL;
+    const esp_err_t error = solar_os_pipeline_result_sample(id, after, json, out ? &sample : NULL);
+    if (error || !sample) return solar_os_native_result(error);
+    const int result = media_sample_handle(sample, out);
+    if (result && json) {
+        solar_os_memory_free(*json);
+        *json = NULL;
+    }
+    return result;
+}
+
+static int pipeline_stop(uint32_t id)
+{ return solar_os_native_result(solar_os_pipeline_stop(id)); }
+
+static int pipeline_destroy(uint32_t id)
+{ return solar_os_native_result(solar_os_pipeline_destroy(id)); }
+
+static const solar_os_native_pipeline_api_v1_t pipeline_api = {
+    .abi_version = SOLAR_OS_NATIVE_PIPELINE_ABI, .struct_size = sizeof(pipeline_api),
+    .start = pipeline_start, .list = pipeline_list, .status = pipeline_status, .result = pipeline_result,
+    .stop = pipeline_stop, .destroy = pipeline_destroy,
 };
 #endif
 
 const void *solar_os_native_media_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
     if (!name) return NULL;
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
-    const void *data = solar_os_native_data_get_service(name, abi, minimum);
-    if (data) return data;
-#endif
-#define OFFER(table, service, version) \
-    if (!strcmp(name, service) && abi == version && minimum <= sizeof(table)) return &table
-    OFFER(memory_api, SOLAR_OS_NATIVE_MEMORY_SERVICE, SOLAR_OS_NATIVE_MEMORY_ABI);
-#if SOLAR_OS_PACKAGE_DRIVER_HIMAX_HX6538
-    OFFER(sscma_api, SOLAR_OS_NATIVE_SSCMA_SERVICE, SOLAR_OS_NATIVE_SSCMA_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
-    OFFER(image_api, SOLAR_OS_NATIVE_IMAGE_SERVICE, SOLAR_OS_NATIVE_IMAGE_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_SCRIPT_MEDIA
-    OFFER(media_api, SOLAR_OS_NATIVE_MEDIA_SERVICE, SOLAR_OS_NATIVE_MEDIA_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_VISION
-    OFFER(qr_api, SOLAR_OS_NATIVE_QR_SERVICE, SOLAR_OS_NATIVE_QR_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_IMLIB
-    OFFER(imlib_api, SOLAR_OS_NATIVE_IMLIB_SERVICE, SOLAR_OS_NATIVE_IMLIB_ABI);
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
-    OFFER(inference_api, SOLAR_OS_NATIVE_INFERENCE_SERVICE, SOLAR_OS_NATIVE_INFERENCE_ABI);
-    OFFER(tensor_image_api, SOLAR_OS_NATIVE_TENSOR_IMAGE_SERVICE, SOLAR_OS_NATIVE_TENSOR_IMAGE_ABI);
-#endif
-#undef OFFER
+#include "generated/native_media_providers.inc"
+#include "generated/native_media_dispatch.inc"
     (void)abi; (void)minimum;
     return NULL;
 }

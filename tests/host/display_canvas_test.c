@@ -1,37 +1,4 @@
-#include <assert.h>
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
-#include "../../src/services/solar_os_gfx.c"
-#include "solar_os_display_canvas_draw.h"
-
-static unsigned allocations;
-static solar_os_display_raster_t presented;
-const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
-{ (void)font; (void)codepoint; return NULL; }
-size_t solar_os_font_pack_count(void) { return 0; }
-esp_err_t solar_os_display_present_frame(u8g2_t *u, const solar_os_display_raster_t *frame)
-{ (void)u; presented = *frame; return ESP_OK; }
-void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
-{ (void)kind; (void)tag; allocations++; return calloc(count, size); }
-void solar_os_memory_free(void *p) { free(p); }
-esp_err_t solar_os_display_get_colors(uint32_t *foreground, uint32_t *background)
-{ *foreground=0; *background=0xffffff; return ESP_OK; }
-esp_err_t solar_os_log_write(solar_os_log_level_t level, const char *tag, const char *format, ...)
-{ (void)level; (void)tag; (void)format; return ESP_OK; }
-
-static u8x8_display_info_t info = {
-    .tile_width=52, .tile_height=52, .pixel_width=412, .pixel_height=412,
-};
-static uint8_t display(u8x8_t *u, uint8_t msg, uint8_t arg, void *data)
-{
-    (void)arg; (void)data;
-    if (msg == U8X8_MSG_DISPLAY_SETUP_MEMORY) u8x8_d_helper_display_setup_memory(u, &info);
-    return 1;
-}
-
-static bool mono_pixel(u8g2_t *u, unsigned x, unsigned y)
-{ return (u->tile_buf_ptr[(y/8)*416+x] & (1U << (y&7))) != 0; }
+#include "display_canvas_fixture.h"
 
 static void geometry(void)
 {
@@ -71,6 +38,28 @@ static void geometry(void)
     assert(g.canvas.x+g.canvas.width<=g.panel.width && g.canvas.y+g.canvas.height<=g.panel.height);
 }
 
+static void packed_icons(solar_os_gfx_t *gfx)
+{
+    const uint8_t *original[] = {u8g2_font_open_iconic_all_4x_t,
+        u8g2_font_open_iconic_all_6x_t, u8g2_font_open_iconic_all_8x_t};
+    uint8_t expected[52 * 52 * 8];
+    u8g2_t *u = gfx->u8g2;
+    unsigned allocations_before = allocations;
+    for (unsigned face = 0; face < sizeof(original) / sizeof(original[0]); ++face) {
+        unsigned size = 32 + 16 * face;
+        for (unsigned icon = 0; icon < SOLAR_OS_GFX_ICON_COUNT; ++icon) {
+            u8g2_ClearBuffer(u);
+            gfx_draw_icon(gfx, -10, 3, size, original[face], GFX_OPEN_ICONIC_FIRST_ENCODING + icon);
+            memcpy(expected, u->tile_buf_ptr, sizeof(expected));
+            u8g2_ClearBuffer(u);
+            solar_os_gfx_icon(gfx, -10, 3, icon, size);
+            assert(!memcmp(expected, u->tile_buf_ptr, sizeof(expected)));
+            assert(u->font == gfx_font_data(gfx->font));
+        }
+    }
+    assert(allocations == allocations_before);
+}
+
 static void pixels(void)
 {
     uint8_t storage[16+52*52*8+16]; memset(storage,0xa5,sizeof(storage));
@@ -82,6 +71,14 @@ static void pixels(void)
     solar_os_display_geometry_init(&g,412,412,true); u8g2_SetUserPtr(&u,&g);
     solar_os_gfx_t gfx; solar_os_gfx_init(&gfx,&u);
     solar_os_gfx_set_black_is_one(&gfx,true);
+    const solar_os_gfx_point_t large_triangle[] = {
+        {INT16_MIN, INT16_MIN}, {INT16_MAX, INT16_MAX}, {INT16_MIN, INT16_MAX},
+    };
+    solar_os_gfx_clear(&gfx, SOLAR_OS_GFX_COLOR_WHITE);
+    solar_os_gfx_set_color(&gfx, SOLAR_OS_GFX_COLOR_BLACK);
+    solar_os_gfx_fill_polygon(&gfx, large_triangle, 3);
+    for (unsigned y = 0; y < 412; ++y)
+        for (unsigned x = 0; x < 412; ++x) assert(mono_pixel(&u, x, y) == (x <= y));
     assert(solar_os_gfx_width(&gfx)==291 && solar_os_gfx_height(&gfx)==291);
     solar_os_display_rect_t panel=solar_os_gfx_panel_bounds(&gfx);
     assert(panel.x==-60 && panel.y==-60 && panel.width==412 && panel.height==412);
@@ -94,6 +91,7 @@ static void pixels(void)
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,351,351)==ESP_OK && presented.x==411 && presented.y==411);
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,-61,0)==ESP_ERR_INVALID_ARG);
     assert(solar_os_gfx_present_frame_at(&gfx,&frame,INT_MAX,INT_MIN)==ESP_ERR_INVALID_ARG);
+    packed_icons(&gfx);
     for(unsigned indexed=0;indexed<2;indexed++) {
         if(indexed) assert(solar_os_gfx_enable_index8(&gfx)==ESP_OK);
         solar_os_gfx_clear(&gfx,SOLAR_OS_GFX_COLOR_WHITE);

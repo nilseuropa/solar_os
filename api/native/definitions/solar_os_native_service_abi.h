@@ -1,0 +1,67 @@
+#pragma once
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+/* Stable results for the image/media/vision/inference service tables. */
+typedef enum {
+    SOLAR_OS_NATIVE_OK = 0,
+    SOLAR_OS_NATIVE_ERROR_FAILED = -1,
+    SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT = -2,
+    SOLAR_OS_NATIVE_ERROR_INVALID_STATE = -3, /* Includes admission contention. */
+    SOLAR_OS_NATIVE_ERROR_NO_MEMORY = -4,
+    SOLAR_OS_NATIVE_ERROR_NOT_FOUND = -5,
+    SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED = -6,
+    SOLAR_OS_NATIVE_ERROR_TIMEOUT = -7, /* Includes cooperative cancellation. */
+    SOLAR_OS_NATIVE_ERROR_INVALID_SIZE = -10,
+} solar_os_native_service_result_v1_t;
+
+/* Called synchronously on the calling task, never after the call returns.
+ * Media/inference clients retain this callback until destroyed: keep its code
+ * and user data alive. Close clients before unloading their module. */
+typedef bool (*solar_os_native_cancel_fn)(void *user);
+
+/* Host-owned tokens. Zero is invalid; a closed token never aliases a currently
+ * live object, including objects of another service. Serialize mutable state
+ * on one handle. Close refuses while an operation holds a reference. */
+typedef uint32_t solar_os_native_handle_t;
+#define SOLAR_OS_NATIVE_ERROR_BUSY (-8)
+#define SOLAR_OS_NATIVE_ERROR_PERMISSION (-9)
+#define SOLAR_OS_NATIVE_ERROR_CANCELLED (-11)
+#define SOLAR_OS_NATIVE_ERROR_EXISTS (-12)
+#define SOLAR_OS_NATIVE_ERROR_IO (-13)
+#define SOLAR_OS_NATIVE_ERROR_NOT_EMPTY (-14)
+#define SOLAR_OS_NATIVE_ERROR_NO_SPACE (-15)
+
+#define SOLAR_OS_NATIVE_MEMORY_SERVICE "memory"
+#define SOLAR_OS_NATIVE_MEMORY_ABI 1U
+typedef struct solar_os_native_memory_buffer solar_os_native_memory_buffer_t;
+/* Request-owned PSRAM. Allocation failure returns NULL. Release all buffers
+ * before module unload. Standard C helpers may read/write these buffers. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    void *(*alloc)(size_t bytes);
+    void (*free)(void *buffer);
+    /* Optional hot state/cache allocation in internal memory. Returns NULL
+     * when the reserve cannot be preserved. free accepts either heap. */
+    void *(*alloc_internal)(size_t bytes);
+    /* Optional append-only heap queries, available independently of inference. */
+    bool (*is_external)(const void *buffer);
+    size_t (*free_bytes)(bool external);
+    size_t (*largest_free_bytes)(bool external);
+    /* Optional movable buffers. Test struct_size before using appended fields.
+     * pin returns a temporary contiguous pointer; never retain it after unpin.
+     * destroy returns false while pinned. Serialize handle lifetime, release all
+     * leases and destroy all handles before module unload. Raw alloc stays fixed. */
+    solar_os_native_memory_buffer_t *(*buffer_create)(size_t bytes);
+    void *(*buffer_pin)(solar_os_native_memory_buffer_t *buffer);
+    bool (*buffer_unpin)(solar_os_native_memory_buffer_t *buffer);
+    bool (*buffer_destroy)(solar_os_native_memory_buffer_t *buffer);
+    /* Classes and their names are in solar_os_native_memory_status_abi.h.
+     * A failed nonzero resize leaves the old allocation intact. A zero size
+     * frees it. Tags are optional and are copied wherever the OS retains them. */
+    void *(*alloc_class)(size_t bytes, uint32_t memory_class, const char *tag);
+    void *(*calloc_class)(size_t count, size_t bytes, uint32_t memory_class, const char *tag);
+    void *(*realloc_class)(void *buffer, size_t bytes, uint32_t memory_class, const char *tag);
+    solar_os_native_memory_buffer_t *(*buffer_create_tagged)(size_t bytes, const char *owner);
+} solar_os_native_memory_api_v1_t;

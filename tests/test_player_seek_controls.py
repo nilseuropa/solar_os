@@ -28,6 +28,7 @@ class PlayerSeekControlsTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 f"-I{tmp}", f"-I{ROOT / 'tests/host'}",
                 f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src'}",
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/player_seek_controls_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
@@ -38,8 +39,8 @@ class PlayerSeekControlsTest(unittest.TestCase):
             self.assertIn("key == '<' || key == '>'", source)
             self.assertIn("_seek(key == '<' ? -1 : 1)", source)
             self.assertNotIn("key == '[' || key == ']'", source)
-            self.assertIn("solar_os_media_player_controls_draw", source)
-            self.assertIn("solar_os_media_player_button_at", source)
+            self.assertIn("media_ui->player_controls_draw", source)
+            self.assertIn("media_ui->player_button_at", source)
             self.assertIn("SOLAR_OS_APP_FLAG_POINTER_EVENTS", source)
             self.assertIn("SOLAR_OS_EVENT_POINTER", source)
         self.assertIn("</> seek", player)

@@ -3,10 +3,13 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+
+static atomic_flag write_busy = ATOMIC_FLAG_INIT;
 
 bool solar_os_m3u_path(const char *path)
 {
@@ -118,10 +121,9 @@ esp_err_t solar_os_m3u_read(const char *path, solar_os_m3u_read_fn accept, void 
     return err;
 }
 
-esp_err_t solar_os_m3u_write(const char *path, size_t count,
-                             solar_os_m3u_get_fn get, void *user)
+static esp_err_t write_playlist(const char *path, size_t count,
+                                solar_os_m3u_get_fn get, void *user)
 {
-    if (!path || !get) return ESP_ERR_INVALID_ARG;
     char temporary[SOLAR_OS_STORAGE_PATH_MAX], backup[SOLAR_OS_STORAGE_PATH_MAX];
     if (solar_os_storage_sibling_path(path, ".tmp", temporary, sizeof(temporary)) != ESP_OK ||
         solar_os_storage_sibling_path(path, ".bak", backup, sizeof(backup)) != ESP_OK)
@@ -130,7 +132,7 @@ esp_err_t solar_os_m3u_write(const char *path, size_t count,
     if (!file) return ESP_FAIL;
     esp_err_t err = fputs("#EXTM3U\n", file) < 0 ? ESP_FAIL : ESP_OK;
     for (size_t i = 0; err == ESP_OK && i < count; i++) {
-        solar_os_m3u_entry_t entry;
+        solar_os_m3u_entry_t entry = {.duration = -1};
         if (!get(i, &entry, user) || !single_line(entry.path, sizeof(entry.path)) ||
             !entry.path[0] || entry.path[0] == '#' ||
             !single_line(entry.title, sizeof(entry.title)) || entry.duration < -1) {
@@ -143,5 +145,17 @@ esp_err_t solar_os_m3u_write(const char *path, size_t count,
     if (fclose(file) != 0 && err == ESP_OK) err = ESP_FAIL;
     if (err == ESP_OK) err = solar_os_storage_replace_file(temporary, path, backup);
     if (err != ESP_OK) (void)solar_os_storage_remove(temporary);
+    return err;
+}
+
+esp_err_t solar_os_m3u_write(const char *path, size_t count,
+                             solar_os_m3u_get_fn get, void *user)
+{
+    if (!path || !get) return ESP_ERR_INVALID_ARG;
+    /* A second writer could truncate or remove the first writer's staging
+     * file. A try-lock also lets a nested call from get() fail immediately. */
+    if (atomic_flag_test_and_set(&write_busy)) return ESP_ERR_INVALID_STATE;
+    const esp_err_t err = write_playlist(path, count, get, user);
+    atomic_flag_clear(&write_busy);
     return err;
 }

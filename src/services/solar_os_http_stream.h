@@ -68,6 +68,13 @@ esp_err_t solar_os_http_stream_read(
 esp_err_t solar_os_http_stream_close(
     solar_os_http_stream_session_t *session,
     uint32_t handle);
+/* Cancels and joins a stream without detaching its worker. Timeout keeps the
+ * handle valid for a retry. No queued/body/option storage is freed while the
+ * worker can still access it. Intended for callers with strict ownership. */
+esp_err_t solar_os_http_stream_close_wait(
+    solar_os_http_stream_session_t *session,
+    uint32_t handle,
+    uint32_t timeout_ms);
 void solar_os_http_stream_close_all(solar_os_http_stream_session_t *session);
 
 const char *solar_os_http_stream_event_type_name(

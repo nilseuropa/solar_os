@@ -34,9 +34,21 @@ static uint32_t add(uint32_t a, uint32_t b) { library_calls++; assert(a == 19 &&
 static const hello_library_api_v1_t provider = {1, sizeof(provider), add};
 static int acquire(const char *id, uint32_t abi, uint32_t size, uint32_t *lease, const void **table)
 {
-    assert(abi == 1 && !*lease && !*table);
-    if (!strcmp(id, "tinycc")) { assert(size == SOLAR_OS_CC_API_BASE_SIZE); *table = compiler->api; }
-    else { assert(!strcmp(id, "hello-library") && size == sizeof(provider)); *table = &provider; }
+    assert(!*lease && !*table);
+    if (!strcmp(id, "tinycc")) {
+        if (compiler->api->abi_version == abi && compiler->api->struct_size >= size) {
+            *table = compiler->api;
+        } else {
+            if (compiler->struct_size < sizeof(solar_os_native_library_versioned_descriptor_v1_t))
+                return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+            const solar_os_native_library_versioned_descriptor_v1_t *extended = (const void *)compiler;
+            const int code = extended->select_api(abi, size, table);
+            if (code) return code;
+        }
+    } else {
+        assert(!strcmp(id, "hello-library") && abi == 1 && size == sizeof(provider));
+        *table = &provider;
+    }
     *lease = ++leases; return 0;
 }
 static int release(uint32_t lease) { assert(lease && leases); leases--; return 0; }
@@ -297,6 +309,27 @@ void app_main(void)
 #ifdef SOLAR_CC_DIFFERENTIAL
     extern int solar_cc_differential(const solar_os_cc_api_v1_t *);
     assert(!solar_cc_differential(api));
+#endif
+#if SOLAR_CC_BUILTIN
+    const solar_os_cc_api_v2_t *packed = (const void *)compiler->api;
+    assert(packed->base.abi_version == SOLAR_OS_CC_PACKED_ABI && !packed->base.sdk_headers);
+    uint32_t sdk_lease = 0;
+    const void *legacy_table = NULL;
+    assert(!acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, sizeof(solar_os_cc_api_v1_t), &sdk_lease, &legacy_table));
+    const solar_os_cc_api_v1_t *legacy = legacy_table;
+    assert(legacy->sdk_count == packed->base.sdk_count && legacy->sdk_headers);
+    char *sdk_buffer = solar_os_memory_elf_alloc(32768);
+    assert(sdk_buffer);
+    for (uint32_t i = 0; i < legacy->sdk_count; ++i) {
+        uint32_t bytes = 0;
+        const char *name = packed->sdk_header_info(i, &bytes);
+        assert(name && !strcmp(name, legacy->sdk_headers[i].name) && bytes == legacy->sdk_headers[i].bytes);
+        assert(!packed->sdk_header_read(i, sdk_buffer, 32768));
+        assert(!memcmp(sdk_buffer, legacy->sdk_headers[i].text, bytes) && !legacy->sdk_headers[i].text[bytes]);
+    }
+    heap_caps_free(sdk_buffer);
+    assert(!release(sdk_lease));
+    printf("SOLAR_CC_PACKED_SDK_PASS: new and legacy SDK views agree\n");
 #endif
     assert(!compiler->shutdown());
 #if !SOLAR_CC_BUILTIN

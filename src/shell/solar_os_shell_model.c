@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_INFERENCE
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell.h"
 #include "solar_os_shell_common.h"
@@ -248,3 +252,5 @@ done:
     solar_os_inference_destroy(client);
     if (error) solar_os_shell_diag_esp(io, "model", error, NULL, error == ESP_ERR_INVALID_STATE ? "Model is in use or inference is busy" : NULL);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_INFERENCE */

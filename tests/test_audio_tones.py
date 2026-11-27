@@ -25,6 +25,7 @@ class AudioToneTest(unittest.TestCase):
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-I", tmp, "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 str(ROOT / "tests/host/audio_tones_test.c"),
                 "-o", str(binary),
             ], check=True)

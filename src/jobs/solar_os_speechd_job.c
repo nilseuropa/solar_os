@@ -321,9 +321,7 @@ static void speechd_error(void)
     if (speechd.engine_event != NULL) {
         (void)xSemaphoreGive(speechd.engine_event);
     }
-    if (speechd.task != NULL) {
-        xTaskNotifyGive(speechd.task);
-    }
+    (void)solar_os_speech_worker_stop(&speechd);
 }
 
 static esp_err_t speechd_open_player(const solar_os_speech_work_t *work)
@@ -565,7 +563,7 @@ static void speechd_task(void *arg)
 {
     (void)arg;
 
-    speechd.last_error = solar_os_speech_worker_start(xTaskGetCurrentTaskHandle());
+    speechd.last_error = solar_os_speech_worker_start(&speechd);
     speechd.ready = true;
     if (speechd.last_error == ESP_OK) {
         while (!speechd.stop_requested && !speechd.engine_failed) {
@@ -582,9 +580,8 @@ static void speechd_task(void *arg)
                 speechd.last_error = err;
             }
         }
+        (void)solar_os_speech_worker_detach(&speechd);
     }
-
-    solar_os_speech_worker_stop();
     speechd.done = true;
     if (!speechd.stop_requested && speechd.generation != 0U) {
         (void)solar_os_jobs_mark_stopped(solar_os_speechd_job.name,
@@ -683,7 +680,7 @@ static esp_err_t speechd_start(solar_os_context_t *ctx, int argc, char **argv)
     if (speechd.last_error != ESP_OK) {
         const esp_err_t start_error = speechd.last_error;
         speechd.stop_requested = true;
-        solar_os_speech_worker_stop();
+        (void)solar_os_speech_worker_stop(&speechd);
         if (!solar_os_task_wait_done(
                 speechd.task, &speechd.done, SOLAR_OS_TASK_STOP_WAIT_MS)) {
             speechd_set_error(
@@ -711,7 +708,7 @@ static void speechd_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
     speechd.stop_requested = true;
-    solar_os_speech_worker_stop();
+    (void)solar_os_speech_worker_stop(&speechd);
 
     const bool stopped = speechd.task == NULL || solar_os_task_wait_done(
         speechd.task, &speechd.done, SPEECHD_STOP_WAIT_MS);

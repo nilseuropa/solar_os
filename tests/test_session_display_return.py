@@ -16,7 +16,8 @@ class SessionDisplayReturnTest(unittest.TestCase):
             "session_by_id", "session_return_target", "session_return_shell",
             "session_effective_gfx", "session_bind_display", "session_uses_same_display",
             "switch_to_display_app", "close_session", "session_active_for_display",
-            "solar_os_sessions_dispatch_input_event"))
+            "solar_os_sessions_dispatch_input_event", "session_close_display_on_owner",
+            "solar_os_sessions_close_display"))
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "session_display_return.inc").write_text(functions)
             binary = Path(tmp, "session_return")

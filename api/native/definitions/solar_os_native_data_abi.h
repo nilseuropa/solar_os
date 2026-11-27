@@ -1,0 +1,79 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_FILES_SERVICE "storage.files"
+#define SOLAR_OS_NATIVE_FILES_ABI 1U
+#define SOLAR_OS_NATIVE_JSON_SERVICE "json"
+#define SOLAR_OS_NATIVE_JSON_ABI 1U
+#define SOLAR_OS_NATIVE_JSON_OBJECT 1U
+#define SOLAR_OS_NATIVE_JSON_ARRAY 2U
+typedef struct solar_os_native_file solar_os_native_file_t;
+/* Files are read-only leases. Close every lease before module unload. Reads
+ * advance the position and are bounded to 64 KiB. sha256 reads the whole file
+ * with bounded workspace, then rewinds it even on failure. Paths are absolute.
+ * replace atomically replaces a small file in an existing directory; callers
+ * own the contents and policy, and must serialize writes to the same path. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const char *path, solar_os_native_file_t **file, uint32_t *size);
+    int (*read)(solar_os_native_file_t *file, void *data, size_t length, size_t *read);
+    int (*seek)(solar_os_native_file_t *file, uint32_t position);
+    void (*close)(solar_os_native_file_t *file);
+    int (*sha256)(solar_os_native_file_t *file, char hex[65], solar_os_native_cancel_fn cancel, void *user);
+    int (*replace)(const char *path, const void *data, size_t length);
+    /* Optional persistent namespace on mounted internal flash. Creates the
+     * hidden directory and returns its absolute path; never falls back to SD.
+     * Names contain 1..32 ASCII letters, digits, hyphens or underscores. */
+    int (*state_directory)(const char *name, char *path, size_t capacity);
+} solar_os_native_files_api_v1_t;
+#define SOLAR_OS_NATIVE_FILES_BASE_SIZE offsetof(solar_os_native_files_api_v1_t, state_directory)
+
+typedef struct solar_os_native_json_value solar_os_native_json_value_t;
+typedef struct solar_os_native_json_document solar_os_native_json_document_t;
+#define SOLAR_OS_NATIVE_JSON_NULL 3U
+#define SOLAR_OS_NATIVE_JSON_BOOL 4U
+#define SOLAR_OS_NATIVE_JSON_STRING 5U
+#define SOLAR_OS_NATIVE_JSON_NUMBER 6U
+/* Strict bounded JSON objects/arrays. parse rejects duplicate keys, embedded
+ * NUL, trailing data, and nesting beyond 32. Children and strings are borrowed
+ * until free(root); only the root may be freed. uint_value rejects booleans,
+ * fractions, negative values and values above 2^53-1. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*parse)(const char *text, size_t length, solar_os_native_json_value_t **root);
+    const solar_os_native_json_value_t *(*get)(const solar_os_native_json_value_t *, const char *key);
+    const solar_os_native_json_value_t *(*at)(const solar_os_native_json_value_t *, size_t index);
+    const char *(*string)(const solar_os_native_json_value_t *);
+    bool (*uint_value)(const solar_os_native_json_value_t *, uint64_t *value);
+    size_t (*count)(const solar_os_native_json_value_t *);
+    const char *(*key)(const solar_os_native_json_value_t *);
+    void (*free)(solar_os_native_json_value_t *root);
+    uint32_t (*kind)(const solar_os_native_json_value_t *);
+    /* Documents use the OS parser, including scalar roots and JSON prefixes.
+     * All values/strings returned from a document are borrowed until its
+     * document_free(). Never pass a document's borrowed root to free().
+     * Serialize document access against destruction. Scan value slices borrow
+     * the caller's source; the original strict parse/free contract remains. */
+    int (*document_parse)(const char *text, size_t size, solar_os_native_json_document_t **document, size_t *error_offset);
+    void (*document_free)(solar_os_native_json_document_t *document);
+    const solar_os_native_json_value_t *(*document_root)(const solar_os_native_json_document_t *document);
+    const solar_os_native_json_value_t *(*path)(const solar_os_native_json_value_t *value, const char *path);
+    uint32_t (*value_kind)(const solar_os_native_json_value_t *value);
+    int (*value_string)(const solar_os_native_json_value_t *value, char *text, size_t capacity);
+    int (*value_int64)(const solar_os_native_json_value_t *value, int64_t *out);
+    int (*value_uint32)(const solar_os_native_json_value_t *value, uint32_t *out);
+    int (*value_bool)(const solar_os_native_json_value_t *value, bool *out);
+    int (*path_string)(const solar_os_native_json_value_t *value, const char *path, char *text, size_t capacity);
+    int (*path_int64)(const solar_os_native_json_value_t *value, const char *path, int64_t *out);
+    int (*path_uint32)(const solar_os_native_json_value_t *value, const char *path, uint32_t *out);
+    int (*path_bool)(const solar_os_native_json_value_t *value, const char *path, bool *out);
+    bool (*contains_string)(const solar_os_native_json_value_t *array, const char *text);
+    bool (*path_contains_string)(const solar_os_native_json_value_t *value, const char *path, const char *text);
+    bool (*scan_string)(const char *json, const char *key, char *text, size_t capacity, bool *truncated);
+    bool (*scan_uint64)(const char *json, const char *key, uint64_t *value);
+    bool (*scan_value)(const char *json, const char *key, const char **value, size_t *size);
+    bool (*scan_array_value)(const char *json, size_t index, const char **value, size_t *size);
+    int (*escape_string)(const char *source, char *text, size_t capacity);
+    const solar_os_native_json_value_t *(*array_get)(const solar_os_native_json_value_t *array, size_t index);
+    size_t (*array_size)(const solar_os_native_json_value_t *array);
+} solar_os_native_json_api_v1_t;

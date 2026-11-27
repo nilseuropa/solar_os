@@ -1,0 +1,24 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_VECTOR_SERVICE "vector"
+#define SOLAR_OS_NATIVE_VECTOR_ABI 1U
+
+/* Bulk conversions use caller-owned, nonoverlapping buffers. The destination
+ * must hold pixels*2 bytes for RGB565, width*height bytes for grayscale, or
+ * width*height*3 bytes for RGB. RGBA input holds source_width*source_height*4
+ * bytes; column input holds pixels bytes. All products must fit size_t.
+ * Scaling uses nearest neighbours. RGBA alpha below 128 becomes white.
+ * Null buffers, zero dimensions/counts and bit>=8 are ignored. No buffers or
+ * callbacks are retained. The table directly references the core kernels so
+ * a caller can pass its methods to an existing bulk-conversion callback. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    void (*fill_rgb565_be)(uint8_t *destination, uint16_t color, size_t pixels);
+    void (*expand_1bpp_to_rgb565_be)(uint8_t *destination, const uint8_t *columns,
+        unsigned bit, uint16_t zero_color, uint16_t one_color, size_t pixels);
+    void (*rgba_to_gray_scaled)(uint8_t *destination, uint32_t width, uint32_t height,
+        const uint8_t *source, uint32_t source_width, uint32_t source_height);
+    void (*rgba_to_rgb_scaled)(uint8_t *destination, uint32_t width, uint32_t height,
+        const uint8_t *source, uint32_t source_width, uint32_t source_height);
+} solar_os_native_vector_api_v1_t;

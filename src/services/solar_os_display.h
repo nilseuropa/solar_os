@@ -31,6 +31,8 @@ typedef esp_err_t (*solar_os_display_frame_presenter_t)(
 #define SOLAR_OS_DISPLAY_TARGET_CONTROLLER_MAX 20
 #define SOLAR_OS_DISPLAY_TARGET_ROLE_MAX 16
 #define SOLAR_OS_DISPLAY_TARGET_OWNER_MAX 32
+#define SOLAR_OS_DISPLAY_MODE_TEXT_MAX 1024
+#define SOLAR_OS_DISPLAY_MODE_CHOICES_MAX 512
 #define SOLAR_OS_DISPLAY_PRIMARY_TARGET "display0"
 
 /* Only a display declared by the board profile belongs to the board-primary
@@ -90,9 +92,18 @@ typedef struct {
     void *color_context;
 } solar_os_display_target_t;
 
+typedef struct {
+    solar_os_display_rect_t native_canvas;
+    uint32_t generation;
+} solar_os_display_canvas_snapshot_t;
+
 /* Runtime-only layout rectangle in the current panel's oriented/scaled pixels.
- * NULL restores the panel's default canvas. Pixel drawing may overflow it. */
-esp_err_t solar_os_display_set_canvas(const char *name, const solar_os_display_rect_t *canvas);
+ * NULL restores the panel's default canvas. Pixel drawing may overflow it.
+ * A snapshot preserves the exact native rectangle for a failed reflow. */
+esp_err_t solar_os_display_set_canvas(const char *name, const solar_os_display_rect_t *canvas,
+                                       solar_os_display_canvas_snapshot_t *previous);
+esp_err_t solar_os_display_restore_canvas(const char *name,
+                                           const solar_os_display_canvas_snapshot_t *previous);
 
 typedef struct {
     uint32_t cycles;
@@ -135,6 +146,8 @@ typedef struct {
 esp_err_t solar_os_display_init(solar_os_board_display_t *display);
 esp_err_t solar_os_display_register_target(const solar_os_display_target_t *target);
 esp_err_t solar_os_display_unregister_target(const char *name);
+/* Remove only the registration with both this name and its original canvas. */
+esp_err_t solar_os_display_unregister_target_owned(const char *name, const u8g2_t *canvas);
 /* Atomically removes all named targets, or none when any target is busy. */
 esp_err_t solar_os_display_unregister_targets(const char *const *names,
                                               size_t count);
@@ -166,12 +179,18 @@ esp_err_t solar_os_display_release(const char *name, const char *owner);
 /* A claimed streaming client can exclude terminal/status-bar painting without
  * changing the terminal's saved preferences. Release the block after joining
  * presentation. The epoch makes terminals repaint fully when drawing resumes. */
+#define SOLAR_OS_DISPLAY_CLAIM_BLOCK_TERMINAL (1U << 0)
+#define SOLAR_OS_DISPLAY_CLAIM_LOCK_ORIENTATION (1U << 1)
+esp_err_t solar_os_display_set_claim_policy(const char *name, const char *owner,
+                                           uint32_t mask, uint32_t values);
 esp_err_t solar_os_display_set_terminal_blocked(const char *name, const char *owner, bool blocked);
 esp_err_t solar_os_display_set_orientation_locked(const char *name, const char *owner, bool locked);
 bool solar_os_display_terminal_draw_state(const u8g2_t *u8g2, uint32_t *epoch);
 bool solar_os_display_brightness_supported(void);
 esp_err_t solar_os_display_get_brightness(uint8_t *percent);
 esp_err_t solar_os_display_set_brightness(uint8_t percent);
+esp_err_t solar_os_display_get_theme(solar_os_display_theme_v1_t *theme);
+esp_err_t solar_os_display_set_theme_color(solar_os_display_theme_role_t role, uint32_t rgb888);
 esp_err_t solar_os_display_get_colors(uint32_t *foreground_rgb888,
                                       uint32_t *background_rgb888);
 esp_err_t solar_os_display_set_foreground_color(uint32_t rgb888);
@@ -183,16 +202,18 @@ esp_err_t solar_os_display_shutdown(void);
 esp_err_t solar_os_display_resume_primary(void);
 bool solar_os_display_primary_suspended(void);
 esp_err_t solar_os_display_set_palette_inverted(const char *name, bool inverted);
-esp_err_t solar_os_display_get_controller_mode(const char *name,
-                                               const char **mode,
-                                               const char **values);
+esp_err_t solar_os_display_get_controller_mode(const char *name, char *mode, size_t mode_capacity,
+                                                char *values, size_t values_capacity);
 esp_err_t solar_os_display_set_controller_mode(const char *name, const char *mode);
 /* Non-persistent performance override; disabling restores driver settings. */
 esp_err_t solar_os_display_set_high_refresh_override(const char *name,
                                                      bool enabled,
                                                      uint16_t hz_tenths);
-esp_err_t solar_os_display_request_present_mode(u8g2_t *u8g2,
-                                                solar_os_display_present_mode_t mode);
+/* The owner must keep its target claimed until disabling the override. */
+esp_err_t solar_os_display_set_high_refresh_owned(const char *name,
+                                                  const void *owner,
+                                                  bool enabled,
+                                                  uint16_t hz_tenths);
 esp_err_t solar_os_display_set_overlay_active(u8g2_t *u8g2, bool active);
 /* Live opaque layer, independent of the foreground display claim. Packed
  * horizontal bits are black when set. Coordinates use the logical display. */

@@ -8,8 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "solar_os.h"
 
-#define SOLAR_OS_SCRIPT_ERROR_MAX 160U
-#define SOLAR_OS_SCRIPT_SOURCE_MAX_BYTES (512U * 1024U)
+#include "solar_os_native_script_runner_abi.h"
 
 typedef enum {
     SOLAR_OS_SCRIPT_INPUT_SOURCE,
@@ -57,6 +56,9 @@ typedef struct {
 esp_err_t solar_os_script_run_begin(const solar_os_script_run_request_t *request,
                                     solar_os_script_run_result_t *result,
                                     solar_os_script_run_control_t *control);
+/* Lower-level bookkeeping shared with package-provided interpreters. */
+esp_err_t solar_os_script_control_begin(const solar_os_script_run_request_t *request,
+    solar_os_script_run_result_t *result, solar_os_script_run_control_t *control);
 void solar_os_script_run_output(solar_os_script_run_control_t *control,
                                 const char *data,
                                 size_t len);

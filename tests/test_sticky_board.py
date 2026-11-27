@@ -88,6 +88,7 @@ int main(void) {
                 "-fsanitize=address,undefined", f'-DTOUCH_ROTATION={touch["bindings"]["rotation"]}',
                 f'-DTOUCH_SWAP_XY={touch["bindings"].get("swap_xy", 0)}',
                 "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 "-I", str(ROOT / "src/drivers"), str(path), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

@@ -227,6 +227,17 @@ class FlavorConfigTest(unittest.TestCase):
                     self.assertEqual(flash_bytes, board.flash_bytes)
                     self.assertEqual(app_bytes, layout.app_bytes)
 
+    def test_application_slot_checks_size_of_the_generated_image(self):
+        layout = select_layout("partitions.csv")
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "firmware.bin"
+            with image.open("wb") as stream:
+                stream.truncate(layout.app_bytes)
+                layout.check_image(image)
+                stream.truncate(layout.app_bytes + 1)
+            with self.assertRaisesRegex(ValueError, "application slot limit of 7,340,032 bytes"):
+                layout.check_image(image)
+
     def test_ota_is_owned_by_layout_and_not_saved_as_a_group(self):
         ota = flavor_config.SelectionModel(self.catalog, (), layout="ota")
         single = flavor_config.SelectionModel(

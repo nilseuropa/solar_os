@@ -7,13 +7,19 @@
 #include <string.h>
 #include <time.h>
 #include "solar_os_audio_player.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_audio_player.h"
+#include "solar_os_native_runtime.h"
 #include "solar_os_memory.h"
 #include "solar_os_task.h"
 #include <freertos/semphr.h>
 
 struct test_semaphore { pthread_mutex_t mutex; pthread_cond_t cond; unsigned count; bool binary; };
 static atomic_uint waits, signals, allocations, samples, writes;
-static atomic_bool hold_sink;
+static atomic_bool hold_sink, close_busy, sink_wait_timeout;
+static atomic_uint close_calls, active_library_leases;
+static _Thread_local TaskHandle_t current_task;
+static _Thread_local uint8_t direct_task;
 static atomic_uint stalled_sink;
 static unsigned fail_at, allocation_calls;
 static void *allocate(size_t size)
@@ -25,6 +31,8 @@ static void *allocate(size_t size)
 }
 void *solar_os_memory_alloc(size_t n, solar_os_memory_class_t cls, const char *tag)
 { (void)cls; (void)tag; return allocate(n); }
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{ (void)cls; (void)tag; return allocate(count * size); }
 void solar_os_memory_free(void *p)
 { if (p) { assert(atomic_fetch_sub(&allocations, 1)); free(p); } }
 static SemaphoreHandle_t semaphore(unsigned count, bool binary)
@@ -67,7 +75,8 @@ void vTaskDelay(TickType_t ticks)
     nanosleep(&delay, NULL);
 }
 struct task { pthread_t thread; void (*fn)(void *); void *user; };
-static void *run_task(void *arg) { struct task *t = arg; t->fn(t->user); return NULL; }
+static void *run_task(void *arg) { struct task *t = arg; current_task = t; t->fn(t->user); return NULL; }
+TaskHandle_t xTaskGetCurrentTaskHandle(void) { return current_task ? current_task : &direct_task; }
 BaseType_t solar_os_task_create_pinned_internal(void (*fn)(void *), const char *name,
     unsigned stack, void *user, unsigned priority, TaskHandle_t *out, int core, int role)
 {
@@ -78,28 +87,64 @@ BaseType_t solar_os_task_create_pinned_internal(void (*fn)(void *), const char *
 }
 void solar_os_task_delete_internal(TaskHandle_t task) { assert(!task); pthread_exit(NULL); }
 bool solar_os_task_wait_done(TaskHandle_t task, volatile bool *done, uint32_t timeout)
-{ (void)timeout; struct task *t = task; assert(!pthread_join(t->thread, NULL)); assert(*done); solar_os_memory_free(t); return true; }
+{
+    (void)timeout;
+    if (atomic_load(&sink_wait_timeout)) return false;
+    struct task *t = task;
+    assert(!pthread_join(t->thread, NULL));
+    assert(*done);
+    solar_os_memory_free(t);
+    return true;
+}
 size_t strlcpy(char *out, const char *in, size_t cap)
 { size_t n = strlen(in); if (cap) { size_t copy = n < cap - 1 ? n : cap - 1; memcpy(out, in, copy); out[copy] = 0; } return n; }
 esp_err_t solar_os_audio_open_default(solar_os_stream_direction_t direction, const char *owner,
     const solar_os_stream_open_options_t *options, solar_os_stream_handle_t *stream, solar_os_audio_device_info_t *device)
 {
-    (void)direction; (void)owner; (void)device;
-    stream->audio = options->requested_audio; return ESP_OK;
+    (void)direction; (void)owner;
+    if (device) {
+        memset(device, 0, sizeof(*device));
+        strcpy(device->id, "test-output");
+    }
+    stream->slot = 1;
+    stream->context = xTaskGetCurrentTaskHandle();
+    stream->audio = options->requested_audio;
+    return ESP_OK;
 }
 esp_err_t solar_os_audio_set_device_volume(const char *device, uint8_t volume)
 { (void)device; (void)volume; return ESP_OK; }
 esp_err_t solar_os_stream_write(solar_os_stream_handle_t *stream, const void *data,
     size_t len, uint32_t timeout, size_t *written)
 {
-    (void)stream; (void)data; (void)timeout;
+    assert(stream->context == xTaskGetCurrentTaskHandle());
+    (void)data; (void)timeout;
     if (atomic_load(&hold_sink)) {
         atomic_fetch_add(&stalled_sink, 1);
         while (atomic_load(&hold_sink)) vTaskDelay(1);
     }
     *written = len; atomic_fetch_add(&writes, 1); vTaskDelay(1); return ESP_OK;
 }
-void solar_os_stream_close(solar_os_stream_handle_t *stream) { (void)stream; }
+esp_err_t solar_os_stream_close_ex(solar_os_stream_handle_t *stream)
+{
+    assert(stream->context == xTaskGetCurrentTaskHandle());
+    atomic_fetch_add(&close_calls, 1);
+    if (atomic_load(&close_busy)) return ESP_ERR_INVALID_STATE;
+    *stream = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
+    return ESP_OK;
+}
+
+int solar_os_native_library_retain(solar_os_native_handle_t lease, solar_os_native_handle_t *out)
+{
+    assert(lease == 123);
+    atomic_fetch_add(&active_library_leases, 1);
+    *out = 456;
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_library_release(solar_os_native_handle_t lease)
+{
+    assert(lease == 456 && atomic_fetch_sub(&active_library_leases, 1));
+    return SOLAR_OS_NATIVE_OK;
+}
 static void note_samples(const int16_t *data, size_t count, uint8_t channels, void *user)
 { (void)data; (void)user; assert(channels == 1); atomic_fetch_add(&samples, count); }
 static solar_os_audio_player_options_t options(size_t capacity)
@@ -116,6 +161,56 @@ static void *write_until_cancel(void *user)
     writer->error = solar_os_audio_player_write(writer->player, writer->data, 16384, &writer->cancel);
     return NULL;
 }
+static const solar_os_native_audio_player_api_v1_t *native;
+
+static void *close_from_other_task(void *opaque)
+{
+    const solar_os_native_handle_t *native_player = opaque;
+    assert(native->close(*native_player) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    return NULL;
+}
+
+static void check_native_close(const int16_t *data, bool buffered)
+{
+    native = solar_os_native_audio_player_get(solar_os_native_audio_player_get_service, sizeof(*native));
+    assert(native);
+    solar_os_native_audio_player_options_v1_t options = {
+        .owner = "native", .format = {.sample_rate = 48000, .channels = 1, .bits_per_sample = 16},
+        .buffered = buffered, .internal_buffer_bytes = 4096, .volume = SOLAR_OS_NATIVE_AUDIO_PLAYER_VOLUME_GLOBAL,
+        .open_timeout_ms = 100, .samples = note_samples,
+    };
+    solar_os_native_handle_t player;
+    assert(native->open(&options, &player, NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !player);
+    options.library_lease = 123;
+    solar_os_native_stream_format_v1_t negotiated;
+    char device[SOLAR_OS_AUDIO_DEVICE_ID_MAX];
+    assert(!native->open(&options, &player, &negotiated, device));
+    assert(player && negotiated.sample_rate == 48000 && !strcmp(device, "test-output"));
+    assert(atomic_load(&active_library_leases) == 1);
+    assert(!native->write(player, data, 128));
+    if (!buffered) {
+        pthread_t other;
+        assert(!pthread_create(&other, NULL, close_from_other_task, &player));
+        assert(!pthread_join(other, NULL));
+    }
+    const unsigned preceding_calls = atomic_load(&close_calls);
+    atomic_store(&close_busy, true);
+    assert(!native->end_input(player));
+    atomic_store(&sink_wait_timeout, buffered);
+    assert(native->close(player) == (buffered ? SOLAR_OS_NATIVE_ERROR_TIMEOUT : SOLAR_OS_NATIVE_ERROR_INVALID_STATE));
+    assert(atomic_load(&active_library_leases) == 1);
+    if (buffered) {
+        for (unsigned attempt = 0; attempt < 1000 && atomic_load(&close_calls) == preceding_calls; ++attempt)
+            vTaskDelay(1);
+        assert(atomic_load(&close_calls) > preceding_calls);
+    }
+    atomic_store(&close_busy, false);
+    atomic_store(&sink_wait_timeout, false);
+    assert(!native->close(player));
+    assert(!atomic_load(&active_library_leases) && !atomic_load(&allocations));
+    assert(native->close(player) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+}
+
 int main(void)
 {
     int16_t data[12001]; for (size_t i = 0; i < 12001; i++) data[i] = (int16_t)i;
@@ -163,5 +258,7 @@ int main(void)
         /* Destroy/EOF wake the sink even if it never received a byte. */
         solar_os_audio_player_destroy(player); assert(!atomic_load(&allocations));
     }
+    check_native_close(data, false);
+    check_native_close(data, true);
     assert(atomic_load(&waits) && atomic_load(&signals) && atomic_load(&writes));
 }

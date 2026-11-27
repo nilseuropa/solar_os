@@ -1,42 +1,39 @@
 from pathlib import Path
-import re
 import subprocess
 import tempfile
 import unittest
 
-from test_foreground_presenter import production_functions
-
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def write_runtime_support(stage):
+    (stage / 'freertos').mkdir()
+    (stage / 'solar_os_config.h').write_text(
+        '#define SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES 1\n'
+        '#define SOLAR_OS_PACKAGE_SERVICE_EXPANSION 0\n')
+    (stage / 'freertos/FreeRTOS.h').write_text(
+        f'#include "{ROOT}/tests/host/native_abi_stubs/freertos/FreeRTOS.h"\n')
+    (stage / 'freertos/task.h').write_text(
+        '#pragma once\n#include <sched.h>\ntypedef void *TaskHandle_t;\n'
+        'extern _Thread_local int solar_test_task_identity;\n'
+        'static inline TaskHandle_t xTaskGetCurrentTaskHandle(void) { return &solar_test_task_identity; }\n'
+        'static inline void vTaskDelay(int n) { (void)n; sched_yield(); }\n')
 
 
 class NativeLibrariesTest(unittest.TestCase):
     def test_runtime_lifecycle_and_concurrent_leases(self):
-        source = (ROOT / "src/services/solar_os_native.c").read_text()
-        structures = "\n".join(re.search(
-            rf"typedef struct {name} \{{.*?\}} {name}_t;", source, re.S).group()
-            for name in ("native_resident_slot", "native_library_lease"))
-        functions = production_functions(source, (
-            "native_descriptor_text_valid", "native_register_library", "native_library_result",
-            "native_initialize_builtin_library",
-            "native_library_link_lease", "native_library_acquire_loaded", "native_library_id_valid",
-            "solar_os_native_library_acquire", "solar_os_native_library_retain",
-            "solar_os_native_library_release", "solar_os_native_library_unload",
-            "native_reclaim_unused_libraries",
-            "native_find_slot", "native_slot_count", "native_slot_add", "native_slot_remove",
-            "native_unregister_resident", "native_module_deactivate_locked", "solar_os_native_module_activate",
-            "solar_os_native_module_deactivate", "solar_os_native_module_active"))
         with tempfile.TemporaryDirectory() as tmp:
-            Path(tmp, "library_types.inc").write_text(structures)
-            Path(tmp, "library_runtime.inc").write_text(functions)
-            binary = Path(tmp, "libraries")
+            stage = Path(tmp)
+            write_runtime_support(stage)
+            binary = stage / 'libraries'
             subprocess.run([
                 "cc", "-D_POSIX_C_SOURCE=200809L", "-std=c11", "-Wall", "-Wextra", "-Werror",
-                "-pthread", "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-pthread", "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-pie", "-no-pie",
                 "-I", tmp, "-I", str(ROOT / "tests/host"),
-                "-I", str(ROOT / "include"), "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"), "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
                 str(ROOT / "tests/host/native_libraries_test.c"), "-o", str(binary),
             ], check=True)
-            subprocess.run([str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=30)
 
     def test_library_abi_is_usable_from_c_and_cpp(self):
         with tempfile.TemporaryDirectory() as tmp:

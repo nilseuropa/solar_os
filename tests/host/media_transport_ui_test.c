@@ -3,6 +3,7 @@
 #include <string.h>
 #include "solar_os_gfx.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_native_media_widgets_abi.h"
 
 #define HEADER_HEIGHT 28
 typedef struct {
@@ -11,6 +12,7 @@ typedef struct {
     int64_t displayed_second, sink_at, sink_time, sink_quantum, pause_start, wall_start;
     uint64_t sink_frames;
     double start_time;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     struct { bool audio; } info;
 } mpeg_player_t;
 struct solar_os_gfx { int width, height; };
@@ -83,12 +85,14 @@ void solar_os_gfx_fill_circle(solar_os_gfx_t *gfx, int x, int y, int radius)
 { (void)gfx; (void)x; (void)y; (void)radius; }
 void solar_os_gfx_line(solar_os_gfx_t *gfx, int x, int y, int x1, int y1)
 { (void)gfx; assert(x >= 0 && y >= 0 && x1 >= x && y1 >= y); }
+#define SOLAR_TEST_MEDIA_NO_PLAYLIST 1
+#include "gfx_text_metrics_fixture.h"
 #include "media_transport_ui.inc"
 
 int main(void)
 {
     struct solar_os_gfx gfx = {240, 240};
-    mpeg_player_t p = {.screen_width = 240, .screen_height = 240};
+    mpeg_player_t p = {.screen_width = 240, .screen_height = 240, .media_ui=&fixture_media_api};
     assert(draw_play_time(&p, &gfx, 0, true) && strcmp(label, "PLAYING 00:00") == 0);
     assert(!draw_play_time(&p, &gfx, 999999, false));
     assert(draw_play_time(&p, &gfx, 125999999, false) && strcmp(label, "PLAYING 02:05") == 0);

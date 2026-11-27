@@ -7,8 +7,16 @@
 #include <time.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "solar_os.h"
+#include "solar_os_native_rtsp_client.h"
+#include "solar_os_native_rtsp_client_abi.h"
 #include "solar_os_rtsp_auth.h"
 #include "../../src/services/solar_os_rtsp_client.c"
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return NULL;
+}
 
 static atomic_uint allocations, allocation_calls, fail_allocation, live_tasks;
 static atomic_uint samples_played, audio_opens, audio_closes, callbacks;
@@ -678,6 +686,107 @@ static void test_digest_auth(void)
     assert(solar_os_rtsp_auth_clear(NULL, 0) == ESP_OK);
 }
 
+typedef struct {
+    const solar_os_native_rtsp_client_api_v1_t *api;
+    solar_os_native_handle_t client;
+    atomic_uint samples, attached, detached;
+    int result;
+} native_session_t;
+
+static void native_samples(const int16_t *samples, size_t count, uint8_t channels, void *user)
+{
+    native_session_t *session = user;
+    assert(samples && count && channels == sink_channels);
+    atomic_fetch_add(&session->samples, 1);
+}
+
+static void native_device(const char *id, void *user)
+{
+    native_session_t *session = user;
+    if (id) {
+        assert(strcmp(id, "speaker") == 0);
+        atomic_fetch_add(&session->attached, 1);
+    } else {
+        atomic_fetch_add(&session->detached, 1);
+    }
+}
+
+static void *run_native_client(void *user)
+{
+    native_session_t *session = user;
+    const solar_os_native_rtsp_callbacks_v1_t callbacks = {
+        .samples = native_samples, .device = native_device, .user = user,
+    };
+    session->result = session->api->run(session->client, &callbacks);
+    return NULL;
+}
+
+static int native_visit(const solar_os_native_rtsp_video_v1_t *frame, void *user)
+{
+    native_session_t *session = user;
+    assert(frame->epoch == 1 && frame->arrived_us && frame->arrived_us <= now_us());
+    assert(frame->jpeg.length > 100 && frame->jpeg.data[0] == 0xff && frame->jpeg.data[1] == 0xd8);
+    assert(session->api->close(session->client) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    bool received = true;
+    assert(session->api->visit_video(session->client, native_visit, user, &received) == SOLAR_OS_NATIVE_OK);
+    assert(!received);
+    int64_t lateness_us = INT64_MAX;
+    assert(session->api->video_lateness(session->client, frame->jpeg.timestamp, frame->arrived_us, &lateness_us)
+        == SOLAR_OS_NATIVE_OK);
+    assert(lateness_us != INT64_MAX);
+    return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+}
+
+static void test_native_session(void)
+{
+    const solar_os_native_rtsp_client_api_v1_t *api = solar_os_native_rtsp_client_get_service(
+        SOLAR_OS_NATIVE_RTSP_CLIENT_SERVICE, SOLAR_OS_NATIVE_RTSP_CLIENT_ABI, sizeof(*api));
+    assert(api && api->struct_size == sizeof(*api));
+    test_server_t server = {.offer_video = true, .offer_audio = true};
+    server_start(&server);
+    char url[192];
+    snprintf(url, sizeof(url), "rtsp://127.0.0.1:%u/media", server.port);
+    const solar_os_native_rtsp_options_v1_t options = {.video = true, .audio = true};
+    native_session_t session = {.api = api};
+    assert(api->open(url, &options, &session.client) == SOLAR_OS_NATIVE_OK);
+    pthread_t thread;
+    assert(!pthread_create(&thread, NULL, run_native_client, &session));
+
+    solar_os_rtsp_client_status_t status;
+    uint64_t deadline = now_us() + 2000000;
+    do {
+        vTaskDelay(1);
+        assert(api->status(session.client, &status) == SOLAR_OS_NATIVE_OK);
+    } while (!status.playing && now_us() < deadline);
+    assert(status.playing && status.epoch == 1 && status.video && status.audio);
+    assert(api->run(session.client, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->close(session.client) == SOLAR_OS_NATIVE_ERROR_BUSY);
+
+    for (unsigned frame = 0; frame < 2; ++frame) {
+        bool received = false;
+        int result;
+        do {
+            vTaskDelay(1);
+            result = api->visit_video(session.client, native_visit, &session, &received);
+        } while (!received && result == SOLAR_OS_NATIVE_OK && now_us() < deadline);
+        assert(received && result == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    }
+    while (!atomic_load(&session.samples) && now_us() < deadline) vTaskDelay(1);
+    assert(atomic_load(&session.samples) && atomic_load(&session.attached) == 1);
+    assert(api->set_paused(session.client, true) == SOLAR_OS_NATIVE_OK);
+    assert(api->status(session.client, &status) == SOLAR_OS_NATIVE_OK && !status.audio_playing);
+    assert(api->set_paused(session.client, false) == SOLAR_OS_NATIVE_OK);
+    assert(api->cancel(session.client) == SOLAR_OS_NATIVE_OK);
+    pthread_join(thread, NULL);
+    assert(session.result == SOLAR_OS_NATIVE_OK);
+    assert(atomic_load(&session.detached) == 1);
+    assert(api->close(session.client) == SOLAR_OS_NATIVE_OK);
+    assert(api->status(session.client, &status) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    server_stop(&server);
+    assert(atomic_load(&server.teardown));
+    assert(!atomic_load(&allocations) && !atomic_load(&live_tasks) && !atomic_load(&latency_leases));
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 2) return probe_stream(argv[1]);
@@ -702,6 +811,7 @@ int main(int argc, char **argv)
     test_error_causes();
     test_digest_auth();
     test_reconnect();
+    test_native_session();
     wifi_available = false;
     test_play(true, false, false, false); /* A non-Wi-Fi route still works. */
     assert(!atomic_load(&latency_leases));

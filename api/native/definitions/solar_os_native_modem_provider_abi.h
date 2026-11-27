@@ -1,0 +1,38 @@
+#pragma once
+#include "solar_os_native_modem_abi.h"
+
+#define SOLAR_OS_NATIVE_MODEM_PROVIDER_SERVICE "modem.provider"
+#define SOLAR_OS_NATIVE_MODEM_PROVIDER_ABI 1U
+
+typedef struct {
+    int (*status)(void *user, solar_os_native_modem_status_v1_t *status);
+    int (*set_power)(void *user, bool powered);
+    int (*reset)(void *user);
+    int (*apply_profile)(void *user, const solar_os_native_modem_profile_v1_t *profile);
+    int (*clear_profile)(void *user);
+    int (*set_data_active)(void *user, bool active);
+    int (*get_transport_rate)(void *user, solar_os_native_modem_transport_rate_info_v1_t *info);
+    int (*set_transport_rate)(void *user, uint32_t rate);
+    int (*unlock_sim)(void *user, const char *pin);
+    int (*command)(void *user, const char *command, uint32_t timeout_ms, char *response, size_t capacity);
+} solar_os_native_modem_operations_v1_t;
+
+typedef struct {
+    const char *name, *driver, *transport;
+    solar_os_native_handle_t library_lease;
+    void *user;
+    bool powered;
+    solar_os_native_modem_operations_v1_t operations;
+} solar_os_native_modem_registration_v1_t;
+
+typedef struct {
+    uint32_t abi_version, struct_size;
+    /* Only status is required. Core copies metadata and callbacks and keeps
+     * the module code alive. A zero library lease is valid during driver
+     * attachment. Keep user state alive until close succeeds. Registration
+     * can call set_transport_rate to restore the saved setting. */
+    int (*register_modem)(const solar_os_native_modem_registration_v1_t *modem,
+        solar_os_native_handle_t *registration);
+    /* Refuses while a callback is using the device. Retry after it returns. */
+    int (*close)(solar_os_native_handle_t registration);
+} solar_os_native_modem_provider_api_v1_t;

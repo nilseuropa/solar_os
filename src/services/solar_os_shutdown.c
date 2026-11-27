@@ -1,6 +1,7 @@
 #include "solar_os_shutdown.h"
 
 #include <stdatomic.h>
+#include <stddef.h>
 
 #define SHUTDOWN_STAGE_TIMEOUT_MS 10000U
 

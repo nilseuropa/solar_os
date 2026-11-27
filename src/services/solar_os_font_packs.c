@@ -7,8 +7,6 @@
 
 #include "esp_heap_caps.h"
 #include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/task.h"
 #include "nvs.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -22,21 +20,20 @@
 #define PACK_NVS_KEY "packs"
 #define PACK_SELECTION_MAX 80
 
-/* Glyph drawing reads a pack's faces without a lock, so a pack that is
- * unloaded is first made invisible and freed only after drawing has had time
- * to finish the face it might be using. */
-#define PACK_UNLOAD_GRACE_MS 250
-
 static const char *TAG = "fontpack";
 /* Size 8 is the 5x8 terminal face: regular only, cut from misc-fixed. */
 static const uint8_t pack_sizes[SOLAR_OS_FONT_SIZE_COUNT] = {8, 10, 12, 14, 16, 18, 20};
 
+typedef struct solar_os_font_pack_data {
+    unsigned references;
+    uint8_t faces[];
+} font_pack_data_t;
+
 typedef struct {
-    bool active;
     char name[SOLAR_OS_FONT_PACK_NAME_MAX];
     uint32_t range[PACK_RANGES_MAX][2];
     uint8_t range_count;
-    uint8_t *data;
+    font_pack_data_t *data;
     size_t bytes;
     const uint8_t *face[SOLAR_OS_FONT_STYLE_COUNT][SOLAR_OS_FONT_SIZE_COUNT];
     uint8_t faces_loaded;
@@ -45,7 +42,8 @@ typedef struct {
 } font_pack_t;
 
 static font_pack_t packs[SOLAR_OS_FONT_PACK_MAX];
-static SemaphoreHandle_t pack_lock;
+static portMUX_TYPE pack_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_uint pack_count = ATOMIC_VAR_INIT(0);
 static atomic_uint pack_generation = ATOMIC_VAR_INIT(0);
 
 typedef struct {
@@ -284,19 +282,6 @@ bool solar_os_font_face_valid(const uint8_t *face, size_t len)
     return true;
 }
 
-static bool pack_lock_take(void)
-{
-    if (pack_lock == NULL) {
-        pack_lock = xSemaphoreCreateMutex();
-    }
-    return pack_lock != NULL && xSemaphoreTake(pack_lock, pdMS_TO_TICKS(2000)) == pdTRUE;
-}
-
-static void pack_lock_give(void)
-{
-    xSemaphoreGive(pack_lock);
-}
-
 bool solar_os_font_pack_name_valid(const char *name)
 {
     if (name == NULL || name[0] == '\0' ||
@@ -328,7 +313,7 @@ static esp_err_t pack_file_path(const char *name, char *path, size_t path_len)
 static font_pack_t *pack_find(const char *name)
 {
     for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
-        if (packs[i].active && strcmp(packs[i].name, name) == 0) {
+        if (packs[i].data && strcmp(packs[i].name, name) == 0) {
             return &packs[i];
         }
     }
@@ -340,16 +325,19 @@ static bool pack_has_psram(void)
     return heap_caps_get_total_size(MALLOC_CAP_SPIRAM) > 0;
 }
 
-static void pack_discard(font_pack_t *pack)
+static void pack_data_release(font_pack_data_t *data)
 {
-    uint8_t *data = pack->data;
-    pack->active = false;
-    if (data != NULL) {
-        /* Let a draw that may hold one of its faces finish first. */
-        vTaskDelay(pdMS_TO_TICKS(PACK_UNLOAD_GRACE_MS));
-        solar_os_memory_free(data);
-    }
-    memset(pack, 0, sizeof(*pack));
+    if (!data) return;
+    portENTER_CRITICAL(&pack_lock);
+    bool unused = --data->references == 0;
+    portEXIT_CRITICAL(&pack_lock);
+    if (unused) solar_os_memory_free(data);
+}
+
+void solar_os_font_face_release(solar_os_font_face_ref_t *ref)
+{
+    pack_data_release(ref->pack);
+    *ref = (solar_os_font_face_ref_t){0};
 }
 
 /* The order faces are taken in when memory is bounded: the regular face of
@@ -448,14 +436,15 @@ esp_err_t solar_os_font_pack_load(const char *name)
         return ESP_ERR_NO_MEM;
     }
 
-    uint8_t *data = solar_os_memory_alloc(total,
-                                          psram ? SOLAR_OS_MEMORY_EXTERNAL_REQUIRED
-                                                : SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
-                                          "fontpack");
-    if (data == NULL) {
+    font_pack_data_t *allocation = solar_os_memory_alloc(sizeof(*allocation) + total,
+        psram ? SOLAR_OS_MEMORY_EXTERNAL_REQUIRED : SOLAR_OS_MEMORY_INTERNAL_PREFERRED,
+        "fontpack");
+    if (allocation == NULL) {
         fclose(file);
         return ESP_ERR_NO_MEM;
     }
+    allocation->references = 1; /* The registry owns one reference. */
+    uint8_t *data = allocation->faces;
 
     font_pack_t fresh;
     memset(&fresh, 0, sizeof(fresh));
@@ -466,11 +455,11 @@ esp_err_t solar_os_font_pack_load(const char *name)
         fresh.range[i][1] = rd32(table + i * 8U + 4U);
         if (fresh.range[i][0] > fresh.range[i][1]) {
             fclose(file);
-            solar_os_memory_free(data);
+            solar_os_memory_free(allocation);
             return ESP_ERR_INVALID_RESPONSE;
         }
     }
-    fresh.data = data;
+    fresh.data = allocation;
     fresh.bytes = total;
     fresh.faces_total = (uint8_t)face_count;
     fresh.reduced = reduced;
@@ -503,42 +492,31 @@ esp_err_t solar_os_font_pack_load(const char *name)
     }
     fclose(file);
     if (err != ESP_OK) {
-        solar_os_memory_free(data);
+        solar_os_memory_free(allocation);
         return err;
     }
 
-    if (!pack_lock_take()) {
-        solar_os_memory_free(data);
-        return ESP_ERR_TIMEOUT;
-    }
+    portENTER_CRITICAL(&pack_lock);
     font_pack_t *slot = pack_find(name);
-    font_pack_t old;
-    bool replaced = false;
-    if (slot != NULL) {
-        old = *slot;
-        replaced = true;
-    } else {
+    if (slot == NULL) {
         for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
-            if (!packs[i].active) {
+            if (!packs[i].data) {
                 slot = &packs[i];
                 break;
             }
         }
     }
     if (slot == NULL) {
-        pack_lock_give();
-        solar_os_memory_free(data);
+        portEXIT_CRITICAL(&pack_lock);
+        solar_os_memory_free(allocation);
         return ESP_ERR_NO_MEM;
     }
-    fresh.active = true;
+    font_pack_data_t *replaced = slot->data;
     *slot = fresh;
+    if (!replaced) atomic_fetch_add_explicit(&pack_count, 1U, memory_order_release);
     atomic_fetch_add_explicit(&pack_generation, 1U, memory_order_release);
-    pack_lock_give();
-
-    if (replaced) {
-        vTaskDelay(pdMS_TO_TICKS(PACK_UNLOAD_GRACE_MS));
-        solar_os_memory_free(old.data);
-    }
+    portEXIT_CRITICAL(&pack_lock);
+    pack_data_release(replaced);
     SOLAR_OS_LOGI(TAG,
                   "loaded %s: %u of %u faces, %u bytes%s",
                   name,
@@ -551,17 +529,21 @@ esp_err_t solar_os_font_pack_load(const char *name)
 
 esp_err_t solar_os_font_pack_unload(const char *name)
 {
-    if (name == NULL || !pack_lock_take()) {
+    if (name == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    portENTER_CRITICAL(&pack_lock);
     font_pack_t *pack = pack_find(name);
     if (pack == NULL) {
-        pack_lock_give();
+        portEXIT_CRITICAL(&pack_lock);
         return ESP_ERR_NOT_FOUND;
     }
-    pack_discard(pack);
+    font_pack_data_t *data = pack->data;
+    memset(pack, 0, sizeof(*pack));
+    atomic_fetch_sub_explicit(&pack_count, 1U, memory_order_release);
     atomic_fetch_add_explicit(&pack_generation, 1U, memory_order_release);
-    pack_lock_give();
+    portEXIT_CRITICAL(&pack_lock);
+    pack_data_release(data);
     return ESP_OK;
 }
 
@@ -572,67 +554,77 @@ uint32_t solar_os_font_pack_generation(void)
 
 size_t solar_os_font_pack_count(void)
 {
-    size_t count = 0;
-    for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
-        if (packs[i].active) {
-            count++;
-        }
-    }
-    return count;
+    return atomic_load_explicit(&pack_count, memory_order_acquire);
 }
 
 bool solar_os_font_pack_get(size_t index, solar_os_font_pack_info_t *info)
 {
+    if (!info) return false;
     size_t seen = 0;
-    for (size_t i = 0; info != NULL && i < SOLAR_OS_FONT_PACK_MAX; i++) {
-        if (!packs[i].active) {
+    portENTER_CRITICAL(&pack_lock);
+    for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
+        if (!packs[i].data) {
             continue;
         }
         if (seen++ == index) {
-            strlcpy(info->name, packs[i].name, sizeof(info->name));
+            memcpy(info->name, packs[i].name, sizeof(info->name));
             info->bytes = packs[i].bytes;
             info->faces_loaded = packs[i].faces_loaded;
             info->faces_total = packs[i].faces_total;
             info->reduced = packs[i].reduced;
+            portEXIT_CRITICAL(&pack_lock);
             return true;
         }
     }
+    portEXIT_CRITICAL(&pack_lock);
     return false;
 }
 
-const uint8_t *solar_os_font_pack_face(unsigned style, unsigned size_index, uint32_t codepoint)
+bool solar_os_font_pack_face(unsigned style, unsigned size_index, uint32_t codepoint,
+                             solar_os_font_face_ref_t *ref)
 {
-    if (style >= SOLAR_OS_FONT_STYLE_COUNT || size_index >= SOLAR_OS_FONT_SIZE_COUNT) {
-        return NULL;
+    if (!ref || ref->pack || style >= SOLAR_OS_FONT_STYLE_COUNT || size_index >= SOLAR_OS_FONT_SIZE_COUNT) {
+        return false;
     }
+    portENTER_CRITICAL(&pack_lock);
     for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
         const font_pack_t *pack = &packs[i];
-        if (!pack->active || pack->face[style][size_index] == NULL) {
+        if (!pack->data || pack->face[style][size_index] == NULL) {
             continue;
         }
         for (unsigned r = 0; r < pack->range_count; r++) {
             if (codepoint >= pack->range[r][0] && codepoint <= pack->range[r][1]) {
-                return pack->face[style][size_index];
+                pack->data->references++;
+                *ref = (solar_os_font_face_ref_t){.face = pack->face[style][size_index], .pack = pack->data};
+                portEXIT_CRITICAL(&pack_lock);
+                return true;
             }
         }
     }
-    return NULL;
+    portEXIT_CRITICAL(&pack_lock);
+    return false;
 }
 
 esp_err_t solar_os_font_pack_save_selection(void)
 {
+    char names[SOLAR_OS_FONT_PACK_MAX][SOLAR_OS_FONT_PACK_NAME_MAX] = {0};
+    portENTER_CRITICAL(&pack_lock);
+    for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
+        if (packs[i].data) memcpy(names[i], packs[i].name, sizeof(names[i]));
+    }
+    portEXIT_CRITICAL(&pack_lock);
     char selection[PACK_SELECTION_MAX] = "";
     for (size_t i = 0; i < SOLAR_OS_FONT_PACK_MAX; i++) {
-        if (!packs[i].active) {
+        if (!names[i][0]) {
             continue;
         }
-        if (strlen(selection) + strlen(packs[i].name) + 2 > sizeof(selection)) {
+        if (strlen(selection) + strlen(names[i]) + 2 > sizeof(selection)) {
             return ESP_ERR_NO_MEM;
         }
         if (selection[0] != '\0') {
             strlcat(selection, ",", sizeof(selection));
         }
-        strlcat(selection, packs[i].name, sizeof(selection));
+        strlcat(selection, names[i], sizeof(selection));
     }
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(PACK_NVS_NAMESPACE, NVS_READWRITE, &nvs);
@@ -668,6 +660,9 @@ esp_err_t solar_os_font_pack_saved_selection(char *out, size_t out_len)
         out[0] = '\0';
         return ESP_OK;
     }
+#ifdef ESP_ERR_NVS_INVALID_LENGTH
+    if (err == ESP_ERR_NVS_INVALID_LENGTH) return ESP_ERR_INVALID_SIZE;
+#endif
     return err;
 }
 
@@ -696,7 +691,7 @@ void solar_os_font_pack_restore_selection(void)
     }
 }
 
-esp_err_t solar_os_font_pack_list_files(void (*fn)(const char *name, void *ctx), void *ctx)
+esp_err_t solar_os_font_pack_list_files(solar_os_font_pack_visit_fn fn, void *ctx)
 {
     char dir_path[SOLAR_OS_STORAGE_PATH_MAX];
     esp_err_t err = solar_os_font_pack_dir(dir_path, sizeof(dir_path));

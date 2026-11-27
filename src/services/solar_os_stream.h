@@ -223,9 +223,14 @@ esp_err_t solar_os_stream_read_scalar_sample(solar_os_stream_handle_t *handle,
 esp_err_t solar_os_stream_observe_scalar_sample(const char *id,
     const solar_os_stream_read_options_t *options, solar_os_stream_scalar_sample_t *sample);
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver);
+/* Publish the related endpoints together when every ID and slot is available. */
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count);
 esp_err_t solar_os_stream_unregister(const char *id);
 /* Remove related endpoints atomically; a busy or missing endpoint removes none. */
 esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count);
+/* Remove matching registrations together. Endpoints that already disappeared
+ * or were replaced by another provider are ignored. */
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *ids, const void *const *users, size_t count);
 size_t solar_os_stream_count(void);
 bool solar_os_stream_get(size_t index, solar_os_stream_info_t *info);
 esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info);
@@ -242,6 +247,11 @@ esp_err_t solar_os_stream_open_ex(const char *id,
                                   const char *owner,
                                   const solar_os_stream_open_options_t *options,
                                   solar_os_stream_handle_t *handle);
+/* Checks the endpoint type under the registry lock before selecting an option
+ * union or pinning a provider. A concurrent replacement cannot reinterpret it. */
+esp_err_t solar_os_stream_open_typed(const char *id, const char *owner,
+    solar_os_stream_type_t expected_type, const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *handle);
 esp_err_t solar_os_stream_open(const char *id,
                                const char *owner,
                                solar_os_stream_handle_t *handle);
@@ -255,6 +265,8 @@ esp_err_t solar_os_stream_acquire_frame(solar_os_stream_handle_t *handle,
 esp_err_t solar_os_stream_release_frame(solar_os_stream_handle_t *handle,
                                        solar_os_stream_video_frame_t *frame);
 bool solar_os_stream_handle_valid(const solar_os_stream_handle_t *handle);
+/* Copy registry information and the media format of an open handle. */
+esp_err_t solar_os_stream_handle_info(const solar_os_stream_handle_t *handle, solar_os_stream_info_t *info);
 esp_err_t solar_os_stream_read(solar_os_stream_handle_t *handle,
                                void *data,
                                size_t len,

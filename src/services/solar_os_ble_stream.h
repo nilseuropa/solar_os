@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "solar_os_bluetooth_stream_types_v1.h"
+
+#define SOLAR_OS_BLE_STREAM_MAX 4U
 
 /* Runtime-only, exclusively claimed duplex byte streams. The listener uses
  * the shared BLE peripheral lease; outgoing streams retain the keyboard slot.
@@ -13,12 +16,6 @@ esp_err_t solar_os_ble_stream_connect(const char *name, const uint8_t address[6]
                                       uint8_t address_type);
 esp_err_t solar_os_ble_stream_remove(const char *name);
 
-typedef struct {
-    bool claimed, listening, connected, failed;
-    uint16_t rx_mtu, tx_mtu;
-    uint32_t connection_interval_us;
-    size_t rx_pending, tx_pending;
-} solar_os_ble_stream_info_t;
 esp_err_t solar_os_ble_stream_status(const char *name, solar_os_ble_stream_info_t *info);
 
 /* SolarOS byte-stream service UUID and readable protocol descriptor UUID.

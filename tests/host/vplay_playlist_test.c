@@ -6,6 +6,7 @@
 #include "solar_os_keys.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
 #include "solar_os_storage_browser.h"
 #include "media_preferences_mock.h"
 
@@ -34,10 +35,12 @@ const char *esp_err_to_name(esp_err_t err) { (void)err; return "error"; }
 static void vplay_stop_playback(mpeg_player_t *p) { if (p) p->stopped = true; }
 static void vplay_reap_stopped(mpeg_player_t *p) { (void)p; }
 static void mpeg_player_destroy(mpeg_player_t *p) { if (p) { assert(p->done); destroys++; decoder_live = false; } }
-static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
+static esp_err_t mpeg_player_start(solar_os_context_t *ctx,
+    const solar_os_native_media_widgets_api_v1_t *media_ui, const char *path, bool fit,
     bool fullscreen, double time, bool paused, solar_os_media_preferences_t *preferences, mpeg_player_t **out)
 {
     (void)ctx; (void)fit; (void)fullscreen; (void)time; (void)paused;
+    assert(media_ui == vplay_state.media_ui);
     assert(!decoder_live); decoder_live = true; starts++;
     assert(preferences == vplay_state.preferences);
     memset(&decoder, 0, sizeof(decoder)); snprintf(decoder.path, sizeof(decoder.path), "%s", path);
@@ -66,6 +69,21 @@ void solar_os_media_playlist_draw(solar_os_gfx_t *gfx, int w, int h, size_t coun
     solar_os_m3u_entry_t entry;
     if (count) assert(cursor < count && get(cursor, &entry, user));
 }
+static const solar_os_native_media_widgets_api_v1_t media_ui = {
+    .abi_version = SOLAR_OS_NATIVE_MEDIA_WIDGETS_ABI,
+    .struct_size = sizeof(media_ui),
+    .playlist_draw = solar_os_media_playlist_draw,
+    .player_header_draw = solar_os_media_player_header_draw,
+    .player_controls_draw = solar_os_media_player_controls_draw,
+};
+
+const void *solar_os_native_media_widgets_get_service(const char *name, uint32_t abi, uint32_t minimum)
+{
+    if (strcmp(name, SOLAR_OS_NATIVE_MEDIA_WIDGETS_SERVICE) || abi != media_ui.abi_version ||
+        minimum > media_ui.struct_size) return NULL;
+    return &media_ui;
+}
+
 bool solar_os_m3u_path(const char *path) { return path && strstr(path, ".m3u") != NULL; }
 esp_err_t solar_os_media_playlist_open(solar_os_media_playlist_t *list, solar_os_media_playlist_kind_t kind,
     const char *argument, size_t *selected)
@@ -144,6 +162,7 @@ static void empty_launch_and_add_test(void)
 int main(void)
 {
     vplay_state_t state = {0}; vplay_state_storage = &state;
+    state.media_ui = &media_ui;
     solar_os_m3u_entry_t entries[3] = {
         {.path = "/one.mpg", .title = "One"}, {.path = "/two.mpg", .title = "Two"},
         {.path = "/three.mpg", .title = "Three"},

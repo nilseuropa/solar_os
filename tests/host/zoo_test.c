@@ -43,19 +43,18 @@ size_t strlcpy(char *out, const char *s, size_t n)
 void vTaskDelay(TickType_t ticks) { (void)ticks; }
 void solar_os_work_begin(solar_os_work_budget_t *budget) { budget->last_yield_us = 0; }
 void solar_os_work_checkpoint(solar_os_work_budget_t *budget) { (void)budget; }
-static void *json_alloc(size_t n) { return solar_os_memory_alloc(n,0,""); }
-struct solar_os_json_doc { cJSON *root; };
-esp_err_t solar_os_json_init(void) { cJSON_Hooks h = {json_alloc, solar_os_memory_free}; cJSON_InitHooks(&h); return 0; }
-esp_err_t solar_os_json_parse(const char *s,size_t n,solar_os_json_doc_t **out)
-{ cJSON *root = cJSON_ParseWithLength(s,n); if (!root) return ESP_ERR_INVALID_ARG; *out=json_alloc(sizeof(**out)); (*out)->root=root; return 0; }
-const solar_os_json_value_t *solar_os_json_root(const solar_os_json_doc_t *d) { return d?d->root:NULL; }
-void solar_os_json_free(solar_os_json_doc_t *d) { if(d){ cJSON_Delete(d->root); solar_os_memory_free(d); } }
+
 bool solar_os_storage_sd_is_mounted(void) { return true; }
 bool solar_os_storage_flash_is_mounted(void) { return false; }
 const char *solar_os_storage_sd_mount_point(void) { return mount_root; }
 const char *solar_os_storage_flash_mount_point(void) { return mount_root; }
 esp_err_t solar_os_storage_path_mount_point(const char *path,char *out,size_t size)
 { (void)path; return strlcpy(out,mount_root,size)>=size?ESP_ERR_INVALID_SIZE:ESP_OK; }
+esp_err_t solar_os_storage_normalize_path(const char *path, char *out, size_t capacity)
+{
+    if (!path || path[0] != '/') return ESP_ERR_INVALID_ARG;
+    return strlcpy(out, path, capacity) < capacity ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
 esp_err_t solar_os_storage_join_path(const char *base,const char *name,char *out,size_t size)
 { int n=snprintf(out,size,"%s/%s",base,name); return n<0||(size_t)n>=size?ESP_ERR_INVALID_SIZE:0; }
 esp_err_t solar_os_storage_sibling_path(const char *base,const char *suffix,char *out,size_t size)
@@ -77,8 +76,17 @@ esp_err_t solar_os_storage_replace_file(const char *new_path,const char *active,
 { unlink(backup); bool old=!rename(active,backup); if(rename(new_path,active)){if(old)rename(backup,active);return ESP_FAIL;} unlink(backup);return 0; }
 int __real_rename(const char *, const char *);
 int __wrap_rename(const char *a, const char *b)
-{ if((!strcmp(mode,"swap-failure")&&strstr(a,".stage")) ||
-     (!strcmp(mode,"remove-failure")&&strstr(b,"/.trash/"))){errno=EIO;return -1;}return __real_rename(a,b); }
+{
+    const char *source = strrchr(a, '/');
+    if ((!strcmp(mode, "swap-failure") && source && strstr(source + 1, ".stage")) ||
+        (!strcmp(mode, "zip-publish-failure") && strstr(a, "/.solarzip-") &&
+         !strstr(b, "/.solarzip-") && source && !strcmp(source, "/bundle.zip")) ||
+        (!strcmp(mode, "remove-failure") && strstr(b, "/.trash/"))) {
+        errno = EIO;
+        return -1;
+    }
+    return __real_rename(a, b);
+}
 size_t __real_fwrite(const void *, size_t, size_t, FILE *);
 size_t __wrap_fwrite(const void *data, size_t size, size_t count, FILE *file)
 {
@@ -88,7 +96,8 @@ size_t __wrap_fwrite(const void *data, size_t size, size_t count, FILE *file)
         ssize_t n = readlink(link, path, sizeof(path) - 1);
         if (n >= 0) {
             path[n] = 0;
-            if (strstr(path, ".stage/bundle.json")) {
+            const char *name = strrchr(path, '/');
+            if (strstr(path, ".stage/") && name && !strcmp(name, "/bundle.json")) {
                 size_t bytes = size * count;
                 unsigned char *changed = malloc(bytes); assert(changed);
                 memcpy(changed, data, bytes); changed[0] ^= 1;
@@ -135,7 +144,7 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http
     solar_os_http_event_t header={.type=SOLAR_OS_HTTP_EVENT_HEADER,.status_code=-1,
         .header_name="Content-Type",.header_value="application/octet-stream"};
     error=r->options.event_handler(&header,r->options.user_data);
-    solar_os_http_event_t response={.type=SOLAR_OS_HTTP_EVENT_RESPONSE,.status_code=out->status_code};
+    solar_os_http_event_t response={.type=SOLAR_OS_HTTP_EVENT_RESPONSE,.status_code=out->status_code,.content_length=-1};
     if(!error)error=r->options.event_handler(&response,r->options.user_data);
     const size_t fragments[] = {37, 509, 3, 1023, 7}; size_t chunk = 0;
     while(!error && (n=fread(buffer,1,!strcmp(mode,"fragmented") ?
@@ -150,6 +159,19 @@ esp_err_t solar_os_http_request_perform(solar_os_http_request_t *r,solar_os_http
 /* Stored ZIP paths use the real service. Deflate is deliberately unsupported in
  * this host adapter, matching the zoo's stored-only publication contract. */
 mz_ulong mz_crc32(mz_ulong crc,const unsigned char *p,size_t n) { return crc32(crc,p,n); }
+tdefl_status tdefl_init(tdefl_compressor *state, tdefl_put_buf_func_ptr put, void *user, int flags)
+{
+    (void)state; (void)put; (void)user; (void)flags;
+    assert(false);
+    return TDEFL_STATUS_BAD_PARAM;
+}
+tdefl_status tdefl_compress(tdefl_compressor *state, const void *in, size_t *in_size,
+                            void *out, size_t *out_size, tdefl_flush flush)
+{
+    (void)state; (void)in; (void)in_size; (void)out; (void)out_size; (void)flush;
+    assert(false);
+    return TDEFL_STATUS_BAD_PARAM;
+}
 tinfl_status tinfl_decompress(tinfl_decompressor *r,const mz_uint8 *i,size_t *n,mz_uint8 *start,mz_uint8 *o,size_t *size,mz_uint32 flags)
 {(void)r;(void)i;(void)n;(void)start;(void)o;(void)size;(void)flags;return TINFL_STATUS_FAILED;}
 int main(int argc,char **argv)

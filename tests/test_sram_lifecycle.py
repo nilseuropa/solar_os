@@ -394,6 +394,7 @@ int main(void) {
         code = r"""
 #define SOLAR_OS_SYNTH_OWNER_MAX 24
 #define SOLAR_OS_STREAM_ID_MAX 32
+#define SOLAR_OS_SYNTH_STREAM_NAME_MAX SOLAR_OS_STREAM_ID_MAX
 #define SOLAR_OS_SYNTH_BLOCK_FRAMES_MIN 32
 #define SOLAR_OS_SYNTH_BLOCK_FRAMES_MAX 512
 #define SYNTH_TASK_STACK 5120
@@ -402,7 +403,8 @@ int main(void) {
 typedef void (*solar_os_synth_render_cb_t)(int16_t *, size_t, uint32_t, void *);
 """
         header = source("src/services/solar_os_synth.h")
-        code += typedef(header, "solar_os_synth_config_t") + typedef(header, "solar_os_synth_status_t")
+        types = source("include/solar_os_synth_types_v1.h")
+        code += typedef(header, "solar_os_synth_config_t") + typedef(types, "solar_os_synth_status_t")
         code += typedef(text, "synth_state_t") + r"""
 static synth_state_t synth;
 static int task_failure, start_signalled = 1, worker_finishes;
@@ -464,8 +466,8 @@ int main(void) {
             return re.sub(r'^\s*#(?:include|pragma once).*$', '', text, flags=re.M)
 
         headers = "#include <limits.h>\n#include <math.h>\n#define SOLAR_OS_STREAM_ID_MAX 32\n"
-        for path in ("src/services/solar_os_synth.h", "src/services/solar_os_synth_voice.h",
-                     "src/services/solar_os_dsp.h"):
+        for path in ("include/solar_os_synth_types_v1.h", "src/services/solar_os_synth.h", "src/services/solar_os_synth_voice.h",
+                     "include/solar_os_dsp_types_v1.h", "src/services/solar_os_dsp.h"):
             headers += without_includes(source(path))
         providers = r"""
 static solar_os_synth_status_t publisher;

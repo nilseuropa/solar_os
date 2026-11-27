@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_LINK
+
 #include "solar_os_shell_commands.h"
 
 #include <errno.h>
@@ -484,3 +488,5 @@ void solar_os_shell_cmd_link(solar_os_context_t *ctx, int argc, char **argv)
                                        sizeof(link_commands) / sizeof(link_commands[0]));
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_LINK */

@@ -204,6 +204,25 @@ int main(void)
     assert(solar_os_stream_get_info("sensor0", &info) == ESP_ERR_NOT_FOUND);
     assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_ERR_NOT_FOUND);
 
+    const solar_os_stream_driver_t group[] = {scalar, audio};
+    const solar_os_stream_driver_t duplicates[] = {scalar, scalar};
+    assert(solar_os_stream_register_many(duplicates, 2U) == ESP_ERR_INVALID_ARG);
+    assert(solar_os_stream_count() == 0U);
+    assert(solar_os_stream_register(&scalar) == ESP_OK);
+    assert(solar_os_stream_register_many(group, 2U) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_stream_unregister("sensor0") == ESP_OK);
+    assert(solar_os_stream_register_many(group, 2U) == ESP_OK);
+    assert(solar_os_stream_open("audio0.playback", "group", &first) == ESP_OK);
+    const void *owners[] = {&group, audio.user};
+    assert(solar_os_stream_unregister_many_owned(related, owners, 2U) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_stream_count() == 2U);
+    solar_os_stream_close(&first);
+    assert(solar_os_stream_unregister_many_owned(related, owners, 2U) == ESP_OK);
+    assert(solar_os_stream_get_info("audio0.playback", &info) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_stream_unregister_many_owned(related, owners, 2U) == ESP_OK);
+    assert(solar_os_stream_unregister("sensor0") == ESP_OK);
+
     /* Timestamp-only scalar sources also support ordinary scalar readers. */
     scalar.read_scalar=NULL;
     scalar.observe_scalar_sample=observe_sample;

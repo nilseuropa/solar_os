@@ -12,6 +12,32 @@
 #include "fixedint.h"
 #include "sha512.h"
 
+#ifdef SOLAR_OS_ED25519_SHARED_SHA512
+int sha512_init(sha512_context *context)
+{
+    if (!context) return 1;
+    mbedtls_sha512_init(context);
+    return mbedtls_sha512_starts(context, 0) != 0;
+}
+
+int sha512_update(sha512_context *context, const unsigned char *data, size_t size)
+{
+    return !context || !data || mbedtls_sha512_update(context, data, size) != 0;
+}
+
+int sha512_final(sha512_context *context, unsigned char *out)
+{
+    if (!context || !out) return 1;
+    const int result = mbedtls_sha512_finish(context, out);
+    mbedtls_sha512_free(context);
+    return result != 0;
+}
+
+int sha512(const unsigned char *data, size_t size, unsigned char *out)
+{
+    return !data || !out || mbedtls_sha512(data, size, out, 0) != 0;
+}
+#else
 /* the K array */
 static const uint64_t K[80] = {
     UINT64_C(0x428a2f98d728ae22), UINT64_C(0x7137449123ef65cd),
@@ -273,3 +299,4 @@ int sha512(const unsigned char *message, size_t message_len, unsigned char *out)
     if ((ret = sha512_final(&ctx, out))) return ret;
     return 0;
 }
+#endif

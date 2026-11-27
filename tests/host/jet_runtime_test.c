@@ -3,9 +3,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include "solar_os.h"
 #include "solar_os_jet.h"
 #include "solar_os_memory.h"
 #include "solar_os_native.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_jet.h"
 #include "solar_os_display.h"
 #include "solar_os_frame_presenter.h"
 #include "jet_fixture.h"
@@ -17,11 +20,15 @@ static unsigned allocations,claims,leases,attempts,presented;
 static int fail_at=-1;
 static bool installed=true,join_ok=true,release_ok=true,display_busy=false,bad_api=false;
 static bool legacy_api;
+static bool callback_lease, callback_release_ok;
+static solar_os_context_t application_context;
+static const solar_os_app_t owner_app, other_app;
+static const solar_os_app_t *running_app;
 static bool terminal_blocked,orientation_locked;
 static solar_os_jet_api_v1_t provider;
 static uint8_t image[64*48*2];
 struct solar_os_frame_presenter {
-    solar_os_frame_presenter_config_t config;
+    solar_os_frame_presenter_options_v1_t config;
     uint8_t *buffers[3],*writing,*last;
     unsigned index;
     bool active;
@@ -78,11 +85,25 @@ int solar_os_native_library_acquire(const char *id,uint32_t abi,uint32_t minimum
     *api=&provider;return 0;
 }
 int solar_os_native_library_release(uint32_t lease) {
+    if(lease==3) {
+        assert(callback_lease&&solar_os_jet_engine_idle());
+        if(!callback_release_ok) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+        callback_lease=false;return 0;
+    }
     assert(lease==1&&leases==1&&solar_os_jet_engine_idle());
     if(!release_ok) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
     --leases;return 0;
 }
-esp_err_t solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,const solar_os_frame_presenter_config_t *c) {
+int solar_os_native_library_retain(uint32_t lease,uint32_t *retained) {
+    assert(retained&&!callback_lease);
+    if(lease!=2) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    callback_lease=true;*retained=3;return 0;
+}
+const solar_os_app_t *solar_os_application_descriptor(void) {return running_app;}
+solar_os_context_t *solar_os_application_context(void) {return running_app ? &application_context : NULL;}
+solar_os_gfx_t *solar_os_context_gfx(solar_os_context_t *ctx) {assert(ctx==&application_context);return &gfx;}
+esp_err_t solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,solar_os_gfx_t *target,const solar_os_frame_presenter_options_v1_t *c) {
+    assert(target==&gfx);
     assert(c->format==SOLAR_OS_DISPLAY_FORMAT_RGB565&&c->allow_mono_fallback&&c->literal_mono_palette);
     assert(c->request_high_refresh==!(gfx.formats&SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT));
     assert(c->stride==gfx.width*2);
@@ -121,15 +142,94 @@ void solar_os_frame_presenter_take_stats(solar_os_frame_presenter_t *p,solar_os_
     memset(stats,0,sizeof(*stats));if(p) {*stats=p->stats;memset(&p->stats,0,sizeof(p->stats));}
 }
 void jet_test_reset(bool mono) {
-    assert(!allocations&&!claims&&!leases&&solar_os_jet_engine_idle());
+    assert(!allocations&&!claims&&!leases&&!callback_lease&&solar_os_jet_engine_idle());
     gfx=(struct solar_os_gfx){64,48,mono?SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT:SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT};
     attempts=presented=0;installed=join_ok=release_ok=true;display_busy=bad_api=false;fail_at=-1;
+    callback_release_ok=true;running_app=NULL;
 }
 solar_os_gfx_t *jet_test_gfx(void) {return &gfx;}
-void jet_test_assert_clean(void) {assert(!allocations&&!claims&&!leases&&!terminal_blocked&&solar_os_jet_engine_idle());}
+void jet_test_assert_clean(void) {
+    assert(!allocations&&!claims&&!leases&&!callback_lease&&!terminal_blocked&&solar_os_jet_engine_idle());
+}
 const uint8_t *jet_test_image(size_t *bytes) {*bytes=sizeof(image);return image;}
 #ifndef JET_TEST_NO_MAIN
 static bool cancel(void *user) {(void)user;return true;}
+
+static const solar_os_native_jet_api_v1_t *native_api;
+static bool cancel_after_reentry(void *opaque)
+{
+    const solar_os_native_handle_t scene = *(solar_os_native_handle_t *)opaque;
+    solar_os_jet_status_t stats;
+    assert(native_api->status(scene, &stats) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(native_api->close(scene) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    return true;
+}
+
+static int shader(void *user, uint32_t slot, double u, double v,
+    const solar_os_jet_shader_parameters_t *parameters, uint32_t *color)
+{
+    (void)user; (void)slot; (void)u; (void)v; (void)parameters;
+    *color = 0x123456;
+    return 0;
+}
+
+static void test_native_scene(void)
+{
+    jet_test_reset(false);
+    native_api = solar_os_native_jet_get_service(SOLAR_OS_NATIVE_JET_SERVICE, 1, sizeof(*native_api));
+    assert(native_api);
+    assert(!solar_os_native_jet_get_service(SOLAR_OS_NATIVE_JET_SERVICE, 2, sizeof(*native_api)));
+    solar_os_native_handle_t scene;
+    solar_os_jet_options_t options = {.display = "display0"};
+    solar_os_jet_status_t stats;
+    solar_os_jet_reply_t reply;
+    const solar_os_jet_shader_callback_t callback = {.function = shader};
+    const solar_os_jet_command_t install = {.opcode = SOLAR_OS_JET_SHADER,
+        .fields = 1U << JET_SHADER_kind, .values = {[JET_SHADER_kind] = 3},
+        .data = &callback, .bytes = sizeof(callback)};
+
+    assert(native_api->open(&options, 7, &scene, NULL, 0) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !scene);
+    jet_test_assert_clean();
+    assert(!native_api->open(&options, 0, &scene, NULL, 0));
+    assert(native_api->execute(scene, &install, &reply) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!native_api->close(scene));
+    jet_test_assert_clean();
+
+    bad_api = true; release_ok = false;
+    assert(native_api->open(&options, 2, &scene, NULL, 0) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED && scene);
+    assert(native_api->status(scene, &stats) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(native_api->close(scene) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && callback_lease);
+    release_ok = true; callback_release_ok = false;
+    assert(native_api->close(scene) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !leases && callback_lease);
+    bad_api = false; callback_release_ok = true;
+    assert(!native_api->close(scene));
+    jet_test_assert_clean();
+
+    assert(!native_api->open(&options, 2, &scene, NULL, 0) && callback_lease);
+    assert(!native_api->execute(scene, &install, &reply) && reply.handle);
+    assert(!native_api->close(scene));
+    jet_test_assert_clean();
+
+    running_app = &owner_app; options.display = NULL;
+    assert(!native_api->open(&options, 0, &scene, NULL, 0));
+    bool uses_foreground;
+    assert(!native_api->uses_foreground(scene, &uses_foreground) && uses_foreground);
+    running_app = &other_app;
+    assert(native_api->execute(scene, &install, &reply) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    running_app = &owner_app;
+    assert(!native_api->execute(scene, &install, &reply) && reply.handle);
+    uint32_t object;
+    assert(!native_api->cube(scene, 100, 100, 100, 0xffffff, &object) && object);
+    assert(!native_api->render(scene, NULL, NULL) && presented == 1);
+    assert(native_api->render(scene, cancel_after_reentry, &scene) == SOLAR_OS_NATIVE_ERROR_TIMEOUT && presented == 1);
+    assert(!native_api->status(scene, &stats) && stats.frames == 1);
+    assert(!native_api->set_suspended(scene, true) && !claims);
+    assert(!native_api->set_suspended(scene, false) && claims);
+    assert(!solar_os_native_handle_close_owner(&owner_app));
+    assert(native_api->close(scene) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    jet_test_assert_clean();
+}
+
 int main(void) {
     for(unsigned mono=0;mono<2;++mono) {
         jet_test_reset(mono);
@@ -175,6 +275,7 @@ int main(void) {
         assert(!solar_os_jet_uses_gfx(s,&gfx));
         assert(solar_os_jet_close(&s)==ESP_OK);jet_test_assert_clean();
     }
+    test_native_scene();
     puts("Jet frontend lease, exchange, admission failures and lifecycle passed");return 0;
 }
 #endif

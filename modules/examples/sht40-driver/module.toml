@@ -1,0 +1,23 @@
+schema_version = 2
+type = "driver"
+id = "sht40-driver"
+name = "SHT40 Sensor Driver"
+version = "1.0.0"
+description = "Attach an SHT40 temperature and humidity sensor to a configured I2C bus."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 20
+required_capabilities = ["psram", "i2c"]
+required_services = [
+    { name = "driver.registration", abi = 1, minimum_struct_size = 12 },
+    { name = "bus", abi = 1, minimum_struct_size = 72 },
+    { name = "memory", abi = 1, minimum_struct_size = 16 },
+    { name = "sensors", abi = 1, minimum_struct_size = 44 },
+    { name = "time", abi = 1, minimum_struct_size = 16 },
+]
+artifact = "solaros_native_sht40.driver.elf"
+
+[build]
+entry = "main"
+sources = ["main/sht40_driver.c"]

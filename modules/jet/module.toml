@@ -20,5 +20,6 @@ required_services = [
 [sdk.headers]
 "solar_os_jet_abi.h" = "solar_os_jet_abi.h"
 "solar_os_jet_commands.h" = "solar_os_jet_commands.h"
+"solar_os_jet_wire_types_v1.h" = "solar_os_jet_wire_types_v1.h"
 "solar_os_jet_scene_commands.h" = "solar_os_jet_scene_commands.h"
 "solar_os_jet_effect_commands.h" = "solar_os_jet_effect_commands.h"

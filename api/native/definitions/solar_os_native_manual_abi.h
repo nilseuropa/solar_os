@@ -1,0 +1,50 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_MANUAL_SERVICE "manual"
+#define SOLAR_OS_NATIVE_MANUAL_ABI 1U
+#define SOLAR_OS_NATIVE_MANUAL_SEARCH_MAX 12U
+#define SOLAR_OS_NATIVE_MANUAL_BODY 0U
+#define SOLAR_OS_NATIVE_MANUAL_QUICK_REFERENCE 1U
+#define SOLAR_OS_NATIVE_MANUAL_MARKDOWN 2U
+
+typedef struct {
+    const char *id, *title, *section, *section_title, *summary, *aliases, *keywords;
+} solar_os_native_manual_page_v1_t;
+
+typedef struct {
+    const char *page_id, *topic, *section;
+    uint32_t offset, length;
+    uint16_t part, parts;
+} solar_os_manual_reference_t;
+
+typedef bool (*solar_os_native_manual_page_fn)(const solar_os_native_manual_page_v1_t *page, void *user);
+typedef bool (*solar_os_native_manual_reference_fn)(const solar_os_manual_reference_t *reference, void *user);
+
+/* Browse the active signed manual or select the firmware-bundled edition.
+ * Metadata pointers are valid only during the synchronous visit. Return
+ * false from a visitor to stop a search. Page search preserves Help's order.
+ * The visited count includes the callback that stopped the search.
+ *
+ * Reads copy a byte range and report the full size of that same text. Later
+ * calls may see an updated guide. Append a terminator when the
+ * destination requires a C string. Reference offsets describe the
+ * firmware-bundled guide. The reference index is available when the bundled
+ * guide is active. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    size_t (*page_count)(bool bundled);
+    int (*page_info)(bool bundled, size_t index, solar_os_native_manual_page_fn visit, void *user);
+    int (*find_page)(bool bundled, const char *name, solar_os_native_manual_page_fn visit, void *user);
+    int (*search_pages)(bool bundled, const char *query, size_t limit, solar_os_native_manual_page_fn visit,
+        void *user, size_t *visited);
+    int (*read_page)(bool bundled, const char *name, uint32_t format, size_t offset,
+        char *buffer, size_t capacity, size_t *copied, size_t *total);
+    size_t (*reference_count)(void);
+    int (*reference_info)(size_t index, solar_os_native_manual_reference_fn visit, void *user);
+    int (*search_references)(const char *query, size_t limit, solar_os_native_manual_reference_fn visit,
+        void *user, size_t *visited);
+    int (*read_reference)(const solar_os_manual_reference_t *reference, size_t offset,
+        char *buffer, size_t capacity, size_t *copied, size_t *total);
+} solar_os_native_manual_api_v1_t;

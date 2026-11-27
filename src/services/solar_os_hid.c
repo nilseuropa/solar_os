@@ -43,6 +43,16 @@ typedef struct {
 } hid_state_t;
 
 static hid_state_t hid;
+static portMUX_TYPE hid_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static bool hid_initializing;
+
+static bool hid_initialized(void)
+{
+    portENTER_CRITICAL(&hid_init_lock);
+    const bool initialized = hid.initialized;
+    portEXIT_CRITICAL(&hid_init_lock);
+    return initialized;
+}
 
 static void hid_lock(void)
 {
@@ -56,7 +66,7 @@ static void hid_unlock(void)
 
 static bool hid_can_accept(void)
 {
-    return hid.initialized && hid_port_is_connected();
+    return hid_initialized() && hid_port_is_connected();
 }
 
 static int8_t hid_mouse_chunk(int32_t value)
@@ -191,15 +201,26 @@ static void hid_notify(void)
 
 esp_err_t solar_os_hid_init(void)
 {
+    if (!hid_port_available()) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    portENTER_CRITICAL(&hid_init_lock);
     if (hid.initialized) {
+        portEXIT_CRITICAL(&hid_init_lock);
         return ESP_OK;
     }
+    if (hid_initializing) {
+        portEXIT_CRITICAL(&hid_init_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    hid_initializing = true;
+    portEXIT_CRITICAL(&hid_init_lock);
 
     hid.mutex = xSemaphoreCreateMutex();
     hid.keyboard_queue = xQueueCreate(HID_KEYBOARD_QUEUE_LEN,
                                       sizeof(hid_keyboard_event_t));
     if (hid.mutex == NULL || hid.keyboard_queue == NULL) {
-        return ESP_ERR_NO_MEM;
+        goto failed;
     }
     hid.gamepad_hat = SOLAR_OS_HID_HAT_CENTERED;
 
@@ -213,10 +234,28 @@ esp_err_t solar_os_hid_init(void)
                                              &hid.task,
                                              tskNO_AFFINITY,
                                              SOLAR_OS_TASK_ROLE_SYSTEM) != pdPASS) {
-        return ESP_ERR_NO_MEM;
+        goto failed;
     }
+    portENTER_CRITICAL(&hid_init_lock);
     hid.initialized = true;
+    hid_initializing = false;
+    portEXIT_CRITICAL(&hid_init_lock);
     return ESP_OK;
+
+failed:
+    if (hid.keyboard_queue != NULL) {
+        vQueueDelete(hid.keyboard_queue);
+        hid.keyboard_queue = NULL;
+    }
+    if (hid.mutex != NULL) {
+        vSemaphoreDelete(hid.mutex);
+        hid.mutex = NULL;
+    }
+    hid.task = NULL;
+    portENTER_CRITICAL(&hid_init_lock);
+    hid_initializing = false;
+    portEXIT_CRITICAL(&hid_init_lock);
+    return ESP_ERR_NO_MEM;
 }
 
 void solar_os_hid_get_status(solar_os_hid_status_t *status)
@@ -224,9 +263,10 @@ void solar_os_hid_get_status(solar_os_hid_status_t *status)
     if (status == NULL) {
         return;
     }
+    const bool initialized = hid_initialized();
     *status = (solar_os_hid_status_t){
-        .initialized = hid.initialized,
-        .connected = hid.initialized && hid_port_is_connected(),
+        .initialized = initialized,
+        .connected = initialized && hid_port_is_connected(),
     };
 }
 
@@ -442,7 +482,7 @@ esp_err_t solar_os_hid_gamepad_send(void)
 
 void solar_os_hid_release_all(void)
 {
-    if (!hid.initialized) {
+    if (!hid_initialized()) {
         return;
     }
     hid_lock();

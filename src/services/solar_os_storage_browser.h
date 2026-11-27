@@ -7,20 +7,9 @@
 #include "esp_err.h"
 #include "solar_os_storage.h"
 #include "solar_os_m3u.h"
-
-#define SOLAR_OS_STORAGE_BROWSER_NAME_MAX 96U
+#include "solar_os_native_storage_browser_abi.h"
 
 typedef struct solar_os_storage_browser solar_os_storage_browser_t;
-
-typedef bool (*solar_os_storage_browser_filter_t)(const char *name,
-                                                  void *user);
-
-typedef struct {
-    char name[SOLAR_OS_STORAGE_BROWSER_NAME_MAX];
-    uint64_t size;
-    bool is_directory;
-    bool is_parent;
-} solar_os_storage_browser_entry_t;
 
 esp_err_t solar_os_storage_browser_create(
     solar_os_storage_browser_filter_t filter,
@@ -29,6 +18,8 @@ esp_err_t solar_os_storage_browser_create(
 void solar_os_storage_browser_destroy(solar_os_storage_browser_t *browser);
 esp_err_t solar_os_storage_browser_open(solar_os_storage_browser_t *browser,
                                         const char *path);
+esp_err_t solar_os_storage_browser_open_filtered(solar_os_storage_browser_t *browser,
+    const char *path, solar_os_storage_browser_filter_t filter, void *user);
 esp_err_t solar_os_storage_browser_refresh(solar_os_storage_browser_t *browser);
 const char *solar_os_storage_browser_path(
     const solar_os_storage_browser_t *browser);
@@ -46,6 +37,9 @@ esp_err_t solar_os_storage_browser_activate(solar_os_storage_browser_t *browser,
                                             char *selected,
                                             size_t selected_len,
                                             bool *file_selected);
+esp_err_t solar_os_storage_browser_activate_filtered(solar_os_storage_browser_t *browser,
+    char *selected, size_t selected_len, bool *file_selected,
+    solar_os_storage_browser_filter_t filter, void *user);
 /* Recorder and other clients can use this as their destination directory. */
 esp_err_t solar_os_storage_browser_select_directory(
     const solar_os_storage_browser_t *browser,

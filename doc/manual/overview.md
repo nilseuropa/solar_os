@@ -31,8 +31,9 @@ same service with built-in hardware or an attached expansion device.
 
 A **board profile** describes a supported hardware target. **Capabilities**
 describe what it can support, such as graphics, Wi-Fi, or expansion I2C.
-A **firmware flavor** selects a set of compiled **packages**: services,
-drivers, apps, and jobs. Features also depend on the hardware being present.
+A **firmware flavor** selects compiled **packages** for apps, jobs, engines
+and expansion drivers. OS services and required board drivers are included
+automatically. Features also depend on the hardware being present.
 
 Check your device before following an example:
 

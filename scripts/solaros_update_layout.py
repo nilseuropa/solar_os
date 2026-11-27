@@ -19,6 +19,12 @@ class UpdateLayout:
     app_bytes: int
     ota: bool
 
+    def check_image(self, image: Path) -> None:
+        size = image.stat().st_size
+        if size > self.app_bytes:
+            raise ValueError(f"{image.name} is {size:,} bytes, exceeding the "
+                             f"application slot limit of {self.app_bytes:,} bytes")
+
 
 _LAYOUTS = {
     32 * MIB: (

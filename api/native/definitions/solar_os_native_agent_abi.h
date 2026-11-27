@@ -1,0 +1,49 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_AGENT_SERVICE "agent"
+#define SOLAR_OS_NATIVE_AGENT_ABI 1U
+
+#define SOLAR_OS_NATIVE_AGENT_POLICY_OFF 0U
+#define SOLAR_OS_NATIVE_AGENT_POLICY_READ_ONLY 1U
+#define SOLAR_OS_NATIVE_AGENT_POLICY_CONFIRM 2U
+#define SOLAR_OS_NATIVE_AGENT_POLICY_ALL 3U
+
+typedef struct {
+    char provider[24];
+    char endpoint[256];
+    char model[96];
+    char reasoning_effort[12];
+    uint32_t initialized, configured, api_key_set, running;
+    uint32_t tool_policy, max_tools, last_tool_call_count, last_max_tools;
+    uint32_t request_count, failure_count, tool_executed_count, tool_denied_count, tool_failed_count;
+    int32_t last_http_status, last_error;
+    uint32_t last_duration_ms, last_bytes_received;
+    uint32_t last_internal_before, last_internal_low, last_internal_after;
+    uint32_t last_internal_largest_before, last_internal_largest_after;
+    uint32_t last_psram_before, last_psram_after;
+} solar_os_native_agent_status_v1_t;
+
+typedef struct {
+    uint32_t abi_version, struct_size;
+    /* Copy the shared settings and runtime counters. Credentials are conveyed
+     * only by api_key_set. Sizes and memory measurements are in bytes. */
+    int (*status)(solar_os_native_agent_status_v1_t *status);
+    /* Update the same persisted settings used by the built-in agent. An empty
+     * API key clears the credential. Each successful update affects new runs. */
+    int (*set_endpoint)(const char *endpoint);
+    int (*set_model)(const char *model);
+    int (*set_api_key)(const char *api_key);
+    int (*set_reasoning_effort)(const char *effort);
+    int (*set_tool_policy)(uint32_t policy);
+    int (*set_max_tools)(uint32_t limit);
+    int (*parse_tool_policy)(const char *name, uint32_t *policy);
+    const char *(*tool_policy_name)(uint32_t policy);
+    /* Restore settings defaults and clear the saved credential. BUSY while a
+     * run is active. Conversations remain stored in the conversation service. */
+    int (*forget)(void);
+    /* Search the installed reference content and write JSON into the caller's
+     * buffer. INVALID_SIZE indicates insufficient output capacity. */
+    int (*reference_search)(const char *query, char *json, size_t capacity);
+} solar_os_native_agent_api_v1_t;

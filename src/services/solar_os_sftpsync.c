@@ -950,6 +950,15 @@ esp_err_t solar_os_sftpsync_start(const solar_os_sftpsync_config_t *config,
     return ESP_OK;
 }
 
+esp_err_t solar_os_sftpsync_stop_wait(solar_os_sftpsync_session_t *session, uint32_t timeout_ms)
+{
+    if (session == NULL || timeout_ms > 60000U) return ESP_ERR_INVALID_ARG;
+    session->stop_requested = true;
+    if (!solar_os_task_wait_done(session->task, &session->task_done, timeout_ms)) return ESP_ERR_TIMEOUT;
+    sftpsync_session_destroy(session);
+    return ESP_OK;
+}
+
 bool solar_os_sftpsync_stop(solar_os_sftpsync_session_t *session)
 {
     if (session == NULL) {

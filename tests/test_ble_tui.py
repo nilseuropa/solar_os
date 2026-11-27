@@ -103,11 +103,15 @@ class BleTuiTest(unittest.TestCase):
         self.assertIn(".flags = SOLAR_OS_APP_FLAG_RESUMABLE", TUI)
         self.assertIn(".state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED", TUI)
 
-    def test_package_builds_tui_with_ble_service(self):
-        package_start = PACKAGES.index("[packages.service_ble]")
+    def test_shell_owns_tui_and_ble_service_stays_independent(self):
+        package_start = PACKAGES.index("[packages.core_shell]")
         package_end = PACKAGES.index("\n[packages.", package_start + 1)
         package = PACKAGES[package_start:package_end]
         self.assertIn('"shell/solar_os_shell_ble_tui.c"', package)
+        service_start = PACKAGES.index("[packages.service_ble]")
+        service_end = PACKAGES.index("\n[packages.", service_start + 1)
+        self.assertNotIn('"shell/solar_os_shell_ble_tui.c"', PACKAGES[service_start:service_end])
+        self.assertIn("#if SOLAR_OS_PACKAGE_SERVICE_BLE", TUI)
 
 
 if __name__ == "__main__":

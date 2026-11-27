@@ -6,58 +6,16 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_resource_limits.h"
+#include "solar_os_native_task_admission_abi.h"
 
 #define SOLAR_OS_TASK_STOP_WAIT_MS 2000U
 #define SOLAR_OS_TASK_STOP_POLL_MS 20U
 #define SOLAR_OS_TASK_REAP_WAIT_MS 100U
-#define SOLAR_OS_TASK_NAME_MAX 24U
-
-typedef enum {
-    SOLAR_OS_TASK_ROLE_SYSTEM = 0,
-    SOLAR_OS_TASK_ROLE_FOREGROUND,
-    SOLAR_OS_TASK_ROLE_BACKGROUND,
-    SOLAR_OS_TASK_ROLE_COUNT,
-} solar_os_task_role_t;
-
-typedef struct {
-    uint32_t requests;
-    uint32_t successes;
-    uint32_t denied;
-    uint32_t failures;
-    uint64_t requested_stack_bytes;
-} solar_os_task_role_stats_t;
-
-typedef struct {
-    solar_os_task_role_stats_t roles[SOLAR_OS_TASK_ROLE_COUNT];
-    uint32_t waiting;
-    uint32_t wait_successes;
-    uint32_t wait_cancellations;
-    bool last_failure_valid;
-    bool last_failure_denied;
-    bool last_failure_external_stack;
-    solar_os_task_role_t last_failure_role;
-    uint32_t last_failure_stack_bytes;
-    uint32_t last_failure_internal_free_bytes;
-    uint32_t last_failure_internal_largest_block_bytes;
-    uint32_t last_failure_external_free_bytes;
-    uint32_t last_failure_external_largest_block_bytes;
-    char last_failure_name[SOLAR_OS_TASK_NAME_MAX];
-} solar_os_task_status_t;
 
 typedef struct {
     bool launch_locked;
     bool external_stack;
 } solar_os_task_managed_admission_t;
-
-typedef struct {
-    uint32_t internal_free_bytes;
-    uint32_t internal_largest_block_bytes;
-    uint32_t external_free_bytes;
-    uint32_t external_largest_block_bytes;
-    uint32_t background_internal_reserve_bytes;
-    uint32_t task_internal_overhead_bytes;
-    bool external_stacks_supported;
-} solar_os_task_admission_status_t;
 
 BaseType_t solar_os_task_create_pinned(TaskFunction_t task,
                                         const char *name,

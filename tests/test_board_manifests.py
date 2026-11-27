@@ -881,6 +881,7 @@ bindings = { gpio = 7 }
             1,
         )[1].split("#define SOLAR_OS_BOARD_CONNECTOR_LAYOUT_TITLE", 1)[0]
         self.assertNotIn("}}}},", device_section)
+        self.assertEqual(device_section.count(".bindings = (const solar_os_expansion_binding_t[])"), 3)
         self.assertIn("storage_expansion.cmake", cmake)
         self.assertIn("expansion_sdspi", required_packages(board, self.drivers))
 

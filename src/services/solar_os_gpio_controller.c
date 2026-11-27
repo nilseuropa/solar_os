@@ -30,14 +30,18 @@ typedef struct {
 
 static EXT_RAM_BSS_ATTR gpio_controller_slot_t controllers[SOLAR_OS_GPIO_CONTROLLER_MAX];
 static SemaphoreHandle_t controllers_mutex;
+static portMUX_TYPE controllers_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR StaticSemaphore_t controllers_mutex_storage;
 
 static esp_err_t ensure_init(void)
 {
+    portENTER_CRITICAL(&controllers_init_lock);
     if (controllers_mutex == NULL) {
         controllers_mutex = xSemaphoreCreateMutexStatic(&controllers_mutex_storage);
     }
-    return controllers_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    const bool ready = controllers_mutex != NULL;
+    portEXIT_CRITICAL(&controllers_init_lock);
+    return ready ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static gpio_controller_slot_t *find_locked(const char *name)
@@ -108,13 +112,18 @@ esp_err_t solar_os_gpio_controller_register(
 
 esp_err_t solar_os_gpio_controller_unregister(const char *name)
 {
+    return solar_os_gpio_controller_unregister_owned(name, NULL);
+}
+
+esp_err_t solar_os_gpio_controller_unregister_owned(const char *name, const void *context)
+{
     if (name == NULL || name[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
     ESP_RETURN_ON_ERROR(ensure_init(), "gpio-controller", "registry init failed");
     xSemaphoreTake(controllers_mutex, portMAX_DELAY);
     gpio_controller_slot_t *slot = find_locked(name);
-    if (slot == NULL) {
+    if (slot == NULL || (context && slot->ctx != context)) {
         xSemaphoreGive(controllers_mutex);
         return ESP_ERR_NOT_FOUND;
     }
@@ -223,6 +232,23 @@ bool solar_os_gpio_line_parse(const char *text, solar_os_gpio_line_ref_t *line)
 bool solar_os_gpio_line_is_native(const solar_os_gpio_line_ref_t *line)
 {
     return line != NULL && line->controller[0] == '\0';
+}
+
+esp_err_t solar_os_gpio_line_claim_controller(const solar_os_gpio_line_ref_t *line,
+    const char *owner, uint8_t *controller_id)
+{
+    if (!line || !line->controller[0] || !controller_id) return ESP_ERR_INVALID_ARG;
+    ESP_RETURN_ON_ERROR(ensure_init(), "gpio-controller", "registry init failed");
+    xSemaphoreTake(controllers_mutex, portMAX_DELAY);
+    gpio_controller_slot_t *slot = find_locked(line->controller);
+    esp_err_t error = ESP_ERR_NOT_FOUND;
+    if (slot) {
+        error = line->line < slot->line_count ? solar_os_resource_claim(
+            SOLAR_OS_RESOURCE_GPIO_LINE, slot->id, line->line, owner, "gpio line") : ESP_ERR_INVALID_ARG;
+        if (error == ESP_OK) *controller_id = slot->id;
+    }
+    xSemaphoreGive(controllers_mutex);
+    return error;
 }
 
 static esp_err_t begin_call(const solar_os_gpio_line_ref_t *line,

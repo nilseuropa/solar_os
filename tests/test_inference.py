@@ -3,7 +3,6 @@ import re
 import runpy
 import sys
 import tempfile
-import tomllib
 import types
 import unittest
 from pathlib import Path
@@ -98,10 +97,10 @@ class InferenceIntegrationTest(unittest.TestCase):
                 self.assertEqual(packages["service_inference"], target == "esp32s3" and bool(capabilities))
                 for dependency in ("service_camera", "service_image", "service_vision"):
                     self.assertFalse(packages[dependency])
-        for name in ("writerdeck", "full"):
-            flavor = tomllib.loads((ROOT / f"flavors/{name}.toml").read_text())
-            self.assertTrue(flavor["groups"].get("inference", False))
-            self.assertFalse(flavor["groups"].get("inference_backend", False))
+        for name in ("core", "classic", "writerdeck", "full"):
+            _, _, _, packages = flavors.load_flavor(ROOT / f"flavors/{name}.toml", catalog)
+            self.assertTrue(packages["service_inference"])
+            self.assertFalse(packages["backend_inference_espdl"])
 
     def test_builtin_backend_remains_selectable_for_custom_profiles(self):
         catalog = flavors.load_catalog(ROOT / "packages/solar_os_packages.toml")

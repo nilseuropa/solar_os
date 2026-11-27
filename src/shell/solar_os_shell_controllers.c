@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS
+
 #include "solar_os_shell_commands.h"
 
 #include <errno.h>
@@ -181,3 +185,5 @@ void solar_os_shell_cmd_controller(solar_os_context_t *ctx, int argc, char **arg
         if (err == ESP_ERR_INVALID_ARG) solar_os_shell_io_writeln(io, usage);
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_CONTROLLERS */

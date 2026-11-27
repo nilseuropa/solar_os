@@ -450,26 +450,28 @@ esp_err_t solar_os_http_stream_read(
     return ESP_ERR_TIMEOUT;
 }
 
-esp_err_t solar_os_http_stream_close(
+static esp_err_t http_stream_close_common(
     solar_os_http_stream_session_t *session,
-    uint32_t handle)
+    uint32_t handle, uint32_t timeout_ms, bool detach)
 {
     size_t index = 0;
     solar_os_http_stream_t *stream = http_stream_find(session, handle, &index);
     if (stream == NULL) {
         return ESP_ERR_NOT_FOUND;
     }
-    session->streams[index] = NULL;
+    if (detach) session->streams[index] = NULL;
     stream->stop_requested = true;
     if (stream->request != NULL) {
         (void)solar_os_http_request_cancel(stream->request);
     }
     if (solar_os_task_wait_done(stream->task,
                                 &stream->task_done,
-                                HTTP_STREAM_STOP_WAIT_MS)) {
+                                timeout_ms)) {
+        session->streams[index] = NULL;
         http_stream_destroy(stream);
         return ESP_OK;
     }
+    if (!detach) return ESP_ERR_TIMEOUT;
 
     bool completed = false;
     portENTER_CRITICAL(&http_stream_lock);
@@ -482,6 +484,14 @@ esp_err_t solar_os_http_stream_close(
         http_stream_destroy(stream);
     }
     return completed ? ESP_OK : ESP_ERR_TIMEOUT;
+}
+esp_err_t solar_os_http_stream_close(solar_os_http_stream_session_t *session,uint32_t handle)
+{ return http_stream_close_common(session,handle,HTTP_STREAM_STOP_WAIT_MS,true); }
+esp_err_t solar_os_http_stream_close_wait(solar_os_http_stream_session_t *session,
+    uint32_t handle,uint32_t timeout_ms)
+{
+    if (timeout_ms>SOLAR_OS_HTTP_STREAM_MAX_TIMEOUT_MS) return ESP_ERR_INVALID_ARG;
+    return http_stream_close_common(session,handle,timeout_ms,false);
 }
 
 void solar_os_http_stream_close_all(solar_os_http_stream_session_t *session)

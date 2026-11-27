@@ -161,7 +161,6 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 
 static void clear_device(bq25896_device_t *device)
 {
-    solar_os_power_unregister_off_provider(device);
     if (device->mutex != NULL) vSemaphoreDelete(device->mutex);
     memset(device, 0, sizeof(*device));
 }
@@ -253,8 +252,10 @@ esp_err_t solar_os_bq25896_detach(const char *name)
     for (size_t i = 0; i < BQ25896_DEVICE_MAX; i++) {
         bq25896_device_t *device = &devices[i];
         if (!device->active || strcmp(device->name, name) != 0) continue;
-        ESP_RETURN_ON_ERROR(solar_os_charger_unregister(name),
-                            TAG, "charger device is busy");
+        const esp_err_t charger_error = solar_os_charger_unregister_owned(name, device);
+        if (charger_error != ESP_OK && charger_error != ESP_ERR_NOT_FOUND) return charger_error;
+        const esp_err_t power_error = solar_os_power_unregister_off_provider(device);
+        if (power_error != ESP_OK && power_error != ESP_ERR_NOT_FOUND) return power_error;
         const esp_err_t ret = bq25896_deinit(&device->chip);
         clear_device(device);
         return ret;

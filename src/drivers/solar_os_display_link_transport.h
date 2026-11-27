@@ -9,6 +9,10 @@ typedef struct {
   esp_err_t (*prepare)(void *, bool reset);
   esp_err_t (*configured)(void *, const sdlp_info_t *);
   void (*destroy)(void *);
+  /* For retryable owners, release the endpoint before disposing of memory. */
+  esp_err_t (*close_checked)(void *);
+  /* Core transport hook; set/clear only while the host serializes a call. */
+  void (*set_call_options)(void *, const solar_os_display_link_call_options_t *);
   bool reset_available;
   uint32_t clock_hz;
 } solar_os_display_link_transport_t;
@@ -16,3 +20,6 @@ typedef struct {
 esp_err_t solar_os_display_link_open_transport(
     const solar_os_display_link_transport_t *,
     const solar_os_display_link_options_t *, solar_os_display_link_t **);
+esp_err_t solar_os_display_link_open_transport_with_options(
+    const solar_os_display_link_transport_t *, const solar_os_display_link_options_t *,
+    const solar_os_display_link_call_options_t *, solar_os_display_link_t **);

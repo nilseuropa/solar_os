@@ -19,7 +19,7 @@ class BleStreamTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-include", str(HOST / "compat.h"),
                 "-I" + str(HOST / "nimble_stubs"), "-I" + str(HOST / "ble_stubs"),
-                "-I" + str(HOST), "-I" + str(ROOT / "src/services"),
+                "-I" + str(HOST), "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"),
                 "-idirafter", str(ROOT / "include"),
                 *[str(ROOT / source) for source in sources], "-o", str(binary),
             ], check=True)
@@ -29,7 +29,7 @@ class BleStreamTest(unittest.TestCase):
     def test_coc_flow_control_and_retirement(self):
         self.compile_and_run([
             "tests/host/ble_coc_test.c", "tests/host/nimble_test_support.c",
-            "tests/host/ble_test_support.c", "src/services/solar_os_ble_hid_report_map.c",
+            "tests/host/ble_test_support.c", "src/services/solar_os_hid_report_descriptor.c",
         ])
 
     def test_registry_ownership_and_connection_failures(self):

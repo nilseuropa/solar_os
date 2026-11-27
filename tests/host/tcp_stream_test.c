@@ -1,16 +1,21 @@
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
+#include "solar_os_memory.h"
 #include "solar_os_tcp_stream.h"
 #include "solar_os_stream.h"
 #include "solar_os_port.h"
 
 static unsigned leases, releases;
 static bool latency_busy;
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
+{ (void)kind; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *data) { free(data); }
 esp_err_t solar_os_wifi_latency_acquire(const char *owner)
 { assert(!strncmp(owner, "tcp:", 4)); if (latency_busy) return ESP_ERR_INVALID_STATE; leases++; return ESP_OK; }
 esp_err_t solar_os_wifi_latency_release(const char *owner)

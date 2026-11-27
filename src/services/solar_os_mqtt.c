@@ -33,6 +33,7 @@ typedef struct {
     bool configured;
     bool running;
     bool connected;
+    bool stopping;
     char url[SOLAR_OS_MQTT_URL_MAX];
     char username[SOLAR_OS_MQTT_USERNAME_MAX];
     char password[SOLAR_OS_MQTT_PASSWORD_MAX];
@@ -49,6 +50,9 @@ typedef struct {
 } solar_os_mqtt_state_t;
 
 static solar_os_mqtt_state_t mqtt_state;
+static SemaphoreHandle_t mqtt_operations;
+static StaticSemaphore_t mqtt_operation_storage;
+static portMUX_TYPE mqtt_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static const char *TAG = "solar_os_mqtt";
 
 static void mqtt_lock(void)
@@ -124,7 +128,7 @@ static void mqtt_clear_error_locked(void)
     mqtt_state.last_error[0] = '\0';
 }
 
-static esp_err_t mqtt_save_config_locked(void)
+static esp_err_t mqtt_save_config(const char *url, const char *username, const char *password)
 {
     nvs_handle_t nvs;
     esp_err_t ret = nvs_open(MQTT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
@@ -132,12 +136,12 @@ static esp_err_t mqtt_save_config_locked(void)
         return ret;
     }
 
-    ret = nvs_set_str(nvs, MQTT_NVS_URL_KEY, mqtt_state.url);
+    ret = nvs_set_str(nvs, MQTT_NVS_URL_KEY, url);
     if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, MQTT_NVS_USERNAME_KEY, mqtt_state.username);
+        ret = nvs_set_str(nvs, MQTT_NVS_USERNAME_KEY, username);
     }
     if (ret == ESP_OK) {
-        ret = nvs_set_str(nvs, MQTT_NVS_PASSWORD_KEY, mqtt_state.password);
+        ret = nvs_set_str(nvs, MQTT_NVS_PASSWORD_KEY, password);
     }
     if (ret == ESP_OK) {
         ret = nvs_commit(nvs);
@@ -193,6 +197,19 @@ static void mqtt_default_client_id(char *buffer, size_t len)
 static bool mqtt_url_is_tls(const char *url)
 {
     return url != NULL && strncmp(url, "mqtts://", 8) == 0;
+}
+
+static void mqtt_copy_public_url(char *out, size_t capacity, const char *url)
+{
+    const char *separator = strstr(url, "://");
+    const char *authority = separator ? separator + 3 : url;
+    const size_t host_length = strcspn(authority, "/?#");
+    const char *user_info = NULL;
+    for (size_t i = 0; i < host_length; ++i) {
+        if (authority[i] == '@') user_info = authority + i;
+    }
+    if (user_info) snprintf(out, capacity, "%.*s%s", (int)(authority - url), url, user_info + 1);
+    else strlcpy(out, url, capacity);
 }
 
 static void mqtt_queue_message(const esp_mqtt_event_t *event)
@@ -256,6 +273,10 @@ static void mqtt_event_handler(void *handler_args,
     esp_mqtt_event_t *event = (esp_mqtt_event_t *)event_data;
 
     mqtt_lock();
+    if (mqtt_state.stopping || !mqtt_state.client || (event && event->client != mqtt_state.client)) {
+        mqtt_unlock();
+        return;
+    }
     mqtt_state.last_msg_id = event != NULL ? event->msg_id : 0;
     switch ((esp_mqtt_event_id_t)event_id) {
     case MQTT_EVENT_CONNECTED:
@@ -303,27 +324,32 @@ static esp_err_t mqtt_stop_client(void)
 
     mqtt_lock();
     esp_mqtt_client_handle_t client = mqtt_state.client;
-    mqtt_state.client = NULL;
+    const bool running = mqtt_state.running;
+    mqtt_state.stopping = client != NULL;
     mqtt_state.running = false;
     mqtt_state.connected = false;
     mqtt_unlock();
 
     if (client != NULL) {
-        ret = esp_mqtt_client_stop(client);
+        if (running) ret = esp_mqtt_client_stop(client);
         const esp_err_t destroy_ret = esp_mqtt_client_destroy(client);
+        mqtt_lock();
+        if (destroy_ret == ESP_OK) {
+            mqtt_state.client = NULL;
+            mqtt_state.stopping = false;
+        }
         if (ret != ESP_OK || destroy_ret != ESP_OK) {
             if (destroy_ret != ESP_OK) {
                 ret = destroy_ret;
             }
-            mqtt_lock();
             mqtt_set_error_locked(ret, esp_err_to_name(ret));
-            mqtt_unlock();
         }
+        mqtt_unlock();
     }
     return ret;
 }
 
-esp_err_t solar_os_mqtt_init(void)
+static esp_err_t mqtt_initialize(void)
 {
     if (mqtt_state.initialized) {
         return ESP_OK;
@@ -349,50 +375,60 @@ esp_err_t solar_os_mqtt_init(void)
     return ESP_OK;
 }
 
-esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const char *password)
+/* Public operations pin a client for the complete backend call. Events use
+ * the state lock only, so stop may join the backend while the pin is held. */
+static esp_err_t mqtt_begin_operation(void)
 {
-    esp_err_t ret = solar_os_mqtt_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
+    portENTER_CRITICAL(&mqtt_init_lock);
+    if (!mqtt_operations) mqtt_operations = xSemaphoreCreateMutexStatic(&mqtt_operation_storage);
+    const SemaphoreHandle_t operations = mqtt_operations;
+    portEXIT_CRITICAL(&mqtt_init_lock);
+    if (!operations) return ESP_ERR_NO_MEM;
+    (void)xSemaphoreTake(operations, portMAX_DELAY);
+    const esp_err_t error = mqtt_initialize();
+    if (error) (void)xSemaphoreGive(operations);
+    return error;
+}
+
+static esp_err_t mqtt_end_operation(esp_err_t error)
+{
+    (void)xSemaphoreGive(mqtt_operations);
+    return error;
+}
+
+esp_err_t solar_os_mqtt_init(void)
+{
+    const esp_err_t error = mqtt_begin_operation();
+    return error ? error : mqtt_end_operation(ESP_OK);
+}
+
+static esp_err_t mqtt_connect(const char *url, const char *username, const char *password)
+{
+    const bool new_url = url && *url;
+    if ((new_url && !mqtt_url_is_valid(url)) ||
+        !mqtt_string_is_valid(username, SOLAR_OS_MQTT_USERNAME_MAX, true) ||
+        !mqtt_string_is_valid(password, SOLAR_OS_MQTT_PASSWORD_MAX, true)) return ESP_ERR_INVALID_ARG;
 
     mqtt_lock();
-    if (url != NULL && url[0] != '\0') {
-        if (!mqtt_url_is_valid(url)) {
-            mqtt_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(mqtt_state.url, url, sizeof(mqtt_state.url));
-        mqtt_state.configured = true;
-    }
-    if (username != NULL) {
-        if (!mqtt_string_is_valid(username, SOLAR_OS_MQTT_USERNAME_MAX, true)) {
-            mqtt_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(mqtt_state.username, username, sizeof(mqtt_state.username));
-    }
-    if (password != NULL) {
-        if (!mqtt_string_is_valid(password, SOLAR_OS_MQTT_PASSWORD_MAX, true)) {
-            mqtt_unlock();
-            return ESP_ERR_INVALID_ARG;
-        }
-        strlcpy(mqtt_state.password, password, sizeof(mqtt_state.password));
-    }
-    if (!mqtt_state.configured || !mqtt_url_is_valid(mqtt_state.url)) {
+    if (!new_url && (!mqtt_state.configured || !mqtt_url_is_valid(mqtt_state.url))) {
         mqtt_unlock();
         return ESP_ERR_INVALID_STATE;
     }
 
-    ret = mqtt_save_config_locked();
+    esp_err_t ret = mqtt_save_config(new_url ? url : mqtt_state.url,
+        username ? username : mqtt_state.username, password ? password : mqtt_state.password);
     if (ret != ESP_OK) {
         mqtt_set_error_locked(ret, esp_err_to_name(ret));
         mqtt_unlock();
         return ret;
     }
+    if (new_url) strlcpy(mqtt_state.url, url, sizeof(mqtt_state.url));
+    if (username) strlcpy(mqtt_state.username, username, sizeof(mqtt_state.username));
+    if (password) strlcpy(mqtt_state.password, password, sizeof(mqtt_state.password));
+    mqtt_state.configured = true;
 
     char log_url[SOLAR_OS_MQTT_URL_MAX];
-    strlcpy(log_url, mqtt_state.url, sizeof(log_url));
+    mqtt_copy_public_url(log_url, sizeof(log_url), mqtt_state.url);
     mqtt_unlock();
 
     ret = mqtt_stop_client();
@@ -438,17 +474,17 @@ esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const cha
         return ESP_ERR_NO_MEM;
     }
 
+    mqtt_lock();
+    mqtt_state.client = client;
+    mqtt_state.running = false;
+    mqtt_state.connected = false;
+    mqtt_clear_error_locked();
+    mqtt_unlock();
     ret = esp_mqtt_client_register_event(client,
                                          MQTT_EVENT_ANY,
                                          mqtt_event_handler,
                                          NULL);
     if (ret == ESP_OK) {
-        mqtt_lock();
-        mqtt_state.client = client;
-        mqtt_state.running = true;
-        mqtt_state.connected = false;
-        mqtt_clear_error_locked();
-        mqtt_unlock();
         solar_os_task_managed_admission_t admission;
         if (!solar_os_task_admit_managed("mqtt_client",
                                          MQTT_CLIENT_TASK_STACK,
@@ -457,6 +493,9 @@ esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const cha
                                          &admission)) {
             ret = ESP_ERR_NO_MEM;
         } else {
+            mqtt_lock();
+            mqtt_state.running = true;
+            mqtt_unlock();
             ret = esp_mqtt_client_start(client);
             solar_os_task_note_managed_result("mqtt_client",
                                               MQTT_CLIENT_TASK_STACK,
@@ -466,16 +505,10 @@ esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const cha
         }
     }
     if (ret != ESP_OK) {
+        (void)mqtt_stop_client();
         mqtt_lock();
-        if (mqtt_state.client == client) {
-            mqtt_state.client = NULL;
-            mqtt_state.running = false;
-            mqtt_state.connected = false;
-        }
         mqtt_set_error_locked(ret, esp_err_to_name(ret));
         mqtt_unlock();
-        (void)esp_mqtt_client_stop(client);
-        (void)esp_mqtt_client_destroy(client);
         return ret;
     }
 
@@ -483,14 +516,16 @@ esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const cha
     return ESP_OK;
 }
 
+esp_err_t solar_os_mqtt_connect(const char *url, const char *username, const char *password)
+{
+    const esp_err_t error = mqtt_begin_operation();
+    return error ? error : mqtt_end_operation(mqtt_connect(url, username, password));
+}
+
 esp_err_t solar_os_mqtt_disconnect(void)
 {
-    esp_err_t ret = solar_os_mqtt_init();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    return mqtt_stop_client();
+    const esp_err_t error = mqtt_begin_operation();
+    return error ? error : mqtt_end_operation(mqtt_stop_client());
 }
 
 esp_err_t solar_os_mqtt_publish(const char *topic,
@@ -507,7 +542,7 @@ esp_err_t solar_os_mqtt_publish(const char *topic,
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = solar_os_mqtt_init();
+    esp_err_t ret = mqtt_begin_operation();
     if (ret != ESP_OK) {
         return ret;
     }
@@ -515,24 +550,24 @@ esp_err_t solar_os_mqtt_publish(const char *topic,
     mqtt_lock();
     if (mqtt_state.client == NULL || !mqtt_state.connected) {
         mqtt_unlock();
-        return ESP_ERR_INVALID_STATE;
+        return mqtt_end_operation(ESP_ERR_INVALID_STATE);
     }
     esp_mqtt_client_handle_t client = mqtt_state.client;
     mqtt_unlock();
 
     const int id = esp_mqtt_client_publish(client,
                                            topic,
-                                           (const char *)payload,
+                                           payload_len ? (const char *)payload : "",
                                            (int)payload_len,
                                            qos,
                                            retain ? 1 : 0);
     if (id < 0) {
-        return ESP_FAIL;
+        return mqtt_end_operation(ESP_FAIL);
     }
     if (msg_id != NULL) {
         *msg_id = id;
     }
-    return ESP_OK;
+    return mqtt_end_operation(ESP_OK);
 }
 
 esp_err_t solar_os_mqtt_subscribe(const char *topic, int qos, int *msg_id)
@@ -541,7 +576,7 @@ esp_err_t solar_os_mqtt_subscribe(const char *topic, int qos, int *msg_id)
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = solar_os_mqtt_init();
+    esp_err_t ret = mqtt_begin_operation();
     if (ret != ESP_OK) {
         return ret;
     }
@@ -549,19 +584,19 @@ esp_err_t solar_os_mqtt_subscribe(const char *topic, int qos, int *msg_id)
     mqtt_lock();
     if (mqtt_state.client == NULL || !mqtt_state.connected) {
         mqtt_unlock();
-        return ESP_ERR_INVALID_STATE;
+        return mqtt_end_operation(ESP_ERR_INVALID_STATE);
     }
     esp_mqtt_client_handle_t client = mqtt_state.client;
     mqtt_unlock();
 
     const int id = esp_mqtt_client_subscribe(client, topic, qos);
     if (id < 0) {
-        return ESP_FAIL;
+        return mqtt_end_operation(ESP_FAIL);
     }
     if (msg_id != NULL) {
         *msg_id = id;
     }
-    return ESP_OK;
+    return mqtt_end_operation(ESP_OK);
 }
 
 esp_err_t solar_os_mqtt_read_message(solar_os_mqtt_message_t *message, uint32_t timeout_ms)
@@ -600,11 +635,11 @@ esp_err_t solar_os_mqtt_get_status(solar_os_mqtt_status_t *status)
     status->connected = mqtt_state.connected;
     status->username_set = mqtt_state.username[0] != '\0';
     status->password_set = mqtt_state.password[0] != '\0';
-    strlcpy(status->url, mqtt_state.url, sizeof(status->url));
+    mqtt_copy_public_url(status->url, sizeof(status->url), mqtt_state.url);
     strlcpy(status->username, mqtt_state.username, sizeof(status->username));
     strlcpy(status->client_id, mqtt_state.client_id, sizeof(status->client_id));
     strlcpy(status->last_error, mqtt_state.last_error, sizeof(status->last_error));
-    status->last_esp_error = mqtt_state.last_esp_error;
+    status->error = mqtt_state.last_esp_error;
     status->last_msg_id = mqtt_state.last_msg_id;
     status->rx_count = mqtt_state.rx_count;
     status->tx_count = mqtt_state.tx_count;

@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_IMU
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -97,3 +101,5 @@ void solar_os_shell_cmd_imu(solar_os_context_t *ctx, int argc, char **argv)
                                  sample.orientation[3]);
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_IMU */

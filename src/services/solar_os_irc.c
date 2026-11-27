@@ -2,6 +2,7 @@
 #include "solar_os_irc_protocol.h"
 
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -19,7 +20,7 @@
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
 #include "solar_os_task.h"
-#include "solar_os_jobs.h"
+#include "solar_os_sync.h"
 #include "solar_os_storage.h"
 
 #define IRC_CONTROL_CAPACITY 8U
@@ -61,12 +62,12 @@ typedef struct irc_instance {
 } irc_instance_t;
 
 static struct {
-    bool initialized, running;
-    volatile bool stop_requested, worker_done;
+    atomic_bool initialized, running, stop_requested;
     SemaphoreHandle_t lock, edit_lock, worker_lock;
     TaskHandle_t worker;
     irc_instance_t *instances;
 } irc;
+static solar_os_lifecycle_t irc_lifecycle;
 
 static esp_err_t irc_join(void *context, const char *target);
 static esp_err_t irc_leave(void *context, const char *target);
@@ -79,7 +80,7 @@ static esp_err_t irc_class_create(const char *name, int argc, const char *const 
 static esp_err_t irc_class_configure(void *context, int argc, const char *const *argv);
 static esp_err_t irc_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings);
 static esp_err_t irc_settings_write(void *context, unsigned form, const char *name,
-    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id);
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id);
 static const solar_os_messaging_provider_class_t irc_class = {
     .name = "irc", .connection_oriented = true, .capabilities = SOLAR_OS_ENDPOINT_CAP_ROOM | SOLAR_OS_ENDPOINT_CAP_DIRECT,
     .join = irc_join, .leave = irc_leave, .direct_open = irc_direct, .connect = irc_connect,
@@ -165,9 +166,9 @@ static esp_err_t irc_attach(solar_os_messaging_provider_id_t id, const solar_os_
     return ESP_OK;
 }
 
-esp_err_t solar_os_irc_init(void)
+static esp_err_t irc_initialize_locked(void)
 {
-    if (irc.initialized) return ESP_OK;
+    if (atomic_load(&irc.initialized)) return ESP_OK;
     esp_err_t error = solar_os_messaging_init();
     if (error != ESP_OK) return error;
     irc.lock = xSemaphoreCreateMutex(); irc.edit_lock = xSemaphoreCreateMutex();
@@ -176,20 +177,22 @@ esp_err_t solar_os_irc_init(void)
         if (irc.lock) vSemaphoreDelete(irc.lock);
         if (irc.edit_lock) vSemaphoreDelete(irc.edit_lock);
         if (irc.worker_lock) vSemaphoreDelete(irc.worker_lock);
-        memset(&irc, 0, sizeof(irc)); return ESP_ERR_NO_MEM;
-    }
-    error = solar_os_messaging_class_register(&irc_class);
-    if (error != ESP_OK) return error;
-    solar_os_messaging_provider_id_t cursor = 0;
-    solar_os_messaging_provider_status_t status;
-    solar_os_irc_config_t *config = irc_config_alloc();
-    if (!config) {
-        vSemaphoreDelete(irc.lock); vSemaphoreDelete(irc.edit_lock);
-        vSemaphoreDelete(irc.worker_lock);
         irc.lock = irc.edit_lock = irc.worker_lock = NULL;
         return ESP_ERR_NO_MEM;
     }
-    irc.initialized = true;
+    solar_os_messaging_provider_id_t cursor = 0;
+    solar_os_messaging_provider_status_t status;
+    solar_os_irc_config_t *config = irc_config_alloc();
+    xSemaphoreTake(irc.edit_lock, portMAX_DELAY);
+    error = config ? solar_os_messaging_class_register(&irc_class) : ESP_ERR_NO_MEM;
+    if (error != ESP_OK) {
+        irc_config_free(config);
+        xSemaphoreGive(irc.edit_lock);
+        vSemaphoreDelete(irc.lock); vSemaphoreDelete(irc.edit_lock);
+        vSemaphoreDelete(irc.worker_lock);
+        irc.lock = irc.edit_lock = irc.worker_lock = NULL;
+        return error;
+    }
     while (solar_os_messaging_provider_next(&cursor, &status)) {
         if (strcmp(status.class_name, "irc") != 0) continue;
         error = solar_os_messaging_profile_load(cursor, config, sizeof(*config));
@@ -198,7 +201,18 @@ esp_err_t solar_os_irc_init(void)
         irc_wipe(config, sizeof(*config));
     }
     irc_config_free(config);
+    atomic_store(&irc.initialized, true);
+    xSemaphoreGive(irc.edit_lock);
     return ESP_OK;
+}
+
+esp_err_t solar_os_irc_init(void)
+{
+    if (atomic_load(&irc.initialized)) return ESP_OK;
+    if (!solar_os_lifecycle_enter(&irc_lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t error = irc_initialize_locked();
+    solar_os_lifecycle_leave(&irc_lifecycle);
+    return error;
 }
 
 esp_err_t solar_os_irc_create(const char *name, const char *host, uint16_t port,
@@ -220,15 +234,28 @@ esp_err_t solar_os_irc_create(const char *name, const char *host, uint16_t port,
     xSemaphoreGive(irc.edit_lock); irc_config_free(config); return error;
 }
 
+/* Holding edit_lock protects the instance through configuration operations. */
+static esp_err_t irc_get_config_locked(solar_os_messaging_provider_id_t id,
+                                       solar_os_irc_config_t *config)
+{
+    irc_instance_t *node = irc_find(id);
+    if (!node) {
+        return solar_os_messaging_provider_is_class(id, "irc") ?
+            solar_os_messaging_profile_load(id, config, sizeof(*config)) : ESP_ERR_NOT_FOUND;
+    }
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    *config = node->config;
+    xSemaphoreGive(irc.lock);
+    return ESP_OK;
+}
+
 esp_err_t solar_os_irc_get_config(solar_os_messaging_provider_id_t id, solar_os_irc_config_t *config)
 {
     if (!config) return ESP_ERR_INVALID_ARG;
-    esp_err_t error = solar_os_irc_init(); if (error != ESP_OK) return error;
+    esp_err_t error = solar_os_irc_init();
+    if (error != ESP_OK) return error;
     xSemaphoreTake(irc.edit_lock, portMAX_DELAY);
-    irc_instance_t *node = irc_find(id);
-    if (!node) error = solar_os_messaging_provider_is_class(id, "irc") ?
-        solar_os_messaging_profile_load(id, config, sizeof(*config)) : ESP_ERR_NOT_FOUND;
-    else { xSemaphoreTake(irc.lock, portMAX_DELAY); *config = node->config; xSemaphoreGive(irc.lock); }
+    error = irc_get_config_locked(id, config);
     xSemaphoreGive(irc.edit_lock);
     return error;
 }
@@ -238,25 +265,85 @@ static esp_err_t irc_save(irc_instance_t *node, const solar_os_irc_config_t *con
 {
     esp_err_t error = solar_os_messaging_profile_save(node->id, config, sizeof(*config));
     if (error == ESP_OK) {
-        xSemaphoreTake(irc.lock, portMAX_DELAY); node->config = *config; node->revision++; xSemaphoreGive(irc.lock);
-        if (irc.worker && !irc.worker_done) xTaskNotifyGive(irc.worker);
+        xSemaphoreTake(irc.lock, portMAX_DELAY);
+        node->config = *config;
+        node->revision++;
+        if (irc.worker) xTaskNotifyGive(irc.worker);
+        xSemaphoreGive(irc.lock);
     }
     return error;
 }
 
-esp_err_t solar_os_irc_configure(solar_os_messaging_provider_id_t id, const solar_os_irc_config_t *config)
+static esp_err_t irc_configure_locked(solar_os_messaging_provider_id_t id,
+                                       const solar_os_irc_config_t *config)
+{
+    irc_instance_t *node = irc_find(id);
+    if (node) return irc_save(node, config);
+    if (!solar_os_messaging_provider_is_class(id, "irc")) return ESP_ERR_NOT_FOUND;
+    const esp_err_t error = solar_os_messaging_profile_save(id, config, sizeof(*config));
+    return error == ESP_OK ? irc_attach(id, config) : error;
+}
+
+esp_err_t solar_os_irc_configure(solar_os_messaging_provider_id_t id,
+                                const solar_os_irc_config_t *config)
 {
     if (!irc_config_valid(config)) return ESP_ERR_INVALID_ARG;
-    esp_err_t error = solar_os_irc_init(); if (error != ESP_OK) return error;
+    esp_err_t error = solar_os_irc_init();
+    if (error != ESP_OK) return error;
     xSemaphoreTake(irc.edit_lock, portMAX_DELAY);
-    irc_instance_t *node = irc_find(id);
-    if (node) error = irc_save(node, config);
-    else if (!solar_os_messaging_provider_is_class(id, "irc")) error = ESP_ERR_NOT_FOUND;
-    else {
-        error = solar_os_messaging_profile_save(id, config, sizeof(*config));
-        if (error == ESP_OK) error = irc_attach(id, config);
-    }
+    error = irc_configure_locked(id, config);
     xSemaphoreGive(irc.edit_lock);
+    return error;
+}
+
+static bool irc_patch_copy(char *dst, const char *src, size_t capacity)
+{
+    return !src || strlcpy(dst, src, capacity) < capacity;
+}
+
+static esp_err_t irc_apply_update(solar_os_irc_config_t *config,
+                                  const solar_os_native_irc_update_v1_t *update)
+{
+    if (!irc_patch_copy(config->host, update->host, sizeof(config->host)) ||
+        !irc_patch_copy(config->nick, update->nick, sizeof(config->nick)) ||
+        !irc_patch_copy(config->account, update->account, sizeof(config->account)) ||
+        !irc_patch_copy(config->password, update->password, sizeof(config->password)) ||
+        !irc_patch_copy(config->server_password, update->server_password, sizeof(config->server_password)) ||
+        !irc_patch_copy(config->ca_file, update->ca_file, sizeof(config->ca_file))) return ESP_ERR_INVALID_ARG;
+    if ((update->account && !*update->account) || (update->password && !*update->password)) {
+        irc_wipe(config->account, sizeof(config->account));
+        irc_wipe(config->password, sizeof(config->password));
+    }
+    if (update->port) config->port = update->port;
+    if (update->set_enabled) config->enabled = update->enabled;
+    if (update->replace_channels) {
+        memset(config->channels, 0, sizeof(config->channels));
+        for (size_t i = 0; i < update->channel_count; i++) {
+            if (!update->channels[i] || !*update->channels[i] ||
+                !irc_patch_copy(config->channels[i], update->channels[i], sizeof(config->channels[i])))
+                return ESP_ERR_INVALID_ARG;
+        }
+    }
+    return irc_config_valid(config) ? ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
+esp_err_t solar_os_irc_update(solar_os_messaging_provider_id_t id,
+                              const solar_os_native_irc_update_v1_t *update)
+{
+    if (!update || update->port > UINT16_MAX || update->channel_count > SOLAR_OS_IRC_CHANNEL_CAPACITY ||
+        (update->channel_count && (!update->replace_channels || !update->channels)))
+        return ESP_ERR_INVALID_ARG;
+    esp_err_t error = solar_os_irc_init();
+    if (error != ESP_OK) return error;
+    solar_os_irc_config_t *config = irc_config_alloc();
+    if (!config) return ESP_ERR_NO_MEM;
+
+    xSemaphoreTake(irc.edit_lock, portMAX_DELAY);
+    error = irc_get_config_locked(id, config);
+    if (error == ESP_OK) error = irc_apply_update(config, update);
+    if (error == ESP_OK) error = irc_configure_locked(id, config);
+    xSemaphoreGive(irc.edit_lock);
+    irc_config_free(config);
     return error;
 }
 
@@ -282,14 +369,14 @@ static const solar_os_messaging_setting_t irc_settings_fields[] = {
 static esp_err_t irc_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
 {
     if (form) return ESP_ERR_NOT_FOUND;
-    settings->label = "IRC"; settings->fields = irc_settings_fields; settings->count = 7;
+    solar_os_messaging_settings_form(settings, "IRC", irc_settings_fields, 7);
     strlcpy(settings->worker, "irc-sync", sizeof(settings->worker));
-    if (!context) { strlcpy(settings->values[1], "6697", sizeof(settings->values[1])); return ESP_OK; }
+    if (!context) { strlcpy(settings->data.values[1], "6697", sizeof(settings->data.values[1])); return ESP_OK; }
     irc_instance_t *node = context;
     xSemaphoreTake(irc.lock, portMAX_DELAY);
     settings->enabled = node->config.enabled;
     solar_os_messaging_settings_value(settings, 0, node->config.host);
-    snprintf(settings->values[1], sizeof(settings->values[1]), "%u", node->config.port);
+    snprintf(settings->data.values[1], sizeof(settings->data.values[1]), "%u", node->config.port);
     solar_os_messaging_settings_value(settings, 2, node->config.nick);
     solar_os_messaging_settings_value(settings, 3, node->config.account);
     solar_os_messaging_settings_value(settings, 4, node->config.password);
@@ -298,7 +385,7 @@ static esp_err_t irc_settings_read(void *context, unsigned form, solar_os_messag
     xSemaphoreGive(irc.lock); return ESP_OK;
 }
 static esp_err_t irc_settings_write(void *context, unsigned form, const char *name,
-    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id)
 {
     if (form) return ESP_ERR_NOT_FOUND;
     solar_os_irc_config_t *config = irc_config_alloc();
@@ -430,7 +517,7 @@ static esp_err_t irc_normalize(void *context, const char *target, char *out, siz
 
 static void irc_status(irc_instance_t *node, esp_err_t error, const char *detail)
 { (void)solar_os_messaging_provider_set_status(node->id,
-    irc.running && node->active.enabled, node->registered, error, detail); }
+    atomic_load(&irc.running) && node->active.enabled, node->registered, error, detail); }
 
 static void irc_close(irc_instance_t *node, esp_err_t error, const char *reason, bool retry)
 {
@@ -843,44 +930,100 @@ static void irc_tick(irc_instance_t *node)
 static void irc_worker(void *argument)
 {
     (void)argument;
-    while (!irc.stop_requested) {
+    while (!atomic_load(&irc.stop_requested)) {
         xSemaphoreTake(irc.worker_lock, portMAX_DELAY);
         xSemaphoreTake(irc.lock, portMAX_DELAY); irc_instance_t *node = irc.instances; xSemaphoreGive(irc.lock);
-        for (; node && !irc.stop_requested; node = node->next) irc_tick(node);
+        for (; node && !atomic_load(&irc.stop_requested); node = node->next) irc_tick(node);
         xSemaphoreGive(irc.worker_lock);
         (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(25));
     }
     xSemaphoreTake(irc.worker_lock, portMAX_DELAY);
     xSemaphoreTake(irc.lock, portMAX_DELAY); irc_instance_t *node = irc.instances; xSemaphoreGive(irc.lock);
-    irc.running = false;
+    atomic_store(&irc.running, false);
     for (; node; node = node->next) {
         irc_close(node, ESP_OK, "stopped", false);
         irc_wipe(&node->active, sizeof(node->active));
     }
     xSemaphoreGive(irc.worker_lock);
-    irc.worker_done = true; solar_os_task_delete(NULL);
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    irc.worker = NULL;
+    xSemaphoreGive(irc.lock);
+    solar_os_task_delete(NULL);
 }
 
 esp_err_t solar_os_irc_start(void)
 {
-    esp_err_t error = solar_os_irc_init(); if (error != ESP_OK) return error;
-    /* Socket use must also be safe when Wi-Fi was disabled for this boot.
-     * esp_netif_init is idempotent and does not enable a network interface. */
-    error = esp_netif_init(); if (error != ESP_OK) return error;
-    if (irc.running || (irc.worker && !irc.worker_done)) return ESP_ERR_INVALID_STATE;
-    irc.stop_requested = false; irc.worker_done = false; irc.running = true;
-    if (solar_os_task_create_pinned(irc_worker, "irc_sync", 8192, NULL,
-        tskIDLE_PRIORITY + 1, &irc.worker, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
-        irc.running = false; irc.worker = NULL; return ESP_ERR_NO_MEM;
+    esp_err_t error = solar_os_irc_init();
+    if (error != ESP_OK) return error;
+    /* Socket use also works when this boot has not enabled Wi-Fi. */
+    error = esp_netif_init();
+    if (error != ESP_OK) return error;
+    if (!solar_os_lifecycle_enter(&irc_lifecycle)) return ESP_ERR_NO_MEM;
+
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    const bool open = irc.worker != NULL;
+    xSemaphoreGive(irc.lock);
+    if (open) {
+        error = ESP_ERR_INVALID_STATE;
+    } else {
+        TaskHandle_t worker;
+        atomic_store(&irc.stop_requested, false);
+        atomic_store(&irc.running, true);
+        if (solar_os_task_create_pinned(irc_worker, "irc_sync", 8192, NULL,
+            tskIDLE_PRIORITY + 1, &worker, tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
+            atomic_store(&irc.running, false);
+            error = ESP_ERR_NO_MEM;
+        } else {
+            xSemaphoreTake(irc.lock, portMAX_DELAY);
+            irc.worker = worker;
+            xSemaphoreGive(irc.lock);
+        }
     }
-    (void)solar_os_jobs_note_resource("irc-sync", SOLAR_OS_JOB_RESOURCE_NET, "IRC TLS", "configured messaging instances");
-    return ESP_OK;
+    solar_os_lifecycle_leave(&irc_lifecycle);
+    return error;
+}
+
+bool solar_os_irc_running(void)
+{
+    if (!atomic_load(&irc.initialized)) return false;
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    const bool open = irc.worker != NULL;
+    xSemaphoreGive(irc.lock);
+    return open;
+}
+
+esp_err_t solar_os_irc_stop_checked(void)
+{
+    if (!atomic_load(&irc.initialized)) return ESP_OK;
+    if (!solar_os_lifecycle_enter(&irc_lifecycle)) return ESP_ERR_NO_MEM;
+
+    xSemaphoreTake(irc.lock, portMAX_DELAY);
+    bool open = irc.worker != NULL;
+    if (open) {
+        atomic_store(&irc.stop_requested, true);
+        xTaskNotifyGive(irc.worker);
+    }
+    xSemaphoreGive(irc.lock);
+
+    esp_err_t error = ESP_OK;
+    const TickType_t start = xTaskGetTickCount();
+    while (open) {
+        if (pdTICKS_TO_MS(xTaskGetTickCount() - start) >= 5000U) {
+            error = ESP_ERR_TIMEOUT;
+            break;
+        }
+        const TickType_t sleep = pdMS_TO_TICKS(20);
+        vTaskDelay(sleep ? sleep : 1U);
+        xSemaphoreTake(irc.lock, portMAX_DELAY);
+        open = irc.worker != NULL;
+        xSemaphoreGive(irc.lock);
+    }
+    solar_os_lifecycle_leave(&irc_lifecycle);
+    return error;
 }
 
 void solar_os_irc_stop(void)
 {
-    irc.stop_requested = true;
-    if (irc.worker && !irc.worker_done) xTaskNotifyGive(irc.worker);
-    if (solar_os_task_wait_done(irc.worker, &irc.worker_done, 5000)) irc.worker = NULL;
-    else SOLAR_OS_LOGW("irc", "IRC worker is still stopping");
+    if (solar_os_irc_stop_checked() != ESP_OK)
+        SOLAR_OS_LOGW("irc", "IRC worker is still stopping");
 }

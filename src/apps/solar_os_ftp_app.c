@@ -1,8 +1,5 @@
-#ifdef SOLAR_OS_FTP_APP_SFTP
-#include "solar_os_sftp_app.h"
-#else
 #include "solar_os_ftp_app.h"
-#endif
+#include "solar_os_sftp_app.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -23,9 +20,11 @@
 #include "solar_os_app_registry.h"
 #include "solar_os_file_shortcuts.h"
 #include "solar_os_file_search.h"
-#ifndef SOLAR_OS_FTP_APP_SFTP
+#include "solar_os_config.h"
 #include "solar_os_ftp.h"
-#endif
+#include "solar_os_identity.h"
+#include "solar_os_remote_files.h"
+#include "solar_os_sftp.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -38,28 +37,6 @@
 #include "solar_os_tui.h"
 #include "solar_os_tui_widgets.h"
 
-#ifndef FTP_APP_COMMAND
-#define FTP_APP_COMMAND "ftp"
-#endif
-#ifndef FTP_APP_PROTOCOL
-#define FTP_APP_PROTOCOL "FTP"
-#endif
-#ifndef FTP_APP_TAG
-#define FTP_APP_TAG "solar_os_ftp_app"
-#endif
-#ifndef FTP_APP_MEMORY_TAG
-#define FTP_APP_MEMORY_TAG "ftp.app.entries"
-#endif
-#ifndef FTP_APP_TEMP_PREFIX
-#define FTP_APP_TEMP_PREFIX ".ftp-view-"
-#endif
-#ifndef FTP_APP_TASK_NAME
-#define FTP_APP_TASK_NAME "ftp_app"
-#endif
-#ifndef FTP_APP_SUMMARY
-#define FTP_APP_SUMMARY "two-pane FTP file manager"
-#endif
-
 #define FTP_APP_PANEL_MIN_WIDTH 18U
 #define FTP_APP_MESSAGE_MAX 128U
 #define FTP_APP_INPUT_MAX 80U
@@ -69,10 +46,10 @@
 
 SOLAR_OS_TASK_REQUIRE_FOREGROUND_STACK(FTP_APP_TASK_STACK);
 
-static const char *TAG = FTP_APP_TAG;
+static const char *TAG = "solar_os_file_transfer_app";
 
 typedef struct {
-    char name[SOLAR_OS_FTP_NAME_MAX];
+    char name[SOLAR_OS_REMOTE_FILE_NAME_MAX];
     uint64_t size;
     bool is_directory;
     bool parent;
@@ -145,14 +122,14 @@ typedef struct {
     size_t remote_count;
     char remote_path[SOLAR_OS_STORAGE_PATH_MAX];
     char view_path[SOLAR_OS_STORAGE_PATH_MAX];
-    char detail[SOLAR_OS_FTP_REPLY_MAX];
+    char detail[SOLAR_OS_REMOTE_FILE_ERROR_MAX];
 } ftp_app_result_t;
 
 typedef struct {
     uint64_t done;
     uint64_t total;
     bool total_known;
-    char item[SOLAR_OS_FTP_NAME_MAX];
+    char item[SOLAR_OS_REMOTE_FILE_NAME_MAX];
 } ftp_app_progress_event_t;
 
 typedef struct {
@@ -161,17 +138,26 @@ typedef struct {
     uint64_t total;
     bool active;
     bool total_known;
-    char item[SOLAR_OS_FTP_NAME_MAX];
+    char item[SOLAR_OS_REMOTE_FILE_NAME_MAX];
 } ftp_app_progress_t;
 
 typedef struct {
     uint64_t done;
     uint64_t total;
     uint64_t file_base;
-    char item[SOLAR_OS_FTP_NAME_MAX];
+    char item[SOLAR_OS_REMOTE_FILE_NAME_MAX];
 } ftp_app_worker_progress_t;
 
 typedef struct {
+    solar_os_remote_file_protocol_t protocol;
+    uint16_t port;
+    const char *name;
+    const char *label;
+    const char *task_name;
+} ftp_app_transport_t;
+
+typedef struct {
+    const ftp_app_transport_t *transport;
     solar_os_tui_t tui;
     ftp_app_pane_t panes[2];
     uint8_t active;
@@ -203,8 +189,34 @@ typedef struct {
     char temporary_view[SOLAR_OS_STORAGE_PATH_MAX];
 } ftp_app_state_t;
 
+#if SOLAR_OS_PACKAGE_APP_FTP
 static void *ftp_app_state;
-#define ftp_app (*(ftp_app_state_t *)ftp_app_state)
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTP
+static void *sftp_app_state;
+#endif
+
+static ftp_app_state_t *ftp_app_current(void)
+{
+    const solar_os_app_t *app = solar_os_application_descriptor();
+    return app && app->state_slot ? *app->state_slot : NULL;
+}
+
+#define ftp_app (*ftp_app_current())
+
+static const ftp_app_transport_t *ftp_app_select_transport(void)
+{
+#if SOLAR_OS_PACKAGE_APP_SFTP
+    static const ftp_app_transport_t sftp = {
+        SOLAR_OS_REMOTE_FILE_SFTP, SOLAR_OS_SFTP_DEFAULT_PORT, "sftp", "SFTP", "sftp_app",
+    };
+    if (solar_os_application_descriptor() == &solar_os_sftp_app) return &sftp;
+#endif
+    static const ftp_app_transport_t ftp = {
+        SOLAR_OS_REMOTE_FILE_FTP, SOLAR_OS_FTP_DEFAULT_PORT, "ftp", "FTP", "ftp_app",
+    };
+    return &ftp;
+}
 
 static void ftp_app_render(void);
 static void ftp_app_release_cleanup(void);
@@ -216,7 +228,7 @@ static void *ftp_app_realloc(void *pointer, size_t size)
     return solar_os_memory_realloc(pointer,
                                    size,
                                    SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                   FTP_APP_MEMORY_TAG);
+                                   "file-transfer.entries");
 }
 
 static void ftp_app_pane_clear(ftp_app_pane_t *pane)
@@ -434,7 +446,7 @@ static esp_err_t ftp_app_load_local(ftp_app_pane_t *pane, const char *path)
     return err;
 }
 
-static bool ftp_app_remote_collect(const solar_os_ftp_entry_t *entry, void *user)
+static bool ftp_app_remote_collect(const solar_os_remote_file_entry_t *entry, void *user)
 {
     ftp_app_pane_t *pane = (ftp_app_pane_t *)user;
     return ftp_app_pane_add(pane,
@@ -444,7 +456,7 @@ static bool ftp_app_remote_collect(const solar_os_ftp_entry_t *entry, void *user
                             entry->size) == ESP_OK;
 }
 
-static esp_err_t ftp_app_list_remote(solar_os_ftp_session_t *session,
+static esp_err_t ftp_app_list_remote(solar_os_remote_files_t *session,
                                      const char *path,
                                      ftp_app_pane_t *pane)
 {
@@ -453,7 +465,7 @@ static esp_err_t ftp_app_list_remote(solar_os_ftp_session_t *session,
     esp_err_t err = strcmp(path, "/") != 0 ?
         ftp_app_pane_add(pane, "..", true, true, 0) : ESP_OK;
     if (err == ESP_OK) {
-        err = solar_os_ftp_list(session, path, ftp_app_remote_collect, pane);
+        err = solar_os_remote_files_list(session, path, ftp_app_remote_collect, pane);
     }
     if (err == ESP_OK && pane->count > 1U) {
         qsort(pane->entries, pane->count, sizeof(pane->entries[0]), ftp_app_entry_compare);
@@ -571,7 +583,7 @@ static esp_err_t ftp_app_measure_local(const char *path, uint64_t *total)
     return err;
 }
 
-static esp_err_t ftp_app_measure_remote(solar_os_ftp_session_t *session,
+static esp_err_t ftp_app_measure_remote(solar_os_remote_files_t *session,
                                         const char *path,
                                         bool directory,
                                         uint64_t size,
@@ -611,7 +623,7 @@ static esp_err_t ftp_app_measure_remote(solar_os_ftp_session_t *session,
     return err;
 }
 
-static esp_err_t ftp_app_upload_tree(solar_os_ftp_session_t *session,
+static esp_err_t ftp_app_upload_tree(solar_os_remote_files_t *session,
                                      const char *local_path,
                                      const char *remote_path,
                                      ftp_app_worker_progress_t *progress)
@@ -623,7 +635,7 @@ static esp_err_t ftp_app_upload_tree(solar_os_ftp_session_t *session,
     if (!S_ISDIR(st.st_mode)) {
         progress->file_base = progress->done;
         ftp_app_worker_publish(progress, local_path, true);
-        esp_err_t err = solar_os_ftp_upload(session,
+        esp_err_t err = solar_os_remote_files_upload(session,
                                             local_path,
                                             remote_path,
                                             ftp_app_transfer_progress,
@@ -634,7 +646,7 @@ static esp_err_t ftp_app_upload_tree(solar_os_ftp_session_t *session,
         }
         return err;
     }
-    esp_err_t err = solar_os_ftp_mkdir(session, remote_path);
+    esp_err_t err = solar_os_remote_files_mkdir(session, remote_path);
     if (err != ESP_OK) {
         ftp_app_pane_t existing = {0};
         err = ftp_app_list_remote(session, remote_path, &existing);
@@ -668,7 +680,7 @@ static esp_err_t ftp_app_upload_tree(solar_os_ftp_session_t *session,
     return err;
 }
 
-static esp_err_t ftp_app_download_tree(solar_os_ftp_session_t *session,
+static esp_err_t ftp_app_download_tree(solar_os_remote_files_t *session,
                                        const char *remote_path,
                                        const char *local_path,
                                        bool directory,
@@ -678,7 +690,7 @@ static esp_err_t ftp_app_download_tree(solar_os_ftp_session_t *session,
     if (!directory) {
         progress->file_base = progress->done;
         ftp_app_worker_publish(progress, remote_path, true);
-        esp_err_t err = solar_os_ftp_download(session,
+        esp_err_t err = solar_os_remote_files_download(session,
                                               remote_path,
                                               local_path,
                                               ftp_app_transfer_progress,
@@ -723,12 +735,12 @@ static esp_err_t ftp_app_download_tree(solar_os_ftp_session_t *session,
     return err;
 }
 
-static esp_err_t ftp_app_remove_remote(solar_os_ftp_session_t *session,
+static esp_err_t ftp_app_remove_remote(solar_os_remote_files_t *session,
                                        const char *path,
                                        bool directory)
 {
     if (!directory) {
-        return solar_os_ftp_remove(session, path);
+        return solar_os_remote_files_remove(session, path);
     }
     ftp_app_pane_t items = {0};
     esp_err_t err = ftp_app_list_remote(session, path, &items);
@@ -744,19 +756,22 @@ static esp_err_t ftp_app_remove_remote(solar_os_ftp_session_t *session,
         }
     }
     ftp_app_pane_clear(&items);
-    return err == ESP_OK ? solar_os_ftp_rmdir(session, path) : err;
+    return err == ESP_OK ? solar_os_remote_files_rmdir(session, path) : err;
 }
 
 static bool ftp_app_cancelled(void *user)
 {
-    (void)user;
-    return ftp_app.cancel_requested;
+    const ftp_app_state_t *state = user;
+    return state->cancel_requested;
 }
 
 static void ftp_app_worker(void *arg)
 {
-    (void)arg;
-    solar_os_ftp_session_t *session = NULL;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, arg, NULL);
+    ftp_app_state_t *state = ftp_app_current();
+    solar_os_remote_files_t connection = {0};
+    solar_os_remote_files_t *session = &connection;
     while (!ftp_app.cancel_requested) {
         ftp_app_request_t request;
         if (xQueueReceive(ftp_app.requests, &request, pdMS_TO_TICKS(100)) != pdTRUE) {
@@ -766,29 +781,24 @@ static void ftp_app_worker(void *arg)
             break;
         }
         ftp_app_result_t result = {.kind = request.kind, .error = ESP_OK};
-        if (request.kind == FTP_APP_WORK_CONNECT && session != NULL) {
-            solar_os_ftp_disconnect(session);
-            session = NULL;
+        if (request.kind == FTP_APP_WORK_CONNECT && session->connection) {
+            solar_os_remote_files_disconnect(session);
         }
-        if (session == NULL && request.kind != FTP_APP_WORK_CONNECT) {
+        if (!session->connection && request.kind != FTP_APP_WORK_CONNECT) {
             result.error = ESP_ERR_INVALID_STATE;
             strlcpy(result.detail, "not connected", sizeof(result.detail));
-        } else if (session == NULL) {
-            const solar_os_ftp_options_t options = {
+        } else if (!session->connection) {
+            const solar_os_remote_file_options_t options = {
                 .host = ftp_app.host,
                 .port = ftp_app.port,
                 .username = ftp_app.username,
                 .password = ftp_app.password,
-                .timeout_ms = SOLAR_OS_FTP_DEFAULT_TIMEOUT_MS,
-#ifndef SOLAR_OS_FTP_APP_SFTP
+                .timeout_ms = SOLAR_OS_REMOTE_FILE_TIMEOUT_MS,
                 .error = result.detail,
                 .error_len = sizeof(result.detail),
-#endif
             };
-            result.error = solar_os_ftp_connect(&options,
-                                                ftp_app_cancelled,
-                                                NULL,
-                                                &session);
+            result.error = solar_os_remote_files_connect(session, state->transport->protocol,
+                &options, ftp_app_cancelled, state);
         }
         ftp_app_worker_progress_t progress = {0};
         if (result.error == ESP_OK &&
@@ -844,10 +854,10 @@ static void ftp_app_worker(void *arg)
                 ftp_app_remove_local(request.source);
         } else if (result.error == ESP_OK && request.kind == FTP_APP_WORK_MKDIR) {
             result.error = request.remote_source ?
-                solar_os_ftp_mkdir(session, request.source) :
+                solar_os_remote_files_mkdir(session, request.source) :
                 (mkdir(request.source, 0777) == 0 ? ESP_OK : ESP_FAIL);
         } else if (result.error == ESP_OK && request.kind == FTP_APP_WORK_VIEW) {
-            result.error = solar_os_ftp_download(session,
+            result.error = solar_os_remote_files_download(session,
                                                  request.source,
                                                  request.destination,
                                                  NULL,
@@ -857,7 +867,7 @@ static void ftp_app_worker(void *arg)
             }
         }
         result.operation_done = result.error == ESP_OK;
-        if (result.error == ESP_OK && session != NULL) {
+        if (result.error == ESP_OK && session->connection) {
             ftp_app_pane_t remote = {0};
             const char *remote_path = request.kind == FTP_APP_WORK_LIST ?
                 request.source : request.remote_directory;
@@ -868,16 +878,16 @@ static void ftp_app_worker(void *arg)
                 strlcpy(result.remote_path, remote.path, sizeof(result.remote_path));
             }
         }
-        if (result.error != ESP_OK && session != NULL) {
+        if (result.error != ESP_OK && session->connection) {
             strlcpy(result.detail,
-                    solar_os_ftp_last_reply(session),
+                    solar_os_remote_files_error(session),
                     sizeof(result.detail));
         }
         (void)xQueueSend(ftp_app.results, &result, portMAX_DELAY);
     }
-    solar_os_ftp_disconnect(session);
-    ftp_app.worker_done = true;
-    ftp_app.worker = NULL;
+    solar_os_remote_files_disconnect(session);
+    solar_os_application_scope_leave(&scope);
+    state->worker_done = true;
     solar_os_task_delete(NULL);
 }
 
@@ -936,7 +946,7 @@ static void ftp_app_draw_pane(ftp_app_pane_t *pane,
         const ftp_app_entry_t *entry = &pane->entries[item_index];
         (void)solar_os_tui_putch(&ftp_app.tui, item_row, col + 1U,
                                  entry->selected ? '*' : ' ', attr | SOLAR_OS_TUI_ATTR_BOLD);
-        char name[SOLAR_OS_FTP_NAME_MAX + 2U];
+        char name[SOLAR_OS_REMOTE_FILE_NAME_MAX + 2U];
         snprintf(name, sizeof(name), "%s%s", entry->name,
                  entry->is_directory && !entry->parent ? "/" : "");
         char size[12] = "";
@@ -981,7 +991,7 @@ static void ftp_app_draw_progress(size_t rows, size_t cols)
         .width = cols,
     };
     solar_os_tui_rect_t popup = {0};
-    char text[SOLAR_OS_FTP_NAME_MAX + 24U];
+    char text[SOLAR_OS_REMOTE_FILE_NAME_MAX + 24U];
     snprintf(text,
              sizeof(text),
              "%s %s",
@@ -1076,14 +1086,18 @@ static void ftp_app_draw_connection(size_t rows, size_t cols)
         return;
     }
     if (rows < 8U || cols < 32U) {
+        char title[24];
+        snprintf(title, sizeof(title), "%s connection", ftp_app.transport->name);
         solar_os_tui_clear(&ftp_app.tui);
-        solar_os_tui_draw_too_small(&ftp_app.tui, FTP_APP_COMMAND " connection");
+        solar_os_tui_draw_too_small(&ftp_app.tui, title);
         return;
     }
     const size_t width = cols > 62U ? 60U : cols - 2U;
     const size_t height = 8U;
     const size_t row = (rows - height) / 2U;
     const size_t col = (cols - width) / 2U;
+    char title[24];
+    snprintf(title, sizeof(title), "%s connection", ftp_app.transport->label);
     solar_os_tui_box(&ftp_app.tui,
                      row,
                      col,
@@ -1094,7 +1108,7 @@ static void ftp_app_draw_connection(size_t rows, size_t cols)
                             row,
                             col + 2U,
                             width - 4U,
-                            FTP_APP_PROTOCOL " connection",
+                            title,
                             SOLAR_OS_TUI_ATTR_INVERSE | SOLAR_OS_TUI_ATTR_BOLD);
     for (size_t index = 0; index < FTP_APP_CONNECT_FIELD_COUNT; index++) {
         ftp_app_draw_connection_field(row + 1U + index,
@@ -1162,7 +1176,7 @@ static void ftp_app_render(void)
                                         ftp_app.input_mode == FTP_APP_INPUT_SEARCH);
     solar_os_tui_clear(&ftp_app.tui);
     if (rows < 6U || cols < FTP_APP_PANEL_MIN_WIDTH * 2U) {
-        solar_os_tui_draw_too_small(&ftp_app.tui, FTP_APP_COMMAND);
+        solar_os_tui_draw_too_small(&ftp_app.tui, ftp_app.transport->name);
         solar_os_tui_refresh(&ftp_app.tui);
         return;
     }
@@ -1171,7 +1185,7 @@ static void ftp_app_render(void)
         snprintf(title,
                  sizeof(title),
                  "%s %s:%u  %s  hidden:%s  Tab switch  q quit",
-                 FTP_APP_COMMAND,
+                 ftp_app.transport->name,
                  ftp_app.host,
                  (unsigned)ftp_app.port,
                  ftp_app.username,
@@ -1180,7 +1194,7 @@ static void ftp_app_render(void)
         snprintf(title,
                  sizeof(title),
                  "%s disconnected  hidden:%s  F2 connect  q quit",
-                 FTP_APP_COMMAND,
+                 ftp_app.transport->name,
                  ftp_app.show_hidden ? "on" : "off");
     }
     solar_os_tui_fill(&ftp_app.tui, 0, 0, 1, cols, ' ',
@@ -1270,7 +1284,7 @@ static void ftp_app_toggle_selection(ftp_app_pane_t *pane)
 static bool ftp_app_submit(const ftp_app_request_t *request, const char *message)
 {
     if (ftp_app.busy || xQueueSend(ftp_app.requests, request, 0) != pdTRUE) {
-        ftp_app_set_message(FTP_APP_PROTOCOL " worker is busy");
+        snprintf(ftp_app.message, sizeof(ftp_app.message), "%s worker is busy", ftp_app.transport->label);
         return false;
     }
     ftp_app.busy = true;
@@ -1644,11 +1658,12 @@ static bool ftp_app_temporary_view_path(char *path,
                                         const char *name)
 {
     for (size_t attempt = 0; attempt < 256U; attempt++) {
-        char temporary_name[SOLAR_OS_FTP_NAME_MAX + 32U];
+        char temporary_name[SOLAR_OS_REMOTE_FILE_NAME_MAX + 32U];
         const uint32_t serial = ++ftp_app.temporary_serial;
         const int written = snprintf(temporary_name,
                                      sizeof(temporary_name),
-                                     FTP_APP_TEMP_PREFIX "%" PRIu32 "-%s",
+                                     ".%s-view-%" PRIu32 "-%s",
+                                     ftp_app.transport->name,
                                      serial,
                                      name);
         struct stat info;
@@ -1664,7 +1679,6 @@ static bool ftp_app_temporary_view_path(char *path,
     return false;
 }
 
-#ifdef SOLAR_OS_FTP_APP_SFTP
 static bool ftp_app_parse_sftp_target(const char *target, char *remote_path)
 {
     if (target == NULL || target[0] == '\0' || remote_path == NULL) {
@@ -1705,7 +1719,6 @@ static bool ftp_app_parse_sftp_target(const char *target, char *remote_path)
     }
     return ftp_app.host[0] != '\0' && ftp_app.username[0] != '\0';
 }
-#endif
 
 static esp_err_t ftp_app_parse_args(solar_os_context_t *ctx,
                                     char *local_path,
@@ -1716,27 +1729,28 @@ static esp_err_t ftp_app_parse_args(solar_os_context_t *ctx,
     if (local_path == NULL || remote_path == NULL || connect_immediately == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-#ifdef SOLAR_OS_FTP_APP_SFTP
-    solar_os_identity_get_user(ftp_app.username, sizeof(ftp_app.username));
-    ftp_app.password[0] = '\0';
-#else
-    strlcpy(ftp_app.username, "anonymous", sizeof(ftp_app.username));
-    strlcpy(ftp_app.password, "solaros@", sizeof(ftp_app.password));
-#endif
-    ftp_app.port = SOLAR_OS_FTP_DEFAULT_PORT;
+    const bool secure = ftp_app.transport->protocol == SOLAR_OS_REMOTE_FILE_SFTP;
+    if (secure) {
+        solar_os_identity_get_user(ftp_app.username, sizeof(ftp_app.username));
+        ftp_app.password[0] = '\0';
+    } else {
+        strlcpy(ftp_app.username, "anonymous", sizeof(ftp_app.username));
+        strlcpy(ftp_app.password, "solaros@", sizeof(ftp_app.password));
+    }
+    ftp_app.port = ftp_app.transport->port;
     strlcpy(remote_path, "/", SOLAR_OS_STORAGE_PATH_MAX);
     strlcpy(local_path, ".", SOLAR_OS_STORAGE_PATH_MAX);
     *connect_immediately = argc >= 2;
     if (argc < 2) {
         return ESP_OK;
     }
-#ifdef SOLAR_OS_FTP_APP_SFTP
-    if (!ftp_app_parse_sftp_target(solar_os_context_argv(ctx, 1), remote_path)) {
-        return ESP_ERR_INVALID_ARG;
+    if (secure) {
+        if (!ftp_app_parse_sftp_target(solar_os_context_argv(ctx, 1), remote_path)) {
+            return ESP_ERR_INVALID_ARG;
+        }
+    } else {
+        strlcpy(ftp_app.host, solar_os_context_argv(ctx, 1), sizeof(ftp_app.host));
     }
-#else
-    strlcpy(ftp_app.host, solar_os_context_argv(ctx, 1), sizeof(ftp_app.host));
-#endif
     bool user_set = false;
     bool password_set = false;
     bool port_set = false;
@@ -1766,17 +1780,16 @@ static esp_err_t ftp_app_parse_args(solar_os_context_t *ctx,
             port_set = true;
         }
     }
-#ifdef SOLAR_OS_FTP_APP_SFTP
-    return ftp_app.host[0] != '\0' && ftp_app.username[0] != '\0' ?
-        ESP_OK : ESP_ERR_INVALID_ARG;
-#else
+    if (secure) {
+        return ftp_app.host[0] != '\0' && ftp_app.username[0] != '\0' ? ESP_OK : ESP_ERR_INVALID_ARG;
+    }
     return user_set == password_set ? ESP_OK : ESP_ERR_INVALID_ARG;
-#endif
 }
 
 static esp_err_t ftp_app_start(solar_os_context_t *ctx)
 {
     memset(&ftp_app, 0, sizeof(ftp_app));
+    ftp_app.transport = ftp_app_select_transport();
     ftp_app.show_hidden = true;
     char local_arg[SOLAR_OS_STORAGE_PATH_MAX];
     char remote_path[SOLAR_OS_STORAGE_PATH_MAX];
@@ -1821,9 +1834,9 @@ static esp_err_t ftp_app_start(solar_os_context_t *ctx)
         return ESP_ERR_NO_MEM;
     }
     if (solar_os_task_create_pinned(ftp_app_worker,
-                                    FTP_APP_TASK_NAME,
+                                    ftp_app.transport->task_name,
                                     FTP_APP_TASK_STACK,
-                                    NULL,
+                                    (void *)solar_os_application_descriptor(),
                                     FTP_APP_TASK_PRIORITY,
                                     &ftp_app.worker,
                                     tskNO_AFFINITY,
@@ -1859,6 +1872,7 @@ static esp_err_t ftp_app_start(solar_os_context_t *ctx)
 static void ftp_app_stop(solar_os_context_t *ctx)
 {
     (void)ctx;
+    if (!ftp_app_current()) return;
     ftp_app.cancel_requested = true;
     if (ftp_app.requests != NULL && ftp_app.worker != NULL) {
         const ftp_app_request_t stop = {.kind = FTP_APP_WORK_STOP};
@@ -1868,7 +1882,7 @@ static void ftp_app_stop(solar_os_context_t *ctx)
         !solar_os_task_wait_done(ftp_app.worker,
                                  &ftp_app.worker_done,
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
-        SOLAR_OS_LOGW(TAG, FTP_APP_PROTOCOL " worker did not stop in time");
+        SOLAR_OS_LOGW(TAG, "%s worker did not stop in time", ftp_app.transport->label);
         return;
     }
     solar_os_tui_set_cursor_visible(&ftp_app.tui, true);
@@ -2277,12 +2291,13 @@ static bool ftp_app_event(solar_os_context_t *ctx, const solar_os_event_t *event
 
 static bool ftp_app_release_ready(void)
 {
-    return ftp_app_state == NULL || ftp_app.worker == NULL || ftp_app.worker_done;
+    const ftp_app_state_t *state = ftp_app_current();
+    return !state || !state->worker || state->worker_done;
 }
 
 static void ftp_app_release_cleanup(void)
 {
-    if (ftp_app_state == NULL) {
+    if (!ftp_app_current()) {
         return;
     }
     ftp_app_batch_clear();
@@ -2312,19 +2327,27 @@ static void ftp_app_release_cleanup(void)
     memset(ftp_app.connection.password, 0, sizeof(ftp_app.connection.password));
 }
 
-const solar_os_app_t solar_os_ftp_app = {
-    .name = FTP_APP_COMMAND,
-    .summary = FTP_APP_SUMMARY,
-    .app_class = SOLAR_OS_APP_CLASS_TUI,
-    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS,
-    .start = ftp_app_start,
-    .resume = ftp_app_resume,
-    .stop = ftp_app_stop,
-    .event = ftp_app_event,
-    .state_slot = &ftp_app_state,
-    .state_size = sizeof(ftp_app_state_t),
-    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED,
-    .state_release_ready = ftp_app_release_ready,
-    .state_release_cleanup = ftp_app_release_cleanup,
-    .worker_stack_bytes = FTP_APP_TASK_STACK,
-};
+#define FILE_TRANSFER_APP(command, summary_text, slot) { \
+    .name = command, \
+    .summary = summary_text, \
+    .app_class = SOLAR_OS_APP_CLASS_TUI, \
+    .flags = SOLAR_OS_APP_FLAG_RESUMABLE | SOLAR_OS_APP_FLAG_KEY_EVENTS, \
+    .start = ftp_app_start, \
+    .resume = ftp_app_resume, \
+    .stop = ftp_app_stop, \
+    .event = ftp_app_event, \
+    .state_slot = &(slot), \
+    .state_size = sizeof(ftp_app_state_t), \
+    .state_storage = SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED, \
+    .state_release_ready = ftp_app_release_ready, \
+    .state_release_cleanup = ftp_app_release_cleanup, \
+    .worker_stack_bytes = FTP_APP_TASK_STACK, \
+}
+
+#if SOLAR_OS_PACKAGE_APP_FTP
+const solar_os_app_t solar_os_ftp_app = FILE_TRANSFER_APP("ftp", "two-pane FTP file manager", ftp_app_state);
+#endif
+#if SOLAR_OS_PACKAGE_APP_SFTP
+const solar_os_app_t solar_os_sftp_app = FILE_TRANSFER_APP("sftp", "two-pane SFTP file manager", sftp_app_state);
+#endif
+#undef FILE_TRANSFER_APP

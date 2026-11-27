@@ -34,14 +34,14 @@ class SmallDisplayAppsTest(unittest.TestCase):
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 "-I" + str(tmp), "-I" + str(ROOT / "tests/host"),
-                "-I" + str(ROOT / "src/services"),
+                "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
                 str(ROOT / "tests/host/synth_play_view_test.c"), "-lm", "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
     def test_media_app_views(self):
         widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
         helpers = widgets[widgets.index("static void media_transport_triangle"):
-                          widgets.index("esp_err_t solar_os_cassette_widget_create")]
+                          widgets.index("void solar_os_cassette_widget_reset")]
         helpers += production_functions(widgets, ("solar_os_media_playlist_draw",))
         browser = (ROOT / "src/services/solar_os_storage_browser.c").read_text()
         helpers += production_functions(browser, ("solar_os_storage_browser_media_entry",))
@@ -62,8 +62,8 @@ class SmallDisplayAppsTest(unittest.TestCase):
             binary = tmp / "media-views"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-I" + str(tmp), "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
-                str(ROOT / "tests/host/media_app_views_test.c"), "-o", str(binary)], check=True)
+                "-I" + str(tmp), "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
+                str(ROOT / "tests/host/media_app_views_test.c"), str(ROOT / "src/services/solar_os_gfx_widgets.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
     def test_invaders_gameplay_and_rendering(self):
@@ -79,7 +79,7 @@ class SmallDisplayAppsTest(unittest.TestCase):
             binary = tmp / "invaders-test"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror", "-Wno-unused-function",
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                "-I" + str(tmp), "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
+                "-I" + str(tmp), "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
                 str(ROOT / "tests/host/invaders_geometry_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

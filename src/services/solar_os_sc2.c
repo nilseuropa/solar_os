@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <time.h>
 
@@ -70,7 +71,7 @@ void *solar_os_sc2_buffer_alloc(size_t len)
 void solar_os_sc2_buffer_free(void *ptr, size_t len)
 {
     if (ptr != NULL) {
-        sc2_memzero(ptr, len);
+        explicit_bzero(ptr, len);
         solar_os_memory_free(ptr);
     }
 }

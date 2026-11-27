@@ -24,6 +24,7 @@ class DocumentReclaimTest(unittest.TestCase):
                             "-include", str(ROOT / "tests/host/compat.h"),
                             "-I", tmp, "-I", str(ROOT / "tests/host"),
                             "-I", str(ROOT / "src"), "-I", str(ROOT / "src/services"),
+                            "-I", str(ROOT / "include"),
                             str(ROOT / "tests/host/document_cache_test.c"),
                             str(ROOT / "tests/host/doc_test_support.c"),
                             str(ROOT / "src/services/solar_os_doc.c"),

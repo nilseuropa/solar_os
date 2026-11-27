@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "solar_os_log.h"
+#include "solar_os_sync.h"
 #include "solar_os_task.h"
 
 #define HTTP_SERVER_ROUTE_MAX 10
@@ -38,6 +39,8 @@ typedef struct {
 static EXT_RAM_BSS_ATTR http_route_slot_t route_slots[HTTP_SERVER_ROUTE_MAX];
 static http_async_slot_t async_slots[HTTP_SERVER_ASYNC_MAX];
 static httpd_handle_t http_server;
+static bool http_server_ready;
+static solar_os_lifecycle_t http_server_lifecycle;
 static uint16_t http_server_listen_port = 80;
 static char bearer_token[SOLAR_OS_HTTP_BEARER_TOKEN_MAX];
 static portMUX_TYPE http_server_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -151,15 +154,39 @@ static bool any_route_refs_locked(void)
     return false;
 }
 
-static httpd_handle_t take_idle_server_locked(void)
+/* Start and stop share a task mutex. Never wait for the server task while
+ * holding a route reference on that task. */
+static esp_err_t stop_idle_server_locked(void)
 {
-    if (any_active_routes_locked() || any_route_refs_locked()) {
-        return NULL;
+    portENTER_CRITICAL(&http_server_lock);
+    httpd_handle_t server = (any_active_routes_locked() || any_route_refs_locked()) ?
+        NULL : http_server;
+    portEXIT_CRITICAL(&http_server_lock);
+    if (!server) return ESP_OK;
+
+    const esp_err_t err = httpd_stop(server);
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&http_server_lock);
+        http_server = NULL;
+        http_server_ready = false;
+        bearer_token[0] = '\0';
+        portEXIT_CRITICAL(&http_server_lock);
+        SOLAR_OS_LOGI(TAG, "stopped");
     }
-    httpd_handle_t server = http_server;
-    http_server = NULL;
-    bearer_token[0] = '\0';
-    return server;
+    return err;
+}
+
+static esp_err_t stop_idle_server(void)
+{
+    portENTER_CRITICAL(&http_server_lock);
+    const bool idle = http_server && !any_active_routes_locked() && !any_route_refs_locked();
+    portEXIT_CRITICAL(&http_server_lock);
+    if (!idle) return ESP_OK;
+
+    if (!solar_os_lifecycle_enter(&http_server_lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t err = stop_idle_server_locked();
+    solar_os_lifecycle_leave(&http_server_lifecycle);
+    return err;
 }
 
 static void clear_inactive_routes_locked(void)
@@ -189,6 +216,7 @@ static bool track_async_request(httpd_req_t *request, size_t route_index)
         if (async_slots[i].request == NULL) {
             async_slots[i].request = request;
             async_slots[i].route_index = route_index;
+            route_slots[route_index].refs++;
             tracked = true;
             break;
         }
@@ -243,7 +271,6 @@ static esp_err_t dispatch_request(httpd_req_t *req)
     }
 
     esp_err_t ret = ESP_OK;
-    bool release_ref = true;
     if (!request_is_authorized(req, auth)) {
         (void)httpd_resp_set_hdr(req, "WWW-Authenticate", "Bearer");
         (void)httpd_resp_set_hdr(req, "Cache-Control", "no-store");
@@ -263,20 +290,18 @@ static esp_err_t dispatch_request(httpd_req_t *req)
             ret = ESP_OK;
         } else {
             const esp_err_t accept_error = handler(async_req, user);
-            if (accept_error == ESP_OK) {
-                release_ref = false;
-            } else {
-                size_t ignored = 0U;
-                (void)untrack_async_request(async_req, &ignored);
-                (void)httpd_req_async_handler_complete(async_req);
+            if (accept_error != ESP_OK) {
+                size_t copy_route = 0U;
+                if (untrack_async_request(async_req, &copy_route)) {
+                    (void)httpd_req_async_handler_complete(async_req);
+                    release_route_ref(copy_route);
+                }
                 ret = ESP_OK;
             }
         }
     }
 
-    if (release_ref) {
-        release_route_ref((size_t)route_index);
-    }
+    release_route_ref((size_t)route_index);
     return ret;
 }
 
@@ -296,14 +321,11 @@ static void generate_bearer_token(char token[SOLAR_OS_HTTP_BEARER_TOKEN_MAX])
     random = 0;
 }
 
-static esp_err_t start_server(void)
+static esp_err_t start_server_locked(void)
 {
-    portENTER_CRITICAL(&http_server_lock);
-    const bool already_running = http_server != NULL;
-    portEXIT_CRITICAL(&http_server_lock);
-    if (already_running) {
-        return ESP_OK;
-    }
+    if (http_server_ready) return ESP_OK;
+    const esp_err_t stop_error = stop_idle_server_locked();
+    if (stop_error != ESP_OK) return stop_error;
 
     solar_os_task_managed_admission_t admission;
     if (!solar_os_task_admit_managed("http-server",
@@ -346,7 +368,11 @@ static esp_err_t start_server(void)
         ret = httpd_register_uri_handler(server, &post);
     }
     if (ret != ESP_OK) {
-        (void)httpd_stop(server);
+        if (httpd_stop(server) != ESP_OK) {
+            portENTER_CRITICAL(&http_server_lock);
+            http_server = server;
+            portEXIT_CRITICAL(&http_server_lock);
+        }
         return ret;
     }
 
@@ -354,6 +380,7 @@ static esp_err_t start_server(void)
     generate_bearer_token(token);
     portENTER_CRITICAL(&http_server_lock);
     http_server = server;
+    http_server_ready = true;
     http_server_listen_port = config.server_port;
     strlcpy(bearer_token, token, sizeof(bearer_token));
     portEXIT_CRITICAL(&http_server_lock);
@@ -382,104 +409,99 @@ esp_err_t solar_os_http_server_register_route(const solar_os_http_route_t *route
         route->uri == NULL ||
         route->uri[0] != '/' ||
         strnlen(route->uri, SOLAR_OS_HTTP_ROUTE_URI_MAX) >= SOLAR_OS_HTTP_ROUTE_URI_MAX ||
-        route->handler == NULL) {
+        route->handler == NULL ||
+        (route->method != HTTP_GET && route->method != HTTP_POST) ||
+        (unsigned)route->auth > SOLAR_OS_HTTP_AUTH_CONTROL) {
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (!solar_os_lifecycle_enter(&http_server_lifecycle)) return ESP_ERR_NO_MEM;
+
     int free_index = -1;
+    esp_err_t ret = ESP_OK;
     portENTER_CRITICAL(&http_server_lock);
     for (size_t i = 0; i < HTTP_SERVER_ROUTE_MAX; i++) {
-        http_route_slot_t *slot = &route_slots[i];
-        if (slot->active &&
-            slot->method == route->method &&
-            strcmp(slot->uri, route->uri) == 0) {
-            portEXIT_CRITICAL(&http_server_lock);
-            return ESP_ERR_INVALID_STATE;
+        const http_route_slot_t *slot = &route_slots[i];
+        if (slot->active && slot->method == route->method && !strcmp(slot->uri, route->uri)) {
+            ret = ESP_ERR_INVALID_STATE;
+            break;
         }
-        if (!slot->active && slot->refs == 0 && free_index < 0) {
-            free_index = (int)i;
-        }
+        if (!slot->active && !slot->refs && free_index < 0) free_index = (int)i;
     }
-    if (free_index < 0) {
-        portEXIT_CRITICAL(&http_server_lock);
-        return ESP_ERR_NO_MEM;
-    }
-
-    http_route_slot_t *slot = &route_slots[free_index];
-    memset(slot, 0, sizeof(*slot));
-    slot->active = true;
-    strlcpy(slot->owner, route->owner, sizeof(slot->owner));
-    strlcpy(slot->uri, route->uri, sizeof(slot->uri));
-    slot->method = route->method;
-    slot->prefix = route->prefix;
-    slot->asynchronous = route->asynchronous;
-    slot->auth = route->auth;
-    slot->handler = route->handler;
-    slot->user = route->user;
     portEXIT_CRITICAL(&http_server_lock);
 
-    const esp_err_t ret = start_server();
-    if (ret != ESP_OK) {
-        portENTER_CRITICAL(&http_server_lock);
-        memset(slot, 0, sizeof(*slot));
-        portEXIT_CRITICAL(&http_server_lock);
+    if (ret == ESP_OK) {
+        ret = free_index >= 0 ? start_server_locked() : ESP_ERR_NO_MEM;
+        if (ret == ESP_OK) {
+            portENTER_CRITICAL(&http_server_lock);
+            http_route_slot_t *slot = &route_slots[free_index];
+            *slot = (http_route_slot_t){
+                .active = true,
+                .method = route->method,
+                .prefix = route->prefix,
+                .asynchronous = route->asynchronous,
+                .auth = route->auth,
+                .handler = route->handler,
+                .user = route->user,
+            };
+            strlcpy(slot->owner, route->owner, sizeof(slot->owner));
+            strlcpy(slot->uri, route->uri, sizeof(slot->uri));
+            portEXIT_CRITICAL(&http_server_lock);
+        }
     }
+    solar_os_lifecycle_leave(&http_server_lifecycle);
     return ret;
 }
 
-esp_err_t solar_os_http_server_unregister_owner(const char *owner)
+static bool route_owned_by(const http_route_slot_t *slot, const char *owner, const void *user)
 {
-    if (owner == NULL ||
-        owner[0] == '\0' ||
-        strnlen(owner, SOLAR_OS_HTTP_ROUTE_OWNER_MAX) >= SOLAR_OS_HTTP_ROUTE_OWNER_MAX) {
+    return !strcmp(slot->owner, owner) && (user == NULL || slot->user == user);
+}
+
+static esp_err_t unregister_routes(const char *owner, const void *user, bool wait)
+{
+    if (!owner || !*owner || strnlen(owner, SOLAR_OS_HTTP_ROUTE_OWNER_MAX) >= SOLAR_OS_HTTP_ROUTE_OWNER_MAX)
         return ESP_ERR_INVALID_ARG;
-    }
 
     bool found = false;
     portENTER_CRITICAL(&http_server_lock);
     for (size_t i = 0; i < HTTP_SERVER_ROUTE_MAX; i++) {
-        if (route_slots[i].owner[0] != '\0' &&
-            strcmp(route_slots[i].owner, owner) == 0) {
-            if (route_slots[i].active) {
-                route_slots[i].active = false;
-            }
+        http_route_slot_t *slot = &route_slots[i];
+        if (route_owned_by(slot, owner, user)) {
+            slot->active = false;
             found = true;
         }
     }
     portEXIT_CRITICAL(&http_server_lock);
 
-    if (!found) {
-        return ESP_ERR_NOT_FOUND;
-    }
     for (uint32_t waited = 0; waited < HTTP_SERVER_STOP_WAIT_MS; waited += 10U) {
         bool busy = false;
         portENTER_CRITICAL(&http_server_lock);
         for (size_t i = 0; i < HTTP_SERVER_ROUTE_MAX; i++) {
-            if (strcmp(route_slots[i].owner, owner) == 0 && route_slots[i].refs != 0) {
-                busy = true;
-                break;
-            }
+            http_route_slot_t *slot = &route_slots[i];
+            if (slot->active || !route_owned_by(slot, owner, user)) continue;
+            if (slot->refs) busy = true;
+            else memset(slot, 0, sizeof(*slot));
         }
         portEXIT_CRITICAL(&http_server_lock);
         if (!busy) {
-            httpd_handle_t stop_server = NULL;
-            portENTER_CRITICAL(&http_server_lock);
-            for (size_t i = 0; i < HTTP_SERVER_ROUTE_MAX; i++) {
-                if (!route_slots[i].active && strcmp(route_slots[i].owner, owner) == 0) {
-                    memset(&route_slots[i], 0, sizeof(route_slots[i]));
-                }
-            }
-            stop_server = take_idle_server_locked();
-            portEXIT_CRITICAL(&http_server_lock);
-            if (stop_server != NULL) {
-                (void)httpd_stop(stop_server);
-                SOLAR_OS_LOGI(TAG, "stopped");
-            }
-            return ESP_OK;
+            const esp_err_t err = stop_idle_server();
+            return err == ESP_OK && !found ? ESP_ERR_NOT_FOUND : err;
         }
+        if (!wait) return ESP_ERR_INVALID_STATE;
         vTaskDelay(pdMS_TO_TICKS(10));
     }
     return ESP_ERR_TIMEOUT;
+}
+
+esp_err_t solar_os_http_server_unregister_owner(const char *owner)
+{
+    return unregister_routes(owner, NULL, true);
+}
+
+esp_err_t solar_os_http_server_unregister_owned(const char *owner, const void *user)
+{
+    return user ? unregister_routes(owner, user, false) : ESP_ERR_INVALID_ARG;
 }
 
 esp_err_t solar_os_http_server_complete_async(httpd_req_t *req)
@@ -494,21 +516,12 @@ esp_err_t solar_os_http_server_complete_async(httpd_req_t *req)
     }
 
     const esp_err_t complete_error = httpd_req_async_handler_complete(req);
-    httpd_handle_t stop_server = NULL;
+    release_route_ref(route_index);
     portENTER_CRITICAL(&http_server_lock);
-    if (route_index < HTTP_SERVER_ROUTE_MAX &&
-        route_slots[route_index].refs > 0U) {
-        route_slots[route_index].refs--;
-    }
     clear_inactive_routes_locked();
-    stop_server = take_idle_server_locked();
     portEXIT_CRITICAL(&http_server_lock);
-
-    if (stop_server != NULL) {
-        (void)httpd_stop(stop_server);
-        SOLAR_OS_LOGI(TAG, "stopped");
-    }
-    return complete_error;
+    const esp_err_t stop_error = stop_idle_server();
+    return complete_error == ESP_OK ? stop_error : complete_error;
 }
 
 bool solar_os_http_server_get_bearer_token(char *token, size_t token_len)

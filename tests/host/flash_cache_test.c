@@ -19,7 +19,7 @@ static int test_closedir(DIR *dir);
 #define opendir test_opendir
 #define readdir test_readdir
 #define closedir test_closedir
-#include "../../src/services/solar_os_flash_cache.c"
+#include "../../src/apps/solar_os_flash_cache.c"
 #undef opendir
 #undef readdir
 #undef closedir

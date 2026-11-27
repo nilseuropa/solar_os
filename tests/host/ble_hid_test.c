@@ -202,17 +202,17 @@ int main(void)
     assert(solar_os_ble_hid_open(address,0)==NULL);
     assert(solar_os_ble_hid_deinit()==ESP_OK);
     bool ids[256];
-    assert(solar_os_ble_hid_report_map(map,sizeof(map),ids) && ids[1] && !ids[0]);
+    assert(solar_os_hid_report_descriptor_keyboard_map(map,sizeof(map),ids) && ids[1] && !ids[0]);
     for (size_t i=1;i<sizeof(map);++i) {
         /* Every truncation is either structurally valid or rejected; no reads past i. */
         uint8_t *cut=malloc(i); memcpy(cut,map,i);
-        (void)solar_os_ble_hid_report_map(cut,i,ids); free(cut);
+        (void)solar_os_hid_report_descriptor_keyboard_map(cut,i,ids); free(cut);
     }
     uint8_t invalid[]={0x05};
-    assert(!solar_os_ble_hid_report_map(invalid,sizeof(invalid),ids));
+    assert(!solar_os_hid_report_descriptor_keyboard_map(invalid,sizeof(invalid),ids));
     uint8_t underflow[]={0xc0};
-    assert(!solar_os_ble_hid_report_map(underflow,sizeof(underflow),ids));
+    assert(!solar_os_hid_report_descriptor_keyboard_map(underflow,sizeof(underflow),ids));
     uint8_t nesting[34]; for(size_t i=0;i<17;++i){nesting[i*2]=0xa1;nesting[i*2+1]=1;}
-    assert(!solar_os_ble_hid_report_map(nesting,sizeof(nesting),ids));
+    assert(!solar_os_hid_report_descriptor_keyboard_map(nesting,sizeof(nesting),ids));
     puts("HID client: failure, cancellation, bounds, subscription, input lifetime and stale callback tests passed");
 }

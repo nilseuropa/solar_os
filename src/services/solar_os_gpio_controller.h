@@ -6,24 +6,20 @@
 
 #include "esp_err.h"
 
-#define SOLAR_OS_GPIO_CONTROLLER_NAME_MAX 16
+#include "solar_os_native_io_abi.h"
 
 typedef enum {
-    SOLAR_OS_GPIO_LINE_MODE_INPUT,
-    SOLAR_OS_GPIO_LINE_MODE_OUTPUT,
+    SOLAR_OS_GPIO_LINE_MODE_INPUT = SOLAR_OS_NATIVE_GPIO_INPUT,
+    SOLAR_OS_GPIO_LINE_MODE_OUTPUT = SOLAR_OS_NATIVE_GPIO_OUTPUT,
 } solar_os_gpio_line_mode_t;
 
 typedef enum {
-    SOLAR_OS_GPIO_LINE_PULL_NONE,
-    SOLAR_OS_GPIO_LINE_PULL_UP,
-    SOLAR_OS_GPIO_LINE_PULL_DOWN,
+    SOLAR_OS_GPIO_LINE_PULL_NONE = SOLAR_OS_NATIVE_GPIO_PULL_NONE,
+    SOLAR_OS_GPIO_LINE_PULL_UP = SOLAR_OS_NATIVE_GPIO_PULL_UP,
+    SOLAR_OS_GPIO_LINE_PULL_DOWN = SOLAR_OS_NATIVE_GPIO_PULL_DOWN,
 } solar_os_gpio_line_pull_t;
 
-typedef struct {
-    /* An empty controller selects a native ESP GPIO. */
-    char controller[SOLAR_OS_GPIO_CONTROLLER_NAME_MAX];
-    uint8_t line;
-} solar_os_gpio_line_ref_t;
+typedef solar_os_native_gpio_line_v1_t solar_os_gpio_line_ref_t;
 
 typedef struct {
     esp_err_t (*configure)(void *ctx,
@@ -43,15 +39,12 @@ typedef struct {
     void *ctx;
 } solar_os_gpio_controller_registration_t;
 
-typedef struct {
-    uint8_t id;
-    uint8_t line_count;
-    char name[SOLAR_OS_GPIO_CONTROLLER_NAME_MAX];
-} solar_os_gpio_controller_info_t;
+typedef solar_os_native_gpio_controller_v1_t solar_os_gpio_controller_info_t;
 
 esp_err_t solar_os_gpio_controller_register(
     const solar_os_gpio_controller_registration_t *registration);
 esp_err_t solar_os_gpio_controller_unregister(const char *name);
+esp_err_t solar_os_gpio_controller_unregister_owned(const char *name, const void *context);
 size_t solar_os_gpio_controller_count(void);
 bool solar_os_gpio_controller_get(size_t index, solar_os_gpio_controller_info_t *info);
 bool solar_os_gpio_controller_find(const char *name, solar_os_gpio_controller_info_t *info);
@@ -59,6 +52,10 @@ bool solar_os_gpio_controller_find(const char *name, solar_os_gpio_controller_in
 /* Accepts either a native GPIO number or controller:line. */
 bool solar_os_gpio_line_parse(const char *text, solar_os_gpio_line_ref_t *line);
 bool solar_os_gpio_line_is_native(const solar_os_gpio_line_ref_t *line);
+/* Resolve and claim under the controller registry lock. The resource claim
+ * keeps the controller ID pinned until the caller releases the line. */
+esp_err_t solar_os_gpio_line_claim_controller(const solar_os_gpio_line_ref_t *line,
+    const char *owner, uint8_t *controller_id);
 esp_err_t solar_os_gpio_line_configure(const solar_os_gpio_line_ref_t *line,
                                        solar_os_gpio_line_mode_t mode,
                                        solar_os_gpio_line_pull_t pull);

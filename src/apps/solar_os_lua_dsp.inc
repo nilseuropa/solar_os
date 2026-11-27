@@ -10,12 +10,26 @@ typedef enum {
 typedef struct {
     solua_dsp_kind_t kind;
     union {
-        solar_os_dsp_fir_t *fir;
-        solar_os_dsp_decimator_t *decimator;
-        solar_os_dsp_fft_t *fft;
-        void *context;
+        solar_os_native_handle_t fir;
+        solar_os_native_handle_t decimator;
+        solar_os_native_handle_t fft;
+        solar_os_native_handle_t context;
     } processor;
+    const solar_os_native_dsp_api_v1_t *api;
 } solua_dsp_processor_t;
+
+static const solar_os_native_dsp_api_v1_t *solua_dsp_api(lua_State *L)
+{
+    const solar_os_native_dsp_api_v1_t *api = solar_os_native_dsp_get(
+        SOLAR_OS_SCRIPT_SERVICE_QUERY(dsp),
+        SOLAR_OS_NATIVE_THROUGH(solar_os_native_dsp_api_v1_t, fft_execute));
+    if (!api) luaL_error(L, "DSP service unavailable");
+    return api;
+}
+static int solua_dsp_check(lua_State *L, int result)
+{
+    return result ? luaL_error(L, "DSP error %d", result) : 0;
+}
 
 static const int16_t *solua_dsp_s16_string(lua_State *L, int index,
                                            size_t *sample_count)
@@ -70,7 +84,7 @@ static int16_t *solua_dsp_output(lua_State *L, size_t samples,
 
 static int solua_dsp_backend(lua_State *L)
 {
-    lua_pushstring(L, solar_os_dsp_backend());
+    lua_pushstring(L, solua_dsp_api(L)->backend());
     return 1;
 }
 
@@ -78,10 +92,10 @@ static int solua_dsp_capabilities(lua_State *L)
 {
     lua_createtable(L, 0, 3);
     const int result = lua_gettop(L);
-    solua_set_str(L, result, "backend", solar_os_dsp_backend());
-    solua_set_int(L, result, "supported", solar_os_dsp_capabilities());
+    solua_set_str(L, result, "backend", solua_dsp_api(L)->backend());
+    solua_set_int(L, result, "supported", solua_dsp_api(L)->capabilities());
     solua_set_int(L, result, "accelerated",
-                  solar_os_dsp_accelerated_capabilities());
+                  solua_dsp_api(L)->accelerated_capabilities());
     return 1;
 }
 
@@ -95,7 +109,7 @@ static int solua_dsp_dot(lua_State *L)
         return luaL_error(L, "DSP strings must have equal length");
     }
     int64_t value = 0;
-    (void)solua_check_esp(L, solar_os_dsp_dot_s16(a, b, count, &value));
+    (void)solua_dsp_check(L, solua_dsp_api(L)->dot_s16(a, b, count, &value));
     lua_pushinteger(L, (lua_Integer)value);
     return 1;
 }
@@ -106,7 +120,7 @@ static int solua_dsp_gain(lua_State *L)
     const int16_t *input = solua_dsp_s16_string(L, 1, &count);
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, count, &buffer);
-    (void)solua_check_esp(L, solar_os_dsp_gain_q15(
+    (void)solua_dsp_check(L, solua_dsp_api(L)->gain_q15(
         output, input, count, solua_dsp_q15(L, 2)));
     luaL_pushresultsize(&buffer, count * sizeof(int16_t));
     return 1;
@@ -123,7 +137,7 @@ static int solua_dsp_mix(lua_State *L)
     }
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, count, &buffer);
-    (void)solua_check_esp(L, solar_os_dsp_mix_q15(
+    (void)solua_dsp_check(L, solua_dsp_api(L)->mix_q15(
         output, a, b, count, solua_dsp_q15(L, 3), solua_dsp_q15(L, 4)));
     luaL_pushresultsize(&buffer, count * sizeof(int16_t));
     return 1;
@@ -135,7 +149,7 @@ static int solua_dsp_clip(lua_State *L)
     const int16_t *input = solua_dsp_s16_string(L, 1, &count);
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, count, &buffer);
-    (void)solua_check_esp(L, solar_os_dsp_clip_s16(
+    (void)solua_dsp_check(L, solua_dsp_api(L)->clip_s16(
         output, input, count, solua_dsp_i16(L, 2), solua_dsp_i16(L, 3)));
     luaL_pushresultsize(&buffer, count * sizeof(int16_t));
     return 1;
@@ -146,7 +160,7 @@ static int solua_dsp_level(lua_State *L)
     size_t count = 0;
     const int16_t *input = solua_dsp_s16_string(L, 1, &count);
     solar_os_dsp_level_t level;
-    (void)solua_check_esp(L, solar_os_dsp_level_s16(input, count, &level));
+    (void)solua_dsp_check(L, solua_dsp_api(L)->level_s16(input, count, &level));
     lua_pushinteger(L, level.peak);
     lua_pushinteger(L, level.rms);
     return 2;
@@ -163,8 +177,8 @@ static int solua_dsp_window(lua_State *L)
     }
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, count, &buffer);
-    (void)solua_check_esp(L,
-        solar_os_dsp_window_q15(output, input, window, count));
+    (void)solua_dsp_check(L,
+        solua_dsp_api(L)->window_q15(output, input, window, count));
     luaL_pushresultsize(&buffer, count * sizeof(int16_t));
     return 1;
 }
@@ -173,32 +187,31 @@ static solua_dsp_processor_t *solua_dsp_self(lua_State *L)
 {
     solua_dsp_processor_t *self =
         luaL_checkudata(L, 1, SOLUA_DSP_PROCESSOR_METATABLE);
-    if (self->processor.context == NULL) {
+    if (self->processor.context == 0) {
         luaL_error(L, "DSP processor is closed");
     }
     return self;
 }
 
-static void solua_dsp_destroy(solua_dsp_processor_t *self)
+static int solua_dsp_destroy(solua_dsp_processor_t *self)
 {
-    if (self == NULL || self->processor.context == NULL) {
-        return;
+    if (!self || !self->processor.context) return SOLAR_OS_NATIVE_OK;
+    int result;
+    if (self->kind == SOLUA_DSP_FIR) result = self->api->fir_close(self->processor.fir);
+    else if (self->kind == SOLUA_DSP_DECIMATOR) result = self->api->decimator_close(self->processor.decimator);
+    else result = self->api->fft_close(self->processor.fft);
+    if (result == SOLAR_OS_NATIVE_OK || result == SOLAR_OS_NATIVE_ERROR_NOT_FOUND) {
+        self->processor.context = 0;
+        return SOLAR_OS_NATIVE_OK;
     }
-    if (self->kind == SOLUA_DSP_FIR) {
-        solar_os_dsp_fir_destroy(self->processor.fir);
-    } else if (self->kind == SOLUA_DSP_DECIMATOR) {
-        solar_os_dsp_decimator_destroy(self->processor.decimator);
-    } else {
-        solar_os_dsp_fft_destroy(self->processor.fft);
-    }
-    self->processor.context = NULL;
+    return result;
 }
 
 static int solua_dsp_processor_close(lua_State *L)
 {
     solua_dsp_processor_t *self =
         luaL_checkudata(L, 1, SOLUA_DSP_PROCESSOR_METATABLE);
-    solua_dsp_destroy(self);
+    (void)solua_dsp_check(L, solua_dsp_destroy(self));
     return 0;
 }
 
@@ -206,9 +219,9 @@ static int solua_dsp_processor_reset(lua_State *L)
 {
     solua_dsp_processor_t *self = solua_dsp_self(L);
     if (self->kind == SOLUA_DSP_FIR) {
-        solar_os_dsp_fir_reset(self->processor.fir);
+        (void)solua_dsp_check(L, self->api->fir_reset(self->processor.fir));
     } else if (self->kind == SOLUA_DSP_DECIMATOR) {
-        solar_os_dsp_decimator_reset(self->processor.decimator);
+        (void)solua_dsp_check(L, self->api->decimator_reset(self->processor.decimator));
     } else {
         return luaL_error(L, "FFT processor has no streaming state");
     }
@@ -225,17 +238,17 @@ static int solua_dsp_processor_process(lua_State *L)
     const int16_t *input = solua_dsp_s16_string(L, 2, &count);
     size_t output_count = count;
     if (self->kind == SOLUA_DSP_DECIMATOR) {
-        output_count = solar_os_dsp_decimator_output_count(
+        output_count = self->api->decimator_output_count(
             self->processor.decimator, count);
     }
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, output_count, &buffer);
     if (self->kind == SOLUA_DSP_FIR) {
-        (void)solua_check_esp(L, solar_os_dsp_fir_process(
+        (void)solua_dsp_check(L, self->api->fir_process(
             self->processor.fir, output, input, count));
     } else {
         size_t produced = 0;
-        (void)solua_check_esp(L, solar_os_dsp_decimator_process(
+        (void)solua_dsp_check(L, self->api->decimator_process(
             self->processor.decimator, output, output_count, input, count,
             &produced));
         if (produced != output_count) {
@@ -254,14 +267,14 @@ static int solua_dsp_processor_execute(lua_State *L)
     }
     size_t count = 0;
     const int16_t *input = solua_dsp_s16_string(L, 2, &count);
-    const size_t fft_size = solar_os_dsp_fft_size(self->processor.fft);
+    const size_t fft_size = self->api->fft_size(self->processor.fft);
     if (count != fft_size) {
         return luaL_error(L, "input length does not match FFT size");
     }
     luaL_Buffer buffer;
     int16_t *output = solua_dsp_output(L, fft_size * 2U, &buffer);
     uint8_t exponent = 0;
-    (void)solua_check_esp(L, solar_os_dsp_fft_execute(
+    (void)solua_dsp_check(L, self->api->fft_execute(
         self->processor.fft, (solar_os_dsp_complex_s16_t *)output, input,
         &exponent));
     luaL_pushresultsize(&buffer,
@@ -285,17 +298,18 @@ static int solua_dsp_fir(lua_State *L)
     solua_dsp_processor_t *self =
         lua_newuserdatauv(L, sizeof(*self), 0);
     memset(self, 0, sizeof(*self));
-    esp_err_t error;
+    self->api = solua_dsp_api(L);
+    int error;
     if (decimation == 1U) {
         self->kind = SOLUA_DSP_FIR;
-        error = solar_os_dsp_fir_create(coefficients, taps,
+        error = self->api->fir_create(coefficients, taps,
                                          &self->processor.fir);
     } else {
         self->kind = SOLUA_DSP_DECIMATOR;
-        error = solar_os_dsp_decimator_create(coefficients, taps, decimation,
+        error = self->api->decimator_create(coefficients, taps, decimation,
                                                &self->processor.decimator);
     }
-    (void)solua_check_esp(L, error);
+    (void)solua_dsp_check(L, error);
     luaL_setmetatable(L, SOLUA_DSP_PROCESSOR_METATABLE);
     return 1;
 }
@@ -305,8 +319,9 @@ static int solua_dsp_fft(lua_State *L)
     solua_dsp_processor_t *self =
         lua_newuserdatauv(L, sizeof(*self), 0);
     memset(self, 0, sizeof(*self));
+    self->api = solua_dsp_api(L);
     self->kind = SOLUA_DSP_FFT;
-    (void)solua_check_esp(L, solar_os_dsp_fft_create(
+    (void)solua_dsp_check(L, self->api->fft_create(
         solua_check_size(L, 1), &self->processor.fft));
     luaL_setmetatable(L, SOLUA_DSP_PROCESSOR_METATABLE);
     return 1;

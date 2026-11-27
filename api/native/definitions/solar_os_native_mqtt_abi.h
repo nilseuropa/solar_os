@@ -1,0 +1,59 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_MQTT_SERVICE "network.mqtt"
+#define SOLAR_OS_NATIVE_MQTT_ABI 1U
+
+#define SOLAR_OS_MQTT_URL_MAX 160
+#define SOLAR_OS_MQTT_USERNAME_MAX 64
+#define SOLAR_OS_MQTT_PASSWORD_MAX 96
+#define SOLAR_OS_MQTT_CLIENT_ID_MAX 64
+#define SOLAR_OS_MQTT_TOPIC_MAX 96
+#define SOLAR_OS_MQTT_PAYLOAD_MAX 192
+#define SOLAR_OS_MQTT_ERROR_MAX 64
+
+typedef struct {
+    bool initialized;
+    bool configured;
+    bool running;
+    bool connected;
+    bool username_set;
+    bool password_set;
+    char url[SOLAR_OS_MQTT_URL_MAX];
+    char username[SOLAR_OS_MQTT_USERNAME_MAX];
+    char client_id[SOLAR_OS_MQTT_CLIENT_ID_MAX];
+    char last_error[SOLAR_OS_MQTT_ERROR_MAX];
+    int32_t error;
+    int32_t last_msg_id;
+    uint32_t rx_count;
+    uint32_t tx_count;
+    uint32_t dropped_count;
+    size_t queued_messages;
+} solar_os_mqtt_status_t;
+
+typedef struct {
+    char topic[SOLAR_OS_MQTT_TOPIC_MAX];
+    char payload[SOLAR_OS_MQTT_PAYLOAD_MAX];
+    size_t payload_len;
+    int32_t qos;
+    bool retain;
+    bool truncated;
+} solar_os_mqtt_message_t;
+
+/* One shared broker connection with saved configuration. NULL URL or
+ * credentials reuse the corresponding saved values. Explicit empty credentials
+ * clear those fields. Inputs are borrowed only during the call. Status omits
+ * passwords and URL user information. Payloads are binary and may contain zero
+ * bytes. A received message reports truncation when the bounded record cannot
+ * hold the full broker message. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*connect)(const char *url, const char *username, const char *password);
+    int (*disconnect)(void);
+    int (*publish)(const char *topic, const void *payload, size_t length, int32_t qos,
+        bool retain, int32_t *message_id);
+    int (*subscribe)(const char *filter, int32_t qos, int32_t *message_id);
+    int (*read)(solar_os_mqtt_message_t *message, uint32_t timeout_ms);
+    int (*status)(solar_os_mqtt_status_t *status);
+} solar_os_native_mqtt_api_v1_t;

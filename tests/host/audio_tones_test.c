@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -25,7 +26,7 @@ static size_t run_lengths[8], gaps[8];
 static unsigned runs;
 static bool in_tone;
 static size_t silence_frames;
-static volatile bool cancelled;
+static atomic_bool cancelled;
 static unsigned cancel_write, fail_write, short_write;
 static bool cancel_drain;
 

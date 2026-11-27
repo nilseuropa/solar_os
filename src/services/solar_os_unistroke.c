@@ -164,7 +164,8 @@ static float distance_at_best_angle(const solar_os_unistroke_path_t *candidate,
     float x2 = (1.0f - UNISTROKE_PHI) * lower + UNISTROKE_PHI * upper;
     float f1 = distance_at_angle(candidate, reference, x1);
     float f2 = distance_at_angle(candidate, reference, x2);
-    while (fabsf(upper - lower) > precision) {
+    /* The bounds can stop moving when precision is below float resolution. */
+    for (unsigned step = 0; step < 64U && fabsf(upper - lower) > precision; step++) {
         if (f1 < f2) {
             upper = x2;
             x2 = x1;
@@ -200,10 +201,13 @@ solar_os_unistroke_status_t solar_os_unistroke_prepare(
     solar_os_unistroke_path_t *path)
 {
     if (points == NULL || point_count < 2U || config == NULL || path == NULL ||
-        config->square_size <= 0.0f) {
+        !isfinite(config->square_size) || config->square_size <= 0.0f) {
         return SOLAR_OS_UNISTROKE_INVALID_ARGUMENT;
     }
     const float length = path_length(points, point_count);
+    if (!isfinite(length)) {
+        return SOLAR_OS_UNISTROKE_INVALID_ARGUMENT;
+    }
     if (length <= UNISTROKE_EPSILON) {
         return SOLAR_OS_UNISTROKE_TOO_SHORT;
     }
@@ -228,7 +232,9 @@ solar_os_unistroke_status_t solar_os_unistroke_recognize(
     const solar_os_unistroke_config_t *config,
     solar_os_unistroke_result_t *result)
 {
-    if (templates == NULL || template_count == 0U || result == NULL) {
+    if (templates == NULL || template_count == 0U || result == NULL || config == NULL ||
+        !isfinite(config->angle_range_radians) || !isfinite(config->angle_precision_radians) ||
+        !isfinite(config->minimum_score)) {
         return SOLAR_OS_UNISTROKE_INVALID_ARGUMENT;
     }
     memset(result, 0, sizeof(*result));

@@ -1,0 +1,53 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+#include "solar_os_jet_wire_types_v1.h"
+
+#define SOLAR_OS_NATIVE_JET_SERVICE "jet.scene"
+#define SOLAR_OS_NATIVE_JET_ABI 1U
+
+typedef struct {
+    const char *display; /* NULL selects the caller's foreground display. */
+    uint16_t fps; /* 0 follows the target, with a maximum of 30. */
+} solar_os_jet_options_t;
+
+typedef struct {
+    uint32_t frames, presented, dropped;
+    uint64_t render_us, present_us;
+    uint16_t width, height;
+    int32_t error;
+} solar_os_jet_status_t;
+
+/* One live scene holds a display claim and a renderer library lease. A failed
+ * open can yield a close-only handle. Retry unsuccessful closes before freeing
+ * any caller resources referenced by the scene. Operations on a borrowed scene
+ * return BUSY until rendering or another active operation completes.
+ *
+ * A nonzero callback_library_lease keeps those shader functions loaded through
+ * close. With a zero lease, install shader functions only from the owner app's
+ * foreground scope. Shader userdata must survive until replacement or close.
+ * The render cancellation function and command inputs are borrowed only during
+ * the call, except for installed shader functions and their userdata. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const solar_os_jet_options_t *options, uint32_t callback_library_lease,
+        solar_os_native_handle_t *scene, char *detail, size_t capacity);
+    int (*close)(solar_os_native_handle_t scene);
+    int (*set_suspended)(solar_os_native_handle_t scene, bool suspended);
+    int (*uses_foreground)(solar_os_native_handle_t scene, bool *uses_foreground);
+    int (*background)(solar_os_native_handle_t scene, uint32_t rgb888);
+    int (*camera)(solar_os_native_handle_t scene, const solar_os_jet_pose_t *pose, uint16_t fov);
+    int (*light)(solar_os_native_handle_t scene, uint32_t ambient, uint32_t rgb888,
+        uint16_t intensity, int32_t azimuth, int32_t elevation);
+    int (*cube)(solar_os_native_handle_t scene, uint16_t width, uint16_t height,
+        uint16_t depth, uint32_t rgb888, uint32_t *object);
+    int (*mesh)(solar_os_native_handle_t scene, const solar_os_jet_vertex_t *vertices,
+        size_t count, const solar_os_jet_triangle_t *triangles, size_t triangle_count,
+        uint32_t rgb888, uint32_t *object);
+    int (*transform)(solar_os_native_handle_t scene, uint32_t object, const solar_os_jet_pose_t *pose);
+    int (*remove)(solar_os_native_handle_t scene, uint32_t object);
+    int (*render)(solar_os_native_handle_t scene, solar_os_native_cancel_fn cancel, void *user);
+    int (*status)(solar_os_native_handle_t scene, solar_os_jet_status_t *status);
+    int (*execute)(solar_os_native_handle_t scene, const solar_os_jet_command_t *command,
+        solar_os_jet_reply_t *reply);
+} solar_os_native_jet_api_v1_t;

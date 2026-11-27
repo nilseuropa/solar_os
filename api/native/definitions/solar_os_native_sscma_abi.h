@@ -1,0 +1,39 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_SSCMA_SERVICE "camera.sscma"
+#define SOLAR_OS_NATIVE_SSCMA_ABI 1U
+#define SOLAR_OS_NATIVE_SSCMA_REPLY_MAX (512U * 1024U)
+
+/* Shared camera ownership protects the transport, sensor and reply buffers.
+ * open does not start the sensor. start uses the camera's default dimensions.
+ * exchange returns an owned, NUL-terminated SSCMA JSON reply in host memory;
+ * event=true waits for the event after checking the operation acknowledgement.
+ * Calls on a token must be serialized. close attempts to stop the sensor before
+ * releasing ownership. A transport failure invalidates the driver for recovery
+ * on next use; it does not retain ownership indefinitely. Other close failures
+ * leave the token valid and may be retried.
+ * image decodes a reply's base64 JPEG in place, invalidating its JSON. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const char *source, const char *owner, uint32_t *token);
+    int (*start)(uint32_t token);
+    int (*exchange)(uint32_t token, const char *source, const char *command,
+        const char *response_name, bool event, uint32_t timeout_ms,
+        solar_os_native_cancel_fn cancel, void *user, char **reply);
+    int (*image)(char *reply, size_t capacity, const uint8_t **jpeg,
+        size_t *length, uint16_t *width, uint16_t *height);
+    int (*close)(uint32_t token);
+    /* Optional owned maintenance transport. Probe with length=0 and NULL
+     * buffers before changing device state. Actual transfers are limited to
+     * 262 bytes and require a reset line. send writes an SSCMA command without
+     * waiting for an acknowledgement (e.g. OTA). reset returns to normal SSCMA
+     * operation, invalidates sensor state and releases temporary DMA storage.
+     * Serialize these calls with exchange/start/close on the same token.
+     * The module owns the register protocol, slot layout and write policy. */
+    int (*spi)(uint32_t token, const void *tx, void *rx, size_t length);
+    int (*send)(uint32_t token, const char *source, const char *command);
+    int (*reset)(uint32_t token);
+} solar_os_native_sscma_api_v1_t;
+
+#define SOLAR_OS_NATIVE_SSCMA_BASE_SIZE offsetof(solar_os_native_sscma_api_v1_t, spi)

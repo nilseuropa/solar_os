@@ -31,30 +31,31 @@ void solar_os_text_search_reset(solar_os_text_search_state_t *state)
     }
 }
 
-void solar_os_text_search_begin_input(solar_os_text_search_state_t *state)
+static void text_search_set_input_active(solar_os_text_search_state_t *state, bool active)
 {
-    if (state == NULL) {
+    if (state == NULL || state->query_len >= sizeof(state->query)) {
         return;
     }
-    memcpy(state->input, state->query, state->query_len + 1U);
+    memcpy(state->input, state->query, state->query_len);
     state->input_len = state->query_len;
-    state->input_active = true;
+    state->input[state->input_len] = '\0';
+    state->input_active = active;
+}
+
+void solar_os_text_search_begin_input(solar_os_text_search_state_t *state)
+{
+    text_search_set_input_active(state, true);
 }
 
 void solar_os_text_search_cancel_input(solar_os_text_search_state_t *state)
 {
-    if (state == NULL) {
-        return;
-    }
-    memcpy(state->input, state->query, state->query_len + 1U);
-    state->input_len = state->query_len;
-    state->input_active = false;
+    text_search_set_input_active(state, false);
 }
 
 bool solar_os_text_search_input_append(solar_os_text_search_state_t *state, char ch)
 {
     if (state == NULL || !state->input_active ||
-        state->input_len + 1U >= sizeof(state->input)) {
+        state->input_len >= sizeof(state->input) - 1U) {
         return false;
     }
     state->input[state->input_len++] = ch;
@@ -64,7 +65,8 @@ bool solar_os_text_search_input_append(solar_os_text_search_state_t *state, char
 
 bool solar_os_text_search_input_backspace(solar_os_text_search_state_t *state)
 {
-    if (state == NULL || !state->input_active || state->input_len == 0U) {
+    if (state == NULL || !state->input_active || state->input_len == 0U ||
+        state->input_len >= sizeof(state->input)) {
         return false;
     }
     state->input[--state->input_len] = '\0';
@@ -84,7 +86,7 @@ bool solar_os_text_search_set_query(solar_os_text_search_state_t *state,
         state->match_valid = false;
         return false;
     }
-    memcpy(state->query, query, query_len + 1U);
+    memmove(state->query, query, query_len + 1U);
     state->query_len = query_len;
     state->match_valid = false;
     return true;
@@ -92,9 +94,10 @@ bool solar_os_text_search_set_query(solar_os_text_search_state_t *state,
 
 bool solar_os_text_search_submit_input(solar_os_text_search_state_t *state)
 {
-    if (state == NULL || !state->input_active) {
+    if (state == NULL || !state->input_active || state->input_len >= sizeof(state->input)) {
         return false;
     }
+    state->input[state->input_len] = '\0';
     state->input_active = false;
     return solar_os_text_search_set_query(state, state->input);
 }
@@ -178,7 +181,8 @@ bool solar_os_text_search_find_segments(size_t segment_count,
                                         solar_os_text_search_direction_t direction,
                                         solar_os_text_search_match_t *match)
 {
-    if (segment_count == 0U || segment == NULL || query == NULL || match == NULL) {
+    if (segment_count == 0U || segment == NULL || query == NULL || match == NULL ||
+        (direction != SOLAR_OS_TEXT_SEARCH_FORWARD && direction != SOLAR_OS_TEXT_SEARCH_BACKWARD)) {
         return false;
     }
     const size_t query_len = strlen(query);

@@ -13,8 +13,8 @@ agent_reference_sections = true
 
 ## Quick reference
 
-- Enable the `vision` group (`service.vision` and `service.imlib`) on a board with PSRAM. The
-  `full` flavor enables it on supported boards. A camera or display is optional.
+- Vision and imlib are core services on supported boards with PSRAM.
+  A camera or display is optional.
 - `solaros.vision.qrcodes(image[, options])` reads a native `solaros.image`
   handle and returns QR payloads, four corners, and processing statistics.
 - Options: `x`, `y`, `width`, `height`, `output_width`, `output_height`.
@@ -24,8 +24,8 @@ agent_reference_sections = true
   before interpreting a payload as text.
 - Decode a camera/RTSP frame with `image.from_frame`, then release the frame
   before QR processing. Close the decoded image when finished.
-- `service.imlib` adds the image operations below. Each package can be selected
-  independently. Native code and Python/Lua use the same backend.
+- `service.imlib` supplies the image operations below. Native code and
+  Python/Lua use the same backend.
 
 ## Images and regions
 
@@ -123,8 +123,8 @@ for _, code in ipairs(result.codes) do
 end
 ```
 
-The `vision` module follows its native package gate. Enabling Python or Lua
-alone does not enable vision. Neural inference is not included in this API.
+The `vision` module is available when the board supports the core vision
+service. Neural inference is not included in this API.
 
 ## Image processing with imlib
 

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/lock.h>
 #include <sys/select.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -24,6 +25,9 @@
 #define SOLAR_OS_SSH_TRANSPORT_DIR ".ssh"
 #define SOLAR_OS_SSH_TRANSPORT_KNOWN_HOSTS "known_hosts"
 #define SOLAR_OS_SSH_TRANSPORT_HOSTS "hosts"
+
+/* libssh2 updates a process-wide reference count in init and exit. */
+static _lock_t library_lock;
 
 static bool transport_should_stop(const solar_os_ssh_transport_config_t *config)
 {
@@ -701,7 +705,10 @@ esp_err_t solar_os_ssh_transport_open(const solar_os_ssh_transport_config_t *con
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (libssh2_init(0) != 0) {
+    _lock_acquire(&library_lock);
+    const int library_result = libssh2_init(0);
+    _lock_release(&library_lock);
+    if (library_result != 0) {
         transport_send_error(config, "libssh2 init failed");
         return ESP_FAIL;
     }
@@ -755,7 +762,9 @@ void solar_os_ssh_transport_close(solar_os_ssh_transport_t *transport,
         transport->socket_fd = -1;
     }
     if (transport->libssh2_ready) {
+        _lock_acquire(&library_lock);
         libssh2_exit();
+        _lock_release(&library_lock);
         transport->libssh2_ready = false;
     }
 }

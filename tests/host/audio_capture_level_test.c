@@ -14,7 +14,7 @@ esp_err_t solar_os_audio_open_default(solar_os_stream_direction_t direction,
     (void)device;
     assert(direction == SOLAR_OS_STREAM_DIRECTION_SOURCE && !strcmp(owner, "audio.mic"));
     assert(options->requested_audio.bits_per_sample == 16);
-    handle->audio = native; return open_result;
+    handle->audio = native; handle->type = SOLAR_OS_STREAM_TYPE_AUDIO; return open_result;
 }
 esp_err_t solar_os_stream_read(solar_os_stream_handle_t *handle, void *data,
     size_t len, uint32_t timeout, size_t *received) {
@@ -27,6 +27,20 @@ esp_err_t solar_os_stream_read(solar_os_stream_handle_t *handle, void *data,
     return read_result;
 }
 void solar_os_stream_close(solar_os_stream_handle_t *handle) { (void)handle; closes++; }
+
+#define SOLAR_OS_AUDIO_BACKEND_DEFAULT_CHANNELS 2U
+#define SOLAR_OS_LOGI(tag, ...) ((void)tag)
+#define SOLAR_OS_LOGD(tag, ...) ((void)tag)
+static const char *TAG = "test";
+static int64_t fake_time;
+static int64_t esp_timer_get_time(void) { return fake_time += 500; }
+static esp_err_t solar_os_board_audio_read(void *bytes, size_t size)
+{
+    assert(size == AUDIO_LEVEL_BUFFER_SAMPLES * sizeof(int16_t));
+    int16_t *samples = bytes;
+    for (size_t i = 0; i < AUDIO_LEVEL_BUFFER_SAMPLES; i++) samples[i] = i % 2 ? -20000 : 10000;
+    return read_result;
+}
 
 #include "audio_capture_level.inc"
 
@@ -56,5 +70,14 @@ int main(void) {
     assert(audio_measure_capture_stream(100, -1, &level) == ESP_ERR_NOT_SUPPORTED && closes == before + 1);
     before = closes;
     assert(audio_measure_capture_stream(0, -1, &level) == ESP_ERR_INVALID_ARG && closes == before);
+    assert(audio_measure_level_locked(-1, 1, &level) == ESP_OK);
+    assert(level.samples == AUDIO_LEVEL_BUFFER_SAMPLES && level.peak_percent == 61 && level.average_percent == 45);
+    assert(audio_measure_level_locked(0, 1, &level) == ESP_OK);
+    assert(level.samples == AUDIO_LEVEL_BUFFER_SAMPLES / 2 && level.peak_percent == 30 && level.average_percent == 30);
+    assert(audio_measure_level_locked(1, 1, &level) == ESP_OK);
+    assert(level.samples == AUDIO_LEVEL_BUFFER_SAMPLES / 2 && level.peak_percent == 61 && level.average_percent == 61);
+    assert(audio_measure_level_locked(2, 1, &level) == ESP_ERR_INVALID_ARG);
+    read_result = ESP_ERR_TIMEOUT;
+    assert(audio_measure_level_locked(-1, 1, &level) == ESP_ERR_TIMEOUT && level.samples == 0);
     return 0;
 }

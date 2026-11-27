@@ -15,6 +15,8 @@ close it when finished. Native C APIs are listed below.
 
 SolarOS selects acceleration automatically where available on ESP32-S3.
 The same API works with the portable backend on other boards.
+Python and Lua bindings use the public system DSP ABI. Streaming processors
+release their system handles when closed or collected by the interpreter.
 
 ## Numeric contract
 

@@ -1,15 +1,11 @@
 #include "solar_os_native_data.h"
 #include "solar_os_native_data_abi.h"
-#include <ctype.h>
-#include <limits.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "cJSON.h"
 #include "solar_os_crypto.h"
-#include "solar_os_json.h"
+#include "solar_os_native_json.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
 #include "solar_os_work.h"
@@ -92,68 +88,10 @@ static int state_directory(const char *name, char *path, size_t capacity)
     if (solar_os_storage_makedirs(path, true)) { *path = 0; return SOLAR_OS_NATIVE_ERROR_FAILED; }
     return 0;
 }
-static bool unique_keys(const cJSON *root, unsigned depth)
-{
-    if (depth > 32) return false;
-    const cJSON *a, *b;
-    cJSON_ArrayForEach(a, root) {
-        if (cJSON_IsObject(root)) for (b = a->next; b; b = b->next)
-            if (!strcmp(a->string, b->string)) return false;
-        if (!unique_keys(a, depth + 1)) return false;
-    }
-    return true;
-}
-static int json_parse(const char *text, size_t size, solar_os_native_json_value_t **out)
-{
-    if (!out) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    *out = NULL;
-    if (!text || !size || size > 65536 || memchr(text, 0, size)) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
-    unsigned depth = 0; bool quote = false, escape = false;
-    for (size_t i = 0; i < size; ++i) {
-        unsigned char c = text[i];
-        if (i + 6 <= size && !memcmp(text + i, "\\u0000", 6)) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-        if (quote) {
-            if (c < 32) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-            if (escape) escape = false;
-            else if (c == '\\') escape = true;
-            else if (c == '"') quote = false;
-        } else if (c == '"') quote = true;
-        else if (c == '{' || c == '[') { if (++depth > 32) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE; }
-        else if (c == '}' || c == ']') { if (!depth) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT; --depth; }
-    }
-    if (quote || depth || solar_os_json_init()) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    const char *end = NULL;
-    cJSON *root = cJSON_ParseWithLengthOpts(text, size, &end, false);
-    while (end && end < text + size && isspace((unsigned char)*end)) ++end;
-    if (!root || end != text + size || (!cJSON_IsObject(root) && !cJSON_IsArray(root)) || !unique_keys(root, 0)) {
-        cJSON_Delete(root); return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
-    }
-    *out = (solar_os_native_json_value_t *)root; return 0;
-}
-static const solar_os_native_json_value_t *json_get(const solar_os_native_json_value_t *v, const char *key)
-{ return (const void *)cJSON_GetObjectItemCaseSensitive((const cJSON *)v, key); }
-static const solar_os_native_json_value_t *json_at(const solar_os_native_json_value_t *v, size_t index)
-{ return index > INT_MAX ? NULL : (const void *)cJSON_GetArrayItem((const cJSON *)v, index); }
-static const char *json_string(const solar_os_native_json_value_t *v)
-{ return cJSON_IsString((const cJSON *)v) ? ((const cJSON *)v)->valuestring : NULL; }
-static bool json_uint(const solar_os_native_json_value_t *v, uint64_t *out)
-{
-    const cJSON *n = (const cJSON *)v;
-    if (!out || !cJSON_IsNumber(n) || !isfinite(n->valuedouble) || n->valuedouble < 0 ||
-        n->valuedouble > 9007199254740991.0 || floor(n->valuedouble) != n->valuedouble) return false;
-    *out = n->valuedouble; return true;
-}
-static size_t json_count(const solar_os_native_json_value_t *v) { return cJSON_GetArraySize((const cJSON *)v); }
-static const char *json_key(const solar_os_native_json_value_t *v) { return v ? ((const cJSON *)v)->string : NULL; }
-static void json_free(solar_os_native_json_value_t *v) { cJSON_Delete((cJSON *)v); }
-static uint32_t json_kind(const solar_os_native_json_value_t *v)
-{ return cJSON_IsObject((const cJSON *)v) ? SOLAR_OS_NATIVE_JSON_OBJECT : cJSON_IsArray((const cJSON *)v) ? SOLAR_OS_NATIVE_JSON_ARRAY : 0; }
 static const solar_os_native_files_api_v1_t files_api = {1, sizeof(files_api), file_open, file_read, file_seek, file_close, file_hash, file_replace, state_directory};
-static const solar_os_native_json_api_v1_t json_api = {1, sizeof(json_api), json_parse, json_get, json_at, json_string, json_uint, json_count, json_key, json_free, json_kind};
 const void *solar_os_native_data_get_service(const char *name, uint32_t abi, uint32_t minimum)
 {
-    if (!name || abi != 1) return NULL;
-    if (!strcmp(name, SOLAR_OS_NATIVE_FILES_SERVICE) && minimum <= sizeof(files_api)) return &files_api;
-    if (!strcmp(name, SOLAR_OS_NATIVE_JSON_SERVICE) && minimum <= sizeof(json_api)) return &json_api;
+#include "generated/native_data_dispatch.inc"
+#include "generated/native_data_providers.inc"
     return NULL;
 }

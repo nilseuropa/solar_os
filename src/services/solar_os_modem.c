@@ -535,8 +535,12 @@ esp_err_t solar_os_modem_register(
     if (free_device->generation == 0U) {
         free_device->generation = modem_next_generation++;
     }
-    const bool transport_rate_control =
-        free_device->info.transport_rate_control;
+    const bool transport_rate_control = free_device->info.transport_rate_control;
+    const modem_ref_t restore_ref = {
+        .index = (size_t)(free_device - modem_devices),
+        .generation = free_device->generation,
+    };
+    if (transport_rate_control) free_device->refs++;
     xSemaphoreGive(modem_mutex);
 
     if (transport_rate_control) {
@@ -559,11 +563,12 @@ esp_err_t solar_os_modem_register(
                      registration->name,
                      esp_err_to_name(load_ret));
         }
+        release_device(&restore_ref);
     }
     return ESP_OK;
 }
 
-esp_err_t solar_os_modem_unregister(const char *name)
+esp_err_t solar_os_modem_unregister_owned(const char *name, const void *context)
 {
     if (!modem_name_valid(name) || ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
@@ -571,7 +576,8 @@ esp_err_t solar_os_modem_unregister(const char *name)
     xSemaphoreTake(modem_mutex, portMAX_DELAY);
     for (size_t i = 0; i < MODEM_DEVICE_MAX; i++) {
         if (modem_devices[i].active &&
-            strcmp(modem_devices[i].info.name, name) == 0) {
+            strcmp(modem_devices[i].info.name, name) == 0 &&
+            (!context || modem_devices[i].ctx == context)) {
             if (modem_devices[i].refs > 0U) {
                 xSemaphoreGive(modem_mutex);
                 return ESP_ERR_INVALID_STATE;
@@ -583,6 +589,11 @@ esp_err_t solar_os_modem_unregister(const char *name)
     }
     xSemaphoreGive(modem_mutex);
     return ESP_ERR_NOT_FOUND;
+}
+
+esp_err_t solar_os_modem_unregister(const char *name)
+{
+    return solar_os_modem_unregister_owned(name, NULL);
 }
 
 size_t solar_os_modem_count(void)

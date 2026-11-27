@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_sensors_abi.h"
 
 #define SOLAR_OS_IMU_NAME_MAX 20
 #define SOLAR_OS_IMU_DRIVER_MAX 24
@@ -16,21 +17,7 @@
 #define SOLAR_OS_IMU_STREAM_FORMAT "imu-v1-le"
 #define SOLAR_OS_IMU_STREAM_SAMPLE_BYTES 52U
 
-typedef uint32_t solar_os_imu_capabilities_t;
-
-typedef enum {
-    SOLAR_OS_IMU_CAP_ACCELERATION = 1U << 0,
-    SOLAR_OS_IMU_CAP_ANGULAR_VELOCITY = 1U << 1,
-    SOLAR_OS_IMU_CAP_ORIENTATION = 1U << 2,
-} solar_os_imu_capability_t;
-
-typedef struct {
-    uint64_t timestamp_us;
-    solar_os_imu_capabilities_t valid;
-    float acceleration_m_s2[3];
-    float angular_velocity_rad_s[3];
-    float orientation[4]; /* Quaternion w,x,y,z when ORIENTATION is valid. */
-} solar_os_imu_sample_t;
+typedef solar_os_native_imu_sample_v1_t solar_os_imu_sample_t;
 
 typedef struct {
     esp_err_t (*read_sample)(void *ctx,
@@ -46,14 +33,11 @@ typedef struct {
     void *ctx;
 } solar_os_imu_registration_t;
 
-typedef struct {
-    char name[SOLAR_OS_IMU_NAME_MAX];
-    char driver[SOLAR_OS_IMU_DRIVER_MAX];
-    solar_os_imu_capabilities_t capabilities;
-} solar_os_imu_info_t;
+typedef solar_os_native_sensor_info_v1_t solar_os_imu_info_t;
 
 esp_err_t solar_os_imu_register(const solar_os_imu_registration_t *registration);
 esp_err_t solar_os_imu_unregister(const char *name);
+esp_err_t solar_os_imu_unregister_owned(const char *name, const void *context);
 size_t solar_os_imu_count(void);
 bool solar_os_imu_get(size_t index, solar_os_imu_info_t *info);
 esp_err_t solar_os_imu_read_sample(const char *name,

@@ -609,13 +609,19 @@ static esp_err_t run_session(solar_os_rtsp_client_t *c)
     return err;
 }
 
-esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
+esp_err_t solar_os_rtsp_client_run_with_callbacks(solar_os_rtsp_client_t *c,
+    const solar_os_rtsp_client_callbacks_t *callbacks)
 {
     if (!c) return ESP_ERR_INVALID_ARG;
     lock(c);
     if (c->started) { unlock(c); return ESP_ERR_INVALID_STATE; }
     c->started = c->running = true;
     c->status.epoch = 1;
+    if (callbacks) {
+        c->options.samples = callbacks->samples;
+        c->options.device = callbacks->device;
+        c->options.user = callbacks->user;
+    }
     unlock(c);
     unsigned failures = 0;
     bool latency_lease = false;
@@ -684,8 +690,21 @@ esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
         unlock(c);
     }
     if (latency_lease) (void)solar_os_wifi_latency_release(latency_owner);
-    lock(c); c->running = false; c->status.reconnecting = false; unlock(c);
+    lock(c);
+    c->running = false;
+    c->status.reconnecting = false;
+    if (callbacks) {
+        c->options.samples = NULL;
+        c->options.device = NULL;
+        c->options.user = NULL;
+    }
+    unlock(c);
     return err;
+}
+
+esp_err_t solar_os_rtsp_client_run(solar_os_rtsp_client_t *c)
+{
+    return solar_os_rtsp_client_run_with_callbacks(c, NULL);
 }
 
 void solar_os_rtsp_client_cancel(solar_os_rtsp_client_t *c)
@@ -712,8 +731,8 @@ void solar_os_rtsp_client_status(solar_os_rtsp_client_t *c, solar_os_rtsp_client
     unlock(c);
 }
 
-bool solar_os_rtsp_client_take_video(solar_os_rtsp_client_t *c, solar_os_rtp_jpeg_frame_t *frame,
-                                    uint64_t *arrived_us)
+bool solar_os_rtsp_client_take_video_with_epoch(solar_os_rtsp_client_t *c,
+    solar_os_rtp_jpeg_frame_t *frame, uint64_t *arrived_us, uint32_t *epoch)
 {
     if (!c || !frame) return false;
     lock(c);
@@ -725,9 +744,16 @@ bool solar_os_rtsp_client_take_video(solar_os_rtsp_client_t *c, solar_os_rtp_jpe
     if (ready) {
         *frame = c->frame;
         if (arrived_us) *arrived_us = c->frame_arrived_us;
+        if (epoch) *epoch = c->status.epoch;
         c->pending = false; c->leased = true;
     }
     unlock(c); return ready;
+}
+
+bool solar_os_rtsp_client_take_video(solar_os_rtsp_client_t *c, solar_os_rtp_jpeg_frame_t *frame,
+                                    uint64_t *arrived_us)
+{
+    return solar_os_rtsp_client_take_video_with_epoch(c, frame, arrived_us, NULL);
 }
 
 int64_t solar_os_rtsp_client_video_lateness(solar_os_rtsp_client_t *c,

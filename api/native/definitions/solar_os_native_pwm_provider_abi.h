@@ -1,0 +1,36 @@
+#pragma once
+
+#include "solar_os_native_io_abi.h"
+
+#define SOLAR_OS_NATIVE_PWM_PROVIDER_SERVICE "pwm.provider"
+#define SOLAR_OS_NATIVE_PWM_PROVIDER_ABI 1U
+
+/* The driver stays pinned until close succeeds. Callbacks run on the caller
+ * task and are serialized per provider. They must not call back into this
+ * provider's PWM operations. The OS owns the output claims and their labels.
+ * Readout owner and provider strings are populated by the OS. */
+typedef struct {
+    const char *name;
+    const char *driver;
+    uint32_t library_lease;
+    void *user;
+    size_t (*output_count)(void *user);
+    bool (*get_output)(void *user, size_t index, solar_os_native_pwm_info_v1_t *info);
+    int (*set)(void *user, uint16_t output, uint32_t frequency_hz, uint32_t value, bool pulse);
+    int (*open)(void *user, uint16_t output, uint32_t frequency_hz, const char *owner);
+    int (*write_pulse)(void *user, uint16_t output, const char *owner, uint32_t pulse_width_us);
+    int (*disable)(void *user, uint16_t output, const char *owner);
+    int (*close)(void *user, uint16_t output, const char *owner);
+    int (*stop)(void *user, uint16_t output);
+} solar_os_native_pwm_provider_callbacks_v1_t;
+
+typedef struct {
+    uint32_t abi_version, struct_size;
+    /* Registration copies the descriptor and retains the code lease.
+     * A driver can use a zero lease during expansion-driver attachment. */
+    int (*register_provider)(const solar_os_native_pwm_provider_callbacks_v1_t *callbacks,
+                             solar_os_native_handle_t *provider);
+    /* Returns BUSY while an output is reserved or active, or a callback is
+     * running. Stop configured outputs and release claims before retrying. */
+    int (*close)(solar_os_native_handle_t provider);
+} solar_os_native_pwm_provider_api_v1_t;

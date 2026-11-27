@@ -19,7 +19,7 @@ static esp_err_t usb_write_error;
 static bool usb_write_zero;
 static void vTaskDelay(unsigned ms) { delays += ms; clock_us += ms * 1000; }
 static int64_t esp_timer_get_time(void) { return clock_us; }
-static esp_err_t solar_os_gpio_write(int pin, bool level) { (void)level; assert(pin >= 0); gpio_calls++; return ESP_OK; }
+static esp_err_t solar_os_gpio_write_owned(int pin, const char *owner, bool level) { (void)level; assert(pin >= 0 && !strcmp(owner, FLASH_OWNER)); gpio_calls++; return ESP_OK; }
 esp_err_t solar_os_port_serial_configure(const solar_os_port_handle_t *handle, const solar_os_port_serial_config_t *config, uint32_t mask) {
     assert(handle->index == 2);
     if (control_error) return control_error;

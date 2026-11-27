@@ -1,0 +1,29 @@
+#pragma once
+#include "solar_os_native_routing_abi.h"
+
+#define SOLAR_OS_NATIVE_ROUTER_PROVIDER_SERVICE "network.router.provider"
+#define SOLAR_OS_NATIVE_ROUTER_PROVIDER_ABI 1U
+
+typedef struct {
+    const char *name;
+    solar_os_native_handle_t library_lease;
+    void *user;
+    int (*start)(void *user);
+    int (*stop)(void *user);
+    void (*status)(void *user, solar_os_native_network_router_v1_t *status);
+} solar_os_native_router_provider_v1_t;
+
+typedef struct {
+    uint32_t abi_version, struct_size;
+    /* Core copies registration metadata and retains callback code. A zero
+     * lease is supported during driver attachment. Callbacks can run on
+     * different tasks. Keep user state alive until close succeeds. */
+    int (*register_router)(const solar_os_native_router_provider_v1_t *provider,
+        solar_os_native_handle_t *registration);
+    /* Selection changes the target of the shared network.routing router
+     * operations. The current router must be idle before switching. */
+    int (*select)(solar_os_native_handle_t registration);
+    /* Stops and unregisters the exact provider. An active callback or a
+     * failed stop keeps the registration and its code available for retry. */
+    int (*close)(solar_os_native_handle_t registration);
+} solar_os_native_router_provider_api_v1_t;

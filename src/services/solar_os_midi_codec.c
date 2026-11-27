@@ -51,7 +51,8 @@ size_t solar_os_midi_message_length(uint8_t status)
 
 bool solar_os_midi_message_valid(const solar_os_midi_message_t *message)
 {
-    if (message == NULL || message->length != solar_os_midi_message_length(message->status)) {
+    if (message == NULL || !message->length ||
+        message->length != solar_os_midi_message_length(message->status)) {
         return false;
     }
     if (message->length > 1U && message->data1 > SOLAR_OS_MIDI_DATA_MAX) {

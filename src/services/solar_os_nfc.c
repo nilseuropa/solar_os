@@ -82,12 +82,18 @@ esp_err_t solar_os_nfc_register(const solar_os_nfc_registration_t *registration)
 
 esp_err_t solar_os_nfc_unregister(const char *name)
 {
+    return solar_os_nfc_unregister_owned(name, NULL);
+}
+
+esp_err_t solar_os_nfc_unregister_owned(const char *name, const void *owner)
+{
     if (!name_valid(name) || ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(nfc_mutex, portMAX_DELAY);
     for (size_t i = 0; i < NFC_DEVICE_MAX; i++) {
-        if (nfc_devices[i].active && strcmp(nfc_devices[i].info.name, name) == 0) {
+        if (nfc_devices[i].active && strcmp(nfc_devices[i].info.name, name) == 0 &&
+            (!owner || nfc_devices[i].ctx == owner)) {
             if (nfc_devices[i].refs > 0U) {
                 xSemaphoreGive(nfc_mutex);
                 return ESP_ERR_INVALID_STATE;
@@ -153,6 +159,10 @@ esp_err_t solar_os_nfc_set_power(const char *name, bool enabled)
                 xSemaphoreGive(nfc_mutex);
                 return ESP_ERR_NOT_SUPPORTED;
             }
+            if (nfc_devices[i].refs > 0U) {
+                xSemaphoreGive(nfc_mutex);
+                return ESP_ERR_INVALID_STATE;
+            }
             if (nfc_devices[i].info.powered == enabled) {
                 xSemaphoreGive(nfc_mutex);
                 return ESP_OK;
@@ -200,7 +210,7 @@ esp_err_t solar_os_nfc_scan(const char *name,
     xSemaphoreTake(nfc_mutex, portMAX_DELAY);
     for (size_t i = 0; i < NFC_DEVICE_MAX; i++) {
         if (nfc_devices[i].active && strcmp(nfc_devices[i].info.name, name) == 0) {
-            if (!nfc_devices[i].info.powered) {
+            if (!nfc_devices[i].info.powered || nfc_devices[i].refs > 0U) {
                 xSemaphoreGive(nfc_mutex);
                 return ESP_ERR_INVALID_STATE;
             }

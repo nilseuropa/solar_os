@@ -6,6 +6,11 @@
 #include "solar_os_module_packages.h"
 #include "solar_os_json.h"
 
+size_t strlcpy(char *out, const char *source, size_t capacity)
+{ size_t size = strlen(source); if (capacity) snprintf(out, capacity, "%s", source); return size; }
+const solar_os_component_t *solar_os_component_find(solar_os_module_type_t type, const char *id)
+{ (void)type; (void)id; return NULL; }
+
 static bool module_name_valid(const char *s)
 { return s && *s && strspn(s,"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") == strlen(s); }
 const solar_os_json_value_t *solar_os_json_path_get(const solar_os_json_value_t *v,const char *s)
@@ -21,11 +26,14 @@ static bool solar_os_native_service_available(const char *name,uint32_t abi,uint
 { return abi==1 && ((!strcmp(name,"libc") && size<=52) || (!strcmp(name,"storage") && size<=32)); }
 #include "solar_os_module_requirements.inc"
 
+static solar_os_module_package_t entries[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
 static solar_os_module_catalog_t catalog;
+static void reset_catalog(void)
+{ memset(&catalog, 0, sizeof(catalog)); memset(entries, 0, sizeof(entries)); catalog.packages = entries; }
 static esp_err_t parse(const char *text,uint32_t schema)
 {
     cJSON *json=cJSON_Parse(text);assert(json);
-    memset(&catalog,0,sizeof(catalog));
+    reset_catalog();
     catalog.packages[0].type=SOLAR_OS_MODULE_TYPE_APP;
     catalog.packages[0].lifecycle_abi=1;
     catalog.packages[0].compatible=true;
@@ -34,6 +42,14 @@ static esp_err_t parse(const char *text,uint32_t schema)
 }
 int main(void)
 {
+    const solar_os_component_t engine = {.type=SOLAR_OS_MODULE_TYPE_LIBRARY, .id="engine", .version="1.0"};
+    const solar_os_component_dependency_t missing[] = {{"missing", "1.0"}};
+    const solar_os_component_t client = {.type=SOLAR_OS_MODULE_TYPE_APP, .id="client", .version="1.0",
+        .dependency_count=1, .dependencies=missing};
+    solar_os_module_install_result_t result;
+    module_component_result(&engine, &result);
+    assert(result.compiled && !strcmp(result.id, "engine") && !strcmp(result.version, "1.0"));
+    assert(module_component_self_contained(&engine, 0) && !module_component_self_contained(&client, 0));
     assert(parse("{}",2)==ESP_OK);
     assert(parse("{\"dependencies\":[]}",2)==ESP_ERR_INVALID_RESPONSE);
     assert(parse("{\"dependencies\":{}}",3)==ESP_ERR_INVALID_RESPONSE);
@@ -44,7 +60,7 @@ int main(void)
     assert(!catalog.packages[0].compatible && strstr(catalog.packages[0].incompatibility,"libc"));
     assert(parse("{\"required_services\":[{\"name\":\"libc\",\"abi\":0,\"minimum_struct_size\":56}]}",3)!=ESP_OK);
     assert(parse("{\"dependencies\":[{\"id\":\"tinycc\",\"version\":\"0.5.0\"},{\"id\":\"tinycc\",\"version\":\"0.4.0\"}]}",3)!=ESP_OK);
-    memset(&catalog,0,sizeof(catalog));catalog.count=3;
+    reset_catalog();catalog.count=3;
     for(unsigned i=0;i<3;i++) {
         solar_os_module_package_t *p=&catalog.packages[i];
         snprintf(p->id,sizeof(p->id),"p%u",i);strcpy(p->version,"1.0");

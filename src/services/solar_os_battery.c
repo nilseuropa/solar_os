@@ -41,6 +41,8 @@ static solar_os_battery_provider_t battery_provider;
 static char battery_provider_owner[24];
 static bool battery_initialized;
 static bool battery_stream_registered;
+static bool battery_provider_changing;
+static unsigned battery_provider_reads;
 static portMUX_TYPE battery_provider_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static solar_os_battery_monitor_status_t monitor_status = {
@@ -89,6 +91,7 @@ static esp_err_t battery_register_stream(void)
             .sharing = SOLAR_OS_STREAM_SHARING_SHARED,
         },
         .read_scalar = battery_stream_read_scalar,
+        .user = &battery_provider,
     };
     strlcpy(driver.info.id, "battery", sizeof(driver.info.id));
     strlcpy(driver.info.provider, "battery", sizeof(driver.info.provider));
@@ -238,12 +241,20 @@ static bool battery_provider_snapshot(solar_os_battery_provider_t *provider)
         return false;
     }
     portENTER_CRITICAL(&battery_provider_lock);
-    const bool available = battery_provider_owner[0] != '\0';
+    const bool available = battery_provider_owner[0] != '\0' && !battery_provider_changing;
     if (available) {
         *provider = battery_provider;
+        battery_provider_reads++;
     }
     portEXIT_CRITICAL(&battery_provider_lock);
     return available;
+}
+
+static void battery_provider_read_done(void)
+{
+    portENTER_CRITICAL(&battery_provider_lock);
+    battery_provider_reads--;
+    portEXIT_CRITICAL(&battery_provider_lock);
 }
 
 static void battery_monitor_reset_estimate(uint32_t interval_ms)
@@ -437,75 +448,104 @@ static void battery_monitor_update_estimate(const solar_os_battery_status_t *sta
     battery_monitor_refresh_estimates(&monitor_status);
 }
 
+static esp_err_t battery_publish_provider(bool rollback)
+{
+    const esp_err_t error = battery_register_stream();
+    portENTER_CRITICAL(&battery_provider_lock);
+    battery_stream_registered = error == ESP_OK;
+    if (error != ESP_OK && rollback) {
+        battery_provider = (solar_os_battery_provider_t){0};
+        battery_provider_owner[0] = '\0';
+    }
+    battery_provider_changing = false;
+    portEXIT_CRITICAL(&battery_provider_lock);
+    return error;
+}
+
 esp_err_t solar_os_battery_init(void)
 {
     battery_load_config();
+    portENTER_CRITICAL(&battery_provider_lock);
     battery_initialized = true;
-    if (!solar_os_battery_has_provider()) {
-        return ESP_ERR_NOT_SUPPORTED;
+    if (!battery_provider_owner[0] || battery_provider_changing || battery_stream_registered) {
+        const esp_err_t error = !battery_provider_owner[0] ? ESP_ERR_NOT_SUPPORTED :
+            battery_provider_changing ? ESP_ERR_INVALID_STATE : ESP_OK;
+        portEXIT_CRITICAL(&battery_provider_lock);
+        return error;
     }
-    if (battery_stream_registered) {
-        return ESP_OK;
-    }
-    const esp_err_t err = battery_register_stream();
-    if (err == ESP_OK) {
-        battery_stream_registered = true;
-    }
-    return err;
+    battery_provider_changing = true;
+    portEXIT_CRITICAL(&battery_provider_lock);
+    return battery_publish_provider(false);
 }
 
-esp_err_t solar_os_battery_register_provider(
-    const char *owner,
-    const solar_os_battery_provider_t *provider)
+esp_err_t solar_os_battery_register_provider(const char *owner, const solar_os_battery_provider_t *provider)
 {
-    if (owner == NULL || owner[0] == '\0' ||
+    if (!owner || !*owner ||
         strnlen(owner, sizeof(battery_provider_owner)) >= sizeof(battery_provider_owner) ||
-        provider == NULL || provider->read == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t ret = ESP_OK;
+        !provider || !provider->read) return ESP_ERR_INVALID_ARG;
+
     portENTER_CRITICAL(&battery_provider_lock);
-    if (battery_provider_owner[0] != '\0') {
-        ret = ESP_ERR_INVALID_STATE;
-    } else {
-        battery_provider = *provider;
-        strlcpy(battery_provider_owner, owner, sizeof(battery_provider_owner));
+    if (battery_provider_owner[0]) {
+        portEXIT_CRITICAL(&battery_provider_lock);
+        return ESP_ERR_INVALID_STATE;
     }
+    battery_provider = *provider;
+    strlcpy(battery_provider_owner, owner, sizeof(battery_provider_owner));
+    const bool publish = battery_initialized;
+    battery_provider_changing = publish;
     portEXIT_CRITICAL(&battery_provider_lock);
-    if (ret == ESP_OK && battery_initialized) {
-        ret = solar_os_battery_init();
-        if (ret != ESP_OK) {
-            (void)solar_os_battery_unregister_provider(owner);
-        }
+    return publish ? battery_publish_provider(true) : ESP_OK;
+}
+
+static esp_err_t battery_unregister_provider(const char *owner, const void *user)
+{
+    if (!owner || !*owner) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&battery_provider_lock);
+    if (strcmp(battery_provider_owner, owner) || (user && battery_provider.user != user)) {
+        portEXIT_CRITICAL(&battery_provider_lock);
+        return ESP_ERR_NOT_FOUND;
     }
-    return ret;
+    if (battery_provider_changing || battery_provider_reads) {
+        portEXIT_CRITICAL(&battery_provider_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    battery_provider_changing = true;
+    const bool published = battery_stream_registered;
+    portEXIT_CRITICAL(&battery_provider_lock);
+
+    esp_err_t error = ESP_OK;
+    if (published) {
+        const char *id = "battery";
+        const void *owner_token = &battery_provider;
+        error = solar_os_stream_unregister_many_owned(&id, &owner_token, 1);
+    }
+    if (error == ESP_OK) solar_os_battery_monitor_stop();
+
+    portENTER_CRITICAL(&battery_provider_lock);
+    if (error == ESP_OK) {
+        battery_provider = (solar_os_battery_provider_t){0};
+        battery_provider_owner[0] = '\0';
+        battery_stream_registered = false;
+    }
+    battery_provider_changing = false;
+    portEXIT_CRITICAL(&battery_provider_lock);
+    return error;
 }
 
 esp_err_t solar_os_battery_unregister_provider(const char *owner)
 {
-    if (owner == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    portENTER_CRITICAL(&battery_provider_lock);
-    if (strcmp(battery_provider_owner, owner) != 0) {
-        portEXIT_CRITICAL(&battery_provider_lock);
-        return ESP_ERR_NOT_FOUND;
-    }
-    memset(&battery_provider, 0, sizeof(battery_provider));
-    battery_provider_owner[0] = '\0';
-    portEXIT_CRITICAL(&battery_provider_lock);
-    if (battery_stream_registered) {
-        (void)solar_os_stream_unregister("battery");
-        battery_stream_registered = false;
-    }
-    solar_os_battery_monitor_stop();
-    return ESP_OK;
+    return battery_unregister_provider(owner, NULL);
+}
+
+esp_err_t solar_os_battery_unregister_provider_owned(const char *owner, const void *user)
+{
+    return user ? battery_unregister_provider(owner, user) : ESP_ERR_INVALID_ARG;
 }
 
 bool solar_os_battery_has_provider(void)
 {
     portENTER_CRITICAL(&battery_provider_lock);
-    const bool available = battery_provider_owner[0] != '\0';
+    const bool available = battery_provider_owner[0] != '\0' && !battery_provider_changing;
     portEXIT_CRITICAL(&battery_provider_lock);
     return available;
 }
@@ -526,6 +566,7 @@ static esp_err_t battery_get_status(solar_os_battery_status_t *status, uint16_t 
     solar_os_battery_sample_t sample = {0};
     const esp_err_t ret = provider.read(provider.user, &sample);
     if (ret != ESP_OK) {
+        battery_provider_read_done();
         return ret;
     }
 
@@ -548,6 +589,7 @@ static esp_err_t battery_get_status(solar_os_battery_status_t *status, uint16_t 
         : inferred_charging;
     status->charging_known = sample.charging_valid;
     status->external_power_known = sample.external_power_valid;
+    battery_provider_read_done();
     return ESP_OK;
 }
 

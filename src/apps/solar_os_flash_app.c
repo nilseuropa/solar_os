@@ -145,14 +145,7 @@ static const char *flash_app_operation_name(flash_app_operation_t operation) {
 }
 
 static solar_os_shell_io_t *flash_io(flash_app_state_t *state) {
-  solar_os_shell_io_t *io = solar_os_context_shell_io(state->ctx);
-  if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-    solar_os_shell_io_init_terminal(&state->fallback_io,
-                                    solar_os_context_terminal(state->ctx));
-    solar_os_context_set_shell_io(state->ctx, &state->fallback_io);
-    io = &state->fallback_io;
-  }
-  return io;
+  return solar_os_shell_io_with_fallback(state->ctx, &state->fallback_io, true);
 }
 
 static bool flash_app_artifact_first_board(

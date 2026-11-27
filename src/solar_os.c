@@ -10,12 +10,39 @@
 #include "solar_os_gfx_internal.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_support.h"
 #include "solar_os_splash.h"
 #include "solar_os_shell_io.h"
 #include "apps/solar_os_shell.h"
 #include "solar_os_shutdown.h"
 
 static const char *TAG = "solar_os";
+
+static _Thread_local solar_os_application_scope_t application_scope;
+
+void solar_os_application_scope_enter(solar_os_application_scope_t *scope,
+    const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    *scope = application_scope;
+    application_scope = (solar_os_application_scope_t){.context = ctx, .app = app};
+}
+
+void solar_os_application_scope_leave(solar_os_application_scope_t *scope)
+{
+    application_scope = *scope;
+    *scope = (solar_os_application_scope_t){0};
+}
+
+solar_os_context_t *solar_os_application_context(void)
+{
+    return application_scope.context;
+}
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return application_scope.app;
+}
 
 static solar_os_memory_class_t app_state_memory_class(
     solar_os_app_state_storage_t storage)
@@ -34,19 +61,23 @@ static solar_os_memory_class_t app_state_memory_class(
     }
 }
 
-static bool app_release_state(const solar_os_app_t *app)
+static bool app_release_state(const solar_os_app_t *app, solar_os_context_t *ctx)
 {
-    if (app == NULL || app->state_slot == NULL || *app->state_slot == NULL) {
-        return true;
-    }
-    if (app->state_release_ready != NULL && !app->state_release_ready()) {
+    if (app == NULL) return true;
+    const bool has_state = app->state_slot != NULL && *app->state_slot != NULL;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    if ((has_state && app->state_release_ready != NULL && !app->state_release_ready()) ||
+        solar_os_native_handle_close_owner(app) != SOLAR_OS_NATIVE_OK) {
+        solar_os_application_scope_leave(&scope);
         return false;
     }
-    if (app->state_release_cleanup != NULL) {
-        app->state_release_cleanup();
+    if (has_state) {
+        if (app->state_release_cleanup != NULL) app->state_release_cleanup();
+        solar_os_memory_free(*app->state_slot);
+        *app->state_slot = NULL;
     }
-    solar_os_memory_free(*app->state_slot);
-    *app->state_slot = NULL;
+    solar_os_application_scope_leave(&scope);
     return true;
 }
 
@@ -72,6 +103,15 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
     if (app == NULL || ctx == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
+    /* ABI zero is reserved for existing firmware callbacks while they move to
+     * the public contract. Portable callbacks always declare ABI one. */
+    if (app->abi_version && app->abi_version != SOLAR_OS_APPLICATION_LIFECYCLE_ABI)
+        return app_start_failure(app, ctx, ESP_ERR_NOT_SUPPORTED);
+    if (app->abi_version && app->struct_size < SOLAR_OS_APPLICATION_LIFECYCLE_V1_MIN_SIZE)
+        return app_start_failure(app, ctx, ESP_ERR_INVALID_SIZE);
+    if (app->abi_version && (app->app_class < SOLAR_OS_APP_CLASS_COMMAND ||
+            app->app_class > SOLAR_OS_APP_CLASS_GUI || app->state_storage > SOLAR_OS_APP_STATE_INTERNAL_REQUIRED))
+        return app_start_failure(app, ctx, ESP_ERR_INVALID_ARG);
     if (solar_os_shutdown_requested() &&
         (app->name == NULL || strcmp(app->name, "shell") != 0)) {
         return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
@@ -93,13 +133,10 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
                       app->name != NULL ? app->name : "?");
         return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
     }
+    if (!app_release_state(app, ctx)) {
+        return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
+    }
     if (app->state_size > 0U) {
-        if (app->state_slot == NULL) {
-            return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
-        }
-        if (*app->state_slot != NULL && !app_release_state(app)) {
-            return app_start_failure(app, ctx, ESP_ERR_INVALID_STATE);
-        }
         *app->state_slot = solar_os_memory_calloc(
             1U,
             app->state_size,
@@ -109,13 +146,20 @@ esp_err_t solar_os_app_start(const solar_os_app_t *app,
             return app_start_failure(app, ctx, ESP_ERR_NO_MEM);
         }
     }
-    const esp_err_t err = app->start != NULL ? app->start(ctx) : ESP_OK;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    const int status = app->start != NULL ? app->start(ctx) : 0;
+    const esp_err_t err = app->abi_version ? solar_os_native_callback_result(status) : (esp_err_t)status;
+    solar_os_application_scope_leave(&scope);
     if (err != ESP_OK) {
         (void)app_start_failure(app, ctx, err);
     }
-    if (err != ESP_OK && !app_release_state(app)) {
+    if (err != ESP_OK && !app_release_state(app, ctx)) {
         SOLAR_OS_LOGW(TAG, "%s retained cold state after failed start",
                       app->name != NULL ? app->name : "?");
+        /* The launcher cannot release its context, display or image while
+         * partially started work still holds them. Signal stop and join here. */
+        solar_os_app_stop(app, ctx);
     }
     return err;
 }
@@ -126,10 +170,13 @@ bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ct
         return true;
     }
     if (ctx != NULL) ctx->app = app;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
     if (app->stop != NULL) {
         app->stop(ctx);
     }
-    if (!app_release_state(app)) {
+    solar_os_application_scope_leave(&scope);
+    if (!app_release_state(app, ctx)) {
         SOLAR_OS_LOGW(TAG, "%s retained cold state while worker stops",
                       app->name != NULL ? app->name : "?");
         return false;
@@ -139,7 +186,52 @@ bool solar_os_app_stop_checked(const solar_os_app_t *app, solar_os_context_t *ct
 
 void solar_os_app_stop(const solar_os_app_t *app, solar_os_context_t *ctx)
 {
-    (void)solar_os_app_stop_checked(app, ctx);
+    if (solar_os_app_stop_checked(app, ctx)) return;
+    /* Compatibility callers need completed teardown. Cooperative hosts use
+     * stop_checked and retain their session for retry instead. Invoke stop
+     * once; retry readiness and resource destruction until they finish. */
+    do {
+        vTaskDelay(1);
+    } while (!app_release_state(app, ctx));
+}
+
+bool solar_os_app_event(const solar_os_app_t *app, solar_os_context_t *ctx,
+    const solar_os_event_t *event)
+{
+    if (!app || !app->event) return false;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    const bool handled = app->event(ctx, event);
+    solar_os_application_scope_leave(&scope);
+    return handled;
+}
+
+void solar_os_app_suspend(const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    if (!app || !app->suspend) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->suspend(ctx);
+    solar_os_application_scope_leave(&scope);
+}
+
+void solar_os_app_resume(const solar_os_app_t *app, solar_os_context_t *ctx)
+{
+    if (!app || !app->resume) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->resume(ctx);
+    solar_os_application_scope_leave(&scope);
+}
+
+void solar_os_app_title(const solar_os_app_t *app, solar_os_context_t *ctx,
+    char *buffer, size_t size)
+{
+    if (!app || !app->title) return;
+    solar_os_application_scope_t scope;
+    solar_os_application_scope_enter(&scope, app, ctx);
+    app->title(ctx, buffer, size);
+    solar_os_application_scope_leave(&scope);
 }
 
 void solar_os_context_init(solar_os_context_t *ctx,
@@ -658,7 +750,10 @@ uint32_t solar_os_app_tick_interval_ms(const solar_os_app_t *app,
 
     uint32_t interval_ms = app->tick_interval_ms;
     if (app->requested_tick_interval_ms != NULL) {
+        solar_os_application_scope_t scope;
+        solar_os_application_scope_enter(&scope, app, NULL);
         const uint32_t requested_ms = app->requested_tick_interval_ms();
+        solar_os_application_scope_leave(&scope);
         if (requested_ms != 0) {
             interval_ms = requested_ms;
         }

@@ -8,6 +8,10 @@
 #include <stdlib.h>
 
 #include "solar_os_stb_image.h"
+#ifdef SOLAR_OS_TEST_VECTOR_ABI
+#include "solar_os_native_client.h"
+#include "solar_os_native_vector.h"
+#endif
 
 typedef struct {
     uint8_t *data;
@@ -75,6 +79,32 @@ static void *decode_on_small_stack(void *argument)
     assert(animation.width == 480);
     assert(animation.height == 320);
     assert(animation.frame_count == 2);
+#ifdef SOLAR_OS_TEST_VECTOR_ABI
+    const solar_os_native_vector_api_v1_t *api = solar_os_native_vector_get(
+        solar_os_native_vector_get_service, sizeof(*api));
+    assert(api);
+    solar_os_stb_gif_animation_t via_abi = {0};
+    assert(solar_os_stb_decode_gif_rgb(fixture->data, fixture->length,
+        512U * 512U, 2U * 1024U * 1024U, 480, 320,
+        api->rgba_to_rgb_scaled, &via_abi) == ESP_OK);
+    assert(via_abi.width == animation.width && via_abi.height == animation.height &&
+        via_abi.frame_count == animation.frame_count && via_abi.channels == animation.channels);
+    assert(!memcmp(via_abi.pixels, animation.pixels,
+        animation.width * animation.height * animation.channels * animation.frame_count));
+    assert(!memcmp(via_abi.delays_ms, animation.delays_ms,
+        animation.frame_count * sizeof(*animation.delays_ms)));
+    solar_os_stb_gif_animation_free(&via_abi);
+    solar_os_stb_gif_animation_free(&animation);
+    assert(solar_os_stb_decode_gif_gray(fixture->data, fixture->length,
+        512U * 512U, 2U * 1024U * 1024U, 240, 160,
+        NULL, &animation) == ESP_OK);
+    assert(solar_os_stb_decode_gif_gray(fixture->data, fixture->length,
+        512U * 512U, 2U * 1024U * 1024U, 240, 160,
+        api->rgba_to_gray_scaled, &via_abi) == ESP_OK);
+    assert(!memcmp(via_abi.pixels, animation.pixels,
+        animation.width * animation.height * animation.channels * animation.frame_count));
+    solar_os_stb_gif_animation_free(&via_abi);
+#endif
     solar_os_stb_gif_animation_free(&animation);
     return NULL;
 }

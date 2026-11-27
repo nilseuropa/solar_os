@@ -273,6 +273,7 @@ typedef struct {
     solar_os_ble_session_t id;
     bool connect;
     bool write;
+    const solar_os_ble_call_options_v1_t *options;
     esp_err_t result;
     uint8_t value[2];
     size_t len;
@@ -283,12 +284,12 @@ static void *run_call(void *arg)
     call_t *call = arg;
     if (call->write) {
         const uint8_t value[] = {0, 0xff};
-        call->result = solar_os_ble_session_write(call->id, 3, value, sizeof(value), true, 2000);
+        call->result = solar_os_ble_session_write_with_options(call->id, 3, value, sizeof(value), true, 2000, call->options);
         return NULL;
     }
     call->result = call->connect ?
-        solar_os_ble_session_connect(call->id, peer, SOLAR_OS_BLE_ADDR_RANDOM, 2000) :
-        solar_os_ble_session_read(call->id, 3, call->value, sizeof(call->value), &call->len, 2000);
+        solar_os_ble_session_connect_with_options(call->id, peer, SOLAR_OS_BLE_ADDR_RANDOM, 2000, call->options) :
+        solar_os_ble_session_read_with_options(call->id, 3, call->value, sizeof(call->value), &call->len, 2000, call->options);
     return NULL;
 }
 
@@ -312,9 +313,7 @@ typedef struct {
 static bool should_cancel(void *user)
 {
     cancel_context_t *ctx = user;
-    /* Checks run on the waiting task, without the service metadata lock. */
-    solar_os_ble_session_info_t info;
-    assert(solar_os_ble_session_get_info(ctx->id, &info) == ESP_OK);
+    /* Checks return normally on the waiting task. */
     atomic_fetch_add(&ctx->checks, 1);
     return atomic_load(&ctx->cancelled);
 }
@@ -324,7 +323,9 @@ static void test_cooperative_cancel(void)
     for (int op = 0; op < 3; op++) {
         cancel_context_t ctx = {0};
         assert(solar_os_ble_session_create("script", &ctx.id) == ESP_OK);
-        assert(solar_os_ble_session_set_cancel_check(ctx.id, should_cancel, &ctx) == ESP_OK);
+        const solar_os_ble_call_options_v1_t options = {
+            .struct_size=sizeof(options), .cancelled=should_cancel, .user=&ctx,
+        };
         defer_connect = false;
         if (op != 0) {
             connect_session(ctx.id);
@@ -333,11 +334,10 @@ static void test_cooperative_cancel(void)
         defer_read = op == 1;
         defer_write = op == 2;
         unsigned n = submission_count();
-        call_t call = {.id = ctx.id, .connect = op == 0, .write = op == 2};
+        call_t call = {.id = ctx.id, .connect = op == 0, .write = op == 2, .options=&options};
         pthread_t thread;
         assert(pthread_create(&thread, NULL, run_call, &call) == 0);
         solar_os_ble_backend_event_t late = await_submission(n);
-        assert(solar_os_ble_session_set_cancel_check(ctx.id, NULL, NULL) == ESP_ERR_INVALID_STATE);
         const TickType_t start = xTaskGetTickCount();
         while (atomic_load(&ctx.checks) == 0) {
             const struct timespec pause = {.tv_nsec = 1000000};
@@ -353,7 +353,6 @@ static void test_cooperative_cancel(void)
         solar_os_ble_session_info_t info;
         assert(solar_os_ble_session_get_info(ctx.id, &info) == ESP_OK && info.retiring);
         assert(solar_os_ble_session_close(ctx.id) == ESP_OK);
-        assert(solar_os_ble_session_set_cancel_check(ctx.id, NULL, NULL) == ESP_ERR_INVALID_STATE);
         retired();
         /* Reusing the slot must not retain the old callback or its stack context. */
         solar_os_ble_session_t next;

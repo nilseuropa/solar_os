@@ -65,6 +65,7 @@ int main(void) {
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"), "-I", str(ROOT / "src"),
+                "-idirafter", str(ROOT / "include"),
                 "-I", str(ROOT / "components/u8g2/src/clib"), str(path), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

@@ -17,6 +17,7 @@ static uint32_t scheduling_bytes[2];
 static unsigned lose_open, lose_ack, lose_data;
 static bool duplicate_data;
 static bool reopen_during_send;
+static bool remove_during_unregister;
 typedef struct { unsigned destination; solar_os_link_message_t message; } packet_t;
 static packet_t packets[64];
 static size_t packet_head, packet_count;
@@ -46,12 +47,33 @@ int xQueueReceive(QueueHandle_t q, void *p, unsigned ticks) {
     if (!q->used) { now_ms += ticks; return pdFALSE; }
     *(uint8_t *)p = q->bytes[q->head++ % q->size]; q->used--; return pdTRUE;
 }
+static bool check_publication;
+
 esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver) {
     unsigned i = driver->name[0] == 'a' ? 0 : 1;
-    assert(!ports[i].name); ports[i] = *driver; return ESP_OK;
+    assert(!ports[i].name);
+    if (check_publication) {
+        solar_os_link_stream_status_t status;
+        assert(!solar_os_link_stream_count() && !solar_os_link_stream_get(0, &status));
+        assert(solar_os_link_stream_get_status(driver->name, &status) == ESP_ERR_NOT_FOUND);
+        assert(solar_os_link_stream_remove(driver->name) == ESP_ERR_INVALID_STATE);
+        assert(driver->open(driver->user) == ESP_ERR_INVALID_STATE);
+        check_publication = false;
+        return ESP_ERR_NO_MEM;
+    }
+    ports[i] = *driver;
+    return ESP_OK;
 }
-esp_err_t solar_os_port_unregister(const char *name) {
+esp_err_t solar_os_port_unregister_many_owned(const char *const *names,
+    const void *const *users, size_t count) {
+    assert(count == 1 && users);
+    const char *name = names[0];
     unsigned i = name[0] == 'a' ? 0 : 1;
+    if (!ports[i].name || ports[i].user != users[0]) return ESP_OK;
+    if (remove_during_unregister) {
+        remove_during_unregister = false;
+        assert(solar_os_link_stream_remove(name) == ESP_ERR_INVALID_STATE);
+    }
     if (((link_stream_t *)ports[i].user)->port_open) return ESP_ERR_INVALID_STATE;
     memset(&ports[i], 0, sizeof(ports[i])); return ESP_OK;
 }
@@ -257,7 +279,9 @@ static void run_pair(void) {
     uint8_t full[2049] = {0}; size_t written = 0;
     assert(ports[0].write(ports[0].user, full, sizeof(full), &written) == ESP_ERR_TIMEOUT);
     assert(written == 2048);
+    remove_during_unregister = true;
     assert(solar_os_link_stream_remove(names[0]) == ESP_ERR_INVALID_STATE);
+    assert(!remove_during_unregister);
     for (unsigned i = 0; i < 2; i++) {
         assert(ports[i].close(ports[i].user) == ESP_OK);
         assert(solar_os_link_stream_remove(names[i]) == ESP_OK);
@@ -328,7 +352,40 @@ static void stream_fairness_test(void) {
     scheduling_test = false;
     assert(!queue_count);
 }
+static void publication_and_replacement_test(void)
+{
+    check_publication = true;
+    assert(solar_os_link_stream_create(links[0], names[0], 2) == ESP_ERR_NO_MEM);
+    assert(!check_publication && !queue_count && !solar_os_link_stream_count());
+    assert(!solar_os_link_stream_create(links[0], names[0], 2));
+
+    /* A port can be removed and replaced independently of a Link stream. */
+    const solar_os_port_driver_t replacement = {.name = names[0], .user = &check_publication};
+    ports[0] = replacement;
+    assert(!solar_os_link_stream_remove(names[0]));
+    assert(ports[0].user == replacement.user && !queue_count && !solar_os_link_stream_count());
+    ports[0] = (solar_os_port_driver_t){0};
+}
+
+static void tracked_stream_replacement_test(void)
+{
+    solar_os_link_stream_config_t config;
+    solar_os_link_stream_config_default(&config);
+    uint32_t original, replacement;
+    assert(!solar_os_link_stream_create_tracked(links[0], names[0], 2, &config, &original) && original);
+    assert(!solar_os_link_stream_remove(names[0]));
+    assert(!solar_os_link_stream_create_tracked(links[0], names[0], 2, &config, &replacement));
+    assert(replacement && replacement != original);
+    solar_os_link_stream_status_t status;
+    assert(solar_os_link_stream_get_status_tracked(names[0], original, &status) == ESP_ERR_NOT_FOUND);
+    assert(solar_os_link_stream_remove_tracked(names[0], original) == ESP_ERR_NOT_FOUND);
+    assert(!solar_os_link_stream_get_status_tracked(names[0], replacement, &status));
+    assert(!solar_os_link_stream_remove_tracked(names[0], replacement) && !queue_count);
+}
+
 int main(void) {
+    publication_and_replacement_test();
+    tracked_stream_replacement_test();
     run_pair();
     stream_fairness_test();
     meshcore_profile_test();

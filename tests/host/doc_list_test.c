@@ -6,6 +6,17 @@
 
 #include "solar_os_doc.h"
 #include "doc_test_support.h"
+#include "solar_os.h"
+#include "solar_os_native_document.h"
+#include "solar_os_native_document_layout.h"
+#include "solar_os_native_handles.h"
+
+static const solar_os_app_t document_owner = {0};
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return &document_owner;
+}
 
 struct solar_os_gfx {
     char text[128][160];
@@ -191,10 +202,68 @@ static void test_list_boundaries_and_wrapping(void)
     assert(doc_test_memory_used() == 0);
 }
 
+static void test_layout_abi(void)
+{
+    const solar_os_native_document_api_v1_t *document = solar_os_native_document_get_service(
+        SOLAR_OS_NATIVE_DOCUMENT_SERVICE, SOLAR_OS_NATIVE_DOCUMENT_ABI, sizeof(*document));
+    const solar_os_native_document_layout_api_v1_t *api = solar_os_native_document_layout_get_service(
+        SOLAR_OS_NATIVE_DOCUMENT_LAYOUT_SERVICE, SOLAR_OS_NATIVE_DOCUMENT_LAYOUT_ABI, sizeof(*api));
+    assert(document && api);
+    solar_os_native_handle_t doc, layout;
+    assert(!document->create(&doc));
+    const char original[] = "Alpha\nBeta\n";
+    assert(!document->parse(doc, SOLAR_OS_DOCUMENT_TEXT, original, sizeof(original) - 1, NULL));
+    assert(!api->create(doc, &layout));
+    assert(document->close(doc) == SOLAR_OS_NATIVE_ERROR_BUSY);
+
+    solar_os_native_document_layout_info_v1_t info;
+    assert(api->info(layout, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    doc_test_memory_fail_after(0);
+    int32_t measured;
+    assert(!api->measure(doc, 120, 1, &measured) && measured > 0);
+    assert(api->rebuild(layout, 120, 1, NULL, 0) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(api->info(layout, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !info.runs);
+    doc_test_memory_fail_after(-1);
+    assert(!api->rebuild(layout, 120, 1, NULL, 0));
+    assert(!api->info(layout, &info) && info.lines >= 2 && info.runs >= 2);
+    assert(info.width == 120 && info.height == measured && info.zoom == 1);
+    solar_os_doc_layout_line_t line;
+    solar_os_doc_layout_run_t run;
+    assert(!api->line(layout, 0, &line) && line.run_count);
+    assert(!api->run(layout, line.run_start, &run) && run.text_len);
+    int32_t x;
+    assert(!api->run_source_x(layout, line.run_start, run.source_start, &x) && x == run.x);
+    solar_os_native_document_position_v1_t position;
+    assert(!api->source_position(layout, run.source_start, &position) && position.x == x);
+    size_t offset;
+    assert(!api->hit_test(layout, position.x, position.y, &offset) && offset == run.source_start);
+    assert(!api->adjacent_source(layout, offset, true, &offset) && offset > run.source_start);
+
+    solar_os_gfx_t gfx = {0};
+    const solar_os_doc_view_t view = {.width = info.width, .height = info.height, .zoom = info.zoom};
+    assert(!api->render(layout, &gfx, &view));
+    assert(text_index(&gfx, "Alpha") < text_index(&gfx, "Beta"));
+    doc_test_memory_fail_after(0);
+    assert(document->parse(doc, SOLAR_OS_DOCUMENT_TEXT, "Gamma", 5, NULL) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    doc_test_memory_fail_after(-1);
+    assert(!api->info(layout, &info) && info.height == measured);
+    assert(!document->parse(doc, SOLAR_OS_DOCUMENT_TEXT, "Gamma", 5, NULL));
+    assert(api->render(layout, &gfx, &view) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->rebuild(layout, 120, 1, NULL, 0));
+    memset(&gfx, 0, sizeof(gfx));
+    assert(!api->render(layout, &gfx, &view) && text_index(&gfx, "Gamma") == 0);
+
+    assert(!solar_os_native_handle_close_owner(&document_owner));
+    assert(api->close(layout) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(document->close(doc) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!solar_os_native_handle_count() && !doc_test_memory_used());
+}
+
 int main(void)
 {
     test_numbered_lists();
     test_list_boundaries_and_wrapping();
+    test_layout_abi();
     puts("document list rendering tests: ok");
     return 0;
 }

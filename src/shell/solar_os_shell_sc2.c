@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_SC2
+
 #include "solar_os_shell_commands.h"
 #include <inttypes.h>
 #include <stdlib.h>
@@ -393,3 +397,5 @@ void solar_os_shell_cmd_sc2(solar_os_context_t *ctx, int argc, char **argv)
     }
     sc2_usage(io);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_SC2 */

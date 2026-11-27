@@ -4,7 +4,7 @@
 #include <string.h>
 
 #include "solar_os_hid_keyboard_report.h"
-#include "solar_os_ble_hid_report_map.h"
+#include "solar_os_hid_report_descriptor.h"
 
 static bool state_has_key(const solar_os_hid_keyboard_report_state_t *state,
                           uint8_t key)
@@ -34,16 +34,16 @@ static void check_descriptor_layouts(void)
     };
     solar_os_hid_keyboard_report_layout_t compact, boot;
     bool ids[256];
-    assert(solar_os_ble_hid_report_map(map, sizeof(map), ids));
+    assert(solar_os_hid_report_descriptor_keyboard_map(map, sizeof(map), ids));
     assert(ids[1] && ids[2] && !ids[0]);
-    assert(solar_os_ble_hid_report_layout(map, sizeof(map), 1, &compact));
+    assert(solar_os_hid_report_descriptor_keyboard_layout(map, sizeof(map), 1, &compact));
     assert(compact.modifiers_offset == 0 && compact.keys_offset == 1 &&
            compact.key_count == 10 && compact.report_size == 11);
-    assert(solar_os_ble_hid_report_layout(map, sizeof(map), 2, &boot));
+    assert(solar_os_hid_report_descriptor_keyboard_layout(map, sizeof(map), 2, &boot));
     assert(boot.modifiers_offset == 0 && boot.keys_offset == 2 &&
            boot.key_count == 6 && boot.report_size == 8);
     solar_os_hid_keyboard_report_layout_t invalid;
-    assert(!solar_os_ble_hid_report_layout(map, sizeof(map), 3, &invalid));
+    assert(!solar_os_hid_report_descriptor_keyboard_layout(map, sizeof(map), 3, &invalid));
     assert(invalid.key_count == 0);
 
     solar_os_hid_keyboard_report_tracker_t tracker = {0};
@@ -91,7 +91,7 @@ static void check_descriptor_layouts(void)
     uint8_t padded[sizeof(map)];
     memcpy(padded, map, sizeof(map));
     padded[sizeof(map) - 4] = 9;
-    assert(solar_os_ble_hid_report_layout(padded, sizeof(padded), 2, &boot));
+    assert(solar_os_hid_report_descriptor_keyboard_layout(padded, sizeof(padded), 2, &boot));
     assert(boot.report_size == 11 && boot.keys_offset == 2);
     solar_os_hid_keyboard_report_reset(&tracker);
     const uint8_t padded_t[11] = {0, 0, 0x17};
@@ -110,7 +110,7 @@ static void check_descriptor_layouts(void)
         0x19, 0, 0x29, 0x65, 0x81, 0, 0xc0,
     };
     solar_os_hid_keyboard_report_layout_t offset_layout;
-    assert(solar_os_ble_hid_report_layout(offset_map, sizeof(offset_map), 0, &offset_layout));
+    assert(solar_os_hid_report_descriptor_keyboard_layout(offset_map, sizeof(offset_map), 0, &offset_layout));
     assert(offset_layout.modifiers_offset == 1 && offset_layout.keys_offset == 2 &&
            offset_layout.key_count == 4 && offset_layout.report_size == 6);
     const uint8_t shifted_t[] = {0xff, 0x02, 0x17, 0, 0, 0};
@@ -121,14 +121,14 @@ static void check_descriptor_layouts(void)
     uint8_t unsupported[sizeof(offset_map)];
     memcpy(unsupported, offset_map, sizeof(offset_map));
     unsupported[sizeof(unsupported) - 2] = 2; /* Variable fields are not key arrays. */
-    assert(!solar_os_ble_hid_report_layout(unsupported, sizeof(unsupported), 0, &invalid));
+    assert(!solar_os_hid_report_descriptor_keyboard_layout(unsupported, sizeof(unsupported), 0, &invalid));
     assert(invalid.key_count == 0);
 
     for (size_t i = 1; i < sizeof(map); i++) {
         uint8_t *cut = malloc(i);
         assert(cut);
         memcpy(cut, map, i);
-        (void)solar_os_ble_hid_report_layout(cut, i, 1, &invalid);
+        (void)solar_os_hid_report_descriptor_keyboard_layout(cut, i, 1, &invalid);
         free(cut);
     }
 }

@@ -11,14 +11,7 @@ static solar_os_shell_io_t shell_command_fallback_io;
 
 solar_os_shell_io_t *solar_os_shell_command_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&shell_command_fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &shell_command_fallback_io);
-        io = &shell_command_fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &shell_command_fallback_io, true);
 }
 
 solar_os_terminal_t *solar_os_shell_display_terminal(solar_os_context_t *ctx)

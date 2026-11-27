@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_NETWORK
+
 #include "solar_os_shell_commands.h"
 
 #include <stdio.h>
@@ -313,3 +317,5 @@ void solar_os_shell_cmd_network(solar_os_context_t *ctx, int argc, char **argv)
     }
     network_print_usage(term);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_NETWORK */

@@ -1,10 +1,10 @@
 /* Real credential migration, checked files and removal recovery. */
-#define SOLAR_OS_PACKAGE_SERVICE_CREDENTIALS 1
 #define ESP_ERR_NVS_NOT_INITIALIZED 0x1101
 #define main messaging_existing_tests_main
 #include "messaging_service_test.c"
 #undef main
 #include "../../src/services/solar_os_credentials.c"
+#include "solar_os_native_messages.h"
 
 static credentials_store_blob_t legacy;
 static bool legacy_present;
@@ -40,6 +40,9 @@ static void reboot_credentials(void)
 
 int main(void)
 {
+    const solar_os_native_credentials_api_v1_t *api = solar_os_native_messages_get_service(
+        SOLAR_OS_NATIVE_CREDENTIALS_SERVICE, SOLAR_OS_NATIVE_CREDENTIALS_ABI, sizeof(*api));
+    assert(api);
     assert(mkdtemp(test_root));
     legacy.magic = CREDENTIALS_STORE_MAGIC; legacy.version = 1;
     legacy.record_size = sizeof(credentials_disk_record_t); legacy.generation = 1; legacy.next_id = 2; legacy.count = 1;
@@ -51,10 +54,14 @@ int main(void)
     fail_migration_promotion = true;
     assert(solar_os_credentials_init() == ESP_OK && legacy_present && write_opens == 0);
     solar_os_credential_info_t record;
-    assert(solar_os_credentials_find(2, SOLAR_OS_CREDENTIAL_SHARED_KEY, "group:example", &record) == ESP_OK);
+    assert(!api->find(2, SOLAR_OS_CREDENTIAL_SHARED_KEY, "group:example", &record) && record.id == 1);
+    solar_os_credential_info_t copied;
+    assert(api->snapshot(&copied, 1) == 1 && copied.id == record.id && !strcmp(copied.label, "group:example"));
     reboot_credentials(); assert(!legacy_present && write_opens == 1);
     uint8_t secret[128]; size_t length;
-    assert(solar_os_credentials_read_secret(record.id, secret, sizeof(secret), &length) == ESP_OK && length == 16 && secret[0] == 0xa5);
+    assert(!api->read_secret(record.id, secret, sizeof(secret), &length) && length == 16 && secret[0] == 0xa5);
+    api->wipe(secret, length);
+    for (size_t i = 0; i < length; ++i) assert(!secret[i]);
     reboot_credentials(); assert(write_opens == 1);
     legacy_present = true; /* Power loss between file commit and NVS cleanup. */
     reboot_credentials(); assert(!legacy_present && write_opens == 2);
@@ -69,10 +76,10 @@ int main(void)
     solar_os_messaging_provider_id_t id;
     assert(solar_os_messaging_instance_create("detached", "remove-secrets", "profile", 8, &id) == ESP_OK);
     solar_os_credential_id_t private_id;
-    assert(solar_os_credentials_put(id, SOLAR_OS_CREDENTIAL_TOKEN, "account", "private", 7, false, &private_id) == ESP_OK);
+    assert(!api->put(id, SOLAR_OS_CREDENTIAL_TOKEN, "account", "private", 7, false, &private_id));
     assert(solar_os_messaging_instance_remove(id) == ESP_OK);
     reboot_credentials();
-    assert(solar_os_credentials_read_secret(private_id, secret, sizeof(secret), &length) == ESP_ERR_NOT_FOUND);
+    assert(api->read_secret(private_id, secret, sizeof(secret), &length) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
     assert(solar_os_credentials_find(2, SOLAR_OS_CREDENTIAL_SHARED_KEY, "group:example", &record) == ESP_OK);
     uint32_t generation = credentials_store.generation;
     fail_migration_promotion = true;
@@ -89,6 +96,8 @@ int main(void)
     legacy_present = true; reboot_credentials();
     solar_os_credentials_status_t status;
     assert(solar_os_credentials_get_status(&status) == ESP_OK && status.storage_error != ESP_OK && legacy_present);
+    solar_os_credentials_status_t portable;
+    assert(!api->status(&portable) && portable.storage_error < 0 && portable.count == status.count);
     assert(solar_os_credentials_put(id, SOLAR_OS_CREDENTIAL_TOKEN, "unsafe", "secret", 6, false, NULL) == status.storage_error);
     assert(solar_os_credentials_remove_provider(id) == status.storage_error);
     const char *files[] = {".settings/credentials.bin", ".chat/profiles/004.bin", ".messages/history.bin", ".messages/location"};

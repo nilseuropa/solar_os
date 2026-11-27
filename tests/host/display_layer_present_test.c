@@ -34,7 +34,6 @@ static int display_find_slot_by_u8g2_locked(u8g2_t *canvas)
 static void display_release_slot_ref(size_t index, uint32_t generation)
 { assert(index == 0 && display_targets[0].refs == 1); display_targets[0].refs--; }
 static bool display_overlay_active(size_t index, uint32_t generation) {return false;}
-static int solar_os_display_request_present_mode(u8g2_t *canvas, int mode) {return ESP_OK;}
 static void display_activate_pending_overlay_locked(display_target_slot_t *slot) {}
 static void display_layer_update_colors(display_target_slot_t *slot) {}
 static void display_publish_layer_locked(display_target_slot_t *slot) {}

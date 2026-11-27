@@ -59,12 +59,13 @@ class ForegroundPresenterTest(unittest.TestCase):
                 '#pragma once\n#include "solar_os_keys.h"\n'
                 '#define SOLAR_OS_BOARD_HAS_BUTTONS 1\n'
                 '#define SOLAR_OS_BOARD_BUTTONS { '
-                '{.pin=4, .key=SOLAR_OS_KEY_UP, .active_low=true}, '
+                '{.pin=4, .name=\"up\", .key=SOLAR_OS_KEY_UP, .active_low=true}, '
                 '{.pin=5, .key=SOLAR_OS_KEY_ENTER, .emit_on_release=true} }\n')
             write_keyboard_layouts(tmp)
             binary = Path(tmp, "buttons")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1", "-DSOLAR_OS_PACKAGE_SERVICE_BUTTONS=1",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I", tmp, "-I", str(ROOT / "tests/host/gpio_controller_stubs"),
                 "-I", str(ROOT / "tests/host"),
@@ -75,6 +76,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 str(ROOT / "src/services/solar_os_keys.c"),
                 str(ROOT / "src/services/solar_os_input_composition.c"),
                 str(ROOT / "src/services/solar_os_buttons.c"),
+                str(ROOT / "src/services/solar_os_native_input_hardware.c"),
                 "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
@@ -150,7 +152,8 @@ class ForegroundPresenterTest(unittest.TestCase):
         source = (ROOT / "src/services/solar_os_frame_presenter.c").read_text()
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "frame_lifecycle.inc").write_text(production_functions(
-                source, ("solar_os_frame_presenter_suspend_checked", "solar_os_frame_presenter_redraw")))
+                source, ("solar_os_frame_presenter_suspend_checked", "solar_os_frame_presenter_deinit",
+                         "solar_os_frame_presenter_redraw")))
             binary = Path(tmp, "presenter")
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
@@ -175,6 +178,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I", tmp, "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"),
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/frame_presenter_palette_test.c"),
                 "-o", str(binary),
             ], check=True)
@@ -193,7 +197,7 @@ class ForegroundPresenterTest(unittest.TestCase):
             "solar_os_frame_presenter_init", "solar_os_frame_presenter_resume",
             "solar_os_frame_presenter_deinit", "solar_os_frame_presenter_redraw",
             "solar_os_frame_presenter_submit", "solar_os_frame_presenter_acquire",
-            "solar_os_frame_presenter_exchange"))
+            "solar_os_frame_presenter_exchange", "solar_os_frame_presenter_release"))
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "frame_fitting.inc").write_text(
                 state + "\n" + bayer + "\n" + functions)
@@ -205,6 +209,7 @@ class ForegroundPresenterTest(unittest.TestCase):
                 "-I", str(ROOT / "src"),
                 "-I", str(ROOT / "src/services"),
                 "-I", str(ROOT / "components/u8g2/src/clib"),
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/frame_presenter_fitting_test.c"),
                 "-o", str(binary),
             ], check=True)

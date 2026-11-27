@@ -282,6 +282,14 @@ void solar_os_mpeg_info(const solar_os_mpeg_t *d, solar_os_mpeg_info_t *info)
     if (d && info)
         *info = d->info;
 }
+
+void solar_os_mpeg_set_cancel(solar_os_mpeg_t *d, solar_os_mpeg_cancel_t cancel, void *user)
+{
+    if (!d) return;
+    d->cancel = cancel;
+    d->user = user;
+}
+
 const char *solar_os_mpeg_error(const solar_os_mpeg_t *d)
 {
     return d ? d->detail : "MPEG decoder unavailable";

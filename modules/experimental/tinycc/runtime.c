@@ -12,6 +12,8 @@
 #include <time.h>
 #include <unistd.h>
 #include "solar_os_cc_abi.h"
+#include "solar_os_cc_runtime_source.h"
+#include "../../../protocol/display_link/include/sdlp_lz4_block.h"
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_libc_abi.h"
 #include "solar_os_native_thread_abi.h"
@@ -40,14 +42,30 @@ static unsigned polls;
 static bool worker_active;
 struct allocation { struct allocation *next, *previous; size_t bytes, reserved; };
 static struct allocation *allocations;
+#if SOLAR_OS_CC_PACKED_SDK
+#include "sdk_packed.h"
+#else
 static const solar_os_cc_header_v1_t sdk[] = {
 #include "sdk.inc"
 };
-static const char standard_runtime[] =
+#endif
 #include "sdk_runtime.inc"
-;
-const char *solar_os_cc_standard_runtime(void) {return standard_runtime;}
-struct virtual_file { const char *data; uint32_t bytes, offset; bool open; };
+
+static bool read_standard_source(uint8_t *buffer, size_t bytes)
+{
+    return bytes == SOLAR_OS_CC_STANDARD_SOURCE_BYTES &&
+        solar_os_lz4_decode_block(buffer, bytes, standard_runtime, sizeof(standard_runtime));
+}
+
+const solar_os_cc_runtime_source_t solar_os_cc_standard_source = {
+    .bytes = SOLAR_OS_CC_STANDARD_SOURCE_BYTES,
+    .read = read_standard_source,
+};
+struct virtual_file {
+    const void *source;
+    uint32_t bytes, offset;
+    bool open, packed;
+};
 static struct virtual_file files[32];
 static solar_os_cc_header_v1_t loaded_headers[32];
 static uint32_t loaded_count, loaded_bytes;
@@ -265,6 +283,23 @@ char *realpath(const char *name, char *buffer)
 time_t time(time_t *value) { if (value) *value = 0; return 0; }
 struct tm *localtime(const time_t *value)
 { (void)value; static struct tm epoch = {.tm_mday=1, .tm_year=70, .tm_wday=4}; return &epoch; }
+
+static bool builtin_header(const char *path, struct virtual_file *file)
+{
+    for (size_t i = 0; i < sizeof(sdk) / sizeof(sdk[0]); ++i) {
+        if (strcmp(path, sdk[i].name)) continue;
+        file->bytes = sdk[i].bytes;
+#if SOLAR_OS_CC_PACKED_SDK
+        file->source = &sdk[i];
+        file->packed = true;
+#else
+        file->source = sdk[i].text;
+#endif
+        return true;
+    }
+    return false;
+}
+
 int open(const char *path, int flags, ...)
 {
     if (flags != O_RDONLY) { private_errno = EACCES; return -1; }
@@ -272,13 +307,13 @@ int open(const char *path, int flags, ...)
     while (!strncmp(path, "./", 2)) path += 2;
     if (!strncmp(path, "/sdk/", 5)) path += 5;
     const solar_os_cc_header_v1_t *header = NULL;
+    struct virtual_file selected = {.open = true};
     for (unsigned i = 0; i < request->header_count; i++)
         if (!strcmp(path, request->headers[i].name)) header = request->headers + i;
-    if (!header) for (unsigned i = 0; i < sizeof(sdk)/sizeof(sdk[0]); i++)
-        if (!strcmp(path, sdk[i].name)) header = sdk + i;
-    if (!header) for (unsigned i = 0; i < loaded_count; ++i)
+    const bool builtin = !header && builtin_header(path, &selected);
+    if (!header && !builtin) for (unsigned i = 0; i < loaded_count; ++i)
         if (!strcmp(requested, loaded_headers[i].name)) header = loaded_headers + i;
-    if (!header && request->read_header && strncmp(requested, "/sdk/", 5)) {
+    if (!header && !builtin && request->read_header && strncmp(requested, "/sdk/", 5)) {
         uint32_t bytes = 0;
         int code = request->read_header(request->header_user, requested, NULL, 0, &bytes);
         if (code && code != SOLAR_OS_NATIVE_ERROR_NOT_FOUND) fail(code, "could not read include file");
@@ -296,9 +331,12 @@ int open(const char *path, int flags, ...)
             header = loaded_headers + loaded_count++; loaded_bytes += bytes;
         }
     }
-    if (!header) { private_errno = ENOENT; return -1; }
+    if (header) {
+        selected.source = header->text;
+        selected.bytes = header->bytes;
+    } else if (!builtin) { private_errno = ENOENT; return -1; }
     for (unsigned i = 0; i < 32; i++) if (!files[i].open) {
-        files[i] = (struct virtual_file){header->text, header->bytes, 0, true}; return i + 3;
+        files[i] = selected; return i + 3;
     }
     private_errno = EMFILE; return -1;
 }
@@ -308,7 +346,17 @@ ssize_t read(int fd, void *buffer, size_t bytes)
     if (fd < 3 || fd >= 35 || !files[fd-3].open) { private_errno = EBADF; return -1; }
     struct virtual_file *file = files + fd - 3;
     if (bytes > file->bytes - file->offset) bytes = file->bytes - file->offset;
-    memcpy(buffer, file->data + file->offset, bytes); file->offset += bytes; return bytes;
+#if SOLAR_OS_CC_PACKED_SDK
+    if (file->packed) {
+        if (!solar_os_cc_read_embedded_header(file->source, file->offset, buffer, bytes)) {
+            private_errno = EIO;
+            return -1;
+        }
+    } else
+#endif
+    if (bytes) memcpy(buffer, (const char *)file->source + file->offset, bytes);
+    file->offset += bytes;
+    return bytes;
 }
 int close(int fd)
 { if (fd < 3 || fd >= 35 || !files[fd-3].open) return -1; files[fd-3].open = false; return 0; }
@@ -408,19 +456,94 @@ static int compile(const solar_os_cc_request_v1_t *input, void *output, uint32_t
     __atomic_store_n(&busy, 0, __ATOMIC_RELEASE);
     return error ? SOLAR_OS_NATIVE_ERROR_NO_MEMORY : status;
 }
-static int shutdown(void)
-{
-    if (busy) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
-    memory_api->free(data_snapshot); data_snapshot = NULL; return 0;
-}
 static const char sdk_version[] =
 #include "sdk_version.inc"
 ;
+
+#if SOLAR_OS_CC_PACKED_SDK
+static solar_os_cc_api_v1_t legacy_api = {
+    .abi_version = SOLAR_OS_CC_ABI, .struct_size = sizeof(legacy_api), .compile = compile,
+    .request_size = sizeof(solar_os_cc_request_v1_t), .sdk_version = sdk_version,
+    .sdk_count = sizeof(sdk) / sizeof(sdk[0]),
+};
+static unsigned legacy_busy;
+
+static int legacy_sdk_load(void)
+{
+    const size_t count = sizeof(sdk) / sizeof(sdk[0]);
+    size_t bytes = count * sizeof(solar_os_cc_header_v1_t);
+    for (size_t i = 0; i < count; ++i) bytes += sdk[i].bytes + 1U;
+    solar_os_cc_header_v1_t *headers = memory_api->alloc(bytes);
+    if (!headers) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    char *text = (char *)(headers + count);
+    for (size_t i = 0; i < count; ++i) {
+        if (!solar_os_cc_read_embedded_header(&sdk[i], 0, text, sdk[i].bytes)) {
+            memory_api->free(headers);
+            return SOLAR_OS_NATIVE_ERROR_FAILED;
+        }
+        text[sdk[i].bytes] = '\0';
+        headers[i] = (solar_os_cc_header_v1_t){sdk[i].name, text, sdk[i].bytes};
+        text += sdk[i].bytes + 1U;
+    }
+    legacy_api.sdk_headers = headers;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int select_legacy_api(uint32_t version, uint32_t minimum, const void **table)
+{
+    if (version != SOLAR_OS_CC_ABI || minimum > sizeof(legacy_api))
+        return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    if (__atomic_exchange_n(&legacy_busy, 1U, __ATOMIC_ACQUIRE)) return SOLAR_OS_NATIVE_ERROR_BUSY;
+    const int status = legacy_api.sdk_headers ? SOLAR_OS_NATIVE_OK : legacy_sdk_load();
+    if (!status) *table = &legacy_api;
+    __atomic_store_n(&legacy_busy, 0U, __ATOMIC_RELEASE);
+    return status;
+}
+
+static const char *sdk_header_info(uint32_t index, uint32_t *bytes)
+{
+    if (!bytes) return NULL;
+    *bytes = 0;
+    if (index >= sizeof(sdk) / sizeof(sdk[0])) return NULL;
+    *bytes = sdk[index].bytes;
+    return sdk[index].name;
+}
+
+static int sdk_header_read(uint32_t index, void *buffer, uint32_t capacity)
+{
+    if (index >= sizeof(sdk) / sizeof(sdk[0])) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    if (!buffer) return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;
+    if (capacity < sdk[index].bytes) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    return solar_os_cc_read_embedded_header(&sdk[index], 0, buffer, sdk[index].bytes) ?
+        SOLAR_OS_NATIVE_OK : SOLAR_OS_NATIVE_ERROR_FAILED;
+}
+
+static const solar_os_cc_api_v2_t api = {
+    .base = {
+        .abi_version = SOLAR_OS_CC_PACKED_ABI, .struct_size = sizeof(api), .compile = compile,
+        .request_size = sizeof(solar_os_cc_request_v1_t), .sdk_version = sdk_version,
+        .sdk_count = sizeof(sdk) / sizeof(sdk[0]),
+    },
+    .sdk_header_info = sdk_header_info, .sdk_header_read = sdk_header_read,
+};
+#else
 static const solar_os_cc_api_v1_t api = {
     .abi_version = SOLAR_OS_CC_ABI, .struct_size = sizeof(api), .compile = compile,
     .request_size = sizeof(solar_os_cc_request_v1_t), .sdk_version = sdk_version,
     .sdk_count = sizeof(sdk)/sizeof(sdk[0]), .sdk_headers = sdk,
 };
+#endif
+
+static int shutdown(void)
+{
+    if (busy) return SOLAR_OS_NATIVE_ERROR_INVALID_STATE;
+#if SOLAR_OS_CC_PACKED_SDK
+    if (legacy_api.sdk_headers) memory_api->free((void *)legacy_api.sdk_headers);
+    legacy_api.sdk_headers = NULL;
+#endif
+    memory_api->free(data_snapshot); data_snapshot = NULL; return 0;
+}
+
 int app_main(int argc, char **argv)
 {
     (void)argc; (void)argv;
@@ -438,11 +561,23 @@ int app_main(int argc, char **argv)
     data_snapshot = memory_api->alloc(bytes ? bytes : 1);
     if (!data_snapshot) return -4;
     memcpy(data_snapshot, __cc_data_start, bytes);
+#if SOLAR_OS_CC_PACKED_SDK
+    static const solar_os_native_library_versioned_descriptor_v1_t descriptor = {
+        .base = {
+            .abi_version = 1, .struct_size = sizeof(descriptor), .id = SOLAR_OS_CC_LIBRARY,
+            .summary = "Bounded on-device C compiler prototype", .api = (const void *)&api.base,
+            .shutdown = shutdown,
+        },
+        .select_api = select_legacy_api,
+    };
+    int code = host->register_library(&descriptor.base);
+#else
     static const solar_os_native_library_descriptor_v1_t descriptor = {
         .abi_version = 1, .struct_size = sizeof(descriptor), .id = SOLAR_OS_CC_LIBRARY,
         .summary = "Bounded on-device C compiler prototype", .api = (const void *)&api, .shutdown = shutdown,
     };
     int code = host->register_library(&descriptor);
+#endif
     if (code) shutdown();
     return code;
 }

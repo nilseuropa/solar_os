@@ -1,10 +1,13 @@
 #include <assert.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "cdc_port.h"
 #include "solar_os_cdc.h"
 #include "solar_os_log.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_usb.h"
 #include "solar_os_stream.h"
 #include "solar_os_resources.h"
 
@@ -15,6 +18,11 @@ static solar_os_stream_driver_t stream_driver;
 
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
 { assert(!stream_registered); if (fail_register) return ESP_ERR_NO_MEM; stream_driver = *driver; stream_registered = true; return ESP_OK; }
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count)
+{ assert(count == 1); return solar_os_stream_register(drivers); }
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{ (void)cls; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *data) { free(data); }
 esp_err_t solar_os_stream_unregister(const char *name)
 {
     assert(strcmp(name, "cdc0") == 0);
@@ -28,6 +36,9 @@ esp_err_t solar_os_stream_unregister(const char *name)
 }
 esp_err_t solar_os_stream_unregister_many(const char *const *names, size_t count)
 { assert(count == 1); return solar_os_stream_unregister(names[0]); }
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *names, const void *const *owners, size_t count)
+{ assert(owners != NULL); return solar_os_stream_unregister_many(names, count); }
+
 esp_err_t cdc_port_init(const cdc_port_config_t *config)
 { assert(config->rx_buffer_size && config->tx_buffer_size); if (fail_start) return ESP_ERR_NO_MEM; installed = true; return ESP_OK; }
 esp_err_t cdc_port_deinit(void)
@@ -50,6 +61,11 @@ size_t strlcpy(char *dst, const char *src, size_t size)
 
 int main(void)
 {
+    const solar_os_native_usb_cdc_api_v1_t *api = solar_os_native_usb_get_service(
+        SOLAR_OS_NATIVE_USB_CDC_SERVICE, SOLAR_OS_NATIVE_USB_CDC_ABI, sizeof(*api));
+    assert(api && api->struct_size == sizeof(*api));
+    assert(!solar_os_native_usb_get_service(SOLAR_OS_NATIVE_USB_SERVICE, SOLAR_OS_NATIVE_USB_ABI, 8));
+    assert(api->status(NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(solar_os_port_init() == ESP_OK);
     assert(solar_os_cdc_deinit() == ESP_OK && !solar_os_resource_claim_count());
     for (int pin = 19; pin <= 20; pin++) {
@@ -70,7 +86,7 @@ int main(void)
     assert(solar_os_port_claim("cdc0", "job:log", &owner) == ESP_OK);
     assert(solar_os_cdc_deinit() == ESP_ERR_INVALID_STATE);
     solar_os_cdc_status_t status;
-    solar_os_cdc_get_status(&status);
+    assert(api->status(&status) == SOLAR_OS_NATIVE_OK);
     assert(status.initialized && status.port_claimed && !strcmp(status.port_owner, "job:log"));
     assert(solar_os_resource_claim_count() == 3);
     assert(solar_os_port_release(&owner) == ESP_OK);
@@ -78,6 +94,7 @@ int main(void)
     /* A new port claim cannot slip between stream and port unregister. */
     race_open = true;
     assert(solar_os_cdc_deinit() == ESP_OK && !installed && !stream_registered);
+    assert(!api->status(&status) && !status.initialized && !status.port_claimed);
     assert(!solar_os_resource_claim_count());
     assert(solar_os_port_claim("cdc0", "shell", &owner) == ESP_ERR_NOT_FOUND);
     assert(solar_os_cdc_init() == ESP_OK);

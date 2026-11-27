@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include "esp_err.h"
 
 #define SOLAR_OS_SESSION_MAX 8
 #define SOLAR_OS_DISPLAY_TARGET_NAME_MAX 24
@@ -14,7 +15,7 @@ typedef int solar_os_shell_io_t;
 typedef int solar_os_event_t;
 typedef struct { const char *name; bool resumable; } solar_os_app_t;
 typedef struct {
-    bool used, suspended, started, has_return_session, close_on_exit;
+    bool used, suspended, started, has_return_session, close_on_exit, owns_display_target;
     uint8_t id, return_session_id;
     const solar_os_app_t *app;
     void *terminal;
@@ -36,6 +37,8 @@ static struct {
 } session_state;
 static char input_target[SOLAR_OS_DISPLAY_TARGET_NAME_MAX];
 static int context, delivered, prompts, result_shell;
+static const solar_os_app_t *blocked_stop;
+static unsigned owner_calls;
 
 static size_t strlcpy(char *dest, const char *source, size_t size)
 {
@@ -82,13 +85,14 @@ static bool switch_to_session(solar_os_session_entry_t *s, bool overlay)
     return true;
 }
 static bool close_session(solar_os_session_entry_t *s, bool preserve);
-static bool session_is_closable(solar_os_session_entry_t *s) { return s && s->used; }
+static bool session_is_closable(solar_os_session_entry_t *s)
+{ return s && s->used && (s->app != &shell || s->owns_display_target); }
 static bool session_owns_current_context(solar_os_session_entry_t *s) { return context == s->id; }
 static void session_context_capture(solar_os_session_context_snapshot_t *s) { s->context = context; }
 static void session_context_restore(const solar_os_session_context_snapshot_t *s) { context = s->context; }
 static void session_prepare_context(solar_os_session_entry_t *s) { context = s->id; }
 static bool solar_os_app_stop_checked(const solar_os_app_t *app, void *ctx)
-{ (void)ctx; assert(app); return true; }
+{ (void)ctx; assert(app); return app != blocked_stop; }
 static void session_transfer_exit_result(solar_os_session_entry_t *s);
 static void session_release_display(solar_os_session_entry_t *s) { (void)s; }
 static void session_release_display_target(solar_os_session_entry_t *s) { (void)s; }
@@ -105,6 +109,8 @@ static bool solar_os_sessions_dispatch_session_event(uint8_t id, const solar_os_
 { assert(event); delivered = id; return true; }
 static void solar_os_sessions_dispatch_foreground_event(const solar_os_event_t *event)
 { assert(event && session_state.foreground_session); delivered = session_state.foreground_session->id; }
+static esp_err_t solar_os_sessions_run_on_owner(esp_err_t (*operation)(void *), void *data)
+{ ++owner_calls; return operation(data); }
 
 #include "session_display_return.inc"
 
@@ -124,7 +130,7 @@ static solar_os_session_entry_t *setup(bool external)
         .used = true, .started = true, .id = 0, .app = &shell, .gfx = &builtin_gfx};
     strlcpy(session_state.sessions[0].display_target, "display0", SOLAR_OS_DISPLAY_TARGET_NAME_MAX);
     session_state.sessions[1] = (solar_os_session_entry_t){
-        .used = true, .started = true, .id = 1, .app = &shell, .gfx = &external_gfx};
+        .used = true, .started = true, .id = 1, .app = &shell, .gfx = &external_gfx, .owns_display_target = true};
     strlcpy(session_state.sessions[1].display_target, "lcd0", SOLAR_OS_DISPLAY_TARGET_NAME_MAX);
     solar_os_session_entry_t *parent = &session_state.sessions[external ? 1 : 0];
     session_state.sessions[external ? 0 : 1].suspended = true;
@@ -188,5 +194,20 @@ int main(void)
     child = session_state.foreground_session;
     assert_shell_return(parent, child);
     assert(file_session->used && file_session->suspended);
+
+    parent = setup(true);
+    assert(switch_to_display_app(&gui, parent, false));
+    child = session_state.foreground_session;
+    blocked_stop = &gui;
+    assert(solar_os_sessions_close_display("lcd0") == ESP_ERR_INVALID_STATE);
+    assert(owner_calls == 1 && child->used && child->has_return_session && parent->used);
+    assert(context == child->id && session_state.foreground_session == child);
+    blocked_stop = NULL;
+    assert(solar_os_sessions_close_display(child->display_target) == ESP_OK);
+    assert(owner_calls == 2 && !child->used && !parent->used);
+    assert(context == 0 && session_state.foreground_session == &session_state.sessions[0]);
+    assert(solar_os_sessions_close_display("lcd0") == ESP_ERR_NOT_FOUND);
+    assert(solar_os_sessions_close_display("display0") == ESP_ERR_NOT_FOUND);
+    assert(session_state.sessions[0].used && context == 0);
     return 0;
 }

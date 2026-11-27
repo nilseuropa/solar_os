@@ -39,10 +39,8 @@ static bool echo_cancelled(solar_os_context_t *ctx,solar_os_shell_io_t *io)
 {
     if(ctx->exit_requested || ctx->sleep_requested || ctx->deep_sleep_requested) return true;
     char chars[16];size_t count=0;
-    if(solar_os_shell_io_kind(io)==SOLAR_OS_SHELL_IO_KIND_PORT) {
-        esp_err_t err=solar_os_port_read(&io->port,(uint8_t *)chars,sizeof(chars),0,&count);
-        if(err!=ESP_OK && err!=ESP_ERR_TIMEOUT) return true;
-    } else count=solar_os_input_read_chars(chars,sizeof(chars));
+    const esp_err_t err = solar_os_shell_io_poll_input(io, (uint8_t *)chars, sizeof(chars), &count);
+    if (err != ESP_OK && err != ESP_ERR_TIMEOUT) return true;
     for(size_t i=0;i<count;++i)
         if((uint8_t)chars[i]==SOLAR_OS_KEY_APP_EXIT || chars[i]==0x1d || chars[i]==0x03 || chars[i]==0x1b) return true;
     return false;

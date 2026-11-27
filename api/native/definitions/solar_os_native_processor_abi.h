@@ -1,0 +1,70 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+#include "solar_os_image_types_v1.h"
+
+#define SOLAR_OS_NATIVE_PROCESSOR_SERVICE "processor"
+#define SOLAR_OS_NATIVE_PROCESSOR_ABI 1U
+#define SOLAR_OS_PROCESSOR_JSON_MAX 65536U
+#define SOLAR_OS_NATIVE_PROCESSOR_UPLOAD_REPLACE (1U << 0)
+
+typedef void (*solar_os_native_processor_progress_fn)(const char *stage, uint32_t bytes, uint32_t total, void *user);
+
+/* Processor calls operate on one handle at a time. Cancel may be requested
+ * from another task during bind, capture or inference. A failed close retains
+ * the handle for another close attempt. Free successful JSON outputs with
+ * memory.free. Close returned sample handles through media.sample. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    bool (*kind_valid)(const char *kind);
+    int (*query)(const char *kind, const char *source, const char *query, char **json);
+    int (*select)(const char *kind, const char *source, uint32_t slot,
+        solar_os_native_cancel_fn cancel, void *user, char **json);
+    int (*upload)(const char *kind, const char *source, const char *bundle, uint32_t slot,
+        uint32_t flags, solar_os_native_cancel_fn cancel, solar_os_native_processor_progress_fn progress,
+        void *user, char **json);
+    int (*create)(const char *kind, uint32_t model, uint32_t timeout_ms, solar_os_native_handle_t *processor);
+    bool (*captures)(solar_os_native_handle_t processor);
+    int (*bind_source)(solar_os_native_handle_t processor, const char *source);
+    int (*capture)(solar_os_native_handle_t processor, const char *source, uint64_t sequence,
+        solar_os_native_handle_t *sample, char **json);
+    int (*run_image)(solar_os_native_handle_t processor, solar_os_raster_image_t *image, char **json);
+    int (*run_sample)(solar_os_native_handle_t processor, solar_os_native_handle_t sample,
+        char **json, uint64_t *decode_us);
+    int (*cancel)(solar_os_native_handle_t processor);
+    int (*close)(solar_os_native_handle_t processor);
+} solar_os_native_processor_api_v1_t;
+
+#define SOLAR_OS_NATIVE_PIPELINE_SERVICE "pipeline"
+#define SOLAR_OS_NATIVE_PIPELINE_ABI 1U
+#define SOLAR_OS_PIPELINES_MAX 4U
+
+typedef struct {
+    /* Absolute file path, named video stream or rtsp:// JPEG URL. */
+    const char *source;
+    const char *processor;
+    uint32_t model, limit, interval_ms, timeout_ms;
+} solar_os_pipeline_config_t;
+
+typedef struct {
+    uint32_t id, model;
+    char job[20], state[12], source[256], processor[12];
+    uint64_t sequence, frames, busy_frames, source_timestamp_us, decode_us, process_us, frame_us;
+    int32_t last_error;
+    bool done;
+} solar_os_pipeline_status_t;
+
+/* Pipelines are Core jobs and outlive clients that create them. Destroy a
+ * completed pipeline to release its configuration and latest result slot. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*start)(const solar_os_pipeline_config_t *config, uint32_t *id);
+    int (*list)(uint32_t *ids, size_t capacity, size_t *count);
+    int (*status)(uint32_t id, solar_os_pipeline_status_t *status);
+    /* Return the latest result after the given sequence. Either output may be
+     * omitted. An empty result means there is no newer frame. Free JSON through
+     * memory.free and close the sample through media.sample. */
+    int (*result)(uint32_t id, uint64_t after, char **json, solar_os_native_handle_t *sample);
+    int (*stop)(uint32_t id);
+    int (*destroy)(uint32_t id);
+} solar_os_native_pipeline_api_v1_t;

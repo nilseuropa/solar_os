@@ -89,6 +89,15 @@ int main(void) {
     def test_provider_pipeline_lifetime_and_failures(self):
         cjson = Path.home() / ".platformio/packages/framework-espidf/components/json/cJSON"
         with tempfile.TemporaryDirectory() as tmp:
+            service = Path(tmp) / "native-media.o"
+            handles = Path(tmp) / "native-handles.o"
+            abi_flags = ["cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror", "-pthread",
+                         "-fsanitize=address,undefined", "-fno-pie",
+                         "-DSOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE=1", "-DSOLAR_OS_PACKAGE_SERVICE_PIPELINE=1",
+                         "-I" + str(ROOT / "tests/host/native_abi_stubs"), "-I" + str(ROOT / "tests/host"),
+                         "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include")]
+            for source, output in (("solar_os_native_media.c", service), ("solar_os_native_handles.c", handles)):
+                subprocess.run([*abi_flags, "-c", str(ROOT / "src/services" / source), "-o", str(output)], check=True)
             for builtin in (0, 1):
                 binary = Path(tmp) / f"himax-processor-{builtin}"
                 subprocess.run([
@@ -103,6 +112,7 @@ int main(void) {
                     "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "src/drivers"),
                     "-I" + str(ROOT / "include"), "-I" + str(cjson),
                     str(ROOT / "tests/host/himax_processor_test.c"),
+                    str(ROOT / "tests/host/native_memory_test_support.c"), str(service), str(handles),
                     str(ROOT / "modules/himax/provider.c"),
                     str(ROOT / "modules/himax/manager.c"),
                     str(ROOT / "src/services/solar_os_processor.c"),

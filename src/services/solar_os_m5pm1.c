@@ -350,6 +350,12 @@ esp_err_t solar_os_m5pm1_detach(const char *name)
     if (!device->active || strcmp(device->name, name) != 0) {
         return ESP_ERR_NOT_FOUND;
     }
+    esp_err_t error = solar_os_gpio_controller_unregister_owned(name, device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_battery_unregister_provider_owned(name, device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_power_unregister_off_provider(device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
     if (solar_os_ip2315_set_vin_present_fn != NULL) {
         solar_os_ip2315_set_vin_present_fn(NULL);
     }
@@ -357,10 +363,6 @@ esp_err_t solar_os_m5pm1_detach(const char *name)
         solar_os_backlight_unregister(device);
         device->backlight_registered = false;
     }
-    solar_os_power_unregister_off_provider(device);
-    (void)solar_os_battery_unregister_provider(name);
-    ESP_RETURN_ON_ERROR(solar_os_gpio_controller_unregister(name),
-                        TAG, "GPIO controller is busy");
     ESP_RETURN_ON_ERROR(m5pm1_deinit(&device->chip), TAG, "deinit failed");
     memset(device, 0, sizeof(*device));
     return ESP_OK;

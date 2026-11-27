@@ -35,3 +35,6 @@ size_t solar_os_haptic_count(void);
 bool solar_os_haptic_get(size_t index, solar_os_haptic_info_t *info);
 esp_err_t solar_os_haptic_play_effect(const char *name, uint16_t effect);
 esp_err_t solar_os_haptic_stop(const char *name);
+
+/* Refuses a replacement registration with the same name and another owner. */
+esp_err_t solar_os_haptic_unregister_owned(const char *name, const void *ctx);

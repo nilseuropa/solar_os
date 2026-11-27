@@ -6,6 +6,8 @@
 #include "esp_http_server.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "miniz.h"
+#include "solar_os_display_page_packed.h"
 #include "solar_os_display.h"
 #include "solar_os_http_server.h"
 #include "solar_os_jobs.h"
@@ -78,14 +80,10 @@ static void displayd_stats_snapshot(uint32_t *frame_requests,
 
 static esp_err_t displayd_release_resources(void)
 {
-    esp_err_t ret = ESP_OK;
     if (displayd.detached_session && displayd.target[0] != '\0') {
         const esp_err_t close_err = solar_os_sessions_close_display(displayd.target);
-        if (close_err != ESP_OK && close_err != ESP_ERR_NOT_FOUND) {
-            ret = close_err;
-        } else {
-            displayd.detached_session = false;
-        }
+        if (close_err != ESP_OK && close_err != ESP_ERR_NOT_FOUND) return close_err;
+        displayd.detached_session = false;
     }
     if (displayd.target[0] != '\0') {
         solar_os_display_stop_frame_export(displayd.target);
@@ -105,100 +103,9 @@ static esp_err_t displayd_release_resources(void)
         }
         displayd.virtual_display = NULL;
     }
-    if (ret == ESP_OK) {
-        memset(&displayd, 0, sizeof(displayd));
-    }
-    return ret;
+    memset(&displayd, 0, sizeof(displayd));
+    return ESP_OK;
 }
-
-static const char display_page[] =
-    "<!doctype html><html><head><meta charset=utf-8>"
-    "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-    "<title>SolarOS display</title><style>"
-    ":root{color-scheme:light dark;font:15px system-ui,sans-serif}"
-    "body{margin:0;display:grid;min-height:100vh;place-items:center;background:#20231f}"
-    "main{width:min(94vw,900px);padding:20px;box-sizing:border-box}"
-    "header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}"
-    "h1{font-size:18px;margin:0 auto 0 0;color:#f1f3ed}"
-    "input,button{font:inherit;padding:8px 10px;border-radius:5px;border:1px solid #777}"
-    "input{min-width:250px}button{cursor:pointer}"
-    "canvas{display:block;width:100%;height:auto;background:#fff;image-rendering:pixelated;"
-    "outline:1px solid #62675e;box-shadow:0 8px 30px #0008}"
-    "canvas:focus{outline:3px solid #d6e87a}"
-    "#status{color:#cdd2c7;margin-top:10px;min-height:1.3em}"
-    "</style></head><body><main><header><h1>SolarOS display</h1>"
-    "<input id=token type=password inputmode=numeric maxlength=6 autocomplete=off "
-    "placeholder=\"6-digit code\">"
-    "<button id=connect>Connect</button></header>"
-    "<canvas id=screen tabindex=0 aria-label=\"SolarOS remote display\"></canvas>"
-    "<div id=status>Enter the token printed by <code>job start displayd</code>.</div>"
-    "</main><script>"
-    "const tokenEl=document.querySelector('#token'),button=document.querySelector('#connect'),"
-    "canvas=document.querySelector('#screen'),statusEl=document.querySelector('#status'),"
-    "ctx=canvas.getContext('2d');"
-    "let token='',frameUrl='',inputUrl='',displayMeta=null,etag='',timer=0,image=null,"
-    "inputQueue=[],inputSending=false;"
-    "const headers=()=>({Authorization:'Bearer '+token});"
-    "function status(s){statusEl.textContent=s}"
-    "function raw(bytes,m){"
-    "const w=m.width,h=m.height,nw=m.native_width,nh=m.native_height,s=m.native_stride;"
-    "if(!image||image.width!==w||image.height!==h){"
-    "canvas.width=w;canvas.height=h;image=ctx.createImageData(w,h)}"
-    "const d=image.data,b=m.black_is_one;d.fill(255);"
-    "function mark(x,y,nx,ny){const i=(y*w+x)*4;"
-    "if(m.pixel_format==='rgb565'){const p=(ny*nw+nx)*2,c=(bytes[p]<<8)|bytes[p+1];"
-    "d[i]=Math.round((c>>>11)*255/31);d[i+1]=Math.round(((c>>>5)&63)*255/63);"
-    "d[i+2]=Math.round((c&31)*255/31);return}"
-    "const set=(bytes[(ny>>3)*s+nx]&(1<<(ny&7)))!==0;"
-    "if(b?set:!set)d[i]=d[i+1]=d[i+2]=0}"
-    "let x,y,nx,ny;"
-    "if(m.rotation===1){for(y=0;y<h;y++){nx=nw-1-y;"
-    "for(x=0;x<w;x++){ny=x;mark(x,y,nx,ny)}}}"
-    "else if(m.rotation===2){for(y=0;y<h;y++){ny=nh-1-y;"
-    "for(x=0;x<w;x++){nx=nw-1-x;mark(x,y,nx,ny)}}}"
-    "else if(m.rotation===3){for(y=0;y<h;y++){nx=y;"
-    "for(x=0;x<w;x++){ny=nh-1-x;mark(x,y,nx,ny)}}}"
-    "else{for(y=0;y<h;y++){ny=y;"
-    "for(x=0;x<w;x++){nx=x;mark(x,y,nx,ny)}}}"
-    "ctx.putImageData(image,0,0)}"
-    "async function poll(){clearTimeout(timer);if(!token||!frameUrl)return;"
-    "try{const h=headers();if(etag)h['If-None-Match']=etag;"
-    "const r=await fetch(frameUrl,{headers:h,cache:'no-store'});"
-    "if(r.status===401)throw Error('authentication failed');"
-    "if(r.status===200){etag=r.headers.get('ETag')||'';"
-    "raw(new Uint8Array(await r.arrayBuffer()),displayMeta);"
-    "status('Connected - click the display to send keys')}"
-    "else if(r.status!==304&&r.status!==503)throw Error('frame HTTP '+r.status)"
-    "}catch(e){status(e.message)}timer=setTimeout(poll,50)}"
-    "async function connect(){token=tokenEl.value.trim();etag='';"
-    "if(!/^\\d{6}$/.test(token)){status('Enter the 6-digit code');return}"
-    "try{const r=await fetch('/api/displays',{headers:headers(),cache:'no-store'});"
-    "if(!r.ok)throw Error(r.status===401?'authentication failed':'display list HTTP '+r.status);"
-    "const a=await r.json();if(!a.displays.length)throw Error('no exported display');"
-    "displayMeta=a.displays[0];frameUrl=displayMeta.pixel_format==='rgb565'?"
-    "displayMeta.frame_rgb565:displayMeta.frame_raw;inputUrl=displayMeta.input;"
-    "canvas.focus();poll()}"
-    "catch(e){status(e.message)}}"
-    "button.onclick=connect;tokenEl.addEventListener('keydown',e=>{if(e.key==='Enter')connect()});"
-    "const keymap={ArrowUp:128,ArrowDown:129,ArrowLeft:130,ArrowRight:131,"
-    "PageUp:132,PageDown:133,Home:148,End:149,Delete:150,Escape:27,"
-    "Backspace:8,Enter:13,Tab:9};"
-    "async function flushInput(){if(inputSending||!inputQueue.length)return;inputSending=true;"
-    "try{while(inputQueue.length){const batch=inputQueue.splice(0,32);"
-    "const r=await fetch(inputUrl,"
-    "{method:'POST',headers:{...headers(),'Content-Type':'application/octet-stream'},"
-    "body:new Uint8Array(batch)});if(!r.ok)throw Error('input HTTP '+r.status)}}"
-    "catch(x){status(x.message)}finally{inputSending=false;if(inputQueue.length)flushInput()}}"
-    "function sendKey(e){let k=keymap[e.key];"
-    "if(e.ctrlKey&&e.key===']')k=146;"
-    "else if(k===undefined&&e.key.length===1&&!e.metaKey&&!e.altKey){"
-    "const c=e.key.charCodeAt(0);if(c<128)k=e.ctrlKey?(c&31):c}"
-    "if(k===undefined)return;e.preventDefault();inputQueue.push(k);flushInput()}"
-    "canvas.addEventListener('pointerdown',()=>canvas.focus());"
-    "document.addEventListener('keydown',e=>{"
-    "if(!token||document.activeElement===tokenEl||document.activeElement===button)return;"
-    "sendKey(e)});"
-    "</script></body></html>";
 
 static esp_err_t displayd_send_503(httpd_req_t *req, const char *message)
 {
@@ -217,7 +124,23 @@ static esp_err_t displayd_page_handler(httpd_req_t *req, void *user)
                              "default-src 'self'; script-src 'unsafe-inline'; "
                              "style-src 'unsafe-inline'; connect-src 'self'");
     (void)httpd_resp_set_hdr(req, "X-Content-Type-Options", "nosniff");
-    return httpd_resp_send(req, display_page, HTTPD_RESP_USE_STRLEN);
+    typedef struct {
+        tinfl_decompressor decoder;
+        uint8_t html[SOLAR_OS_DISPLAY_PAGE_BYTES];
+    } display_page_work_t;
+    display_page_work_t *work = solar_os_memory_alloc(sizeof(*work),
+        SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "displayd.page");
+    if (!work) return displayd_send_503(req, "Display page memory unavailable");
+
+    tinfl_init(&work->decoder);
+    size_t consumed = sizeof(display_page_packed), produced = sizeof(work->html);
+    const tinfl_status status = tinfl_decompress(&work->decoder, display_page_packed, &consumed,
+        work->html, work->html, &produced, TINFL_FLAG_PARSE_ZLIB_HEADER | TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF);
+    esp_err_t error = status == TINFL_STATUS_DONE && consumed == sizeof(display_page_packed) &&
+        produced == sizeof(work->html) ? httpd_resp_send(req, (const char *)work->html, produced) :
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Display page decode failed");
+    solar_os_memory_free(work);
+    return error;
 }
 
 static esp_err_t displayd_list_handler(httpd_req_t *req, void *user)

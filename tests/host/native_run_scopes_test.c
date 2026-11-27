@@ -8,16 +8,22 @@
 #include <pthread.h>
 #include "solar_os_native_elf.h"
 #include "solar_os_native_library_abi.h"
-static const solar_os_native_library_service_api_v1_t native_library_api = {0};
+static const solar_os_native_library_service_api_v1_t native_library_api = { .abi_version=1, .struct_size=sizeof(native_library_api) };
 #include "solar_os_native_time_abi.h"
-static const solar_os_native_time_api_v1_t native_time_api = {0};
+static const solar_os_native_time_api_v1_t native_time_api = { .abi_version=1, .struct_size=sizeof(native_time_api) };
 #include "solar_os_native_thread_abi.h"
-static const solar_os_native_thread_api_v1_t native_thread_api = {0};
+static const solar_os_native_thread_api_v1_t native_thread_api = { .abi_version=1, .struct_size=sizeof(native_thread_api) };
 #include "solar_os_native_libc_abi.h"
-static const solar_os_native_libc_api_v1_t native_libc_api = {0};
+static const solar_os_native_libc_api_v1_t native_libc_api = { .abi_version=1, .struct_size=sizeof(native_libc_api) };
+#include "solar_os_native_registry.h"
+static uint32_t native_system_service_count(void);
+static int native_system_service_info(uint32_t, solar_os_native_system_service_v1_t *);
+static const solar_os_native_system_api_v1_t native_system_api = {
+    .abi_version = 1, .struct_size = sizeof(native_system_api),
+    .service_count = native_system_service_count, .service_info = native_system_service_info,
+};
 typedef void *TaskHandle_t;
 static _Thread_local TaskHandle_t current_task;
-static TaskHandle_t xTaskGetCurrentTaskHandle(void) { return current_task; }
 #define portENTER_CRITICAL(lock) ((void)(lock))
 #define portEXIT_CRITICAL(lock) ((void)(lock))
 #define SOLAR_OS_PACKAGE_SERVICE_BLE 0
@@ -37,10 +43,15 @@ typedef struct { solar_os_native_elf_info_t elf; } solar_os_native_run_result_t;
 typedef struct { int type; size_t size_bytes; } solar_os_storage_metadata_t;
 typedef struct { bool live; } esp_elf_t;
 static atomic_bool native_running;
+static bool native_reclaimer_registered;
+static const int native_reclaimer;
+static bool solar_os_memory_register_reclaimer(const int *p) { assert(p == &native_reclaimer); return true; }
+static void solar_os_native_operation_end(void);
 static _Thread_local bool native_operation_locked;
 struct native_run_scope;
 static _Thread_local struct native_run_scope *native_run_scope_top;
-static int outer, inner, foreign, active_images, cleanup_count, allocation_count;
+static struct { uint32_t abi, size; } outer={1,8}, inner={1,8}, foreign={1,8};
+static int active_images, cleanup_count, allocation_count;
 static int fail_init, fail_relocate;
 static bool foreground_image;
 static void native_set_detail(char *s, size_t n, const char *text) { if (s && n) snprintf(s, n, "%s", text); }
@@ -73,10 +84,8 @@ static int esp_elf_request(esp_elf_t *, int, int, char **);
 static void esp_elf_deinit(esp_elf_t *elf) {
     assert(elf->live); assert(cleanup_count >= 1); elf->live = false; active_images--;
 }
-static const void *solar_os_native_media_get_service(const char *s, uint32_t a, uint32_t n) {
-    (void)s; (void)a; (void)n; return NULL;
-}
-static const int motion_service_marker = 1;
+#include "native_scope_providers.inc"
+static const struct { uint32_t abi, size; } motion_service_marker = {1, 8};
 static const void *solar_os_native_motion_get_service(const char *s, uint32_t a, uint32_t n) {
     return s && !strcmp(s, "motion") && a == 1 && n <= sizeof(motion_service_marker) ? &motion_service_marker : NULL;
 }
@@ -88,7 +97,8 @@ static esp_err_t write_output(const char *text, size_t n, void *user) {
 static const void *service(const char *s, uint32_t abi, uint32_t size, void *user) {
     if (strcmp(s, "foreground")) return NULL;
     assert(abi == 1U && size == 8U);
-    assert(user == current_task); return user;
+    assert(user == current_task);
+    return user;
 }
 static void cleanup(void *user) {
     assert(user == current_task); assert(active_images > 0);
@@ -113,6 +123,14 @@ static int esp_elf_request(esp_elf_t *elf, int unused, int argc, char **argv) {
     assert(native_write_utf8("x", 1U) == ESP_OK);
     assert(native_job_get_service("foreground", 1U, 8U) == current_task);
     assert(native_job_get_service("motion", 1U, 4U) == &motion_service_marker);
+    for (uint32_t i=0; i<native_system_service_count(); ++i) {
+        solar_os_native_system_service_v1_t info;
+        assert(!native_system_service_info(i,&info));
+        if (!strcmp(info.name,"foreground")) {
+            assert(info.struct_size==8);
+            assert(info.flags==(SOLAR_OS_NATIVE_SYSTEM_SCOPED|SOLAR_OS_NATIVE_SYSTEM_AVAILABLE));
+        }
+    }
     if (current_task == &outer && depth == 1) {
         native_run_scope_t *saved = native_run_scope_current();
         pthread_t thread;
@@ -141,6 +159,29 @@ static int builtin_entry(int argc, char **argv) {
 }
 int main(void) {
     current_task = &outer;
+    assert(native_system_service_count() >= 20);
+    assert(native_job_get_service("system", 2, 8) == NULL);
+    assert(native_job_get_service(NULL, 1, 8) == NULL);
+    assert(native_job_get_service("system", 1, sizeof(native_system_api)+1) == NULL);
+    solar_os_native_system_service_v1_t info;
+    assert(native_system_service_info(0, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    memset(&info, 0xa5, sizeof(info));
+    assert(native_system_service_info(UINT32_MAX, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(info.name[0] == 0 && info.struct_size == 0 && info.flags == 0);
+    unsigned available=0, scoped=0;
+    for (uint32_t i=0; i<native_system_service_count(); ++i) {
+        assert(!native_system_service_info(i, &info));
+        assert(info.name[0] && info.abi_version == 1);
+        if (info.flags & SOLAR_OS_NATIVE_SYSTEM_AVAILABLE) {
+            available++;
+            assert(info.struct_size >= 8);
+        } else assert(info.struct_size == 0);
+        if (info.flags & SOLAR_OS_NATIVE_SYSTEM_SCOPED) {
+            scoped++;
+            assert(!(info.flags & SOLAR_OS_NATIVE_SYSTEM_AVAILABLE));
+        }
+    }
+    assert(available == 6 && scoped >= 2);
     char *argv[] = {"app"};
     solar_os_native_run_options_t opts = {write_output, &outer, service, &outer, cleanup, NULL};
     assert(solar_os_native_run("outer", 1, argv, &opts, NULL, NULL, 0) == ESP_OK);

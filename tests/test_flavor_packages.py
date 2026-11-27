@@ -7,6 +7,7 @@ import unittest
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 GENERATOR_PATH = REPOSITORY / "scripts" / "generate_flavor_config.py"
+sys.path.insert(0, str(GENERATOR_PATH.parent))
 SPEC = importlib.util.spec_from_file_location("generate_flavor_config", GENERATOR_PATH)
 assert SPEC is not None and SPEC.loader is not None
 generate_flavor_config = importlib.util.module_from_spec(SPEC)
@@ -29,13 +30,13 @@ class FlavorPackagesTest(unittest.TestCase):
 
     def test_git_requires_wifi_and_psram(self):
         _, _, groups, packages = self.resolve("full")
-        self.assertTrue(packages["service_git"])
+        self.assertTrue(packages["app_git"])
         for capabilities in ({"wifi", "psram"}, {"wifi"}, {"psram"}, set()):
             with self.subTest(capabilities=capabilities):
                 selected_groups, selected = generate_flavor_config.apply_board_capability_pruning(
                     self.catalog, groups, packages, capabilities)
                 supported = {"wifi", "psram"}.issubset(capabilities)
-                self.assertEqual(selected["service_git"], supported)
+                self.assertEqual(selected["app_git"], supported)
                 requires = generate_flavor_config.collect_requires(self.catalog, selected_groups, selected)
                 self.assertEqual("solaros_git" in requires, supported)
 
@@ -54,7 +55,7 @@ class FlavorPackagesTest(unittest.TestCase):
     def test_gpio_matrix_has_a_keymap_and_requires_expansion_gpio(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
-            enabled = flavor in ("full", "classic")
+            enabled = flavor == "full"
             self.assertEqual(packages["expansion_gpio_matrix"], enabled)
             if not enabled:
                 continue
@@ -102,11 +103,13 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(supported["service_usb_host"])
         self.assertTrue(supported["service_usb_storage"])
         self.assertTrue(supported["service_usb_serial"])
+        self.assertFalse(supported["service_usb_cdc"])
         _, cdc_only = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"cdc"})
         self.assertFalse(cdc_only["service_usb_host"])
         self.assertFalse(cdc_only["service_usb_storage"])
         self.assertFalse(cdc_only["service_usb_serial"])
+        self.assertTrue(cdc_only["service_usb_cdc"])
 
     def test_flash_accepts_runtime_storage_without_board_sd(self):
         from solaros_board_manifest import load_board_manifest
@@ -119,7 +122,6 @@ class FlavorPackagesTest(unittest.TestCase):
         _, selected = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, capabilities)
         self.assertTrue(selected["app_flash"])
-        self.assertTrue(selected["service_flash"])
         self.assertFalse(selected["service_sd"])
         self.assertTrue(selected["expansion_sdspi"])
         self.assertTrue(selected["service_usb_storage"])
@@ -150,31 +152,26 @@ class FlavorPackagesTest(unittest.TestCase):
                     for pin in (19, 20):
                         self.assertIn("USB", pins[pin]["role"])
 
-    def test_tcp_byte_streams_are_optional_and_enabled_in_full(self):
+    def test_tcp_byte_stream_service_is_core(self):
         for flavor in ("full", "classic", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
-            self.assertEqual(groups["tcp_streams"], flavor == "full")
-            self.assertEqual(packages["service_tcp_stream"], flavor == "full")
+            self.assertTrue(groups["tcp_streams"])
+            self.assertTrue(packages["service_tcp_stream"])
 
     def test_classic_preserves_compact_core_and_hardware_controls(self):
         _, _, _, compact_packages = self.resolve("writerdeck")
         name, _, groups, packages = self.resolve("classic")
         self.assertEqual(name, "classic")
-        for package in ("app_python", "app_playground", "app_reader", "app_writer",
-                        "app_ssh", "service_audio", "service_messaging"):
+        for package in ("app_python", "app_playground", "app_edit", "app_less",
+                        "service_audio", "service_messaging", "service_sc2_discovery", "service_sc2_relay"):
             with self.subTest(shared=package):
                 self.assertTrue(packages[package])
                 self.assertTrue(compact_packages[package])
-        for package in ("service_adc_dpad", "service_onewire", "service_controls",
-                        "app_io", "job_controls"):
-            with self.subTest(classic_only=package):
-                self.assertTrue(packages[package])
-                self.assertFalse(compact_packages[package])
-        for package in ("service_sc2", "service_sc2_provider", "job_sc2_sync"):
+        for package in ("app_files", "app_ssh", "job_sc2_sync"):
             with self.subTest(writerdeck_only=package):
                 self.assertFalse(packages[package])
                 self.assertTrue(compact_packages[package])
-        for package in ("app_lua", "app_synth", "service_synth", "service_midi"):
+        for package in ("app_io", "job_controls", "app_lua", "app_synth"):
             with self.subTest(omitted=package):
                 self.assertFalse(packages[package])
                 self.assertFalse(compact_packages[package])
@@ -182,10 +179,10 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertNotIn("lua", requires)
         self.assertIn("micropython_embed", requires)
 
-    def test_servo_is_optional_and_native_backend_requires_pwm_gpio(self):
+    def test_servo_service_is_core_and_native_backend_requires_pwm_gpio(self):
         _, _, core_groups, core_packages = self.resolve("writerdeck")
-        self.assertFalse(core_groups["servo"])
-        self.assertFalse(core_packages["service_servo"])
+        self.assertTrue(core_groups["servo"])
+        self.assertTrue(core_packages["service_servo"])
         _, _, groups, packages = self.resolve("full")
         self.assertTrue(groups["servo"])
         self.assertTrue(packages["service_servo"])
@@ -259,7 +256,7 @@ class FlavorPackagesTest(unittest.TestCase):
             _, _, groups, packages = generate_flavor_config.load_flavor(path, self.catalog)
         self.assertTrue(packages["service_motor"])
         self.assertFalse(packages["drv8830"])
-        self.assertFalse(packages["service_i2c"])
+        self.assertTrue(packages["service_i2c"])
         _, pruned = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, set())
         self.assertTrue(pruned["service_motor"])
@@ -361,12 +358,10 @@ class FlavorPackagesTest(unittest.TestCase):
         _, headless = generate_flavor_config.apply_board_capability_pruning(
             self.catalog, groups, packages, {"psram", "wifi"})
         self.assertTrue(headless["app_zoo"])
-        self.assertTrue(headless["service_zoo"])
         self.assertTrue(headless["service_inference"])
         self.assertTrue(headless["job_model_upload"])
         classic = generate_flavor_config.apply_target_pruning(self.catalog, packages, "esp32")
         self.assertFalse(classic["app_zoo"])
-        self.assertFalse(classic["service_zoo"])
         self.assertFalse(classic["job_model_upload"])
         for caps in ({"wifi"}, {"psram"}, set()):
             _, pruned = generate_flavor_config.apply_board_capability_pruning(self.catalog, groups, packages, caps)
@@ -936,19 +931,19 @@ class FlavorPackagesTest(unittest.TestCase):
             ("service_audio", "service_audio_codecs"),
         )
         self.assertEqual(
-            self.catalog.package_defs["service_webradio"].requires,
+            self.catalog.package_defs["app_webradio"].requires,
             ("nvs_flash",),
         )
         self.assertEqual(
             self.catalog.package_defs["app_webradio"].depends,
             (
+                "app_media_preferences",
                 "service_audio",
                 "service_audio_codecs",
                 "service_http_client",
-                "service_media_preferences",
+                "service_m3u",
                 "service_media_widgets",
                 "service_signal_widgets",
-                "service_webradio",
             ),
         )
         self.assertEqual(
@@ -970,11 +965,11 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertEqual(
             self.catalog.package_defs["app_player"].depends,
             (
+                "app_media_preferences",
                 "service_audio",
                 "service_audio_codecs",
-                "service_media_preferences",
+                "service_media_playlist",
                 "service_media_widgets",
-                "service_player_playlist",
                 "service_signal_widgets",
                 "service_storage_browser",
             ),
@@ -1006,7 +1001,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1683"].depends,
-            ("service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"),
+            ("service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"),
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1683"].capabilities,
@@ -1014,7 +1009,7 @@ class FlavorPackagesTest(unittest.TestCase):
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1677"].depends,
-            ("axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker"),
+            ("axp2101", "service_expansion", "service_spi", "driver_epd_pixel_budget", "driver_epd_scan_worker", "service_epd"),
         )
         self.assertEqual(
             self.catalog.package_defs["expansion_ssd1677"].capabilities,
@@ -1110,15 +1105,12 @@ class FlavorPackagesTest(unittest.TestCase):
             "image_viewer",
             "python",
             "playground",
-            "speech",
             "player",
             "recorder",
             "audio_pwm",
             "pcm5102",
             "web_browser",
             "uart",
-            "bridge",
-            "daq",
             "wireguard",
             "espnow",
             "contacts",
@@ -1155,11 +1147,8 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_player",
             "app_recorder",
             "service_speech",
-            "job_speechd",
             "expansion_audio_pwm",
             "expansion_pcm5102",
-            "job_bridge",
-            "job_daq",
             "service_wireguard",
             "service_contacts",
             "service_inbox",
@@ -1178,7 +1167,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "device_flasher",
             "logic_analyzer",
             "sump",
-            "mqtt",
             "slip",
             "ppp",
             "osc",
@@ -1194,7 +1182,6 @@ class FlavorPackagesTest(unittest.TestCase):
             self.assertFalse(groups[group], group)
         for package in (
             "job_sump",
-            "service_mqtt",
             "job_slip",
             "job_pppd",
             "job_osc",
@@ -1205,8 +1192,6 @@ class FlavorPackagesTest(unittest.TestCase):
             "app_lua",
             "app_logic",
             "app_synth",
-            "service_synth",
-            "service_midi",
             "job_controls",
         ):
             self.assertFalse(packages[package], package)
@@ -1257,14 +1242,17 @@ class FlavorPackagesTest(unittest.TestCase):
         self.assertTrue(pruned["service_wireguard"])
         self.assertFalse(pruned["job_espnow_link"])
 
-    def test_standard_flavors_do_not_select_dormant_hid(self):
+    def test_standard_flavors_include_hid_service(self):
         for flavor in ("full", "writerdeck"):
             _, _, groups, packages = self.resolve(flavor)
-            self.assertFalse(groups["usb_hid"], flavor)
-            self.assertFalse(packages["service_hid"], flavor)
+            self.assertTrue(groups["usb_hid"], flavor)
+            self.assertTrue(packages["service_hid"], flavor)
 
     def test_webradio_survives_on_wifi_board_without_builtin_audio(self):
         _, _, groups, packages = self.resolve("full")
+        _, _, _, core = self.resolve("core")
+        self.assertFalse(core["app_media_preferences"])
+        self.assertTrue(core["service_media_playlist"])
         _, pruned = generate_flavor_config.apply_board_capability_pruning(
             self.catalog,
             groups,
@@ -1278,7 +1266,7 @@ class FlavorPackagesTest(unittest.TestCase):
             "service_synth",
             "service_http_client",
             "service_signal_widgets",
-            "service_webradio",
+            "app_media_preferences",
             "app_synth",
             "app_funcgen",
             "app_webradio",
@@ -1426,7 +1414,7 @@ class FlavorPackagesTest(unittest.TestCase):
 
     def test_public_profiles_and_board_defaults(self):
         self.assertEqual({path.stem for path in (REPOSITORY / "flavors").glob("*.toml")},
-                         {"full", "classic", "writerdeck"})
+                         {"core", "full", "classic", "writerdeck"})
         import configparser
         config = configparser.ConfigParser()
         config.read(REPOSITORY / "platformio.ini")
@@ -1448,11 +1436,11 @@ class FlavorPackagesTest(unittest.TestCase):
         for flavor in ("writerdeck", "full"):
             with self.subTest(flavor=flavor):
                 _, _, groups, packages = self.resolve(flavor)
-                self.assertTrue(groups["bridge"])
-                self.assertTrue(packages["job_bridge"])
+                self.assertEqual(groups["bridge"], flavor == "full")
+                self.assertEqual(packages["job_bridge"], flavor == "full")
                 self.assertEqual(groups["control_bindings"], flavor == "full")
                 self.assertEqual(packages["job_controls"], flavor == "full")
-                self.assertTrue(packages["job_daq"])
+                self.assertEqual(packages["job_daq"], flavor == "full")
                 self.assertEqual(packages["job_sump"], flavor == "full")
 
         _, _, full_groups, full_packages = self.resolve("full")

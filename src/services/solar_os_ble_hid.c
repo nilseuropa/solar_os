@@ -1,5 +1,5 @@
 #include "solar_os_ble_hid.h"
-#include "solar_os_ble_hid_report_map.h"
+#include "solar_os_hid_report_descriptor.h"
 #include "solar_os_ble_nimble.h"
 #include "solar_os_task.h"
 
@@ -237,7 +237,7 @@ static void subscribe(uint8_t id)
     r->map = hid.map_index;
     r->battery = ble_uuid_u16(&hid_data.services[hid.service_index].uuid.u) == 0x180f;
     if (!r->battery) {
-        (void)solar_os_ble_hid_report_layout(hid_data.map, hid.map_len, id, &r->layout);
+        (void)solar_os_hid_report_descriptor_keyboard_layout(hid_data.map, hid.map_len, id, &r->layout);
     }
     uint8_t value[2] = {(chr->properties & BLE_GATT_CHR_PROP_NOTIFY) ? 1 : 2, 0};
     hid.phase = WRITE_CCC;
@@ -321,7 +321,7 @@ static void next_characteristic(void)
 static void map_complete(void)
 {
     memset(hid_data.keyboard_ids, 0, sizeof(hid_data.keyboard_ids));
-    if (!solar_os_ble_hid_report_map(hid_data.map, hid.map_len, hid_data.keyboard_ids)) {
+    if (!solar_os_hid_report_descriptor_keyboard_map(hid_data.map, hid.map_len, hid_data.keyboard_ids)) {
         fail(BLE_HS_EINVAL);
         return;
     }

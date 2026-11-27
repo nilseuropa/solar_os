@@ -7,8 +7,7 @@
 #include "solar_os_native_time_abi.h"
 
 #define SDK_PROVIDERS_MAX 17U
-#define SDK_BUILTINS_MAX 128U
-#define SDK_HEADERS_MAX (SDK_BUILTINS_MAX + 16U * SOLAR_OS_NATIVE_SDK_FILES_MAX)
+#define SDK_LIBRARY_HEADERS_MAX ((SDK_PROVIDERS_MAX - 1U) * SOLAR_OS_NATIVE_SDK_FILES_MAX)
 #define SDK_DIRECTORY_MAX 128U
 typedef struct {
     char id[48], version[32], path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
@@ -22,16 +21,17 @@ typedef struct {
     const solar_os_native_host_api_v1_t *host;
     const solar_os_native_libc_api_v1_t *libc;
     const solar_os_cc_api_v1_t *compiler;
+    const solar_os_cc_api_v2_t *packed;
     const solar_os_native_storage_api_v1_t *storage;
     const solar_os_native_time_api_v1_t *clock;
     int64_t last_yield;
     sdk_provider_t providers[SDK_PROVIDERS_MAX];
-    sdk_header_t headers[SDK_HEADERS_MAX];
-    uint32_t provider_count, header_count;
+    uint32_t provider_count, header_count, header_capacity;
     solar_os_cc_sdk_index_t index;
     solar_os_native_storage_entry_v1_t entry;
     unsigned char buffer[SOLAR_OS_NATIVE_SDK_FILE_MAX];
     char directory[SOLAR_OS_NATIVE_STORAGE_PATH_MAX], path[SOLAR_OS_NATIVE_STORAGE_PATH_MAX];
+    sdk_header_t headers[];
 } sdk_work_t;
 
 static int stopped(sdk_work_t *w)
@@ -84,7 +84,7 @@ static bool safe_name(const char *name,size_t capacity)
 }
 static int add_header(sdk_work_t *w,const char *name,uint32_t provider,uint32_t offset,uint32_t bytes)
 {
-    if(w->header_count==SDK_HEADERS_MAX || !safe_name(name,sizeof(w->headers[0].name)) ||
+    if(w->header_count==w->header_capacity || !safe_name(name,sizeof(w->headers[0].name)) ||
         bytes>SOLAR_OS_NATIVE_SDK_FILE_MAX) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     sdk_header_t *h=&w->headers[w->header_count++];
     memcpy(h->name,name,strlen(name)+1);h->provider=provider;h->offset=offset;h->bytes=bytes;
@@ -93,20 +93,24 @@ static int add_header(sdk_work_t *w,const char *name,uint32_t provider,uint32_t 
 static int inventory(sdk_work_t *w)
 {
     const solar_os_cc_api_v1_t *api=w->compiler;
-    if(api->struct_size<sizeof(*api) || !api->sdk_version || !api->sdk_headers ||
-        !api->sdk_count || api->sdk_count>SDK_BUILTINS_MAX) {
-        message(w,"cc sdk: update TinyCC for the built-in header index\n");
-        return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
-    }
     size_t version_bytes=0;while(version_bytes<32 && api->sdk_version[version_bytes])version_bytes++;
     if(version_bytes==32 || !component(api->sdk_version,false)) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
     memcpy(w->providers[0].id,"tinycc",7);
     memcpy(w->providers[0].version,api->sdk_version,version_bytes+1);w->provider_count=1;
     for(uint32_t i=0;i<api->sdk_count;++i) {
-        const solar_os_cc_header_v1_t *h=&api->sdk_headers[i];
-        if(!h->name || !h->text || h->bytes>SOLAR_OS_NATIVE_SDK_FILE_MAX || memchr(h->text,0,h->bytes))
-            return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
-        int code=add_header(w,h->name,0,i,h->bytes);if(code)return code;
+        uint32_t bytes = 0;
+        const char *name;
+        if (w->packed) {
+            name = w->packed->sdk_header_info(i, &bytes);
+        } else {
+            const solar_os_cc_header_v1_t *header = &api->sdk_headers[i];
+            if (!header->text || header->bytes > SOLAR_OS_NATIVE_SDK_FILE_MAX || memchr(header->text, 0, header->bytes))
+                return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+            name = header->name;
+            bytes = header->bytes;
+        }
+        int code = add_header(w, name, 0, i, bytes);
+        if (code) return code;
     }
     int code=w->storage->resolve_path(w->storage->context,"/modules/libraries",w->directory,sizeof(w->directory));
     if(code)return code;
@@ -157,6 +161,13 @@ static int read_header(sdk_work_t *w,const sdk_header_t *header,const void **dat
 {
     int code=stopped(w);if(code)return code;
     if(!header->provider) {
+        if (w->packed) {
+            code = w->packed->sdk_header_read(header->offset, w->buffer, header->bytes);
+            if (code) return code;
+            if (memchr(w->buffer, 0, header->bytes)) return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+            *data = w->buffer;
+            return SOLAR_OS_NATIVE_OK;
+        }
         *data=w->compiler->sdk_headers[header->offset].text;return 0;
     }
     sdk_provider_t *p=&w->providers[header->provider];uint32_t bytes=0;
@@ -260,8 +271,35 @@ int solar_os_cc_sdk_command(const solar_os_native_host_api_v1_t *host,
     }
     const solar_os_native_time_api_v1_t *clock=host->get_service("time",1,sizeof(*clock));
     if(!clock || !clock->now_us || !clock->sleep_ms)return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
-    sdk_work_t *w=memory->alloc(sizeof(*w));if(!w)return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
-    memset(w,0,sizeof(*w));w->host=host;w->libc=libc_api;w->compiler=compiler;w->storage=storage;w->clock=clock;
+    const solar_os_cc_api_v2_t *packed = NULL;
+    if (compiler->abi_version == SOLAR_OS_CC_PACKED_ABI && compiler->struct_size >= sizeof(*packed)) {
+        const solar_os_cc_api_v2_t *candidate = (const void *)compiler;
+        if (candidate->sdk_header_info && candidate->sdk_header_read) packed = candidate;
+    }
+    if (compiler->struct_size < sizeof(*compiler) || !compiler->sdk_version ||
+        (!packed && !compiler->sdk_headers) || !compiler->sdk_count) {
+        static const char text[] = "cc sdk: update TinyCC for the built-in header index\n";
+        host->write_utf8(text, sizeof(text) - 1);
+        return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+    }
+    if (compiler->sdk_count > UINT32_MAX - SDK_LIBRARY_HEADERS_MAX) {
+        return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    }
+    const uint32_t capacity = compiler->sdk_count + SDK_LIBRARY_HEADERS_MAX;
+    if ((uint64_t)capacity * sizeof(sdk_header_t) > SIZE_MAX - sizeof(sdk_work_t)) {
+        return SOLAR_OS_NATIVE_ERROR_INVALID_SIZE;
+    }
+    const size_t bytes = sizeof(sdk_work_t) + (size_t)capacity * sizeof(sdk_header_t);
+    sdk_work_t *w = memory->alloc(bytes);
+    if (!w) return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;
+    memset(w, 0, sizeof(*w));
+    w->host = host;
+    w->libc = libc_api;
+    w->compiler = compiler;
+    w->packed = packed;
+    w->storage = storage;
+    w->clock = clock;
+    w->header_capacity = capacity;
     int code=inventory(w);
     if(!code && !strcmp(argv[2],"list")) {
         for(uint32_t provider=0;provider<w->provider_count && !code;++provider) {

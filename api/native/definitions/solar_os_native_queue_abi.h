@@ -1,0 +1,23 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_QUEUE_SERVICE "queue"
+#define SOLAR_OS_NATIVE_QUEUE_ABI 1U
+
+/* Fixed-size records are copied when sent and read. This table runs in task
+ * context and can be shared across threads. A timeout of zero polls;
+ * UINT32_MAX waits indefinitely. Stop or join callers before close, which
+ * returns BUSY while any operation is admitted. Pointers stored inside an
+ * item remain owned by the caller. An internal queue uses on-chip storage. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(uint32_t depth, uint32_t item_size, bool internal, solar_os_native_handle_t *queue);
+    int (*close)(solar_os_native_handle_t queue);
+    int (*send)(solar_os_native_handle_t queue, const void *item, size_t size, uint32_t timeout_ms);
+    int (*receive)(solar_os_native_handle_t queue, void *item, size_t size, uint32_t timeout_ms);
+    int (*peek)(solar_os_native_handle_t queue, void *item, size_t size, uint32_t timeout_ms);
+    int (*overwrite)(solar_os_native_handle_t queue, const void *item, size_t size);
+    int (*count)(solar_os_native_handle_t queue, uint32_t *count);
+    int (*clear)(solar_os_native_handle_t queue);
+} solar_os_native_queue_api_v1_t;

@@ -14,6 +14,30 @@ static bool valid_usage(uint16_t usage)
            (usage >= 0xe0U && usage <= 0xe7U);
 }
 
+esp_err_t solar_os_input_keymap_init_matrix(solar_os_input_keymap_t *map,
+    uint32_t rows, uint32_t cols, uint32_t first, uint32_t stride)
+{
+    if (!map || !rows || rows > UINT8_MAX || !cols || cols > UINT8_MAX ||
+        !first || first > UINT16_MAX || stride < cols || stride > UINT16_MAX)
+        return ESP_ERR_INVALID_ARG;
+    const uint32_t slots = (rows - 1U) * stride + cols;
+    if (slots > SOLAR_OS_INPUT_KEYMAP_KEY_MAX || first + slots - 1U > UINT16_MAX)
+        return ESP_ERR_INVALID_SIZE;
+    memset(map, 0, sizeof(*map));
+    map->rows = rows;
+    map->cols = cols;
+    map->first = first;
+    map->stride = stride;
+    map->slot_count = slots;
+    for (uint32_t row = 0; row < rows; row++) {
+        for (uint32_t col = 0; col < cols; col++) {
+            const uint32_t offset = row * stride + col;
+            map->physical[offset + 1U] = first + offset;
+        }
+    }
+    return ESP_OK;
+}
+
 esp_err_t solar_os_input_keymap_validate(const solar_os_input_keymap_t *map)
 {
     if (map == NULL || map->slot_count < 1U || map->slot_count > SOLAR_OS_INPUT_KEYMAP_KEY_MAX ||

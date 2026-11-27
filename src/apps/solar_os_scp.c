@@ -66,13 +66,7 @@ static void *scp_app_state;
 
 static solar_os_shell_io_t *scp_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&scp_fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &scp_fallback_io);
-        io = &scp_fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &scp_fallback_io, true);
 }
 
 static bool scp_is_printable(char ch)

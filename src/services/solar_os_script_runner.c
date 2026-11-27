@@ -1,4 +1,5 @@
 #include "solar_os_script_runner.h"
+#include "solar_os_script_lifecycle.h"
 
 #include <string.h>
 
@@ -8,15 +9,19 @@ esp_err_t solar_os_script_run_begin(const solar_os_script_run_request_t *request
                                     solar_os_script_run_result_t *result,
                                     solar_os_script_run_control_t *control)
 {
-    if (result != NULL) {
-        memset(result, 0, sizeof(*result));
-        result->status = ESP_ERR_INVALID_ARG;
+    if (!request || !request->context || !request->input || request->argc < 0 ||
+        request->argc > SOLAR_OS_APP_ARG_MAX || (request->argc > 0 && !request->argv)) {
+        if (result) *result = (solar_os_script_run_result_t){.status = ESP_ERR_INVALID_ARG};
+        return ESP_ERR_INVALID_ARG;
     }
-    if (request == NULL || result == NULL || control == NULL ||
-        request->context == NULL || request->input == NULL || request->argc < 0 ||
-        request->argc > SOLAR_OS_APP_ARG_MAX ||
-        (request->argc > 0 && request->argv == NULL) ||
-        (request->output_size > 0 && request->output == NULL)) {
+    return solar_os_script_control_begin(request, result, control);
+}
+
+esp_err_t solar_os_script_control_begin(const solar_os_script_run_request_t *request,
+    solar_os_script_run_result_t *result, solar_os_script_run_control_t *control)
+{
+    if (result) *result = (solar_os_script_run_result_t){.status = ESP_ERR_INVALID_ARG};
+    if (!request || !result || !control || (request->output_size && !request->output)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -30,7 +35,7 @@ esp_err_t solar_os_script_run_begin(const solar_os_script_run_request_t *request
     control->result = result;
     control->start_tick = xTaskGetTickCount();
     if (request->timeout_ms > 0) {
-        control->timeout_ticks = pdMS_TO_TICKS(request->timeout_ms);
+        control->timeout_ticks = solar_os_script_ticks(request->timeout_ms);
         if (control->timeout_ticks == 0) {
             control->timeout_ticks = 1;
         }

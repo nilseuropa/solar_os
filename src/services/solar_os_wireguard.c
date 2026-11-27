@@ -29,6 +29,7 @@
 #include "solar_os_lwip_route.h"
 #include "solar_os_memory.h"
 #include "solar_os_network.h"
+#include "solar_os_sync.h"
 #include "solar_os_task.h"
 #include "solar_os_time.h"
 #include "wireguard.h"
@@ -131,6 +132,8 @@ typedef struct {
 } wireguard_service_t;
 
 static wireguard_service_t wireguard_service;
+static solar_os_lifecycle_t wireguard_control;
+static StaticSemaphore_t wireguard_state_mutex;
 static const struct wireguardif_init_data *wireguard_pending_init_data;
 
 static void wireguard_worker(void *argument);
@@ -1356,7 +1359,7 @@ static void wireguard_handle_paths_changed(void)
 {
     struct netif *uplink_netif = NULL;
     char uplink_name[SOLAR_OS_WIREGUARD_UNDERLAY_MAX + 1U] = {0};
-    ip_addr_t uplink_dns;
+    ip_addr_t uplink_dns = {0};
     bool uplink_dns_valid = false;
     const bool uplink_ready = wireguard_preferred_uplink(
         &uplink_netif,
@@ -1425,23 +1428,20 @@ static void wireguard_network_event(void *argument,
 {
     (void)argument;
     (void)event_data;
-    if (event_base == SOLAR_OS_NETWORK_EVENT &&
-        event_id == SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED) {
+    if (event_base == SOLAR_OS_NETWORK_EVENT && event_id == SOLAR_OS_NETWORK_EVENT_PATHS_CHANGED &&
+        solar_os_lifecycle_enter(&wireguard_control)) {
         wireguard_handle_paths_changed();
+        solar_os_lifecycle_leave(&wireguard_control);
     }
 }
 
-esp_err_t solar_os_wireguard_init(void)
+static esp_err_t wireguard_init_controlled(void)
 {
     if (wireguard_service.initialized) {
         return ESP_OK;
     }
-    memset(&wireguard_service, 0, sizeof(wireguard_service));
     wireguard_service.peer_index = WIREGUARDIF_INVALID_INDEX;
-    wireguard_service.state = SOLAR_OS_WIREGUARD_STATE_OFF;
-    wireguard_service.policy = SOLAR_OS_WIREGUARD_POLICY_AUTO;
-    wireguard_service.mutex = xSemaphoreCreateMutex();
-    if (wireguard_service.mutex == NULL) {
+    if (!solar_os_mutex_get(&wireguard_service.mutex, &wireguard_state_mutex)) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -1481,13 +1481,13 @@ esp_err_t solar_os_wireguard_init(void)
     return ESP_OK;
 }
 
-esp_err_t solar_os_wireguard_import(const char *path, char *detail, size_t detail_len)
+static esp_err_t wireguard_import_controlled(const char *path, char *detail, size_t detail_len)
 {
     if (path == NULL || path[0] == '\0') {
         return ESP_ERR_INVALID_ARG;
     }
     if (!wireguard_service.initialized) {
-        const esp_err_t init_error = solar_os_wireguard_init();
+        const esp_err_t init_error = wireguard_init_controlled();
         if (init_error != ESP_OK) {
             return init_error;
         }
@@ -1526,10 +1526,10 @@ esp_err_t solar_os_wireguard_import(const char *path, char *detail, size_t detai
     return error;
 }
 
-esp_err_t solar_os_wireguard_forget(void)
+static esp_err_t wireguard_forget_controlled(void)
 {
     if (!wireguard_service.initialized) {
-        const esp_err_t init_error = solar_os_wireguard_init();
+        const esp_err_t init_error = wireguard_init_controlled();
         if (init_error != ESP_OK) {
             return init_error;
         }
@@ -1555,10 +1555,10 @@ esp_err_t solar_os_wireguard_forget(void)
     return ESP_OK;
 }
 
-esp_err_t solar_os_wireguard_up(solar_os_wireguard_policy_t policy)
+static esp_err_t wireguard_up_controlled(solar_os_wireguard_policy_t policy)
 {
     if (!wireguard_service.initialized) {
-        const esp_err_t init_error = solar_os_wireguard_init();
+        const esp_err_t init_error = wireguard_init_controlled();
         if (init_error != ESP_OK) {
             return init_error;
         }
@@ -1631,7 +1631,7 @@ esp_err_t solar_os_wireguard_up(solar_os_wireguard_policy_t policy)
     return ESP_OK;
 }
 
-esp_err_t solar_os_wireguard_down(void)
+static esp_err_t wireguard_down_controlled(void)
 {
     if (!wireguard_service.initialized) {
         return ESP_OK;
@@ -1655,7 +1655,7 @@ esp_err_t solar_os_wireguard_down(void)
     return result;
 }
 
-esp_err_t solar_os_wireguard_prepare_sleep(void)
+static esp_err_t wireguard_prepare_sleep_controlled(void)
 {
     if (!wireguard_service.initialized) {
         return ESP_OK;
@@ -1677,7 +1677,7 @@ esp_err_t solar_os_wireguard_prepare_sleep(void)
         ESP_OK : ESP_FAIL;
 }
 
-esp_err_t solar_os_wireguard_resume(void)
+static esp_err_t wireguard_resume_controlled(void)
 {
     if (!wireguard_service.initialized) {
         return ESP_OK;
@@ -1700,7 +1700,7 @@ esp_err_t solar_os_wireguard_resume(void)
     return ESP_OK;
 }
 
-void solar_os_wireguard_get_status(solar_os_wireguard_status_t *status)
+static void wireguard_status_controlled(solar_os_wireguard_status_t *status)
 {
     if (status == NULL) {
         return;
@@ -1754,6 +1754,59 @@ void solar_os_wireguard_get_status(solar_os_wireguard_status_t *status)
         ip4addr_ntoa_r(&dns, status->dns, sizeof(status->dns));
     }
     wireguard_unlock();
+}
+
+/* Keep preference changes, profile writes and tunnel transitions atomic
+ * across the shell, native calls and power management. Packet and worker
+ * paths retain their shorter state lock. */
+static esp_err_t wireguard_controlled(esp_err_t (*operation)(void))
+{
+    if (!solar_os_lifecycle_enter(&wireguard_control)) return ESP_ERR_NO_MEM;
+    const esp_err_t result = operation();
+    solar_os_lifecycle_leave(&wireguard_control);
+    return result;
+}
+
+esp_err_t solar_os_wireguard_init(void)
+{ return wireguard_controlled(wireguard_init_controlled); }
+
+esp_err_t solar_os_wireguard_import(const char *path, char *detail, size_t capacity)
+{
+    if (!solar_os_lifecycle_enter(&wireguard_control)) return ESP_ERR_NO_MEM;
+    const esp_err_t result = wireguard_import_controlled(path, detail, capacity);
+    solar_os_lifecycle_leave(&wireguard_control);
+    return result;
+}
+
+esp_err_t solar_os_wireguard_forget(void)
+{ return wireguard_controlled(wireguard_forget_controlled); }
+
+esp_err_t solar_os_wireguard_up(solar_os_wireguard_policy_t policy)
+{
+    if (!solar_os_lifecycle_enter(&wireguard_control)) return ESP_ERR_NO_MEM;
+    const esp_err_t result = wireguard_up_controlled(policy);
+    solar_os_lifecycle_leave(&wireguard_control);
+    return result;
+}
+
+esp_err_t solar_os_wireguard_down(void)
+{ return wireguard_controlled(wireguard_down_controlled); }
+
+esp_err_t solar_os_wireguard_prepare_sleep(void)
+{ return wireguard_controlled(wireguard_prepare_sleep_controlled); }
+
+esp_err_t solar_os_wireguard_resume(void)
+{ return wireguard_controlled(wireguard_resume_controlled); }
+
+void solar_os_wireguard_get_status(solar_os_wireguard_status_t *status)
+{
+    if (!status) return;
+    if (!solar_os_lifecycle_enter(&wireguard_control)) {
+        *status = (solar_os_wireguard_status_t){.last_error = ESP_ERR_NO_MEM};
+        return;
+    }
+    wireguard_status_controlled(status);
+    solar_os_lifecycle_leave(&wireguard_control);
 }
 
 const char *solar_os_wireguard_state_name(solar_os_wireguard_state_t state)

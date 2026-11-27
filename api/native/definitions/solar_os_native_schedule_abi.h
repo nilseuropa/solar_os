@@ -1,0 +1,66 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_SCHEDULE_SERVICE "time.schedule"
+#define SOLAR_OS_NATIVE_SCHEDULE_ABI 1U
+#define SOLAR_OS_SCHEDULE_NAME_MAX 24U
+#define SOLAR_OS_SCHEDULE_VALUE_MAX 128U
+
+typedef enum {
+    SOLAR_OS_SCHEDULE_ONCE_RELATIVE = 0,
+    SOLAR_OS_SCHEDULE_ONCE_CALENDAR,
+    SOLAR_OS_SCHEDULE_INTERVAL,
+    SOLAR_OS_SCHEDULE_DAILY,
+    SOLAR_OS_SCHEDULE_WEEKLY,
+} solar_os_schedule_kind_t;
+
+typedef enum {
+    SOLAR_OS_SCHEDULE_ACTION_ALARM = 0,
+    SOLAR_OS_SCHEDULE_ACTION_SCRIPT,
+} solar_os_schedule_action_t;
+
+typedef struct {
+    const char *name, *value;
+    solar_os_schedule_kind_t kind;
+    solar_os_schedule_action_t action;
+    uint32_t delay_seconds;
+    uint16_t year;
+    uint8_t month, day, hour, minute, second, weekdays;
+    bool persist_relative;
+} solar_os_schedule_request_v1_t;
+
+typedef struct {
+    char name[SOLAR_OS_SCHEDULE_NAME_MAX];
+    solar_os_schedule_kind_t kind;
+    solar_os_schedule_action_t action;
+    char value[SOLAR_OS_SCHEDULE_VALUE_MAX];
+    bool enabled, persistent;
+    uint32_t interval_seconds;
+    uint64_t at_utc_seconds;
+    uint8_t hour, minute, second, weekdays;
+    uint64_t next_utc_seconds, next_uptime_ms;
+    uint32_t run_count, skipped_count;
+} solar_os_schedule_entry_v1_t;
+
+/* Requests are borrowed for add; entries own their copied values.
+ * delay_seconds supplies duration for relative and interval schedules.
+ * Calendar, daily and weekly fields describe local time. For weekly schedules
+ * bit 0 selects Sunday and bit 6 Saturday. All schedules except transient
+ * relative timers persist. For script actions supply an absolute path in
+ * value. Alarm actions accept NULL or an empty value. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*add)(const solar_os_schedule_request_v1_t *request);
+    size_t (*count)(void);
+    int (*info)(size_t index, solar_os_schedule_entry_v1_t *entry);
+    int (*find)(const char *name, solar_os_schedule_entry_v1_t *entry);
+    int (*remove)(const char *name);
+    int (*set_enabled)(const char *name, bool enabled);
+    int (*run)(const char *name);
+    int (*remaining_seconds)(const char *name, uint32_t *seconds);
+    bool (*alarm_active)(char *name, size_t capacity);
+    void (*stop_alarm)(void);
+    const char *(*kind_name)(solar_os_schedule_kind_t kind);
+    const char *(*action_name)(solar_os_schedule_action_t action);
+} solar_os_native_schedule_api_v1_t;

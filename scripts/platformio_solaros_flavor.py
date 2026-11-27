@@ -75,6 +75,15 @@ def _append_cmake_arg(arg: str) -> None:
     board_config.update("build.cmake_extra_args", shlex.join(args))
 
 
+def _check_app_image(target, source, env) -> int:
+    try:
+        update_layout.check_image(Path(str(target[0])))
+    except (OSError, ValueError) as exc:
+        print(f"SolarOS image size error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def _remove_path(path: Path) -> None:
     if path.is_dir():
         shutil.rmtree(path)
@@ -178,6 +187,8 @@ flavor_file_cmake = flavor_file.as_posix()
 os.environ["SOLAR_OS_FLAVOR_FILE"] = flavor_file_cmake
 board_config.update("build.partitions", partition_file)
 board_config.update("upload.maximum_size", maximum_size)
+# PlatformIO's ELF size estimate can miss the image headers and padding.
+env.AddPostAction("$BUILD_DIR/${PROGNAME}.bin", _check_app_image)
 
 _append_cmake_arg(f"-DSOLAR_OS_FLAVOR={flavor}")
 _append_cmake_arg(f"-DSOLAR_OS_FLAVOR_FILE={flavor_file_cmake}")
@@ -200,6 +211,9 @@ tracked_files = (
     project_dir / "version.txt",
     project_dir / "packages" / "solar_os_packages.toml",
     project_dir / "scripts" / "generate_flavor_config.py",
+    project_dir / "scripts" / "solaros_components.py",
+    project_dir / "scripts" / "build_native_component.py",
+    *sorted((project_dir / "modules").rglob("module.toml")),
     project_dir / "scripts" / "generate_expansion_profiles.py",
     project_dir / "scripts" / "platformio_solaros_flavor.py",
     project_dir / "scripts" / "cxx_sdkconfig.cmake",

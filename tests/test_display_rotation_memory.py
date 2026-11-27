@@ -20,6 +20,7 @@ class DisplayRotationMemoryTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I", tmp, "-I", str(ROOT / "src/services"),
                 "-I", str(ROOT / "src"),
+                "-I", str(ROOT / "include"),
                 str(ROOT / "tests/host/display_rotation_memory_test.c"),
                 "-o", str(binary),
             ], check=True)

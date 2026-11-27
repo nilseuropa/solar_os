@@ -2,9 +2,9 @@
 #include <stdbool.h>
 #include "solar_os_raster_image.h"
 #include "solar_os_media_sample.h"
+#include "solar_os_native_processor_abi.h"
 #include "solar_os_processor_provider_abi.h"
 
-#define SOLAR_OS_PROCESSOR_JSON_MAX 65536U
 typedef struct solar_os_processor solar_os_processor_t;
 typedef bool (*solar_os_processor_cancel_fn)(void *user);
 bool solar_os_processor_kind_valid(const char *kind);
@@ -25,6 +25,7 @@ esp_err_t solar_os_processor_create(const char *kind, uint32_t model,
     uint32_t timeout_ms, solar_os_processor_cancel_fn cancel, void *user,
     solar_os_processor_t **out);
 void solar_os_processor_destroy(solar_os_processor_t *processor);
+esp_err_t solar_os_processor_close_checked(solar_os_processor_t *processor);
 bool solar_os_processor_captures(const solar_os_processor_t *processor);
 esp_err_t solar_os_processor_bind_source(solar_os_processor_t *processor, const char *source);
 esp_err_t solar_os_processor_capture(solar_os_processor_t *processor, const char *source,

@@ -1,0 +1,186 @@
+#include <assert.h>
+#include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "solar_os_native_client.h"
+#include "solar_os_native_dsp.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_media_widgets.h"
+#include "solar_os_signal_widgets.h"
+#include "solar_os_memory.h"
+
+static unsigned allocations;
+static int fail_after = -1;
+void *__real_calloc(size_t count, size_t size);
+void __real_free(void *pointer);
+void *__wrap_calloc(size_t count, size_t size)
+{
+    if (!fail_after) return NULL;
+    if (fail_after > 0) --fail_after;
+    void *pointer = __real_calloc(count, size);
+    if (pointer) ++allocations;
+    return pointer;
+}
+void __wrap_free(void *pointer)
+{
+    if (pointer) { assert(allocations); --allocations; }
+    __real_free(pointer);
+}
+
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{ (void)cls; (void)tag; return calloc(count, size); }
+void solar_os_memory_free(void *p) { free(p); }
+
+static const solar_os_native_signal_widget_api_v1_t *signal_api;
+static solar_os_native_handle_t drawing;
+static unsigned lines, fills;
+static solar_os_gfx_color_t color = SOLAR_OS_GFX_COLOR_BLACK;
+static solar_os_gfx_line_style_t style = SOLAR_OS_GFX_LINE_DOTTED;
+solar_os_gfx_color_t solar_os_gfx_color(const solar_os_gfx_t *gfx) { assert(gfx); return color; }
+void solar_os_gfx_set_color(solar_os_gfx_t *gfx, solar_os_gfx_color_t next) { assert(gfx); color = next; }
+solar_os_gfx_line_style_t solar_os_gfx_line_style(const solar_os_gfx_t *gfx) { assert(gfx); return style; }
+void solar_os_gfx_set_line_style(solar_os_gfx_t *gfx, solar_os_gfx_line_style_t next) { assert(gfx); style = next; }
+void solar_os_gfx_line(solar_os_gfx_t *gfx, int x0, int y0, int x1, int y1)
+{
+    assert(gfx && x0 >= 0 && x1 < 64 && y0 >= 0 && y1 < 32);
+    ++lines;
+}
+void solar_os_gfx_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    assert(gfx && x >= 0 && y >= 0 && x + width <= 64 && y + height <= 32);
+    if (drawing) assert(signal_api->close(drawing) == SOLAR_OS_NATIVE_ERROR_BUSY);
+}
+void solar_os_gfx_fill_rect(solar_os_gfx_t *gfx, int x, int y, int width, int height)
+{
+    solar_os_gfx_rect(gfx, x, y, width, height);
+    ++fills;
+}
+
+static void verify_signal_widgets(void)
+{
+    signal_api = solar_os_native_signal_widget_get(solar_os_native_media_widgets_get_service, sizeof(*signal_api));
+#if SOLAR_OS_PACKAGE_SERVICE_SIGNAL_WIDGETS
+    assert(signal_api);
+    char widget_display;
+    solar_os_gfx_t *gfx = (solar_os_gfx_t *)&widget_display;
+    solar_os_native_handle_t waveform, spectrum;
+    assert(signal_api->create(SOLAR_OS_SIGNAL_SPECTRUM, 65, &spectrum) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !spectrum);
+    fail_after = 1;
+    assert(signal_api->create(SOLAR_OS_SIGNAL_WAVEFORM, 64, &waveform) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !waveform);
+    fail_after = -1;
+    assert(!allocations);
+    assert(!signal_api->create(SOLAR_OS_SIGNAL_WAVEFORM, 64, &waveform));
+    assert(!signal_api->create(SOLAR_OS_SIGNAL_SPECTRUM, 64, &spectrum));
+    int16_t pcm[128];
+    for (size_t i = 0; i < 128; ++i) pcm[i] = i % 8 < 4 ? 24000 : -24000;
+    assert(!signal_api->submit_s16(waveform, pcm, 64, 2));
+    assert(!signal_api->submit_s16(spectrum, pcm, 64, 2));
+    memset(pcm, 0, sizeof(pcm));
+    drawing = waveform;
+    assert(!signal_api->draw(waveform, gfx, 0, 0, 64, 32) && lines > 1);
+    assert(color == SOLAR_OS_GFX_COLOR_BLACK && style == SOLAR_OS_GFX_LINE_DOTTED);
+    assert(!signal_api->reset(waveform));
+    lines = 0;
+    assert(!signal_api->draw(waveform, gfx, 0, 0, 64, 32) && lines == 1);
+    drawing = spectrum;
+    fills = 0;
+    assert(!signal_api->draw(spectrum, gfx, 0, 0, 64, 32) && fills > 1);
+    assert(!signal_api->reset(spectrum));
+    fills = 0;
+    assert(!signal_api->draw(spectrum, gfx, 0, 0, 64, 32) && fills == 1);
+    drawing = 0;
+    assert(!signal_api->close(waveform) && !signal_api->close(spectrum));
+    assert(signal_api->reset(waveform) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!allocations && !solar_os_native_handle_count());
+#else
+    assert(!signal_api);
+#endif
+}
+
+int main(void)
+{
+    verify_signal_widgets();
+    const solar_os_native_dsp_api_v1_t *api = solar_os_native_dsp_get(solar_os_native_dsp_get_service, sizeof(*api));
+#if SOLAR_OS_PACKAGE_SERVICE_DSP
+    assert(api && api->backend() && api->capabilities() && !api->accelerated_capabilities());
+    assert(!solar_os_native_dsp_get_service("dsp", 2, 8));
+    assert(!solar_os_native_dsp_get_service("dsp", 1, sizeof(*api) + 1));
+    const int16_t a[] = {INT16_MIN, -1000, 1000, INT16_MAX}, b[] = {INT16_MIN, 2000, -2000, INT16_MAX};
+    int64_t dot;
+    int16_t output[8] = {0};
+    assert(!api->dot_s16(a, b, 4, &dot));
+    assert(dot == (int64_t)INT16_MIN * INT16_MIN - 4000000LL + (int64_t)INT16_MAX * INT16_MAX);
+    assert(!api->gain_q15(output, a, 4, 16384) && output[0] == -16384 && output[3] == 16383);
+    assert(!api->mix_q15(output, a, b, 4, 32767, 32767) && output[0] == INT16_MIN && output[3] == INT16_MAX);
+    assert(!api->clip_s16(output, a, 4, -900, 900) && output[0] == -900 && output[3] == 900);
+    const int16_t levels[] = {-3, 4}, window[] = {32767, 16384, 0, INT16_MIN};
+    solar_os_dsp_level_t level;
+    assert(!api->level_s16(levels, 2, &level) && level.peak == 4 && level.rms == 3);
+    assert(!api->window_q15(output, a, window, 4) && output[0] == -32767 && output[2] == 0);
+    assert(api->gain_q15(output + 1, output, 4, 1) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!api->dot_s16(NULL, NULL, 0, &dot) && !dot);
+
+    int16_t coefficients[] = {16384, 16384};
+    const int16_t input[] = {1000, 2000, 3000, 4000}, expected[] = {500, 1500, 2500, 3500};
+    solar_os_native_handle_t fir = 99;
+    assert(api->fir_create(coefficients, 0, &fir) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !fir);
+    for (int failure = 0; failure < 3; ++failure) {
+        fail_after = failure;
+        assert(api->fir_create(coefficients, 2, &fir) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !fir && !allocations);
+    }
+    fail_after = -1;
+    assert(!api->fir_create(coefficients, 2, &fir) && fir && api->fir_taps(fir) == 2);
+    coefficients[0] = 0;
+    assert(!api->fir_process(fir, output, input, 4) && !memcmp(output, expected, sizeof(expected)));
+    assert(!api->fir_reset(fir) && !api->fir_process(fir, output, input, 1) && output[0] == 500);
+    assert(solar_os_native_handle_acquire(fir, SOLAR_OS_NATIVE_HANDLE_DSP_FIR));
+    assert(api->fir_close(fir) == SOLAR_OS_NATIVE_ERROR_BUSY && api->fir_taps(fir) == 2);
+    solar_os_native_handle_release(fir);
+    assert(!api->fir_close(fir) && !api->fir_taps(fir));
+    assert(api->fir_process(fir, output, input, 1) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->fir_close(fir) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !allocations);
+
+    const int16_t coefficient[] = {32767}, first[] = {10, 20, 30}, second[] = {40, 50, 60};
+    solar_os_native_handle_t decimator;
+    size_t produced;
+    assert(!api->decimator_create(coefficient, 1, 2, &decimator) && api->decimator_factor(decimator) == 2);
+    assert(api->decimator_output_count(decimator, 3) == 2);
+    assert(api->fir_close(decimator) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->decimator_process(decimator, output, 1, first, 3, &produced) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(!api->decimator_process(decimator, output, 8, first, 3, &produced) && produced == 2 && output[0] == 9 && output[1] == 29);
+    assert(api->decimator_output_count(decimator, 3) == 1);
+    assert(!api->decimator_process(decimator, output, 8, second, 3, &produced) && produced == 1 && output[0] == 49);
+    assert(!api->decimator_reset(decimator) && api->decimator_output_count(decimator, 3) == 2);
+    assert(!api->decimator_close(decimator) && !allocations);
+
+    solar_os_native_handle_t fft;
+    assert(api->fft_create(3, &fft) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !fft);
+    assert(!api->fft_create(8, &fft) && api->fft_size(fft) == 8);
+    assert(api->fir_reset(fft) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    const int16_t impulse[] = {32767,0,0,0,0,0,0,0};
+    solar_os_dsp_complex_s16_t transformed[8];
+    uint8_t scale;
+    assert(!api->fft_execute(fft, transformed, impulse, &scale) && scale == 3);
+    for (size_t i = 0; i < 8; ++i) assert(transformed[i].real == 4095 && !transformed[i].imag);
+    assert(!api->fft_close(fft) && !api->fft_size(fft) && !allocations);
+
+    solar_os_native_handle_t tokens[512];
+    size_t count = 0;
+    while (count < sizeof(tokens) / sizeof(tokens[0])) {
+        int result = api->fir_create(coefficient, 1, &tokens[count]);
+        if (result == SOLAR_OS_NATIVE_ERROR_NO_MEMORY) break;
+        assert(!result);
+        ++count;
+    }
+    assert(count && count < sizeof(tokens) / sizeof(tokens[0]));
+    unsigned allocated = allocations;
+    assert(api->fir_create(coefficient, 1, &fir) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !fir && allocations == allocated);
+    for (size_t i = 0; i < count; ++i) assert(!api->fir_close(tokens[i]));
+    assert(!allocations && !solar_os_native_handle_count());
+    puts("native DSP: arithmetic, copied coefficients, streaming, FFT, typed lifetimes and pool exhaustion passed");
+#else
+    assert(!api && !allocations);
+#endif
+    return 0;
+}

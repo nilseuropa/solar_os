@@ -254,6 +254,8 @@ class PlatformIOKeymapTest(_KeymapFixture, unittest.TestCase):
                 return (custom or {}).get(name, default)
             def Depends(self, target, source):
                 pass
+            def AddPostAction(self, target, action):
+                pass
         selection = {name: "" for name in os.environ if name.startswith("SOLAR_OS_")}
         selection.update(variables)
         with mock.patch.dict(os.environ, selection), \

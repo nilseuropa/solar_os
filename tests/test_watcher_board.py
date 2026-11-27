@@ -123,7 +123,11 @@ static const solar_os_expansion_default_device_t board_default_devices[] = {
     {.driver = "spd2010-touch", .name = "touch0"},
 };
 static bool board_device_detached[3];
-static esp_err_t ensure_devices_mutex(void) { return ESP_OK; }
+static int devices_mutex, devices_mutex_storage;
+static esp_err_t ensure_registry_mutex(int *mutex, int *storage) {
+    assert(mutex == &devices_mutex && storage == &devices_mutex_storage);
+    return ESP_OK;
+}
 static esp_err_t solar_os_resources_init(void) { return ESP_OK; }
 static esp_err_t solar_os_buses_init(void) { return ESP_OK; }
 static bool devices_lock_take(void) { return true; }

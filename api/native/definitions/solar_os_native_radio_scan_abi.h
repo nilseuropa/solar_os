@@ -1,0 +1,63 @@
+#pragma once
+
+#include "solar_os_native_radio_abi.h"
+
+#define SOLAR_OS_NATIVE_RADIO_SCAN_SERVICE "radio.scan"
+#define SOLAR_OS_NATIVE_RADIO_SCAN_ABI 1U
+
+#define SOLAR_OS_RADIO_SCAN_BINS 129U
+#define SOLAR_OS_RADIO_SCAN_ROWS 48U
+#define SOLAR_OS_RADIO_SCAN_HISTORY 256U
+#define SOLAR_OS_RADIO_SCAN_EMPTY INT16_MIN
+
+typedef enum {
+    SOLAR_OS_RADIO_SCAN_CHANNEL,
+    SOLAR_OS_RADIO_SCAN_BAND,
+} solar_os_radio_scan_mode_t;
+
+typedef struct {
+    solar_os_radio_scan_mode_t mode;
+    uint32_t start_hz;
+    uint32_t end_hz;
+    uint32_t step_hz;
+    uint32_t frequency_hz; /* Channel: zero follows the current receiver. */
+    uint32_t bandwidth_hz; /* Zero keeps the current receiver bandwidth. */
+    uint32_t interval_ms;  /* Channel sampling interval, at least 100 ms. */
+} solar_os_radio_scan_config_t;
+
+
+typedef struct {
+    solar_os_radio_scan_config_t config;
+    solar_os_radio_config_t receiver;
+    char name[SOLAR_OS_RADIO_NAME_MAX];
+    char owner[SOLAR_OS_RADIO_OWNER_MAX];
+    bool running;
+    uint32_t generation, sweeps, last_sweep_ms;
+    uint16_t bins, bin, rows, history_count, history_head;
+    uint32_t recent_peak_frequency_hz;
+    int16_t latest, recent_peak, floor, peak;
+    int16_t levels[SOLAR_OS_RADIO_SCAN_BINS];
+    int16_t peaks[SOLAR_OS_RADIO_SCAN_BINS];
+    int8_t waterfall[SOLAR_OS_RADIO_SCAN_ROWS][SOLAR_OS_RADIO_SCAN_BINS];
+    int16_t history[SOLAR_OS_RADIO_SCAN_HISTORY];
+    uint32_t history_ms[SOLAR_OS_RADIO_SCAN_HISTORY];
+    int32_t error;
+} solar_os_native_radio_scan_snapshot_v1_t;
+
+/* The Core schedules sampling and restores the prior radio state when it
+ * stops. A snapshot is copied into caller storage. A successful read consumes
+ * its recent peak interval. Waterfall row 0 is newest and history is a ring.
+ * Stop keeps the token for a later close and can copy the final readings.
+ * A timeout preserves the session for another stop or close attempt. Pass
+ * storage for the final snapshot to retain diagnostics after stop. An open
+ * failure can return a nonzero token for retrying cleanup when releasing the
+ * radio failed. Close that token before discarding it. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const char *radio, const solar_os_radio_scan_config_t *config, solar_os_native_handle_t *scan);
+    int (*read)(solar_os_native_handle_t scan, solar_os_native_radio_scan_snapshot_v1_t *snapshot);
+    int (*clear)(solar_os_native_handle_t scan);
+    int (*done)(solar_os_native_handle_t scan, bool *done);
+    int (*stop)(solar_os_native_handle_t scan, solar_os_native_radio_scan_snapshot_v1_t *final_snapshot);
+    int (*close)(solar_os_native_handle_t scan);
+} solar_os_native_radio_scan_api_v1_t;

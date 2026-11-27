@@ -31,18 +31,14 @@ static void mjpeg_drop_frame(solar_os_mjpeg_parser_t *parser, uint8_t byte)
 
 esp_err_t solar_os_mjpeg_parser_init(solar_os_mjpeg_parser_t *parser,
                                      uint8_t *frame,
-                                     size_t capacity,
-                                     solar_os_mjpeg_frame_fn on_frame,
-                                     void *user)
+                                     size_t capacity)
 {
-    if (parser == NULL || frame == NULL || capacity < 4U || on_frame == NULL) {
+    if (parser == NULL || frame == NULL || capacity < 4U) {
         return ESP_ERR_INVALID_ARG;
     }
     memset(parser, 0, sizeof(*parser));
     parser->frame = frame;
     parser->capacity = capacity;
-    parser->on_frame = on_frame;
-    parser->user = user;
     return ESP_OK;
 }
 
@@ -59,10 +55,14 @@ void solar_os_mjpeg_parser_reset(solar_os_mjpeg_parser_t *parser)
 
 esp_err_t solar_os_mjpeg_parser_feed(solar_os_mjpeg_parser_t *parser,
                                      const uint8_t *data,
-                                     size_t len)
+                                     size_t len,
+                                     solar_os_mjpeg_frame_fn on_frame,
+                                     void *user,
+                                     size_t *consumed)
 {
+    if (consumed) *consumed = 0;
     if (parser == NULL || parser->frame == NULL || parser->capacity < 4U ||
-        parser->on_frame == NULL || (data == NULL && len > 0U)) {
+        on_frame == NULL || (data == NULL && len > 0U)) {
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -85,14 +85,15 @@ esp_err_t solar_os_mjpeg_parser_feed(solar_os_mjpeg_parser_t *parser,
             parser->frame_ff = false;
             parser->seek_ff = false;
             parser->frames++;
-            const esp_err_t error =
-                parser->on_frame(parser->frame, frame_len, parser->user);
+            const esp_err_t error = on_frame(parser->frame, frame_len, user);
             if (error != ESP_OK) {
+                if (consumed) *consumed = i + 1;
                 return error;
             }
             continue;
         }
         parser->frame_ff = byte == JPEG_MARKER_PREFIX;
     }
+    if (consumed) *consumed = len;
     return ESP_OK;
 }

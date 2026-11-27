@@ -29,22 +29,7 @@
 #define SOLAR_OS_SC2_MIN_WALL_CLOCK 1704067200u
 #define SOLAR_OS_SC2_ESP_ERR(rc) ((esp_err_t)(SOLAR_OS_SC2_ERR_BASE - (rc)))
 
-typedef struct {
-    bool ready;
-    bool created;        /* identity generated during this boot */
-    bool work_in_psram;  /* work buffers are allocated from external RAM */
-    char device_id[SC2_DEVICE_ID_HEX_LEN + 1];
-    char fingerprint[SC2_SAFETY_SHORT_LEN + 1];
-    uint32_t spk_id;
-    uint64_t spk_created;
-    uint32_t opk_count;
-    size_t peers;
-    size_t sessions;
-    size_t rooms;
-    const char *core_version;
-    const char *hash_backend;
-    char store_path[SC2E_NAME_MAX + 64];
-} solar_os_sc2_status_t;
+typedef solar_os_sc2_status_v1_t solar_os_sc2_status_t;
 
 esp_err_t solar_os_sc2_init(void);
 /* Direct engine access for the relay client (sc2-sync). Returns NULL when the
@@ -68,7 +53,7 @@ esp_err_t solar_os_sc2_forget_peer(const char *peer);
  * names are 1..16 of [A-Za-z0-9._-] and not all hex. device NULL deletes. */
 #define SOLAR_OS_SC2_PREFIX_MIN 6u
 #define SOLAR_OS_SC2_ALIAS_MAX 16u
-#define SOLAR_OS_SC2_ALIAS_NAME_MAX 16u
+#define SOLAR_OS_SC2_ALIAS_NAME_MAX SOLAR_OS_SC2_ALIAS_LENGTH
 esp_err_t solar_os_sc2_resolve_peer(const char *ref, char out[SC2_DEVICE_ID_HEX_LEN + 1]);
 /* Sorted unique peer/session IDs; after may be empty to start. */
 bool solar_os_sc2_peer_next(const char *after, char out[SC2_DEVICE_ID_HEX_LEN + 1]);

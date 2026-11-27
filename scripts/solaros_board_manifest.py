@@ -845,10 +845,13 @@ def _device_initializer(device: dict[str, Any],
         for spec in driver.bindings
         if spec.key in bindings
     ]
+    binding_array = ""
+    if entries:
+        binding_array = ", .bindings = (const solar_os_expansion_binding_t[]){" + ", ".join(entries) + "}"
     return (
         "{.driver = " + _c_string(driver.name) + ", .name = " + _c_string(device["name"]) +
         (", .detachable = true" if device.get("detachable", False) else "") +
-        f", .binding_count = {len(entries)}, .bindings = {{" + ", ".join(entries) + "}}"
+        f", .binding_count = {len(entries)}" + binding_array + "}"
     )
 
 

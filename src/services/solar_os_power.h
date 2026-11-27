@@ -13,7 +13,8 @@ typedef esp_err_t (*solar_os_power_off_fn_t)(void *user);
 esp_err_t solar_os_power_register_off_provider(const char *name,
                                                solar_os_power_off_fn_t off,
                                                void *user);
-void solar_os_power_unregister_off_provider(void *user);
+/* Retire the exact provider context. Retry after an active request. */
+esp_err_t solar_os_power_unregister_off_provider(void *user);
 esp_err_t solar_os_power_off(void);
 
 typedef enum {

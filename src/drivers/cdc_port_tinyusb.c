@@ -264,6 +264,11 @@ esp_err_t cdc_port_read(uint8_t *data,
     return ret;
 }
 
+bool hid_port_available(void)
+{
+    return true;
+}
+
 bool hid_port_is_connected(void)
 {
     return ready && mounted;

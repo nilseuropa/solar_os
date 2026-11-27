@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "solar_os_board_caps.h"
+#include "solar_os_sync.h"
 
 #define SOLAR_OS_ENGINE_MAX 12
 
@@ -31,6 +32,7 @@ typedef struct {
 /* Task-only telemetry; semaphore/provider state stays internal. */
 static EXT_RAM_BSS_ATTR engine_slot_t engines[SOLAR_OS_ENGINE_MAX];
 static SemaphoreHandle_t engines_mutex;
+static StaticSemaphore_t engines_mutex_storage;
 static bool engines_initialized;
 static int64_t engines_epoch_us;
 
@@ -93,12 +95,7 @@ static esp_err_t engine_register_locked(const char *name, const char *class_name
 
 static esp_err_t engines_ensure_init(void)
 {
-    if (engines_mutex == NULL) {
-        engines_mutex = xSemaphoreCreateMutex();
-        if (engines_mutex == NULL) {
-            return ESP_ERR_NO_MEM;
-        }
-    }
+    if (!solar_os_mutex_get(&engines_mutex, &engines_mutex_storage)) return ESP_ERR_NO_MEM;
 
     xSemaphoreTake(engines_mutex, portMAX_DELAY);
     if (!engines_initialized) {
@@ -144,19 +141,6 @@ static void engine_snapshot_locked(const engine_slot_t *slot,
 esp_err_t solar_os_engines_init(void)
 {
     return engines_ensure_init();
-}
-
-esp_err_t solar_os_engine_register(const char *name, const char *class_name)
-{
-    const esp_err_t init_ret = engines_ensure_init();
-    if (init_ret != ESP_OK) {
-        return init_ret;
-    }
-
-    xSemaphoreTake(engines_mutex, portMAX_DELAY);
-    const esp_err_t ret = engine_register_locked(name, class_name);
-    xSemaphoreGive(engines_mutex);
-    return ret;
 }
 
 size_t solar_os_engine_count(void)

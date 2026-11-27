@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WIREGUARD = (ROOT / "src/services/solar_os_wireguard.c").read_text(
     encoding="utf-8"
 )
-WIREGUARD_HEADER = (ROOT / "src/services/solar_os_wireguard.h").read_text(
+WIREGUARD_HEADER = (ROOT / "include/solar_os_native_wireguard_abi.h").read_text(
     encoding="utf-8"
 )
 NETWORK_STATUS = (

@@ -4,11 +4,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "esp_err.h"
+#include "solar_os_native_usb_abi.h"
 #include "usb_hid_mouse_report.h"
 #include "usb_hid_keyboard_report.h"
 #include "usb_hid_joystick_report.h"
 
-#define USB_HOST_PORT_INTERFACE_MAX 8U
+#define USB_HOST_PORT_INTERFACE_MAX SOLAR_OS_NATIVE_USB_INTERFACE_MAX
 
 typedef struct {
     uint8_t slot;
@@ -48,4 +49,4 @@ esp_err_t usb_host_port_start(usb_host_port_callback_t callback);
 esp_err_t usb_host_port_enable(void);
 esp_err_t usb_host_port_stop(void);
 bool usb_host_port_is_active(void);
-size_t usb_host_port_interfaces(usb_host_port_interface_t *interfaces, size_t capacity);
+size_t usb_host_port_interfaces(solar_os_usb_interface_status_t *interfaces, size_t capacity);

@@ -551,7 +551,7 @@ static const solar_os_messaging_setting_t link_settings_fields[] = {
 static esp_err_t link_settings_read(void *context, unsigned form, solar_os_messaging_settings_t *settings)
 {
     if (form) return ESP_ERR_NOT_FOUND;
-    settings->label = "Link"; settings->fields = link_settings_fields; settings->count = 1;
+    solar_os_messaging_settings_form(settings, "Link", link_settings_fields, 1);
     if (context) {
         link_messaging_state_t *state = context;
         xSemaphoreTake(instances_lock, portMAX_DELAY);
@@ -565,7 +565,7 @@ static esp_err_t link_settings_read(void *context, unsigned form, solar_os_messa
     return ESP_OK;
 }
 static esp_err_t link_settings_write(void *context, unsigned form, const char *name,
-    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id)
 {
     if (form) return ESP_ERR_NOT_FOUND;
     const char *args[] = {settings->values[0]};

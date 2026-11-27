@@ -13,6 +13,7 @@ class MemoryArenaTest(unittest.TestCase):
             subprocess.run([
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-I" + str(ROOT / "include"),
                 "-I" + str(ROOT / "src/services"),
                 str(ROOT / "tests/host/memory_arena_test.c"),
                 str(ROOT / "src/services/solar_os_memory_arena.c"),

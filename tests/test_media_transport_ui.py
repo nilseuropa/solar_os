@@ -8,11 +8,22 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class MediaTransportUiTest(unittest.TestCase):
+    def test_common_media_views_use_cached_public_tables(self):
+        direct = re.compile(r'\bsolar_os_(?:media_(?:player_(?:layout|header_draw|controls_draw|status_draw|button_at)|'
+            r'list_layout|playlist_draw|controls_draw|transport_button_draw|text_draw|dialog_draw)|'
+            r'cassette_widget_(?:reset|update|draw))\s*\(')
+        for app in ("player", "recorder", "webradio", "rtsp_app", "vplay", "photo"):
+            source = (ROOT / f"src/apps/solar_os_{app}.c").read_text()
+            with self.subTest(app=app):
+                self.assertEqual(source.count("solar_os_native_media_widgets_get("), 1)
+                self.assertIn("const solar_os_native_media_widgets_api_v1_t *media_ui;", source)
+                self.assertIsNone(direct.search(source))
+
     def test_production_clock_time_and_icon_geometry(self):
         video = (ROOT / "src/apps/solar_os_vplay.c").read_text()
         widgets = (ROOT / "src/services/solar_os_media_widgets.c").read_text()
         helpers = widgets[widgets.index("static void media_transport_triangle"):
-                          widgets.index("esp_err_t solar_os_cassette_widget_create")]
+                          widgets.index("void solar_os_cassette_widget_reset")]
         for name in ("paused", "clock_locked", "playback_status_text", "draw_play_time"):
             match = re.search(r"^static [^\n]*\b" + name + r"\([\s\S]*?^}", video, re.M)
             self.assertIsNotNone(match)
@@ -31,7 +42,8 @@ class MediaTransportUiTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
                 f"-I{tmp}", f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}",
                 f"-I{ROOT / 'src/services'}",
-                str(ROOT / "tests/host/media_transport_ui_test.c"), "-o", str(binary),
+                f"-I{ROOT / 'include'}",
+                str(ROOT / "tests/host/media_transport_ui_test.c"), str(ROOT / "src/services/solar_os_gfx_widgets.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)
 
@@ -45,7 +57,7 @@ class MediaTransportUiTest(unittest.TestCase):
         for app in ("player", "webradio", "vplay"):
             source = (ROOT / f"src/apps/solar_os_{app}.c").read_text()
             for helper in ("layout", "header_draw", "controls_draw", "status_draw", "button_at"):
-                self.assertIn("solar_os_media_player_" + helper, source)
+                self.assertIn("media_ui->player_" + helper, source)
             self.assertNotIn("height * 2 / 3", source)
             self.assertNotIn("(height * 2) / 3", source)
             self.assertIn("SOLAR_OS_APP_FLAG_POINTER_EVENTS", source)

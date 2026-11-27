@@ -58,11 +58,16 @@ size_t strlcpy(char *, const char *, size_t);
             compile_command = [
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
+                "-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1",
                 "-I" + tmp, "-I" + str(ROOT / "tests/host"),
+                "-I" + str(ROOT / "include"),
                 "-I" + str(ROOT / "src"), "-I" + str(ROOT / "src/services"),
                 str(ROOT / "tests/host/memory_policy_test.c"),
                 str(root / "memory.c"),
                 str(ROOT / "src/services/solar_os_memory_arena.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
+                str(ROOT / "src/services/solar_os_native_memory_reclaimer.c"),
+                str(ROOT / "src/services/solar_os_native_media.c"),
                 "-o", str(binary),
             ]
             for internal_limit in (0, 256):

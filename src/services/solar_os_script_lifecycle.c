@@ -17,11 +17,11 @@ bool solar_os_script_wait_for_stop(solar_os_script_stopped_fn stopped,
         return true;
     }
 
-    TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms);
+    TickType_t timeout_ticks = solar_os_script_ticks(timeout_ms);
     if (timeout_ticks == 0U) {
         return false;
     }
-    TickType_t poll_ticks = pdMS_TO_TICKS(poll_interval_ms);
+    TickType_t poll_ticks = solar_os_script_ticks(poll_interval_ms);
     if (poll_ticks == 0U) {
         poll_ticks = 1U;
     }

@@ -39,7 +39,12 @@ void solar_os_shell_cmd_rtsp_auth(solar_os_context_t *ctx, int argc, char **argv
     if (!io) return;
     if (argc == 1) {
         solar_os_rtsp_auth_account_t records[SOLAR_OS_RTSP_AUTH_CAPACITY];
-        size_t count = solar_os_rtsp_auth_list(records, SOLAR_OS_RTSP_AUTH_CAPACITY);
+        size_t count;
+        const esp_err_t error = solar_os_rtsp_auth_list(records, SOLAR_OS_RTSP_AUTH_CAPACITY, &count);
+        if (error != ESP_OK) {
+            solar_os_shell_io_writeln(io, "rtsp-auth: account store unavailable");
+            return;
+        }
         if (!count) {
             solar_os_shell_io_writeln(io, "No stored RTSP accounts.");
             return;
@@ -61,7 +66,9 @@ void solar_os_shell_cmd_rtsp_auth(solar_os_context_t *ctx, int argc, char **argv
             return;
         }
         esp_err_t err = solar_os_rtsp_auth_clear(host, port);
-        solar_os_shell_io_printf(io, err == ESP_OK ? "Cleared %s:%u\n" : "rtsp-auth: no account for %s:%u\n", host, port);
+        if (err == ESP_OK) solar_os_shell_io_printf(io, "Cleared %s:%u\n", host, port);
+        else if (err == ESP_ERR_NOT_FOUND) solar_os_shell_io_printf(io, "rtsp-auth: no account for %s:%u\n", host, port);
+        else solar_os_shell_io_writeln(io, "rtsp-auth: clear failed");
         return;
     }
     if (argc == 5 && !strcmp(argv[1], "set")) {

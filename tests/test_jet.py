@@ -45,8 +45,9 @@ class JetFramebufferTest(unittest.TestCase):
             source = (ROOT / "src/services/solar_os_display.c").read_text()
             (tmp / "display_terminal_policy.inc").write_text(production_functions(source, (
                 "display_find_slot_locked", "display_find_slot_by_u8g2_locked",
-                "solar_os_display_is_epaper",
-                "solar_os_display_set_orientation_locked", "display_profile_orientation_allowed",
+                "solar_os_display_is_epaper", "solar_os_display_claim",
+                "solar_os_display_set_claim_policy", "solar_os_display_set_orientation_locked",
+                "display_profile_orientation_allowed",
                 "solar_os_display_set_terminal_blocked", "solar_os_display_terminal_draw_state",
                 "solar_os_display_release")))
             source = (ROOT / "src/services/solar_os_terminal.c").read_text()
@@ -55,6 +56,7 @@ class JetFramebufferTest(unittest.TestCase):
             binary = tmp / "display"
             subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-fsanitize=address,undefined", f"-I{tmp}", f"-I{ROOT / 'tests/host/jet_stubs'}",
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/display_terminal_claim_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 
@@ -109,7 +111,8 @@ class JetFramebufferTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="solaros-jet-runtime-") as temporary:
             tmp = Path(temporary)
             include = [f"-I{ROOT / 'tests/host/jet_stubs'}", f"-I{ROOT / 'include'}",
-                       f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src/apps'}", f"-I{tmp}"]
+                       f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src/apps'}", f"-I{tmp}",
+                       f"-I{ROOT / 'src'}", "-idirafter", str(ROOT / "tests/host")]
             flags = ["-O1", "-g", "-fsanitize=address,undefined", "-fno-omit-frame-pointer"]
             source = (ROOT / "src/apps/solar_os_lua.c").read_text()
             (tmp / "jet_visibility.inc").write_text(production_functions(source, ("solua_jet_visibility",)))
@@ -125,6 +128,12 @@ class JetFramebufferTest(unittest.TestCase):
                 "-Wall", "-Wextra", "-Werror", "-c", str(tmp / "frontend.c"),
                 "-o", str(frontend)], check=True, capture_output=True)
             objects.append(str(frontend))
+            for name in ("solar_os_native_jet", "solar_os_native_handles"):
+                obj = tmp / (name + ".o")
+                subprocess.run(["cc", "-std=c11", *flags, *include,
+                    "-DSOLAR_OS_PACKAGE_SERVICE_JET=1", "-Wall", "-Wextra", "-Werror", "-c",
+                    str(ROOT / "src/services" / (name + ".c")), "-o", str(obj)], check=True)
+                objects.append(str(obj))
             for lua in (False, True):
                 fixture = tmp / "fixture.o"
                 subprocess.run(["cc", "-std=c11", *flags, *include,
@@ -140,7 +149,7 @@ class JetFramebufferTest(unittest.TestCase):
                             "-Wall", "-Wextra", "-Werror", "-c", str(path), "-o", str(obj)], check=True, capture_output=True)
                         extra.append(str(obj))
                 binary = tmp / ("lua" if lua else "runtime")
-                subprocess.run(["g++", *flags, *objects, *extra, "-lm", "-o", str(binary)], check=True, capture_output=True)
+                subprocess.run(["g++", *flags, "-no-pie", *objects, *extra, "-lm", "-o", str(binary)], check=True, capture_output=True)
                 subprocess.run([str(binary), *([str(ROOT / name) for name in
                     ("examples/lua/jet.lua", "examples/lua/jet_materials.lua", "examples/lua/jet_scene.lua",
                      "examples/lua/jet_picking.lua", "examples/lua/jet_assets.lua",

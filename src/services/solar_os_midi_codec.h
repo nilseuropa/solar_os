@@ -1,31 +1,6 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
-#define SOLAR_OS_MIDI_DATA_MAX 127U
-
-typedef struct {
-    uint8_t status;
-    uint8_t data1;
-    uint8_t data2;
-    uint8_t length;
-} solar_os_midi_message_t;
-
-typedef struct {
-    uint8_t running_status;
-    uint8_t active_status;
-    uint8_t data[2];
-    uint8_t data_count;
-    bool sysex;
-} solar_os_midi_decoder_t;
-
-typedef enum {
-    SOLAR_OS_MIDI_DECODE_NONE,
-    SOLAR_OS_MIDI_DECODE_MESSAGE,
-    SOLAR_OS_MIDI_DECODE_UNSUPPORTED,
-} solar_os_midi_decode_result_t;
+#include "solar_os_native_midi_abi.h"
 
 void solar_os_midi_decoder_reset(solar_os_midi_decoder_t *decoder);
 solar_os_midi_decode_result_t solar_os_midi_decode_byte(

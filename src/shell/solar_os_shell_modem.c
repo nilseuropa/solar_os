@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_MODEM
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -617,3 +621,5 @@ void solar_os_shell_cmd_modem(solar_os_context_t *ctx, int argc, char **argv)
         print_usage(term);
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_MODEM */

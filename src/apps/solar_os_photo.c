@@ -15,7 +15,9 @@
 #include "solar_os_display.h"
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
+#include "solar_os_native_ui.h"
 #include "solar_os_memory.h"
 #include "solar_os_script_media.h"
 #include "solar_os_stb_image.h"
@@ -43,6 +45,8 @@ typedef struct {
     TaskHandle_t worker, save_worker;
     volatile bool done, save_done;
     bool stop, suspended;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
+    const solar_os_native_ui_api_v1_t *ui_api;
     bool remote, monochrome, direct, fullscreen, high_refresh;
     bool dirty, layout_dirty, capture_busy;
     uint8_t key;
@@ -270,7 +274,7 @@ static solar_os_display_rect_t viewport(solar_os_gfx_t *gfx)
 {
     if (photo.fullscreen) return solar_os_gfx_panel_bounds(gfx);
     solar_os_media_player_layout_t ui;
-    solar_os_media_player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), false, &ui);
+    photo.media_ui->player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), false, &ui);
     return (solar_os_display_rect_t){ui.view_x, ui.view_y, ui.view_width, ui.view_height};
 }
 
@@ -289,15 +293,15 @@ static void draw_controls(solar_os_gfx_t *gfx)
 {
     const int width = solar_os_gfx_width(gfx), height = solar_os_gfx_height(gfx);
     solar_os_media_player_layout_t ui;
-    solar_os_media_player_layout(width, height, false, &ui);
-    solar_os_media_player_header_draw(gfx, width, "Photo", "F: full");
+    photo.media_ui->player_layout(width, height, false, &ui);
+    photo.media_ui->player_header_draw(gfx, width, "Photo", "F: full");
     solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
     solar_os_gfx_line(gfx, 0, ui.controls_y, width - 1, ui.controls_y);
     if (ui.title_y >= 0) {
         solar_os_gfx_set_font(gfx, ui.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_BOLD_16);
-        solar_os_media_text_draw(gfx, 3, ui.title_y, width - 6, photo.label);
+        photo.ui_api->label(gfx, 3, ui.title_y, width - 6, photo.label);
     }
-    solar_os_media_player_status_draw(gfx, width, height, photo.message[0] ? photo.message :
+    photo.media_ui->player_status_draw(gfx, width, height, photo.message[0] ? photo.message :
         photo.current ? "Ready" : "Waiting for video...");
     if (ui.volume_y >= 0) {
         const char literal_key[2] = {(char)photo.key, '\0'};
@@ -305,9 +309,9 @@ static void draw_controls(solar_os_gfx_t *gfx)
         char hint[64];
         snprintf(hint, sizeof(hint), "%s: capture", key_name ? key_name : literal_key);
         solar_os_gfx_set_font(gfx, ui.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_SMALL);
-        solar_os_media_text_draw(gfx, 3, ui.volume_y + (ui.compact ? 5 : 9), width - 6, hint);
+        photo.ui_api->label(gfx, 3, ui.volume_y + (ui.compact ? 5 : 9), width - 6, hint);
     }
-    solar_os_media_transport_button_draw(gfx, ui.button_gap * 2 + ui.button_width,
+    photo.media_ui->transport_button_draw(gfx, ui.button_gap * 2 + ui.button_width,
         ui.button_y, ui.button_width, ui.button_height,
         SOLAR_OS_MEDIA_TRANSPORT_RECORD, photo.capture_busy);
 }
@@ -333,7 +337,7 @@ static void render(solar_os_context_t *ctx)
         if (!photo.current) {
             solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
             solar_os_gfx_set_font(gfx, SOLAR_OS_GFX_FONT_BITMAP_8);
-            solar_os_media_text_draw(gfx, rect.x + 2, rect.y + 8, rect.width - 4, "Waiting for video...");
+            photo.ui_api->label(gfx, rect.x + 2, rect.y + 8, rect.width - 4, "Waiting for video...");
         }
     }
     photo_frame_t *frame = photo.current;
@@ -422,6 +426,11 @@ static esp_err_t start(solar_os_context_t *ctx)
     memset(&photo, 0, sizeof(photo)); photo.done = photo.save_done = true;
     esp_err_t error = parse(ctx);
     if (error != ESP_OK) return error;
+    photo.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(photo.media_ui->player_button_at));
+    photo.ui_api = solar_os_native_ui_get(solar_os_native_ui_get_service,
+        offsetof(solar_os_native_ui_api_v1_t, label) + sizeof(photo.ui_api->label));
+    if (!photo.media_ui || !photo.ui_api) return ESP_ERR_NOT_SUPPORTED;
     photo.mutex = xSemaphoreCreateMutex();
     if (!photo.mutex) return ESP_ERR_NO_MEM;
     solar_os_context_set_graphics_active(ctx, true);
@@ -513,7 +522,7 @@ static bool pointer(solar_os_context_t *ctx, const solar_os_input_pointer_event_
     }
     if (photo.fullscreen || event->action != SOLAR_OS_INPUT_POINTER_PRESS ||
         !(event->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY) ||
-        solar_os_media_player_button_at(width, height, false, photo.pointer_x, photo.pointer_y) != 1)
+        photo.media_ui->player_button_at(width, height, false, photo.pointer_x, photo.pointer_y) != 1)
         return false;
     capture(ctx);
     return true;

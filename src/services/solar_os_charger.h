@@ -75,3 +75,6 @@ esp_err_t solar_os_charger_set_charge_current(const char *name,
 esp_err_t solar_os_charger_set_charge_voltage(const char *name,
                                               uint16_t voltage_mv);
 const char *solar_os_charger_state_name(solar_os_charger_state_t state);
+
+/* Refuses a replacement registration with the same name and another owner. */
+esp_err_t solar_os_charger_unregister_owned(const char *name, const void *ctx);

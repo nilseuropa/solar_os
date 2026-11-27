@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_ROBOT
+
 #include "solar_os_shell_commands.h"
 #include <errno.h>
 #include <math.h>
@@ -239,3 +243,5 @@ void solar_os_shell_cmd_robot(solar_os_context_t *ctx,int argc,char **argv)
     else if (argc >= 2 && !strcmp(argv[1], "model")) model_command(ctx, argc-1, argv+1);
     else solar_os_shell_io_writeln(solar_os_shell_command_io(ctx), "usage: robot start|stop | joint|model <operation> [arguments]");
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_ROBOT */

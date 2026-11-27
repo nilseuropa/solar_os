@@ -1,0 +1,41 @@
+#pragma once
+
+#include "solar_os_native_radio_abi.h"
+
+#define SOLAR_OS_NATIVE_RADIO_PROVIDER_SERVICE "radio.provider"
+#define SOLAR_OS_NATIVE_RADIO_PROVIDER_ABI 1U
+
+typedef struct {
+    void *user;
+    int (*configure)(void *user, const solar_os_radio_config_t *config);
+    int (*set_state)(void *user, solar_os_radio_state_t state);
+    int (*get_status)(void *user, solar_os_radio_status_t *status);
+    int (*send)(void *user, const solar_os_radio_packet_t *packet, uint32_t timeout_ms);
+    int (*send_stream)(void *user, const void *bytes, size_t size, uint32_t timeout_ms);
+    int (*receive)(void *user, solar_os_radio_packet_t *packet, uint32_t timeout_ms);
+    int (*read_rssi)(void *user, int16_t *dbm);
+    int (*tune_rx)(void *user, uint32_t frequency_hz, uint32_t *settle_ms);
+} solar_os_native_radio_callbacks_v1_t;
+
+typedef struct {
+    solar_os_native_handle_t library_lease;
+    const char *name, *driver, *summary;
+    uint32_t modulations, features, rx_gain_modes;
+    size_t max_packet_len;
+    solar_os_radio_config_t default_config;
+    solar_os_radio_state_t initial_state;
+    solar_os_native_radio_callbacks_v1_t callbacks;
+} solar_os_native_radio_provider_v1_t;
+
+/* Registration retains library_lease and copies the provider record and
+ * display strings. Implement the operations advertised in features. Driver
+ * callbacks may run on different tasks, including observation while a client
+ * holds a lease. Serialize concurrent hardware accesses in the driver.
+ * Callback buffers are borrowed for that invocation only. Keep user state
+ * alive until close succeeds. A claim or an active callback can defer close. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*provider_register)(const solar_os_native_radio_provider_v1_t *provider,
+        solar_os_native_handle_t *registration);
+    int (*provider_close)(solar_os_native_handle_t registration);
+} solar_os_native_radio_provider_api_v1_t;

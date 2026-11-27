@@ -1,0 +1,124 @@
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#define SOLAR_OS_LINK_NAME_MAX 20
+#define SOLAR_OS_LINK_INSTANCE_MAX 3
+#define SOLAR_OS_LINK_FRAME_MAX 256
+#define SOLAR_OS_LINK_HEADER_SIZE 12
+#define SOLAR_OS_LINK_CRC_SIZE 2
+#define SOLAR_OS_LINK_PAYLOAD_MAX                                                                  \
+    (SOLAR_OS_LINK_FRAME_MAX - SOLAR_OS_LINK_HEADER_SIZE - SOLAR_OS_LINK_CRC_SIZE)
+#define SOLAR_OS_LINK_BROADCAST UINT32_MAX
+
+#define SOLAR_OS_LINK_FLAG_ACK_REQUESTED (1U << 0)
+#define SOLAR_OS_LINK_FLAG_RELAYED (1U << 1)
+
+typedef enum {
+    SOLAR_OS_LINK_MESSAGE_TEXT = 1,
+    SOLAR_OS_LINK_MESSAGE_BINARY = 2,
+    SOLAR_OS_LINK_MESSAGE_ACKNOWLEDGEMENT = 3,
+    SOLAR_OS_LINK_MESSAGE_STREAM = 4,
+} solar_os_link_message_type_t;
+
+typedef struct {
+    uint8_t version;
+    uint8_t flags;
+    solar_os_link_message_type_t type;
+    uint16_t sequence;
+    uint32_t source;
+    uint32_t destination;
+    size_t payload_len;
+    uint8_t payload[SOLAR_OS_LINK_PAYLOAD_MAX];
+} solar_os_link_message_t;
+
+typedef struct {
+    size_t len;
+    uint8_t data[SOLAR_OS_LINK_FRAME_MAX];
+} solar_os_link_frame_t;
+
+typedef struct {
+    bool accepted;
+    bool duplicate;
+    bool acknowledgement;
+    solar_os_link_message_t message;
+} solar_os_link_ingest_result_t;
+
+typedef struct {
+    char name[SOLAR_OS_LINK_NAME_MAX];
+    uint32_t local_id;
+    size_t frame_mtu;
+    uint16_t next_sequence;
+    size_t rx_queued;
+    size_t tx_queued;
+    size_t acknowledgements_pending;
+    uint32_t tx_messages;
+    uint32_t rx_messages;
+    uint32_t duplicates;
+    uint32_t crc_errors;
+    uint32_t acknowledgements_sent;
+    uint32_t acknowledgements_received;
+    uint32_t dropped;
+    int32_t last_error;
+} solar_os_link_status_t;
+
+#define SOLAR_OS_LINK_STREAM_PORT_NAME_CAPACITY 16U
+#define SOLAR_OS_LINK_STREAM_MAX 2U
+
+typedef struct {
+    const char *port_label;
+    uint8_t window_frames;
+    uint32_t acknowledgement_delay_ms;
+    uint32_t retry_ms;
+    uint32_t retry_jitter_ms;
+    uint32_t open_interval_ms;
+    uint32_t peer_timeout_ms;
+} solar_os_link_stream_config_t;
+
+typedef enum {
+    SOLAR_OS_LINK_STREAM_DECODE_NONE = 0,
+    SOLAR_OS_LINK_STREAM_DECODE_STRUCTURE,
+    SOLAR_OS_LINK_STREAM_DECODE_MAGIC,
+    SOLAR_OS_LINK_STREAM_DECODE_VERSION,
+    SOLAR_OS_LINK_STREAM_DECODE_OPCODE,
+    SOLAR_OS_LINK_STREAM_DECODE_SESSION,
+    SOLAR_OS_LINK_STREAM_DECODE_DATA,
+    SOLAR_OS_LINK_STREAM_DECODE_CONTROL_SEQUENCE,
+    SOLAR_OS_LINK_STREAM_DECODE_CONTROL_DATA,
+    SOLAR_OS_LINK_STREAM_DECODE_ACKNOWLEDGEMENT,
+} solar_os_link_stream_decode_issue_t;
+
+typedef struct {
+    char port[SOLAR_OS_LINK_STREAM_PORT_NAME_CAPACITY];
+    char link[SOLAR_OS_LINK_NAME_MAX];
+    uint8_t protocol_version;
+    uint32_t peer_id;
+    bool port_open;
+    bool connected;
+    size_t data_mtu;
+    size_t window_frames;
+    size_t tx_credit;
+    size_t rx_queued;
+    size_t tx_queued;
+    size_t tx_inflight;
+    uint32_t retry_ms;
+    uint32_t retry_jitter_ms;
+    uint32_t peer_timeout_ms;
+    uint32_t bytes_received;
+    uint32_t bytes_sent;
+    uint32_t frames_received;
+    uint32_t frames_sent;
+    uint32_t acknowledgements_received;
+    uint32_t acknowledgements_sent;
+    uint32_t retries;
+    uint32_t reconnects;
+    uint32_t dropped;
+    uint32_t decode_errors;
+    solar_os_link_stream_decode_issue_t last_decode_issue;
+    uint8_t last_decode_opcode;
+    uint16_t last_decode_sequence;
+    size_t last_decode_data_len;
+    int32_t last_error;
+} solar_os_link_stream_status_t;

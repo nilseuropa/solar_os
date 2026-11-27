@@ -19,6 +19,7 @@ class UsbSerialTest(unittest.TestCase):
                 "-I" + str(ROOT / "tests/host/usb_serial_stubs"),
                 "-I" + str(ROOT / "tests/host/registry_stubs"),
                 "-I" + str(ROOT / "tests/host/usb_storage_stubs"),
+                "-I" + str(ROOT / "include"),
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
                 "-I" + str(ROOT / "src/drivers"), "-I" + str(ROOT / "src"),
                 str(ROOT / "tests/host/usb_serial_test.c"),
@@ -33,6 +34,7 @@ class UsbSerialTest(unittest.TestCase):
             (path / "test.c").write_text(source)
             subprocess.run(["cc", "-std=gnu11", "-Wall", "-Wextra", "-Werror",
                             "-I" + str(ROOT / "tests/host"),
+                            "-I" + str(ROOT / "include"),
                             "-I" + str(ROOT / "src/services"),
                             "-I" + str(ROOT / "src/drivers"),
                             str(path / "test.c"), "-o", str(path / "test")], check=True)
@@ -57,7 +59,7 @@ class UsbSerialTest(unittest.TestCase):
                              (ROOT / "tests/host/usb_serial_discovery_main.inc").read_text())
 
     def test_flash_transports_and_reset_sequences(self):
-        source = (ROOT / "src/services/solar_os_flash.c").read_text()
+        source = (ROOT / "src/apps/solar_os_flash.c").read_text()
         start = source.index("typedef struct {\n  esp_loader_port_t base;")
         end = source.index("} flash_loader_port_t;", start) + len("} flash_loader_port_t;")
         code = (ROOT / "tests/host/usb_flash_transport_test.inc").read_text() + source[start:end] + "\n"

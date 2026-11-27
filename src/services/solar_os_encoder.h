@@ -6,29 +6,9 @@
 #include "esp_err.h"
 #include "solar_os_native_motion_abi.h"
 
-#define SOLAR_OS_ENCODER_NAME_MAX 20
-#define SOLAR_OS_ENCODER_DRIVER_MAX 32
-
-typedef enum {
-    SOLAR_OS_ENCODER_MODE_X1 = 1,
-    SOLAR_OS_ENCODER_MODE_X2 = 2,
-    SOLAR_OS_ENCODER_MODE_X4 = 4,
-} solar_os_encoder_mode_t;
-
-typedef struct {
-    char name[SOLAR_OS_ENCODER_NAME_MAX];
-    char driver[SOLAR_OS_ENCODER_DRIVER_MAX];
-    solar_os_encoder_mode_t mode;
-    bool can_reset;
-} solar_os_encoder_info_t;
-
-typedef struct {
-    solar_os_encoder_info_t info;
-    int32_t count;
-    solar_os_native_encoder_config_v1_t config;
-    solar_os_native_encoder_feedback_v1_t feedback;
-    bool claimed;
-} solar_os_encoder_status_t;
+typedef solar_os_native_encoder_mode_v1_t solar_os_encoder_mode_t;
+typedef solar_os_native_encoder_info_v1_t solar_os_encoder_info_t;
+typedef solar_os_native_encoder_status_v1_t solar_os_encoder_status_t;
 
 typedef struct {
     /* Acquire a fresh count from the device; do not return a cached sample.
@@ -46,17 +26,14 @@ typedef struct {
     void *ctx;
 } solar_os_encoder_registration_t;
 
-typedef struct {
-    int32_t count;
-    uint32_t decoding;
-    uint64_t timestamp_us; /* Monotonic acquisition time of a fresh count read. */
-} solar_os_encoder_sample_t;
+typedef solar_os_native_encoder_sample_v1_t solar_os_encoder_sample_t;
 
 /* One named endpoint per encoder. Callbacks run outside the registry lock and
  * are serialized per endpoint. Do not re-enter operations on that endpoint.
  * The provider owns its context until unregister succeeds. */
 esp_err_t solar_os_encoder_register(const solar_os_encoder_registration_t *registration);
 esp_err_t solar_os_encoder_unregister(const char *name);
+esp_err_t solar_os_encoder_unregister_owned(const char *name, const void *owner);
 size_t solar_os_encoder_count(void);
 bool solar_os_encoder_get(size_t index, solar_os_encoder_info_t *info);
 /* Fresh calibrated feedback. Idle encoders use a 20 ms measurement window;

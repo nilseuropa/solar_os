@@ -1,6 +1,9 @@
 #include "solar_os_dlp_receiver.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_display_receiver.h"
 #include <assert.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct {
@@ -12,11 +15,34 @@ typedef struct {
     unsigned presents, writes;
     bool legacy, stall;
     int present_result;
+    solar_os_native_handle_t native_receiver;
 } fixture_t;
+
+static const solar_os_native_display_receiver_api_v1_t *native;
+static unsigned allocations;
+void *solar_os_memory_alloc(size_t size, solar_os_memory_class_t kind, const char *tag)
+{
+    assert(kind == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && tag);
+    void *pointer = malloc(size);
+    if (pointer) ++allocations;
+    return pointer;
+}
+void solar_os_memory_free(void *pointer)
+{
+    if (pointer) {
+        assert(allocations);
+        --allocations;
+        free(pointer);
+    }
+}
 
 static int read_bytes(void *user, uint8_t *data, size_t size)
 {
     fixture_t *f = user;
+    if (f->native_receiver) {
+        assert(native->close(f->native_receiver) == SOLAR_OS_NATIVE_ERROR_BUSY);
+        assert(native->reset(f->native_receiver, 42) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    }
     size_t n = f->in_size - f->in_at;
     if (n > size) n = size;
     if (n > 7) n = 7;
@@ -50,6 +76,23 @@ static int present_image(void *user, unsigned format, const uint8_t *data,
 static uint64_t now(void *user) { return ((fixture_t *)user)->now; }
 static void sleep_us(void *user, uint32_t n) { ((fixture_t *)user)->now += n; }
 
+static int native_present(void *user, uint32_t format, const uint8_t *pixels,
+    size_t size, uint16_t width, uint16_t height)
+{
+    const int result = present_image(user, format, pixels, size, width, height);
+    return result == DLP_OK ? SOLAR_OS_NATIVE_OK :
+        result == DLP_BUSY ? SOLAR_OS_NATIVE_ERROR_BUSY : SOLAR_OS_NATIVE_ERROR_IO;
+}
+
+static int pump(fixture_t *f)
+{
+    if (!f->native_receiver) return solar_os_dlp_receiver_pump(&f->receiver, f->now);
+    const solar_os_native_display_receiver_io_v1_t callbacks = {
+        .user = f, .read = read_bytes, .write = write_bytes, .present = native_present,
+    };
+    return native->pump(f->native_receiver, f->now, &callbacks);
+}
+
 static int request(void *user, const uint8_t tx[256], uint8_t rx[256], uint64_t deadline)
 {
     fixture_t *f = user;
@@ -61,7 +104,7 @@ static int request(void *user, const uint8_t tx[256], uint8_t rx[256], uint64_t 
     size_t at = 0;
     while (f->now < deadline) {
         f->now += 1000;
-        int result = solar_os_dlp_receiver_pump(&f->receiver, f->now);
+        int result = pump(f);
         if (result) return DLP_LINK_ERROR;
         while (at < f->out_size) {
             bool compact;
@@ -82,7 +125,7 @@ static int push(void *user, const uint8_t tx[256], uint64_t deadline)
     f->in_size = dlp_stream_encode(f->input, tx, !f->legacy);
     while (f->in_at < f->in_size && f->now < deadline) {
         f->now += 1000;
-        if (solar_os_dlp_receiver_pump(&f->receiver, f->now)) return DLP_LINK_ERROR;
+        if (pump(f)) return DLP_LINK_ERROR;
     }
     return f->in_at == f->in_size ? DLP_OK : DLP_DEADLINE;
 }
@@ -252,6 +295,47 @@ static void reconnect(bool legacy)
     assert(f.presents == 2 && !memcmp(f.shown, image, sizeof(image)));
 }
 
+static void exercise_native(void)
+{
+    fixture_t f = {0};
+    native = solar_os_native_display_receiver_get_service(
+        SOLAR_OS_NATIVE_DISPLAY_RECEIVER_SERVICE, 1, sizeof(*native));
+    assert(native);
+    const solar_os_native_display_link_info_v1_t info = {
+        .width = 13, .height = 9, .formats = 17, .preferred_format = DLP_MONO1,
+        .max_rect_bytes = sizeof(f.shown),
+        .capabilities = DLP_PRESERVE_CONTENT | DLP_STAGED_FRAME | DLP_RLE | DLP_SYNC,
+        .command_ms = 1000, .present_ms = 1000, .nominal_refresh_ms = 1,
+    };
+    assert(native->open(&info, 0, 0, &f.native_receiver) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!f.native_receiver && !allocations);
+    assert(!native->open(&info, 42, 0, &f.native_receiver) && allocations == 2);
+    dlp_transport_t transport = {.ctx = &f, .now_us = now, .sleep_us = sleep_us,
+        .request = request, .push = push};
+    dlp_host_t host;
+    dlp_host_init(&host, &transport);
+    assert(!dlp_host_discover(&host, 1000000) && host.boot == 42);
+    assert(!dlp_host_configure(&host, 1, DLP_MONO1, 0));
+    assert(!dlp_host_extensions(&host));
+    dlp_host_window_t window;
+    assert(!dlp_host_negotiate_window(&host, &window, DLP_MAX_WINDOW));
+    uint8_t image[18] = {0xa5};
+    f.out_size = 0;
+    f.busy_until = f.now + 30000;
+    assert(!dlp_host_upload_frame(&host, 1, image, sizeof(image), NULL, NULL));
+    assert(f.presents == 1 && f.now >= f.busy_until && !memcmp(image, f.shown, sizeof(image)));
+    assert(native->reset(f.native_receiver, 42) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!native->reset(f.native_receiver, 43));
+    assert(dlp_host_begin_frame(&host, 2, false) != DLP_OK);
+    assert(!dlp_host_discover(&host, f.now + 1000000) && host.boot == 43);
+    const solar_os_native_display_receiver_io_v1_t callbacks = {
+        .user = &f, .read = read_bytes, .write = write_bytes, .present = native_present,
+    };
+    assert(native->pump(f.native_receiver, f.now - 10, &callbacks) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!native->close(f.native_receiver) && !allocations);
+    assert(native->close(f.native_receiver) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+}
+
 int main(void)
 {
     exercise(false);
@@ -260,6 +344,7 @@ int main(void)
     windowed(true);
     reconnect(false);
     reconnect(true);
+    exercise_native();
     puts("DLP receiver: compact/fixed, partial I/O, staging, delta, RLE, replay, RGB565, recovery PASS");
     return 0;
 }

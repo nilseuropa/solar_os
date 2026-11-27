@@ -17,6 +17,7 @@ class WorkBudgetTest(unittest.TestCase):
             subprocess.run(["cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
                             "-I", tmp, "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src"),
                             "-I", str(ROOT / "src/services"),
+                            "-I", str(ROOT / "include"),
                             str(ROOT / "tests/host/httpd_work_test.c"), "-o", str(binary)], check=True)
             subprocess.run([str(binary)], check=True)
 

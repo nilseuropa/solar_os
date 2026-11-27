@@ -22,6 +22,7 @@ from typing import Iterable
 
 from generate_flavor_config import (
     apply_board_capability_pruning,
+    apply_update_layout,
     apply_target_pruning,
     capabilities_supported,
     DEFAULT_PACKAGE_CATALOG,
@@ -74,6 +75,7 @@ def immutable_packages(catalog: PackageCatalog) -> set[str]:
         if group.immutable
         for package in group.members
     }
+    members.update(name for name, spec in catalog.package_defs.items() if spec.core)
     return dependency_closure(catalog, members)
 
 
@@ -138,9 +140,11 @@ class SelectionModel:
 
     def _resolve(self, packages: Iterable[str]) -> set[str]:
         result = dependency_closure(self.catalog, packages)
-        if not self.target or self.capabilities is None:
-            return result
         enabled = {package: package in result for package in self.catalog.packages}
+        if self.layout is not None:
+            enabled = apply_update_layout(self.catalog, enabled, self.layout)
+        if not self.target or self.capabilities is None:
+            return {package for package, value in enabled.items() if value}
         enabled = apply_target_pruning(self.catalog, enabled, self.target)
         groups = {group: False for group in self.catalog.groups}
         _, enabled = apply_board_capability_pruning(

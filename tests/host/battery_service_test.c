@@ -2,16 +2,26 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "nvs.h"
 #include "solar_os_battery.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_battery_provider.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_handles.h"
 #include "solar_os_log.h"
 #include "solar_os_stream.h"
 
 static solar_os_battery_sample_t provider_sample;
 static unsigned stream_register_count;
 static unsigned stream_unregister_count;
+static const void *stream_owner;
+static bool fail_stream_publish, busy_stream;
+static unsigned leases, allocations;
+static const solar_os_native_battery_provider_api_v1_t *native_battery;
+static solar_os_native_handle_t native_registration;
 static uint32_t stored_runtime_min = 1440U;
 static unsigned runtime_write_count;
 static unsigned save_warning_count;
@@ -96,18 +106,50 @@ void nvs_close(nvs_handle_t handle)
 
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
 {
-    assert(driver != NULL);
-    assert(strcmp(driver->info.id, "battery") == 0);
+    assert(driver && !strcmp(driver->info.id, "battery") && driver->user);
+    assert(!solar_os_battery_has_provider() && !stream_owner);
+    if (fail_stream_publish) return ESP_ERR_NO_MEM;
+    stream_owner = driver->user;
     stream_register_count++;
     return ESP_OK;
 }
 
-esp_err_t solar_os_stream_unregister(const char *id)
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *names,
+    const void *const *users, size_t count)
 {
-    assert(id != NULL);
-    assert(strcmp(id, "battery") == 0);
+    assert(count == 1 && !strcmp(names[0], "battery") && users[0] == stream_owner);
+    if (busy_stream) return ESP_ERR_INVALID_STATE;
+    stream_owner = NULL;
     stream_unregister_count++;
     return ESP_OK;
+}
+
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{
+    assert(cls == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && !strcmp(tag, "native.provider"));
+    void *memory = calloc(count, size);
+    if (memory) ++allocations;
+    return memory;
+}
+
+void solar_os_memory_free(void *memory)
+{
+    if (memory) { assert(allocations); --allocations; free(memory); }
+}
+
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained)
+{
+    if (lease != 1) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    *retained = 2;
+    ++leases;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(uint32_t lease)
+{
+    assert(lease == 2 && leases > 0);
+    --leases;
+    return SOLAR_OS_NATIVE_OK;
 }
 
 static esp_err_t read_battery(void *user, solar_os_battery_sample_t *sample)
@@ -677,6 +719,48 @@ static void test_monitor_learned_runtime_persistence(void)
     solar_os_battery_monitor_stop();
 }
 
+static int native_battery_read(void *user, solar_os_battery_sample_t *sample)
+{
+    assert(user == &provider_sample && leases == 1);
+    assert(native_battery->close(native_registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_battery_unregister_provider("portable") == ESP_ERR_INVALID_STATE);
+    *sample = provider_sample;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void native_provider_lifecycle(void)
+{
+    native_battery = solar_os_native_battery_provider_get(solar_os_native_battery_provider_get_service,
+        sizeof(*native_battery));
+    assert(native_battery);
+    const solar_os_native_battery_provider_v1_t provider = {
+        .owner = "portable", .library_lease = 1, .read = native_battery_read, .user = &provider_sample,
+    };
+    fail_stream_publish = true;
+    assert(native_battery->register_provider(&provider, &native_registration) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(!native_registration && !solar_os_battery_has_provider() && !allocations && !leases);
+    fail_stream_publish = false;
+    assert(!native_battery->register_provider(&provider, &native_registration));
+    assert(solar_os_battery_has_provider() && native_registration && stream_owner && leases == 1);
+    provider_sample = (solar_os_battery_sample_t){.battery_mv = 3850, .percent_valid = true, .percent = 44};
+    const solar_os_battery_status_t sample = read_status();
+    assert(sample.percent == 44 && !sample.percent_estimated);
+
+    busy_stream = true;
+    assert(native_battery->close(native_registration) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_battery_has_provider() && leases == 1 && stream_owner);
+    busy_stream = false;
+    assert(!native_battery->close(native_registration) && !leases && !stream_owner);
+
+    assert(!native_battery->register_provider(&provider, &native_registration));
+    assert(!solar_os_battery_unregister_provider("portable"));
+    const solar_os_battery_provider_t replacement = {.read = read_battery, .user = &provider_sample};
+    assert(!solar_os_battery_register_provider("portable", &replacement));
+    assert(!native_battery->close(native_registration) && !leases && !allocations);
+    assert(solar_os_battery_has_provider() && read_status().percent == 44);
+    assert(!solar_os_battery_unregister_provider("portable") && !stream_owner && !solar_os_native_handle_count());
+}
+
 int main(void)
 {
     solar_os_battery_config_t initial_config;
@@ -770,6 +854,7 @@ int main(void)
     assert(stream_unregister_count == 1U);
     assert(!solar_os_battery_has_provider());
 
+    native_provider_lifecycle();
     puts("battery service tests: ok");
     return 0;
 }

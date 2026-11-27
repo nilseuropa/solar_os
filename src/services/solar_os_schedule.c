@@ -734,14 +734,55 @@ void solar_os_schedule_poll(void)
     }
 }
 
-static void fill_action(solar_os_schedule_entry_t *entry,
-                        solar_os_schedule_action_t action,
-                        const char *value)
+esp_err_t solar_os_schedule_add(const solar_os_schedule_request_v1_t *request)
 {
-    entry->action = action;
-    if (value != NULL) {
-        strlcpy(entry->value, value, sizeof(entry->value));
+    if (!request || !name_valid(request->name) || !action_valid(request->action, request->value)) {
+        return ESP_ERR_INVALID_ARG;
     }
+    solar_os_schedule_entry_t entry = {
+        .kind = request->kind,
+        .action = request->action,
+        .enabled = true,
+        .persistent = true,
+    };
+    switch (request->kind) {
+    case SOLAR_OS_SCHEDULE_ONCE_RELATIVE:
+    case SOLAR_OS_SCHEDULE_INTERVAL:
+        if (!request->delay_seconds) return ESP_ERR_INVALID_ARG;
+        entry.persistent = request->kind == SOLAR_OS_SCHEDULE_INTERVAL || request->persist_relative;
+        entry.interval_seconds = request->delay_seconds;
+        entry.next_uptime_ms = solar_os_time_uptime_ms() + (uint64_t)request->delay_seconds * 1000ULL;
+        break;
+    case SOLAR_OS_SCHEDULE_ONCE_CALENDAR: {
+        uint64_t now_ms;
+        if (!local_seconds(request->year, request->month, request->day, request->hour,
+                           request->minute, request->second, &entry.at_utc_seconds) ||
+            solar_os_time_get_utc_epoch_ms(&now_ms) != ESP_OK ||
+            entry.at_utc_seconds <= now_ms / 1000ULL) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        entry.next_utc_seconds = entry.at_utc_seconds;
+        break;
+    }
+    case SOLAR_OS_SCHEDULE_DAILY:
+    case SOLAR_OS_SCHEDULE_WEEKLY:
+        if (request->hour > 23U || request->minute > 59U || request->second > 59U) {
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (request->kind == SOLAR_OS_SCHEDULE_WEEKLY) {
+            if (!request->weekdays || (request->weekdays & 0x80U)) return ESP_ERR_INVALID_ARG;
+            entry.weekdays = request->weekdays;
+        }
+        entry.hour = request->hour;
+        entry.minute = request->minute;
+        entry.second = request->second;
+        break;
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+    strlcpy(entry.name, request->name, sizeof(entry.name));
+    if (request->value) strlcpy(entry.value, request->value, sizeof(entry.value));
+    return add_entry(&entry);
 }
 
 esp_err_t solar_os_schedule_add_relative(const char *name,
@@ -750,19 +791,11 @@ esp_err_t solar_os_schedule_add_relative(const char *name,
                                          const char *value,
                                          bool persistent)
 {
-    if (seconds == 0 || !name_valid(name) || !action_valid(action, value)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    solar_os_schedule_entry_t entry = {
+    return solar_os_schedule_add(&(solar_os_schedule_request_v1_t){
+        .name = name, .action = action, .value = value,
         .kind = SOLAR_OS_SCHEDULE_ONCE_RELATIVE,
-        .enabled = true,
-        .persistent = persistent,
-        .interval_seconds = seconds,
-        .next_uptime_ms = solar_os_time_uptime_ms() + (uint64_t)seconds * 1000ULL,
-    };
-    strlcpy(entry.name, name, sizeof(entry.name));
-    fill_action(&entry, action, value);
-    return add_entry(&entry);
+        .delay_seconds = seconds, .persist_relative = persistent,
+    });
 }
 
 esp_err_t solar_os_schedule_add_interval(const char *name,
@@ -770,19 +803,11 @@ esp_err_t solar_os_schedule_add_interval(const char *name,
                                          solar_os_schedule_action_t action,
                                          const char *value)
 {
-    if (seconds == 0 || !name_valid(name) || !action_valid(action, value)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    solar_os_schedule_entry_t entry = {
+    return solar_os_schedule_add(&(solar_os_schedule_request_v1_t){
+        .name = name, .action = action, .value = value,
         .kind = SOLAR_OS_SCHEDULE_INTERVAL,
-        .enabled = true,
-        .persistent = true,
-        .interval_seconds = seconds,
-        .next_uptime_ms = solar_os_time_uptime_ms() + (uint64_t)seconds * 1000ULL,
-    };
-    strlcpy(entry.name, name, sizeof(entry.name));
-    fill_action(&entry, action, value);
-    return add_entry(&entry);
+        .delay_seconds = seconds,
+    });
 }
 
 esp_err_t solar_os_schedule_add_at(const char *name,
@@ -795,53 +820,12 @@ esp_err_t solar_os_schedule_add_at(const char *name,
                                    solar_os_schedule_action_t action,
                                    const char *value)
 {
-    uint64_t at_utc = 0;
-    uint64_t now_ms = 0;
-    if (!name_valid(name) || !action_valid(action, value) ||
-        !local_seconds(year, month, day, hour, minute, second, &at_utc) ||
-        solar_os_time_get_utc_epoch_ms(&now_ms) != ESP_OK ||
-        at_utc <= now_ms / 1000ULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    solar_os_schedule_entry_t entry = {
+    return solar_os_schedule_add(&(solar_os_schedule_request_v1_t){
+        .name = name, .action = action, .value = value,
         .kind = SOLAR_OS_SCHEDULE_ONCE_CALENDAR,
-        .enabled = true,
-        .persistent = true,
-        .at_utc_seconds = at_utc,
-        .next_utc_seconds = at_utc,
-    };
-    strlcpy(entry.name, name, sizeof(entry.name));
-    fill_action(&entry, action, value);
-    return add_entry(&entry);
-}
-
-static esp_err_t add_recurring(const char *name,
-                               solar_os_schedule_kind_t kind,
-                               uint8_t weekdays,
-                               uint8_t hour,
-                               uint8_t minute,
-                               uint8_t second,
-                               solar_os_schedule_action_t action,
-                               const char *value)
-{
-    if (!name_valid(name) || !action_valid(action, value) ||
-        hour > 23 || minute > 59 || second > 59 ||
-        (kind == SOLAR_OS_SCHEDULE_WEEKLY &&
-         (weekdays == 0 || (weekdays & 0x80U) != 0))) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    solar_os_schedule_entry_t entry = {
-        .kind = kind,
-        .enabled = true,
-        .persistent = true,
-        .hour = hour,
-        .minute = minute,
-        .second = second,
-        .weekdays = weekdays,
-    };
-    strlcpy(entry.name, name, sizeof(entry.name));
-    fill_action(&entry, action, value);
-    return add_entry(&entry);
+        .year = year, .month = month, .day = day,
+        .hour = hour, .minute = minute, .second = second,
+    });
 }
 
 esp_err_t solar_os_schedule_add_daily(const char *name,
@@ -851,8 +835,11 @@ esp_err_t solar_os_schedule_add_daily(const char *name,
                                       solar_os_schedule_action_t action,
                                       const char *value)
 {
-    return add_recurring(name, SOLAR_OS_SCHEDULE_DAILY, 0,
-                         hour, minute, second, action, value);
+    return solar_os_schedule_add(&(solar_os_schedule_request_v1_t){
+        .name = name, .action = action, .value = value,
+        .kind = SOLAR_OS_SCHEDULE_DAILY,
+        .hour = hour, .minute = minute, .second = second,
+    });
 }
 
 esp_err_t solar_os_schedule_add_weekly(const char *name,
@@ -863,8 +850,11 @@ esp_err_t solar_os_schedule_add_weekly(const char *name,
                                        solar_os_schedule_action_t action,
                                        const char *value)
 {
-    return add_recurring(name, SOLAR_OS_SCHEDULE_WEEKLY, weekdays,
-                         hour, minute, second, action, value);
+    return solar_os_schedule_add(&(solar_os_schedule_request_v1_t){
+        .name = name, .action = action, .value = value,
+        .kind = SOLAR_OS_SCHEDULE_WEEKLY, .weekdays = weekdays,
+        .hour = hour, .minute = minute, .second = second,
+    });
 }
 
 size_t solar_os_schedule_count(void)

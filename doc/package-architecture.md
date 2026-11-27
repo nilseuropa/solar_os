@@ -26,6 +26,16 @@ files.
   unloaded; leases protect their API while consumers use it. See
   [Native libraries](manual/native-library.md). A per-entry lifecycle ABI is distinct
   from the native host ABI.
+- Service packages declare `core = true`. They and their dependencies are
+  selected in every flavor before target, hardware and update-layout pruning.
+  Flavors select optional apps, jobs, engines and expansion drivers; they cannot
+  disable a core service. `flavors/core.toml` selects no additional groups.
+  The configurator uses the same core membership and dependency rules.
+- Shell commands and interactive frontends belong to `core_shell`. Each
+  frontend is gated by its service's availability; service packages own the
+  backend implementation independently of the shell.
+- `layouts` restricts a package to physical update layouts. The OTA service is
+  available in OTA layouts; single-image layouts remove it and its dependants.
 - Groups are selection shortcuts only. They cannot own source files or ESP-IDF
   component requirements.
 - Every source file and component requirement belongs to a package.
@@ -53,7 +63,7 @@ configurator. They are deliberately granular: examples include `http_client`,
 `ftp`, `logging`, `invaders`, `pcm1808`, and `st7305`. Categories such as
 Networking, Maintenance, Games, and Expansion hardware only organize the
 configurator; categories cannot be selected and do not appear in a flavor.
-Dormant engineering packages such as USB HID are not exposed as groups.
+The HID service is part of the core; its hidden group is not a separate choice.
 
 Groups can contain more than one package when users reasonably perceive one
 feature. For example, `ssh` includes the SSH and SCP clients, while `ftp`
@@ -78,13 +88,121 @@ are installed as [external foreground apps](manual/native-app.md) through the mo
 catalog and require native-module support in the firmware. They do not add
 firmware flavor groups.
 
+## Compiled native components
+
+A native module can declare its built-in form in its existing `module.toml`:
+
+```toml
+[builtin]
+package = "app_cc"
+entry = "solar_os_cc_app_main"
+```
+
+The manifest owns the ID, name, version, lifecycle and exact library pins for
+both deployment forms. The flavor generator selects descriptors after package,
+target and capability resolution. The resulting registry is immutable; lookup
+allocates no state. Manifest changes invalidate both CMake and PlatformIO
+configuration. The core lifecycle manager uses this registry for compiled
+resident components, with the same registration checks, leases and shutdown
+as ELFs. Compiled components work without the optional ELF backend.
+The compiler command also resolves its entry through this registry.
+
+The built-in entry contract accepts lifecycle ABI 1 apps, jobs, drivers and
+libraries. A foreground lifecycle ABI 2 app also names its compiled manifest
+symbol in `[builtin].manifest`. That record uses the same validation, memory
+admission, session ownership, input, suspend/resume and cleanup path as an ELF
+foreground app. The package supplies both symbols. Compiled foreground entries
+remain discoverable without an ELF backend or mounted storage. Existing firmware
+apps without a native module manifest retain their application registry entries.
+
+The public `components` service reports the compiled native descriptors. It
+lists module identities, not service tables or attached hardware. Runtime state
+is allocated only when a component's lifecycle starts. Compiled code stays in
+firmware flash; external code occupies executable PSRAM while loaded.
+
+### Shared component builder
+
+SDK-only components declare their build beside their identity in `module.toml`:
+
+```toml
+[build]
+entry = "main"
+sources = ["main/app.c"]
+include_dirs = ["main"]
+archives = []
+defines = { FEATURE_LEVEL = 1 }
+```
+
+Run `python3 scripts/build_native_component.py --manifest path/module.toml
+--output build/component` to produce both a firmware archive and the manifest's
+ELF artifact. `--mode builtin` or `--mode external` selects one output. The
+default compiler targets ESP32-S3; ESP32 archives use the matching Xtensa `--cc`
+and `--mode builtin`. External ELF loading requires ESP32-S3. Building external
+output also requires a host C compiler for the OS ELF
+validator. Sources, local includes and archives must stay within the module
+directory. Archives may supply precompiled dependencies. C and freestanding
+C++ sources are supported; automatic global constructors and destructors need
+an explicit lifecycle and are rejected by this builder.
+
+Both forms use the same compiled source objects, SDK headers, definitions,
+archive dependencies and host import checks. Private definitions are localized;
+only the entry and optional foreground manifest escape the firmware archive.
+The external foreground manifest retains its fixed discovery name. External
+libraries embed their declared SDK headers. The final packaged ELF passes the
+same validator as the OS before outputs are published.
+
+When `[builtin]` and `[build]` are both present, flavor resolution selects the
+archive automatically. CMake and PlatformIO track the manifest, sources, local
+headers, SDK and supplied archives. No firmware configuration header is visible
+to the component, and the archive works without the ELF loader. Specialized
+toolchain builds can continue to supply an archive separately, as the C compiler
+does. The Hello app, job, driver and library manifests show standalone builds.
+
+## System ABI
+
+The C service contract is shared by firmware and native modules. Built-in
+components can resolve known providers at link time. Native modules resolve
+service tables through `get_service`. Language bindings belong to their
+interpreter packages. See [Use the C SDK](manual/native-modules.md#use-the-c-sdk).
+
+Public service declarations live in `api/native/definitions/` and their names,
+versions and providers are registered in `api/native/services.toml`. Run
+`python3 scripts/generate_native_api.py` after editing them. The generator
+produces public headers, typed client helpers and provider dispatch code.
+It groups helpers by service domain within the on-device SDK's 32 KiB per-file
+limit. Consumers include `solar_os_native_client.h`.
+
+Append optional methods to a service table and preserve the existing prefix.
+Incompatible table or record changes require a new version. Keep ESP-IDF and
+board details behind public records and handles. Document the owner and lifetime
+of borrowed inputs, returned handles and retained callbacks in the service header.
+
+The ABI lock records public declarations. The Xtensa layout baseline records
+sizes, alignments and member offsets. Use `--update-lock` with the SDK generator
+and `--update-baseline` with `scripts/check_native_layout.py` to record compatible
+additions. Check them with the SDK generator's `--check` and the layout script.
+
+`api/native/system.toml` maps Core declarations to public operations and names
+reviewed private interfaces. For a review, export the declaration inventory with
+`python3 scripts/audit_native_system.py --report inventory.json`. Its
+`review_revision` values pin private interfaces to their declarations and local
+types. Run `python3 scripts/audit_native_system.py --update-lock --require-full`
+after completing a review. CI checks the lock and requires every declaration
+to have a mapping or an explicit review.
+
 ## Service boundaries
+
+Git, device flashing, and the model-zoo catalog/installer are application
+implementations. Their backends live in `src/apps/` and belong to `app_git`,
+`app_flash`, and `app_zoo`; selecting OS services does not select these apps.
+They consume the shared transport, storage, crypto, and inference services.
 
 Network ownership is intentionally split. `network.base`, `service.osc`, `job.osc`, `network.wireguard`, `network.mqtt`,
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
 `network.http-server` own their individual implementations. Image and document
-decoding are separate `media.image` and `media.document` packages, so selecting
-`app.curl`, for example, does not pull MQTT, SSH, mail, or image dependencies.
+decoding remain separate `media.image` and `media.document` packages.
+These services are included in the core when the target and board support them;
+selecting an application changes the application selection, not the service set.
 
 `service.osc` owns the bounded OSC 1.0 codec, incoming native-parameter
 mapping, named volatile outbound bindings, and the `osc` shell command.
@@ -199,5 +317,5 @@ dedicated worker, client ownership, and deadline/error counters. Native apps
 can supply an independent signed 16-bit stereo render callback.
 
 USB host input and storage are provided by `service.usb-host` and
-`service.usb-storage`. The latter depends on the host service. USB HID
-peripheral output is the separate dormant `service.hid` package.
+`service.usb-storage`. The storage service depends on the host service.
+`service.hid` provides USB HID peripheral output on supported targets.

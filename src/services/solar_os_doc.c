@@ -16,14 +16,13 @@
 #include "solar_os_memory.h"
 #include "solar_os_work.h"
 
-#if SOLAR_OS_PACKAGE_APP_READER || SOLAR_OS_PACKAGE_APP_WEB
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
 #include "solar_os_stb_image.h"
 #include "solar_os_webp_decoder.h"
 #endif
 
 #define DOC_INITIAL_BLOCKS 32U
 #define DOC_INITIAL_RUNS 32U
-#define DOC_MAX_BYTES (2U * 1024U * 1024U)
 #define DOC_MAX_IMAGE_BYTES (1024U * 1024U)
 #define DOC_MAX_IMAGE_PIXELS (1024U * 1024U)
 #define DOC_TAB_WIDTH 4
@@ -111,6 +110,7 @@ void solar_os_doc_set_asset_provider(solar_os_doc_t *doc,
     }
 }
 
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
 static bool doc_path_has_suffix(const char *path, const char *suffix)
 {
     if (path == NULL || suffix == NULL) {
@@ -131,6 +131,7 @@ static bool doc_path_has_suffix(const char *path, const char *suffix)
     }
     return true;
 }
+#endif
 
 static void doc_release_asset(const solar_os_doc_t *doc, uint8_t *data)
 {
@@ -176,7 +177,7 @@ static esp_err_t doc_decode_image_asset(solar_os_doc_t *doc,
         return image->status;
     }
 
-#if SOLAR_OS_PACKAGE_APP_READER || SOLAR_OS_PACKAGE_APP_WEB
+#if SOLAR_OS_PACKAGE_SERVICE_IMAGE
     uint8_t *gray = NULL;
     uint32_t width = 0;
     uint32_t height = 0;
@@ -1756,7 +1757,7 @@ esp_err_t solar_os_doc_load_path_as(solar_os_doc_t *doc, const char *path, bool 
     if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
         return ESP_ERR_NOT_FOUND;
     }
-    if (st.st_size < 0 || (uint64_t)st.st_size > DOC_MAX_BYTES) {
+    if (st.st_size < 0 || (uint64_t)st.st_size > SOLAR_OS_DOCUMENT_MAX_BYTES) {
         return ESP_ERR_INVALID_SIZE;
     }
 
@@ -3746,12 +3747,11 @@ bool solar_os_doc_layout_adjacent_source(const solar_os_doc_layout_t *layout,
 
 int solar_os_doc_measure_height(const solar_os_doc_t *doc, int width, int zoom)
 {
-    solar_os_doc_layout_t layout;
-    solar_os_doc_layout_init(&layout);
-    const esp_err_t ret = solar_os_doc_layout_build(&layout, doc, width, zoom);
-    const int height = ret == ESP_OK ? layout.height : 0;
-    solar_os_doc_layout_free(&layout);
-    return height;
+    if (doc == NULL || width <= 0 || width > INT16_MAX) return 0;
+    solar_os_doc_layout_t sizing = {0};
+    doc_layout_builder_t builder = {.layout = &sizing, .measuring = true};
+    const esp_err_t ret = doc_layout_build(&builder, doc, width, zoom, NULL, 0);
+    return ret == ESP_OK ? sizing.height : 0;
 }
 
 void solar_os_doc_render(solar_os_gfx_t *gfx,

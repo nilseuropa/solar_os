@@ -24,6 +24,7 @@ typedef enum {
     SOLAR_OS_NET_CHANNEL_TCP = 1,
     SOLAR_OS_NET_CHANNEL_UDP,
     SOLAR_OS_NET_CHANNEL_WEBSOCKET,
+    SOLAR_OS_NET_CHANNEL_TLS,
 } solar_os_net_channel_kind_t;
 
 typedef enum {
@@ -123,6 +124,13 @@ esp_err_t solar_os_net_session_websocket_receive(solar_os_net_session_t *session
                                                  size_t buffer_len,
                                                  uint32_t timeout_ms,
                                                  solar_os_net_receive_result_t *result);
+
+esp_err_t solar_os_net_session_tls_connect(solar_os_net_session_t *session, const char *host,
+    uint16_t port, uint32_t timeout_ms, uint32_t *channel);
+esp_err_t solar_os_net_session_tls_send(solar_os_net_session_t *session, uint32_t channel,
+    const void *data, size_t length, uint32_t timeout_ms);
+esp_err_t solar_os_net_session_tls_receive(solar_os_net_session_t *session, uint32_t channel,
+    void *buffer, size_t capacity, uint32_t timeout_ms, solar_os_net_receive_result_t *result);
 
 esp_err_t solar_os_net_session_close(solar_os_net_session_t *session,
                                      uint32_t handle);

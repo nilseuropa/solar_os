@@ -176,103 +176,86 @@ esp_err_t solar_os_stream_init(void)
     return stream_ensure_init();
 }
 
-esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
+static void stream_publish_locked(stream_entry_t *entry, const solar_os_stream_driver_t *driver)
 {
-    if (!stream_driver_valid(driver)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t err = stream_ensure_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    stream_lock();
-    if (stream_find_locked(driver->info.id) >= 0) {
-        stream_unlock();
-        return ESP_ERR_INVALID_STATE;
-    }
-    stream_entry_t *entry = NULL;
-    for (size_t i = 0; i < SOLAR_OS_STREAM_MAX; i++) {
-        if (!streams[i].registered) {
-            entry = &streams[i];
-            break;
-        }
-    }
-    if (entry == NULL) {
-        stream_unlock();
-        return ESP_ERR_NO_MEM;
-    }
-
     const uint32_t generation = entry->generation + 1U;
     memset(entry, 0, sizeof(*entry));
     entry->registered = true;
     entry->generation = generation != 0U ? generation : 1U;
     entry->driver = *driver;
-    entry->driver.info.id[sizeof(entry->driver.info.id) - 1U] = '\0';
-    entry->driver.info.provider[sizeof(entry->driver.info.provider) - 1U] = '\0';
-    entry->driver.info.device[sizeof(entry->driver.info.device) - 1U] = '\0';
-    entry->driver.info.unit[sizeof(entry->driver.info.unit) - 1U] = '\0';
-    entry->driver.info.format[sizeof(entry->driver.info.format) - 1U] = '\0';
-    entry->driver.info.summary[sizeof(entry->driver.info.summary) - 1U] = '\0';
     entry->driver.info.active_handles = 0U;
     entry->driver.info.owner[0] = '\0';
     entry->driver.info.read_units = 0U;
     entry->driver.info.written_units = 0U;
     entry->driver.info.overruns = 0U;
     entry->driver.info.underruns = 0U;
-    stream_unlock();
-    return ESP_OK;
 }
 
-esp_err_t solar_os_stream_unregister(const char *id)
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count)
 {
-    if (!stream_text_valid(id, SOLAR_OS_STREAM_ID_MAX, true)) {
-        return ESP_ERR_INVALID_ARG;
+    if (!drivers || !count || count > SOLAR_OS_STREAM_MAX) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < count; i++) {
+        if (!stream_driver_valid(&drivers[i])) return ESP_ERR_INVALID_ARG;
+        for (size_t j = 0; j < i; j++) {
+            if (strcmp(drivers[j].info.id, drivers[i].info.id) == 0) return ESP_ERR_INVALID_ARG;
+        }
     }
-    esp_err_t err = stream_ensure_init();
-    if (err != ESP_OK) {
-        return err;
-    }
+    const esp_err_t error = stream_ensure_init();
+    if (error != ESP_OK) return error;
+
     stream_lock();
-    const int index = stream_find_locked(id);
-    if (index < 0) {
-        stream_unlock();
-        return ESP_ERR_NOT_FOUND;
+    for (size_t i = 0; i < count; i++) {
+        if (stream_find_locked(drivers[i].info.id) >= 0) {
+            stream_unlock();
+            return ESP_ERR_INVALID_STATE;
+        }
     }
-    stream_entry_t *entry = &streams[index];
-    if (entry->active_handles != 0U || entry->observers != 0U) {
-        stream_unlock();
-        return ESP_ERR_INVALID_STATE;
+    size_t slots[SOLAR_OS_STREAM_MAX], available = 0;
+    for (size_t i = 0; i < SOLAR_OS_STREAM_MAX && available < count; i++) {
+        if (!streams[i].registered) slots[available++] = i;
     }
-    const uint32_t generation = entry->generation;
-    memset(entry, 0, sizeof(*entry));
-    entry->generation = generation;
+    if (available != count) {
+        stream_unlock();
+        return ESP_ERR_NO_MEM;
+    }
+    for (size_t i = 0; i < count; i++) stream_publish_locked(&streams[slots[i]], &drivers[i]);
     stream_unlock();
     return ESP_OK;
 }
 
-esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count)
+esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
 {
-    if (ids == NULL || count == 0U || count > SOLAR_OS_STREAM_MAX) return ESP_ERR_INVALID_ARG;
-    for (size_t i=0; i<count; ++i) {
+    return solar_os_stream_register_many(driver, 1);
+}
+
+static esp_err_t stream_unregister_many(const char *const *ids, const void *const *users, size_t count)
+{
+    if (!ids || !count || count > SOLAR_OS_STREAM_MAX) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < count; i++) {
         if (!stream_text_valid(ids[i], SOLAR_OS_STREAM_ID_MAX, true)) return ESP_ERR_INVALID_ARG;
-        for (size_t j=0; j<i; ++j) {
+        for (size_t j = 0; j < i; j++) {
             if (strcmp(ids[i], ids[j]) == 0) return ESP_ERR_INVALID_ARG;
         }
     }
-    esp_err_t err = stream_ensure_init();
-    if (err != ESP_OK) return err;
+    const esp_err_t error = stream_ensure_init();
+    if (error != ESP_OK) return error;
+
     int indexes[SOLAR_OS_STREAM_MAX];
     stream_lock();
-    for (size_t i=0; i<count; ++i) {
+    for (size_t i = 0; i < count; i++) {
         indexes[i] = stream_find_locked(ids[i]);
-        if (indexes[i] < 0 || streams[indexes[i]].active_handles != 0U || streams[indexes[i]].observers != 0U) {
-            err = indexes[i] < 0 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
+        if (users && (indexes[i] < 0 || streams[indexes[i]].driver.user != users[i])) {
+            indexes[i] = -1;
+            continue;
+        }
+        if (indexes[i] < 0 || streams[indexes[i]].active_handles || streams[indexes[i]].observers) {
+            const esp_err_t failure = indexes[i] < 0 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
             stream_unlock();
-            return err;
+            return failure;
         }
     }
-    for (size_t i=0; i<count; ++i) {
+    for (size_t i = 0; i < count; i++) {
+        if (indexes[i] < 0) continue;
         stream_entry_t *entry = &streams[indexes[i]];
         const uint32_t generation = entry->generation;
         memset(entry, 0, sizeof(*entry));
@@ -280,6 +263,22 @@ esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count)
     }
     stream_unlock();
     return ESP_OK;
+}
+
+esp_err_t solar_os_stream_unregister(const char *id)
+{
+    return stream_unregister_many(&id, NULL, 1);
+}
+
+esp_err_t solar_os_stream_unregister_many(const char *const *ids, size_t count)
+{
+    return stream_unregister_many(ids, NULL, count);
+}
+
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *ids, const void *const *users, size_t count)
+{
+    if (!users) return ESP_ERR_INVALID_ARG;
+    return stream_unregister_many(ids, users, count);
 }
 
 size_t solar_os_stream_count(void)
@@ -396,10 +395,11 @@ static solar_os_stream_direction_t stream_default_open_direction(
         SOLAR_OS_STREAM_DIRECTION_SINK : SOLAR_OS_STREAM_DIRECTION_SOURCE;
 }
 
-esp_err_t solar_os_stream_open_ex(const char *id,
+static esp_err_t stream_open_common(const char *id,
                                   const char *owner,
                                   const solar_os_stream_open_options_t *options,
-                                  solar_os_stream_handle_t *handle)
+                                  solar_os_stream_handle_t *handle,
+                                  const solar_os_stream_type_t *expected_type)
 {
     if (!stream_text_valid(id, SOLAR_OS_STREAM_ID_MAX, true) ||
         !stream_text_valid(owner, SOLAR_OS_STREAM_OWNER_MAX, true) ||
@@ -424,6 +424,10 @@ esp_err_t solar_os_stream_open_ex(const char *id,
         return ESP_ERR_NOT_FOUND;
     }
     stream_entry_t *entry = &streams[index];
+    if (expected_type != NULL && entry->driver.info.type != *expected_type) {
+        stream_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     const solar_os_stream_direction_t direction = options != NULL ?
         options->direction : stream_default_open_direction(entry->driver.info.direction);
     if (!stream_direction_compatible(entry->driver.info.direction, direction)) {
@@ -474,6 +478,19 @@ esp_err_t solar_os_stream_open_ex(const char *id,
         }
     }
     return ESP_OK;
+}
+
+esp_err_t solar_os_stream_open_ex(const char *id, const char *owner,
+    const solar_os_stream_open_options_t *options, solar_os_stream_handle_t *handle)
+{
+    return stream_open_common(id, owner, options, handle, NULL);
+}
+
+esp_err_t solar_os_stream_open_typed(const char *id, const char *owner,
+    solar_os_stream_type_t expected_type, const solar_os_stream_open_options_t *options,
+    solar_os_stream_handle_t *handle)
+{
+    return stream_open_common(id, owner, options, handle, &expected_type);
 }
 
 esp_err_t solar_os_stream_open(const char *id,
@@ -546,7 +563,7 @@ void solar_os_stream_close(solar_os_stream_handle_t *handle)
     (void)solar_os_stream_close_ex(handle);
 }
 
-static esp_err_t stream_get_callbacks(solar_os_stream_handle_t *handle,
+static esp_err_t stream_get_callbacks(const solar_os_stream_handle_t *handle,
                                       stream_entry_t **entry,
                                       void **user)
 {
@@ -561,6 +578,25 @@ static esp_err_t stream_get_callbacks(solar_os_stream_handle_t *handle,
     *entry = candidate;
     *user = candidate->driver.user;
     return ESP_OK;
+}
+
+esp_err_t solar_os_stream_handle_info(const solar_os_stream_handle_t *handle, solar_os_stream_info_t *info)
+{
+    if (!info) return ESP_ERR_INVALID_ARG;
+    const esp_err_t init = stream_ensure_init();
+    if (init != ESP_OK) return init;
+    stream_entry_t *entry;
+    void *user;
+    stream_lock();
+    const esp_err_t error = stream_get_callbacks(handle, &entry, &user);
+    if (error == ESP_OK) {
+        stream_copy_info_locked(entry, info);
+        info->direction = handle->direction;
+        if (info->type == SOLAR_OS_STREAM_TYPE_AUDIO) info->audio = handle->audio;
+        if (info->type == SOLAR_OS_STREAM_TYPE_VIDEO) info->video = handle->video;
+    }
+    stream_unlock();
+    return error;
 }
 
 static esp_err_t stream_frame_operation(solar_os_stream_handle_t *handle,

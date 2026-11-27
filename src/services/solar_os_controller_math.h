@@ -2,28 +2,7 @@
 
 #include <stdbool.h>
 
-/* Portable, allocation-free controller algorithms. All times are seconds;
- * setpoint and measurement share a unit, output uses the actuator's unit. */
-typedef enum {
-    SOLAR_OS_CONTROLLER_PID,
-    SOLAR_OS_CONTROLLER_HYSTERESIS,
-} solar_os_controller_kind_t;
-
-typedef struct {
-    solar_os_controller_kind_t kind;
-    float kp, ki, kd;
-    float derivative_tau;
-    float output_min, output_max;
-    float hysteresis; /* Full width of the band around the setpoint. */
-    float max_dt;
-    bool reverse; /* Increasing output decreases the measured value. */
-} solar_os_controller_math_config_t;
-
-typedef struct {
-    bool initialized, automatic, tracking, saturated;
-    float previous_measurement;
-    float error, p, i, d, output;
-} solar_os_controller_math_state_t;
+#include "solar_os_native_controllers_abi.h"
 
 solar_os_controller_math_config_t solar_os_controller_math_defaults(
     solar_os_controller_kind_t kind);

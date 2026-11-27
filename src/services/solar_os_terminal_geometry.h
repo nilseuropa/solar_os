@@ -1,14 +1,6 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-
-typedef struct {
-    size_t rows;
-    int grid_top;
-    int baseline_offset;
-    int content_bottom;
-} solar_os_terminal_geometry_t;
+#include "solar_os_native_terminal_abi.h"
 
 size_t solar_os_terminal_columns_compute(int display_width,
                                          int horizontal_margin,

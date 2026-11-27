@@ -6,10 +6,9 @@
 #include <string.h>
 #include "solar_os_module_packages.h"
 #include "solar_os_keys.h"
+#include "solar_os_native_client_ui.h"
 
 typedef struct { int unused; } solar_os_tui_t;
-typedef struct { size_t row, col, height, width; } solar_os_tui_rect_t;
-typedef struct { size_t cursor, top; } solar_os_tui_viewport_t;
 typedef struct { bool finished; } solar_os_context_t;
 typedef struct { int type; struct { unsigned char ch; } data; } solar_os_event_t;
 typedef void *TaskHandle_t;
@@ -26,10 +25,9 @@ typedef int portMUX_TYPE;
 #define SOLAR_OS_TASK_STOP_WAIT_MS 100
 #define SOLAR_OS_EVENT_TICK 1
 #define SOLAR_OS_EVENT_CHAR 2
-#define SOLAR_OS_TUI_ATTR_INVERSE 1
-#define SOLAR_OS_TUI_ATTR_NORMAL 0
 
-static solar_os_module_catalog_t saved;
+static solar_os_module_package_t saved_packages[4];
+static solar_os_module_catalog_t saved = {.packages = saved_packages};
 static bool cache_available = true, fail_refresh, fail_worker, wait_ready = true;
 static unsigned fetches, installs, removes, bars, loads, cols=80, rows=12;
 static uint64_t progress_value, progress_total;
@@ -56,12 +54,12 @@ static int solar_os_task_create_pinned_internal(void (*fn)(void*),const char *na
 static void solar_os_task_delete_internal(void *p) { (void)p; }
 static bool solar_os_task_wait_done(void *p,volatile bool *done,unsigned ms) { (void)p;(void)done;(void)ms;return wait_ready; }
 static void solar_os_context_finish(solar_os_context_t *c,int code,void *p) { (void)code;(void)p;c->finished=true; }
-static solar_os_module_catalog_t *copy_catalog(void) { solar_os_module_catalog_t *c=malloc(sizeof(*c));assert(c);*c=saved;return c; }
+static solar_os_module_catalog_t *copy_catalog(void) { solar_os_module_catalog_t *c=malloc(sizeof(*c));assert(c);*c=saved;c->packages=malloc(c->count*sizeof(*c->packages));assert(c->packages);memcpy(c->packages,saved.packages,c->count*sizeof(*c->packages));return c; }
 esp_err_t solar_os_module_catalog_load(solar_os_module_catalog_t **out,char *d,size_t n)
 { (void)d;(void)n;loads++;*out=cache_available?copy_catalog():NULL;return cache_available?ESP_OK:ESP_ERR_NOT_FOUND; }
 esp_err_t solar_os_module_catalog_fetch_ex(solar_os_module_catalog_t **out,solar_os_module_package_cancel_fn cancel,void *u,char *d,size_t n)
 { fetches++;*out=NULL;if(fail_refresh || cancel(u)){strlcpy(d,"network unavailable",n);return ESP_FAIL;}*out=copy_catalog();return ESP_OK; }
-void solar_os_module_catalog_free(solar_os_module_catalog_t *c) { free(c); }
+void solar_os_module_catalog_free(solar_os_module_catalog_t *c) { if(c)free(c->packages);free(c); }
 const char *solar_os_module_type_name(solar_os_module_type_t t) { (void)t;return "module"; }
 esp_err_t solar_os_module_package_install(const char *id,const solar_os_module_install_options_t *o,solar_os_module_install_result_t *r,char *d,size_t n)
 { (void)r;(void)d;(void)n;assert(!strcmp(id,"robot"));installs++;o->progress(50,100,o->user);return ESP_OK; }
@@ -91,9 +89,9 @@ int main(void) {
     assert(pkg_tui_start(&ctx)==ESP_OK && loads==1 && !fetches && !pkg_tui.busy);
     assert(strstr(screen[1],"Apps (1)"));
     assert(strstr(screen[5],"Drivers (0)"));
-    assert(!pkg_tui_selected(NULL));key('I');assert(!installs && !pkg_tui.prompt_operation);
-    key(SOLAR_OS_KEY_DOWN);assert(pkg_tui_selected(NULL));
-    key(SOLAR_OS_KEY_LEFT);assert(!pkg_tui_selected(NULL));
+    assert(!pkg_tui_selected());key('I');assert(!installs && !pkg_tui.prompt_operation);
+    key(SOLAR_OS_KEY_DOWN);assert(pkg_tui_selected());
+    key(SOLAR_OS_KEY_LEFT);assert(!pkg_tui_selected());
     key(SOLAR_OS_KEY_LEFT);assert(pkg_tui_visible_count()==4);
     key(SOLAR_OS_KEY_RIGHT);assert(pkg_tui_visible_count()==5);
     find_id("robot");key('I');assert(!installs && strstr(popup_title,"Install"));
@@ -101,8 +99,8 @@ int main(void) {
     key('\r');assert(!pkg_tui.busy && !installs); /* Enter defaults to No. */
     key('I');key('y');assert(pkg_tui.busy && !installs && !strcmp(popup_title,"Working") && bars);
     pkg_tui_progress(25,100,NULL);pkg_tui_render();assert(progress_value==25 && progress_total==100);
-    done();assert(installs==1 && !strcmp(popup_title,"Success") && pkg_tui_selected(NULL));
-    key('\r');solar_os_module_package_t selected;assert(pkg_tui_selected(&selected) && selected.installed);
+    done();assert(installs==1 && !strcmp(popup_title,"Success") && pkg_tui_selected());
+    key('\r');assert(pkg_tui_selected() && pkg_tui_selected()->installed);
     key('U');assert(!removes && strstr(popup_title,"Remove"));key('n');assert(!removes);
     key('U');key('Y');done();assert(removes==1);key('\r');
     fail_refresh=true;solar_os_module_catalog_t *previous=pkg_tui.catalog;

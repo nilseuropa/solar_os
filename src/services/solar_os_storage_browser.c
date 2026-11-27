@@ -66,6 +66,9 @@ static esp_err_t browser_reserve(solar_os_storage_browser_t *browser,
     size_t capacity = browser->capacity != 0U ? browser->capacity :
         STORAGE_BROWSER_INITIAL_CAPACITY;
     while (capacity < needed) {
+        if (capacity > SIZE_MAX / 2U / sizeof(browser->entries[0])) {
+            return ESP_ERR_INVALID_SIZE;
+        }
         capacity *= 2U;
     }
     void *entries = solar_os_memory_realloc(
@@ -156,54 +159,65 @@ void solar_os_storage_browser_destroy(solar_os_storage_browser_t *browser)
     }
 }
 
-esp_err_t solar_os_storage_browser_open(solar_os_storage_browser_t *browser,
-                                        const char *path)
+esp_err_t solar_os_storage_browser_open_filtered(solar_os_storage_browser_t *browser,
+    const char *path, solar_os_storage_browser_filter_t filter, void *user)
 {
     if (browser == NULL || path == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    char normalized[SOLAR_OS_STORAGE_PATH_MAX];
-    esp_err_t err = solar_os_storage_normalize_path(path, normalized,
-                                                    sizeof(normalized));
+    solar_os_storage_browser_t next = {0};
+    esp_err_t err = solar_os_storage_normalize_path(path, next.path, sizeof(next.path));
     if (err != ESP_OK) {
         return err;
     }
-    DIR *directory = opendir(normalized);
+    DIR *directory = opendir(next.path);
     if (directory == NULL) {
-        return ESP_FAIL;
+        return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
     }
-    browser->count = 0U;
-    browser->cursor = 0U;
-    strlcpy(browser->path, normalized, sizeof(browser->path));
-    if (strcmp(normalized, "/") != 0) {
-        err = browser_add(browser, "..", true, true, 0U);
+    if (strcmp(next.path, "/") != 0) {
+        err = browser_add(&next, "..", true, true, 0U);
     }
-    struct dirent *item;
-    while (err == ESP_OK && (item = readdir(directory)) != NULL) {
-        if (strcmp(item->d_name, ".") == 0 ||
-            strcmp(item->d_name, "..") == 0 || item->d_name[0] == '.') {
+    while (err == ESP_OK) {
+        errno = 0;
+        const struct dirent *item = readdir(directory);
+        if (!item) {
+            if (errno) err = ESP_FAIL;
+            break;
+        }
+        if (item->d_name[0] == '.' || strlen(item->d_name) >= SOLAR_OS_STORAGE_BROWSER_NAME_MAX) {
             continue;
         }
         char child[SOLAR_OS_STORAGE_PATH_MAX];
         struct stat info;
-        if (!browser_join(normalized, item->d_name, child, sizeof(child)) ||
+        if (!browser_join(next.path, item->d_name, child, sizeof(child)) ||
             stat(child, &info) != 0) {
             continue;
         }
         const bool is_directory = S_ISDIR(info.st_mode);
-        if (!is_directory && browser->filter != NULL &&
-            !browser->filter(item->d_name, browser->filter_user)) {
+        if (!is_directory && filter && !filter(item->d_name, user)) {
             continue;
         }
-        err = browser_add(browser, item->d_name, is_directory, false,
+        err = browser_add(&next, item->d_name, is_directory, false,
                           (uint64_t)info.st_size);
     }
-    closedir(directory);
-    if (err == ESP_OK && browser->count > 1U) {
-        qsort(browser->entries, browser->count, sizeof(browser->entries[0]),
-              browser_entry_compare);
+    if (closedir(directory) != 0 && err == ESP_OK) err = ESP_FAIL;
+    if (err != ESP_OK) {
+        solar_os_memory_free(next.entries);
+        return err;
     }
-    return err;
+    if (next.count > 1U)
+        qsort(next.entries, next.count, sizeof(next.entries[0]), browser_entry_compare);
+    next.filter = browser->filter;
+    next.filter_user = browser->filter_user;
+    solar_os_memory_free(browser->entries);
+    *browser = next;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_storage_browser_open(solar_os_storage_browser_t *browser, const char *path)
+{
+    if (!browser) return ESP_ERR_INVALID_ARG;
+    return solar_os_storage_browser_open_filtered(browser, path, browser->filter, browser->filter_user);
 }
 
 esp_err_t solar_os_storage_browser_refresh(solar_os_storage_browser_t *browser)
@@ -244,19 +258,19 @@ void solar_os_storage_browser_move(solar_os_storage_browser_t *browser,
     if (browser == NULL || browser->count == 0U) {
         return;
     }
-    int cursor = (int)browser->cursor + offset;
-    if (cursor < 0) {
-        cursor = 0;
-    } else if ((size_t)cursor >= browser->count) {
-        cursor = (int)browser->count - 1;
+    if (offset < 0) {
+        const size_t distance = (size_t)(-(offset + 1)) + 1U;
+        browser->cursor -= distance < browser->cursor ? distance : browser->cursor;
+    } else {
+        const size_t remaining = browser->count - browser->cursor - 1U;
+        const size_t distance = (size_t)offset;
+        browser->cursor += distance < remaining ? distance : remaining;
     }
-    browser->cursor = (size_t)cursor;
 }
 
-esp_err_t solar_os_storage_browser_activate(solar_os_storage_browser_t *browser,
-                                            char *selected,
-                                            size_t selected_len,
-                                            bool *file_selected)
+esp_err_t solar_os_storage_browser_activate_filtered(solar_os_storage_browser_t *browser,
+    char *selected, size_t selected_len, bool *file_selected,
+    solar_os_storage_browser_filter_t filter, void *user)
 {
     if (browser == NULL || selected == NULL || selected_len == 0U ||
         file_selected == NULL || browser->cursor >= browser->count) {
@@ -272,13 +286,21 @@ esp_err_t solar_os_storage_browser_activate(solar_os_storage_browser_t *browser,
         return ESP_ERR_INVALID_SIZE;
     }
     if (entry->is_directory) {
-        return solar_os_storage_browser_open(browser, path);
+        return solar_os_storage_browser_open_filtered(browser, path, filter, user);
     }
     esp_err_t err = solar_os_storage_normalize_path(path, selected, selected_len);
     if (err == ESP_OK) {
         *file_selected = true;
     }
     return err;
+}
+
+esp_err_t solar_os_storage_browser_activate(solar_os_storage_browser_t *browser,
+    char *selected, size_t selected_len, bool *file_selected)
+{
+    if (!browser) return ESP_ERR_INVALID_ARG;
+    return solar_os_storage_browser_activate_filtered(
+        browser, selected, selected_len, file_selected, browser->filter, browser->filter_user);
 }
 
 esp_err_t solar_os_storage_browser_select_directory(

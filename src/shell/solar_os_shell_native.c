@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+
 #include "solar_os_shell_commands.h"
 
 #include "solar_os_native.h"
@@ -46,10 +50,8 @@ static bool native_shell_cancelled(void *user)
     if (ctx->exit_requested || ctx->sleep_requested || ctx->deep_sleep_requested) return true;
     solar_os_shell_io_t *io = solar_os_shell_command_io(ctx);
     char keys[16]; size_t count = 0;
-    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
-        esp_err_t code = solar_os_port_read(&io->port, (uint8_t *)keys, sizeof(keys), 0, &count);
-        if (code != ESP_OK && code != ESP_ERR_TIMEOUT) return true;
-    } else count = solar_os_input_read_chars(keys, sizeof(keys));
+    const esp_err_t code = solar_os_shell_io_poll_input(io, (uint8_t *)keys, sizeof(keys), &count);
+    if (code != ESP_OK && code != ESP_ERR_TIMEOUT) return true;
     for (size_t i = 0; i < count; ++i)
         if ((uint8_t)keys[i] == SOLAR_OS_KEY_APP_EXIT || keys[i] == 0x1d || keys[i] == 0x03) return true;
     return false;
@@ -219,3 +221,5 @@ bool solar_os_shell_try_native_module(solar_os_context_t *ctx,
                            NULL);
     return true;
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES */

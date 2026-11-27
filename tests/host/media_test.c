@@ -7,6 +7,12 @@
 #include "solar_os_rtp.h"
 #include "solar_os_rtp_jpeg.h"
 #include "solar_os_rtsp.h"
+#ifdef TEST_NATIVE_MEDIA_PROTOCOL
+#include <stdlib.h>
+#include "solar_os.h"
+#include "solar_os_memory.h"
+#include "solar_os_native_media_protocol.h"
+#endif
 
 typedef struct {
     uint8_t packets[16][256];
@@ -315,6 +321,99 @@ static void test_rtsp_request_parser(void)
     assert(request.cseq == 5U);
 }
 
+#ifdef TEST_NATIVE_MEDIA_PROTOCOL
+static const solar_os_native_rtp_api_v1_t *rtp_api;
+static size_t receiver_allocations;
+
+const solar_os_app_t *solar_os_application_descriptor(void) { return NULL; }
+
+void *solar_os_memory_alloc(size_t bytes, solar_os_memory_class_t cls, const char *tag)
+{
+    assert(cls == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && !strcmp(tag, "rtp.jpeg.receiver"));
+    void *state = malloc(bytes);
+    if (state) receiver_allocations++;
+    return state;
+}
+
+void solar_os_memory_free(void *state)
+{
+    if (state) receiver_allocations--;
+    free(state);
+}
+
+static int abort_packet(const uint8_t *packet, size_t length, void *data)
+{
+    unsigned *visits = data;
+    assert(packet && length >= SOLAR_OS_RTP_HEADER_BYTES);
+    (*visits)++;
+    return SOLAR_OS_NATIVE_ERROR_CANCELLED;
+}
+
+static int native_frame(const solar_os_rtp_jpeg_frame_t *frame, void *data)
+{
+    solar_os_native_handle_t id = *(solar_os_native_handle_t *)data;
+    assert(frame->width == 320 && frame->height == 240 && frame->timestamp == 9000);
+    assert(rtp_api->jpeg_receiver_close(id) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(rtp_api->jpeg_receiver_reset(id) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    solar_os_rtp_jpeg_view_t parsed;
+    assert(!rtp_api->jpeg_parse(frame->data, frame->length, &parsed) && parsed.scan_len == 400);
+    for (size_t i = 0; i < parsed.scan_len; i++) assert(parsed.scan[i] == (uint8_t)(i % 251U));
+    return SOLAR_OS_NATIVE_ERROR_CANCELLED;
+}
+
+static void test_native_protocol(void)
+{
+    rtp_api = solar_os_native_media_protocol_get_service("media.rtp", 1, sizeof(*rtp_api));
+    const solar_os_native_rtsp_protocol_api_v1_t *rtsp = solar_os_native_media_protocol_get_service(
+        "media.rtsp.protocol", 1, sizeof(*rtsp));
+    assert(rtp_api && rtsp && !solar_os_native_media_protocol_get_service("media.rtp", 2, 8));
+    const uint8_t request[] = "OPTIONS * RTSP/1.0\r\nCSeq: 1\r\n\r\n";
+    solar_os_rtsp_request_t parsed;
+    assert(rtsp->header_length(request, sizeof(request) - 2) == 0);
+    assert(!rtsp->parse_request(request, sizeof(request) - 1, &parsed));
+    assert(parsed.cseq == 1 && !strcmp(rtsp->method_name(parsed.method), "OPTIONS"));
+
+    solar_os_rtp_sender_t sender = {.payload_type = 96, .sequence = 100, .timestamp = 9000,
+        .ssrc = 0x11223344, .max_packet_bytes = 180};
+    uint8_t packet[180];
+    const int16_t stereo[] = {0, 0};
+    unsigned visits = 0;
+    assert(rtp_api->l16_packetize(&sender, stereo, SIZE_MAX, 2, packet, sizeof(packet), abort_packet, &visits)
+        == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && !visits);
+    assert(rtp_api->l16_packetize(&sender, stereo, 1, 2, packet, sizeof(packet), abort_packet, &visits)
+        == SOLAR_OS_NATIVE_ERROR_CANCELLED && visits == 1);
+    assert(sender.sequence == 101 && sender.timestamp == 9001);
+
+    solar_os_rtp_jpeg_view_t view;
+    uint8_t scan[400];
+    for (size_t i = 0; i < sizeof(scan); i++) scan[i] = (uint8_t)(i % 251U);
+    make_jpeg_view(&view, scan, SIZE_MAX);
+    assert(rtp_api->jpeg_packetize(&sender, &view, packet, sizeof(packet), abort_packet, &visits)
+        == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT && visits == 1);
+    view.scan_len = sizeof(scan);
+    sender.timestamp = 9000;
+    packet_capture_t capture = {0};
+    assert(!rtp_api->jpeg_packetize(&sender, &view, packet, sizeof(packet), capture_packet, &capture));
+    assert(capture.count > 1);
+    solar_os_native_handle_t id;
+    uint8_t buffer[8192];
+    assert(rtp_api->jpeg_receiver_open(96, buffer, 16, &id) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!id && !receiver_allocations);
+    assert(!rtp_api->jpeg_receiver_open(96, buffer, sizeof(buffer), &id));
+    for (size_t i = 0; i < capture.count; i++) {
+        bool complete;
+        const bool last = i + 1 == capture.count;
+        const int result = rtp_api->jpeg_receiver_feed(id, capture.packets[i], capture.lengths[i],
+            native_frame, &id, &complete);
+        assert(complete == last && result == (last ? SOLAR_OS_NATIVE_ERROR_CANCELLED : 0));
+    }
+    solar_os_native_rtp_jpeg_stats_v1_t stats;
+    assert(!rtp_api->jpeg_receiver_status(id, &stats) && stats.frames == 1 && !stats.dropped_frames && !stats.collecting);
+    assert(!rtp_api->jpeg_receiver_reset(id) && !rtp_api->jpeg_receiver_close(id) && !receiver_allocations);
+    assert(rtp_api->jpeg_receiver_reset(id) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+}
+#endif
+
 int main(void)
 {
     test_release_and_clock();
@@ -324,6 +423,9 @@ int main(void)
     test_jpeg_round_trip();
     test_jpeg_loss_drops_frame_and_recovers();
     test_rtsp_request_parser();
+#ifdef TEST_NATIVE_MEDIA_PROTOCOL
+    test_native_protocol();
+#endif
     puts("Media service tests: ok");
     return 0;
 }
