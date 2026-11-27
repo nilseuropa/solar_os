@@ -1026,7 +1026,9 @@ static esp_err_t shutdown_step(solar_os_shutdown_stage_t stage, void *user)
             if (err != ESP_OK) return err;
         }
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_AUDIO
         solar_os_audio_deinit();
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_GNSS
         for (size_t i = 0; i < solar_os_gnss_count(); i++) {
             solar_os_gnss_info_t info;

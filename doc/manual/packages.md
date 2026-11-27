@@ -9,14 +9,14 @@ packages_any = []
 +++
 # Firmware Packages and Flavors
 
-A **flavor** selects the apps, jobs, engines and expansion drivers compiled
-into a firmware image. OS services are part of the core in every flavor.
+A **flavor** selects the optional services, apps, jobs, engines and expansion
+drivers compiled alongside the SolarOS core.
 A **group** is a convenient selection, such as `scripting` or `vision`.
 A **package** supplies a particular app, job, service, or driver.
 Required dependencies are included automatically; unsupported packages are
 removed for the selected board.
 
-The core includes `service.usb-host`, `service.usb-storage` and
+The `hardware_shell` group selects `service.usb-host`, `service.usb-storage` and
 `service.usb-serial` on boards with the `USB_HOST` capability. This provides
 USB input, CDC-ACM/CP210x/CH340 serial ports, and one FAT USB flash or UFI/CBI
 floppy drive at `/usb0`. Hosting
@@ -130,10 +130,10 @@ Package source ownership and service internals are documented in the
 
 ## Firmware profiles
 
-SolarOS provides four firmware profiles. `core` supplies the services, shell,
-package installer on supported targets, and required board hardware. It selects
-no additional apps, workers or expansion-driver collections. `full` adds the
-broad application and driver selection. `classic` is the default profile for
+SolarOS provides four firmware profiles. `core` supplies the runtime, shell,
+system ABI, package installer on supported targets, and required board hardware.
+`full` adds a broad selection of services, applications and drivers.
+`classic` is the default profile for
 classic ESP32 targets, including boards with 4 MiB flash.
 `writerdeck` is the compact profile used by e-paper boards with smaller
 application partitions.
@@ -144,11 +144,11 @@ PSRAM cache workaround on older ESP32 revisions. ODROID-GO includes its buttons
 and ADC D-pad. VGA32 includes its default PS/2 keyboard attachment.
 
 `writerdeck` includes Python, Playground, editing, Files, Reader, Writer, Notes,
-View, audio playback, recording, Web, Agent, WireGuard, SC2 messaging, and file
-transfer. The synthesizer app and controls worker are omitted;
-the Synth service remains available.
+View, audio playback, recording, Web, Agent, WireGuard, and file transfer.
+It includes the Jet service for Playground apps and Link messaging over ESP-NOW.
 Its transfer tools include FTP/FTPD, SSH, SCP, SFTP, SFTP Sync, and Curl.
-PCM5102/I2S and PWM audio remain available for runtime expansion outputs.
+PWM audio and ADC battery monitoring are available as expansion options.
+SolarWriter also includes its board-provided I2S audio and MAX17048 fuel gauge.
 The screen keyboard, Bridge, DAQ, IRC, legacy gateway client/server, speech
 synthesis, broad expansion-driver collections, external radio stacks, Lua,
 built-in games, video playback, and RTSP are omitted. Board and target
@@ -156,8 +156,8 @@ requirements still prune unsupported features from every profile.
 
 On ESP32-S3 boards with PSRAM, all profiles include `pkg` for installing
 native modules. Native-module installation is unavailable on classic ESP32;
-Python and Playground remain available on its PSRAM boards. On supported
-targets, all profiles use the downloadable `espdl` library for inference.
+Python and Playground remain available on its PSRAM boards. Builds that
+include the inference service can use the downloadable `espdl` library.
 Custom profiles can select `inference_backend` to include the ESP-DL engine
 in firmware.
 

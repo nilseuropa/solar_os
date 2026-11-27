@@ -26,11 +26,12 @@ files.
   unloaded; leases protect their API while consumers use it. See
   [Native libraries](manual/native-library.md). A per-entry lifecycle ABI is distinct
   from the native host ABI.
-- Service packages declare `core = true`. They and their dependencies are
-  selected in every flavor before target, hardware and update-layout pruning.
-  Flavors select optional apps, jobs, engines and expansion drivers; they cannot
-  disable a core service. `flavors/core.toml` selects no additional groups.
-  The configurator uses the same core membership and dependency rules.
+- The immutable bootstrap and the small set of packages marked `core = true`
+  supply the runtime, shell, system ABI, and package installation on supported
+  targets. Core includes the wired CDC console on eligible boards and the OTA
+  service on OTA layouts. The resolver adds their dependencies and the board's
+  required packages. Flavors select optional services, apps, jobs, engines and
+  expansion drivers. `flavors/core.toml` selects no additional groups.
 - Shell commands and interactive frontends belong to `core_shell`. Each
   frontend is gated by its service's availability; service packages own the
   backend implementation independently of the shell.
@@ -63,7 +64,8 @@ configurator. They are deliberately granular: examples include `http_client`,
 `ftp`, `logging`, `invaders`, `pcm1808`, and `st7305`. Categories such as
 Networking, Maintenance, Games, and Expansion hardware only organize the
 configurator; categories cannot be selected and do not appear in a flavor.
-The HID service is part of the core; its hidden group is not a separate choice.
+The `full` flavor selects USB HID device reports through the hidden `usb_hid`
+group on boards with a compatible USB device port.
 
 Groups can contain more than one package when users reasonably perceive one
 feature. For example, `ssh` includes the SSH and SCP clients, while `ftp`
@@ -162,8 +164,10 @@ does. The Hello app, job, driver and library manifests show standalone builds.
 
 The C service contract is shared by firmware and native modules. Built-in
 components can resolve known providers at link time. Native modules resolve
-service tables through `get_service`. Language bindings belong to their
-interpreter packages. See [Use the C SDK](manual/native-modules.md#use-the-c-sdk).
+service tables through `get_service`. Each build exposes its available
+providers through the same ABI. A module can declare required services in its
+manifest. Language bindings belong to their interpreter packages.
+See [Use the C SDK](manual/native-modules.md#use-the-c-sdk).
 
 Public service declarations live in `api/native/definitions/` and their names,
 versions and providers are registered in `api/native/services.toml`. Run
@@ -201,14 +205,13 @@ Network ownership is intentionally split. `network.base`, `service.osc`, `job.os
 `network.ssh`, `network.mail`, `messaging.gateway`, `network.http-client`, and
 `network.http-server` own their individual implementations. Image and document
 decoding remain separate `media.image` and `media.document` packages.
-These services are included in the core when the target and board support them;
-selecting an application changes the application selection, not the service set.
+Each flavor selects these services through its groups and the dependencies of
+its applications. Target and board requirements still apply.
 
 `service.osc` owns the bounded OSC 1.0 codec, incoming native-parameter
 mapping, named volatile outbound bindings, and the `osc` shell command.
 `job.osc` owns the IPv4 UDP socket, peer filtering, rate limit, source sampling,
-and counters. It consumes the existing stream and control services without
-making either core service depend on networking.
+and counters. It consumes the existing stream and control services.
 
 `network.wireguard` depends on the generic network service and lwIP. It owns the
 native tunnel, its bounded route table, persistent client profile, preferred

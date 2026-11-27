@@ -17,12 +17,11 @@ class CoreFlavorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.catalog = config.load_catalog(ROOT / "packages/solar_os_packages.toml")
 
-    def test_every_service_has_explicit_core_ownership(self):
-        for name, spec in self.catalog.package_defs.items():
-            if name.startswith("service_"):
-                self.assertTrue(spec.core, name)
-            if name.startswith(("app_", "job_", "backend_")):
-                self.assertFalse(spec.core, name)
+    def test_only_system_api_loader_console_and_ota_are_core_services(self):
+        self.assertEqual(
+            {name for name, spec in self.catalog.package_defs.items() if spec.core},
+            {"service_system_api", "service_native_modules", "service_usb_cdc", "service_ota"},
+        )
 
     def test_core_has_only_bootstrap_apps_and_jobs(self):
         _, _, _, enabled = config.load_flavor(ROOT / "flavors/core.toml", self.catalog)
@@ -45,7 +44,7 @@ class CoreFlavorTest(unittest.TestCase):
             if spec.core:
                 self.assertTrue(enabled[name], name)
 
-    def test_services_are_identical_across_flavors_after_board_pruning(self):
+    def test_core_services_are_identical_across_flavors_after_board_pruning(self):
         for board in load_board_contexts():
             baseline = None
             for flavor in ("core", "writerdeck", "classic", "full"):
@@ -62,13 +61,21 @@ class CoreFlavorTest(unittest.TestCase):
     def test_core_services_cannot_be_disabled_by_flavor_or_configurator(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "invalid.toml"
-            path.write_text('[flavor]\nname="invalid"\n[packages]\nservice_audio=false\n')
-            with self.assertRaisesRegex(ValueError, "cannot be disabled.*service_audio"):
+            path.write_text('[flavor]\nname="invalid"\n[packages]\nservice_system_api=false\n')
+            with self.assertRaisesRegex(ValueError, "cannot be disabled.*service_system_api"):
                 config.load_flavor(path, self.catalog)
         model = SelectionModel(self.catalog)
-        self.assertIn("service_audio", model.mandatory)
-        model.toggle_group(("service_audio",))
-        self.assertIn("service_audio", model.selected)
+        self.assertIn("service_system_api", model.mandatory)
+        model.toggle_group(("service_system_api",))
+        self.assertIn("service_system_api", model.selected)
+
+    def test_optional_provider_can_be_selected_and_disabled(self):
+        model = SelectionModel(self.catalog)
+        self.assertNotIn("service_mpeg", model.selected)
+        model.toggle_group(("service_mpeg",))
+        self.assertIn("service_mpeg", model.selected)
+        model.toggle_group(("service_mpeg",))
+        self.assertNotIn("service_mpeg", model.selected)
 
     def test_absent_hid_hardware_reports_unsupported(self):
         with tempfile.TemporaryDirectory() as temporary:
