@@ -41,6 +41,7 @@ typedef struct {
     _Atomic(TaskHandle_t) worker;
     atomic_bool done, resumable, stop_requested, suspend_requested, suspended, input_reset, pointer_reset, axis_reset, redraw_requested;
     atomic_bool cache_ready, cache_reclaiming;
+    atomic_bool console_gfx_requested, console_gfx_applied;
     solar_os_memory_reclaimer_t cache_reclaimer;
     size_t (*cache_release)(void *user);
     void *cache_user;
@@ -48,7 +49,7 @@ typedef struct {
     bool worker_started, keyboard_captured, themed_index2;
     int result, exit_code;
     char detail[160];
-    void *gfx, *keys, *pointers, *axes, *presenter, *audio;
+    void *gfx, *keys, *pointers, *axes, *presenter, *audio, *console;
 } foreground_state_t;
 static foreground_state_t first, second;
 static unsigned cache_calls;
@@ -94,8 +95,15 @@ static void vTaskDelay(TickType_t ticks) {
     if (mode == 3) atomic_store(&wait_state->done, true);
     if (mode == 4) atomic_store(&wait_state->suspend_requested, false);
     if (mode == 5) atomic_store(&wait_state->stop_requested, true);
+    if (mode == 6)
+        atomic_store(&wait_state->console_gfx_applied,
+                     atomic_load(&wait_state->console_gfx_requested));
 }
-static void foreground_sleep_ms(uint32_t ms) { vTaskDelay(pdMS_TO_TICKS(ms)); }
+static void foreground_sleep_ms(uint32_t ms)
+{
+    const TickType_t ticks = pdMS_TO_TICKS(ms);
+    vTaskDelay(ticks ? ticks : 1U);
+}
 static void solar_os_input_release_keyboard(void *owner) {
     foreground_state_t *s = owner;
     assert(atomic_load(&s->done) || atomic_load(&s->suspended)); release_order = ++sequence;
@@ -303,6 +311,20 @@ int main(void) {
     assert(!foreground_get_service("bogus", 1, 0, &second));
     assert(!foreground_get_service("vm", 1, 0, &second));
     slots[1].manifest.flags=0; assert(foreground_enable_suspend()==SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    setup();
+    solar_os_gfx_t *surface;
+    assert(foreground_console_gfx_acquire(&surface) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!surface);
+    first.console = &token[2];
+    first.presenter = NULL;
+    mode = 6;
+    assert(foreground_console_gfx_acquire(&surface) == SOLAR_OS_NATIVE_OK);
+    assert(surface == first.gfx && atomic_load(&first.console_gfx_applied));
+    assert(foreground_console_gfx_release() == SOLAR_OS_NATIVE_OK);
+    assert(!atomic_load(&first.console_gfx_applied));
+    first.gfx = NULL;
+    assert(foreground_console_gfx_acquire(&surface) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!surface);
     setup(); current=&token[2]; mode=1;
     foreground_suspend(&contexts[0]);
     assert(atomic_load(&first.suspended) && !contexts[0].streaming);

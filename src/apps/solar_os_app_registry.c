@@ -351,6 +351,18 @@ static int app_registry_index_by_app(const solar_os_app_t *app)
     return -1;
 }
 
+bool solar_os_app_registry_prefers_builtin(const char *name)
+{
+#if SOLAR_OS_PACKAGE_APP_LUA
+    /* The catalog version supplies the Playground bindings. Firmware Lua
+     * provides the full set of SolarOS bindings. */
+    return name != NULL && strcmp(name, "lua") == 0;
+#else
+    (void)name;
+    return false;
+#endif
+}
+
 #if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
 typedef struct {
     char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
@@ -464,6 +476,7 @@ static void app_registry_cache_ensure(void)
 
 static const solar_os_app_registry_entry_t *app_registry_cached_find(const char *name)
 {
+    if (solar_os_app_registry_prefers_builtin(name)) return NULL;
     const solar_os_app_registry_entry_t *entry = NULL;
     app_registry_cache_ensure();
     portENTER_CRITICAL(&app_registry_cache_lock);

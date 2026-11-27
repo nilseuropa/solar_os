@@ -31,6 +31,8 @@ typedef struct {
 size_t solar_os_app_registry_count(void);
 const solar_os_app_registry_entry_t *solar_os_app_registry_get(size_t index);
 const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name);
+/* Whether a firmware app takes priority over a foreground module with this ID. */
+bool solar_os_app_registry_prefers_builtin(const char *name);
 const solar_os_app_registry_entry_t *solar_os_app_registry_find_by_app(const solar_os_app_t *app);
 const solar_os_app_registry_entry_t *solar_os_app_registry_find_opener(const char *path);
 // Installed command modules and foreground apps from the shared discovery cache.

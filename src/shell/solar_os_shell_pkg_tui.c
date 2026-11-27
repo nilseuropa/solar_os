@@ -12,6 +12,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "solar_os_app_registry.h"
 #include "solar_os_keys.h"
 #include "solar_os_module_packages.h"
 #include "solar_os_task.h"
@@ -133,6 +134,12 @@ static const solar_os_module_package_t *pkg_tui_selected(void)
     pkg_tui_node_t node;
     if (!pkg_tui_node_at(pkg_tui.viewport.cursor, &node) || node.is_folder) return NULL;
     return &pkg_tui.catalog->packages[node.package];
+}
+
+static bool pkg_tui_prefers_builtin_app(const solar_os_module_package_t *package)
+{
+    return package->type == SOLAR_OS_MODULE_TYPE_APP &&
+           solar_os_app_registry_prefers_builtin(package->id);
 }
 
 static bool pkg_tui_cancelled(void *user)
@@ -353,8 +360,12 @@ static void pkg_tui_render_list(void)
                 pkg_folders[node.folder].title, (unsigned)pkg_tui_folder_count(node.folder));
         } else {
             const solar_os_module_package_t *package = &pkg_tui.catalog->packages[node.package];
-            snprintf(line, sizeof(line), "  [%c] %s %s",
-                package->compiled ? 'B' : (package->installed ? 'I' : (package->compatible ? ' ' : '!')), package->id, package->version);
+            if (package->compiled || pkg_tui_prefers_builtin_app(package)) {
+                snprintf(line, sizeof(line), "  [B] %s Built in", package->id);
+            } else {
+                const char marker = package->installed ? 'I' : (package->compatible ? ' ' : '!');
+                snprintf(line, sizeof(line), "  [%c] %s %s", marker, package->id, package->version);
+            }
         }
         solar_os_tui_write_cell(tui,
                                 1U + row,
@@ -380,21 +391,29 @@ static void pkg_tui_render_details(void)
     }
     solar_os_tui_t *tui = &pkg_tui.tui;
     const size_t cols = solar_os_tui_cols(tui);
+    const bool builtin_app = pkg_tui_prefers_builtin_app(package);
+    const bool builtin = package->compiled || builtin_app;
     solar_os_tui_clear(tui);
-    solar_os_tui_draw_title(tui, package->id, package->version);
+    solar_os_tui_draw_title(tui, package->id, builtin ? "Built in" : package->version);
 
     char lines[7][160];
     snprintf(lines[0], sizeof(lines[0]), "Name: %s", package->name);
     snprintf(lines[1], sizeof(lines[1]), "Type: %s", solar_os_module_type_name(package->type));
-    snprintf(lines[2], sizeof(lines[2]), "State: %s", package->compiled ? "compiled into firmware" :
+    snprintf(lines[2], sizeof(lines[2]), "State: %s", builtin ? "built in" :
         (package->installed ? "installed" : "not installed"));
-    snprintf(lines[3], sizeof(lines[3]), "Lifecycle ABI: %u", (unsigned)package->lifecycle_abi);
-    snprintf(lines[4], sizeof(lines[4]), "Size: %u bytes", (unsigned)package->artifact_size);
+    if (builtin) {
+        snprintf(lines[3], sizeof(lines[3]), "Catalog version: %s", package->version);
+    } else {
+        snprintf(lines[3], sizeof(lines[3]), "Lifecycle ABI: %u", (unsigned)package->lifecycle_abi);
+    }
+    snprintf(lines[4], sizeof(lines[4]), "Download size: %u bytes", (unsigned)package->artifact_size);
     snprintf(lines[5], sizeof(lines[5]), "Description: %s", package->description);
-    snprintf(lines[6],
-             sizeof(lines[6]),
-             "Compatibility: %s",
-             package->compatible ? "compatible" : package->incompatibility);
+    if (builtin_app) {
+        snprintf(lines[6], sizeof(lines[6]), "Download: %s", package->installed ? "also installed" : "not installed");
+    } else {
+        snprintf(lines[6], sizeof(lines[6]), "Compatibility: %s",
+                 package->compatible ? "compatible" : package->incompatibility);
+    }
     const size_t visible = solar_os_tui_screen_content_rows(tui, 1U, 1U);
     for (size_t row = 0U; row < visible && row < 7U; row++) {
         solar_os_tui_write_cell(tui,
@@ -404,8 +423,14 @@ static void pkg_tui_render_details(void)
                                 lines[row],
                                 SOLAR_OS_TUI_ATTR_NORMAL);
     }
-    const char *help = pkg_tui.busy ? "Esc cancel" :
-        "I install  U remove  R refresh  esc back";
+    const char *help = "I install  U remove  R refresh  Esc back";
+    if (pkg_tui.busy) {
+        help = "Esc cancel";
+    } else if (builtin_app) {
+        help = package->installed ? "U remove download  R refresh  Esc back" : "R refresh  Esc back";
+    } else if (package->compiled) {
+        help = "I install  R refresh  Esc back";
+    }
     solar_os_tui_draw_footer(tui, pkg_tui.status, help);
 }
 
@@ -437,9 +462,14 @@ static void pkg_tui_render_modal(void)
                 popup.col + 2U, popup.width - 4U, stage, bytes, total, total > 0);
     } else if (pkg_tui.prompt_operation != PKG_TUI_OPERATION_NONE) {
         bool installing = pkg_tui.prompt_operation == PKG_TUI_OPERATION_INSTALL;
-        snprintf(message, sizeof(message), "%s %s %s?\ny/N",
-            installing ? (pkg_tui.operation_package.installed ? "Replace" : "Install") : "Remove",
-            pkg_tui.operation_package.id, pkg_tui.operation_package.version);
+        if (!installing && pkg_tui_prefers_builtin_app(&pkg_tui.operation_package)) {
+            snprintf(message, sizeof(message), "Remove the downloaded copy of %s?\ny/N",
+                     pkg_tui.operation_package.id);
+        } else {
+            snprintf(message, sizeof(message), "%s %s %s?\ny/N",
+                installing ? (pkg_tui.operation_package.installed ? "Replace" : "Install") : "Remove",
+                pkg_tui.operation_package.id, pkg_tui.operation_package.version);
+        }
         solar_os_tui_text_popup(&pkg_tui.tui, &bounds,
             installing ? "Install module" : "Remove module", message, NULL);
     } else if (pkg_tui.result_popup) {
@@ -471,6 +501,10 @@ static void pkg_tui_install_selected(void)
     if (!package) {
         return;
     }
+    if (pkg_tui_prefers_builtin_app(package)) {
+        strlcpy(pkg_tui.status, "app is built in", sizeof(pkg_tui.status));
+        return;
+    }
     if (!package->compatible) {
         strlcpy(pkg_tui.status, package->incompatibility, sizeof(pkg_tui.status));
         pkg_tui.stop_requested = false;
@@ -488,8 +522,8 @@ static void pkg_tui_remove_selected(void)
     if (!package) {
         return;
     }
-    if (package->compiled) {
-        strlcpy(pkg_tui.status, "component is compiled into firmware; change the firmware flavor to remove it", sizeof(pkg_tui.status));
+    if (package->compiled || (!package->installed && pkg_tui_prefers_builtin_app(package))) {
+        strlcpy(pkg_tui.status, "module is built in", sizeof(pkg_tui.status));
         return;
     }
     if (!package->installed) {

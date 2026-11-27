@@ -49,12 +49,19 @@ when `session create` launches an app on a display from a port shell. Apps
 that declare file extensions also receive the shell's normal file and directory
 Tab completion for their arguments.
 
+`SOLAR_OS_NATIVE_APP_CONSOLE` lets a TUI worker use the display or port shell.
+Text written through the native host appears in the session. A console worker
+can acquire its display surface through `foreground.console_gfx_acquire` and
+use the `gfx` table on the worker task. Release the surface before switching
+back to text. A port session has no foreground graphics surface.
+
 Discovery reads ELF headers, dynamic symbols and the foreground manifest without
 loading the whole app into memory. Launch validates the complete ELF and checks
 that its manifest matches the session's admitted resource declaration.
 
 Installed foreground apps appear in app discovery. An installed foreground app
-with a built-in app's ID takes precedence while installed. Each app can own one
+normally takes precedence when it shares a built-in app's ID. Firmware that
+includes the full Lua runtime uses that runtime for the `lua` command. Each app can own one
 session. Different external apps can remain loaded in suspended sessions.
 Installing or removing a running or suspended foreground app is refused.
 Resource declaration changes to an app already discovered require a restart.

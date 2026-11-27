@@ -14,6 +14,12 @@ It downloads one catalog from the configured repository and presents its
 categories as a foldable tree. Applications are scripts and assets, not
 firmware packages.
 
+On ESP32-S3 firmware with native modules, use `pkg install lua` to add Lua
+when it is absent. Playground detects either the installed or built-in
+runtime. You can return to the saved Playground catalog after installation.
+The downloadable runtime supports the REPL and the SolarOS bindings used
+by the official Playground Lua apps. Boing also needs `pkg install jet`.
+
 Start the browser:
 
 ```text

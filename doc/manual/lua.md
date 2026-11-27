@@ -10,7 +10,12 @@ agent_reference_sections = true
 +++
 # SolarOS Lua API
 
-SolarOS embeds Lua as the `lua` foreground application. It can run an interactive REPL or execute `.lua` files from storage.
+The `lua` foreground application runs an interactive REPL or executes
+`.lua` files from storage. On ESP32-S3 firmware with native modules, install
+it with `pkg install lua` when Lua is absent. This overview and its service
+API references describe the full bindings provided by the built-in runtime.
+The downloadable runtime includes the bindings used by the official
+[Playground](playground.md) Lua apps.
 
 The SolarOS API is preloaded as the global table `solaros`. A minimal `require("solaros")` shim is also provided:
 

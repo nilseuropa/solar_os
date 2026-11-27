@@ -29,7 +29,9 @@ typedef int portMUX_TYPE;
 static solar_os_module_package_t saved_packages[4];
 static solar_os_module_catalog_t saved = {.packages = saved_packages};
 static bool cache_available = true, fail_refresh, fail_worker, wait_ready = true;
+static bool firmware_has_lua;
 static unsigned fetches, installs, removes, bars, loads, cols=80, rows=12;
+static unsigned lua_removes;
 static uint64_t progress_value, progress_total;
 static char popup_title[80], popup_text[320], screen[32][161];
 size_t strlcpy(char *d,const char *s,size_t n) { size_t len=strlen(s);if(n)snprintf(d,n,"%s",s);return len; }
@@ -54,6 +56,7 @@ static int solar_os_task_create_pinned_internal(void (*fn)(void*),const char *na
 static void solar_os_task_delete_internal(void *p) { (void)p; }
 static bool solar_os_task_wait_done(void *p,volatile bool *done,unsigned ms) { (void)p;(void)done;(void)ms;return wait_ready; }
 static void solar_os_context_finish(solar_os_context_t *c,int code,void *p) { (void)code;(void)p;c->finished=true; }
+static bool solar_os_app_registry_prefers_builtin(const char *name) { return firmware_has_lua && !strcmp(name, "lua"); }
 static solar_os_module_catalog_t *copy_catalog(void) { solar_os_module_catalog_t *c=malloc(sizeof(*c));assert(c);*c=saved;c->packages=malloc(c->count*sizeof(*c->packages));assert(c->packages);memcpy(c->packages,saved.packages,c->count*sizeof(*c->packages));return c; }
 esp_err_t solar_os_module_catalog_load(solar_os_module_catalog_t **out,char *d,size_t n)
 { (void)d;(void)n;loads++;*out=cache_available?copy_catalog():NULL;return cache_available?ESP_OK:ESP_ERR_NOT_FOUND; }
@@ -63,7 +66,18 @@ void solar_os_module_catalog_free(solar_os_module_catalog_t *c) { if(c)free(c->p
 const char *solar_os_module_type_name(solar_os_module_type_t t) { (void)t;return "module"; }
 esp_err_t solar_os_module_package_install(const char *id,const solar_os_module_install_options_t *o,solar_os_module_install_result_t *r,char *d,size_t n)
 { (void)r;(void)d;(void)n;assert(!strcmp(id,"robot"));installs++;o->progress(50,100,o->user);return ESP_OK; }
-esp_err_t solar_os_module_package_remove(const char *id,char *d,size_t n) { (void)d;(void)n;assert(!strcmp(id,"robot"));removes++;return ESP_OK; }
+esp_err_t solar_os_module_package_remove(const char *id,char *d,size_t n)
+{
+    (void)d;
+    (void)n;
+    if (!strcmp(id, "lua")) {
+        lua_removes++;
+    } else {
+        assert(!strcmp(id, "robot"));
+        removes++;
+    }
+    return ESP_OK;
+}
 
 /* VIEWPORT */
 /* TUI */
@@ -83,8 +97,10 @@ int main(void) {
     saved.count=3;saved.signature_verified=true;
     saved.packages[0]=(solar_os_module_package_t){.type=SOLAR_OS_MODULE_TYPE_LIBRARY,.compatible=true};
     strcpy(saved.packages[0].id,"robot");strcpy(saved.packages[0].version,"1");
-    saved.packages[1]=(solar_os_module_package_t){.type=SOLAR_OS_MODULE_TYPE_APP,.compatible=true};strcpy(saved.packages[1].id,"hello");
-    saved.packages[2]=(solar_os_module_package_t){.type=SOLAR_OS_MODULE_TYPE_JOB,.compatible=true};strcpy(saved.packages[2].id,"worker");
+    saved.packages[1]=(solar_os_module_package_t){.type=SOLAR_OS_MODULE_TYPE_APP,.compatible=true};
+    strcpy(saved.packages[1].id,"lua");strcpy(saved.packages[1].version,"5.4.8");
+    saved.packages[2]=(solar_os_module_package_t){.type=SOLAR_OS_MODULE_TYPE_JOB,.compatible=true,.compiled=true,.installed=true};
+    strcpy(saved.packages[2].id,"worker");
     pkg_tui_state=calloc(1,sizeof(pkg_tui_state_t));assert(pkg_tui_state);
     assert(pkg_tui_start(&ctx)==ESP_OK && loads==1 && !fetches && !pkg_tui.busy);
     assert(strstr(screen[1],"Apps (1)"));
@@ -94,6 +110,47 @@ int main(void) {
     key(SOLAR_OS_KEY_LEFT);assert(!pkg_tui_selected());
     key(SOLAR_OS_KEY_LEFT);assert(pkg_tui_visible_count()==4);
     key(SOLAR_OS_KEY_RIGHT);assert(pkg_tui_visible_count()==5);
+
+    find_id("lua");
+    pkg_tui_render();
+    assert(strstr(screen[2], "[ ] lua 5.4.8"));
+    key('I');
+    assert(pkg_tui.prompt_operation == PKG_TUI_OPERATION_INSTALL);
+    key('n');
+
+    firmware_has_lua = true;
+    pkg_tui_render();
+    assert(strstr(screen[2], "[B] lua Built in"));
+    key('\r');
+    assert(strstr(screen[3], "State: built in"));
+    assert(strstr(screen[4], "Catalog version: 5.4.8"));
+    assert(strstr(screen[7], "Download: not installed"));
+    key('I');
+    assert(!*popup_title && !pkg_tui.prompt_operation && strstr(screen[rows - 1], "built in"));
+    key('U');
+    assert(!*popup_title && !pkg_tui.prompt_operation && !lua_removes);
+
+    pkg_tui_update_installed("lua", true);
+    pkg_tui_render();
+    assert(strstr(screen[7], "Download: also installed"));
+    key('U');
+    assert(strstr(popup_text, "Remove the downloaded copy of lua?"));
+    key('y');
+    done();
+    key('\r');
+    assert(lua_removes == 1 && strstr(screen[3], "State: built in"));
+    assert(strstr(screen[7], "Download: not installed"));
+    key(SOLAR_OS_KEY_ESCAPE);
+
+    find_id("worker");
+    pkg_tui_render();
+    assert(strstr(screen[4], "[B] worker Built in"));
+    key('U');
+    assert(!pkg_tui.prompt_operation && strstr(screen[rows - 1], "built in"));
+    key('I');
+    assert(pkg_tui.prompt_operation == PKG_TUI_OPERATION_INSTALL);
+    key('n');
+
     find_id("robot");key('I');assert(!installs && strstr(popup_title,"Install"));
     key(SOLAR_OS_KEY_DOWN);assert(pkg_tui.prompt_operation==PKG_TUI_OPERATION_INSTALL);
     key('\r');assert(!pkg_tui.busy && !installs); /* Enter defaults to No. */
