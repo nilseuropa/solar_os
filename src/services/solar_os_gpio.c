@@ -352,6 +352,9 @@ esp_err_t solar_os_gpio_read(int pin, bool *level)
         if (config_err != ESP_OK) {
             return config_err;
         }
+    } else {
+        const esp_err_t claim_err = gpio_claim_direct(pin, NULL);
+        if (claim_err != ESP_OK) return claim_err;
     }
 
     return gpio_port_read((gpio_num_t)pin, level);
@@ -379,6 +382,9 @@ esp_err_t solar_os_gpio_write(int pin, bool level)
         if (config_err != ESP_OK) {
             return config_err;
         }
+    } else {
+        const esp_err_t claim_err = gpio_claim_direct(pin, NULL);
+        if (claim_err != ESP_OK) return claim_err;
     }
 
     const esp_err_t err = gpio_port_write((gpio_num_t)pin, level);
@@ -531,6 +537,24 @@ esp_err_t solar_os_gpio_read_owned(int pin, const char *owner, bool *level)
         return ESP_ERR_INVALID_STATE;
     }
     return gpio_port_read((gpio_num_t)pin, level);
+#endif
+}
+
+esp_err_t solar_os_gpio_write_owned(int pin, const char *owner, bool level)
+{
+#if !SOLAR_OS_BOARD_HAS_GPIO
+    (void)pin;
+    (void)owner;
+    (void)level;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    gpio_slot_t *slot = find_slot(pin);
+    esp_err_t error = gpio_check_owned(pin, owner);
+    if (error != ESP_OK) return error;
+    if (slot == NULL || !slot->configured || slot->mode != SOLAR_OS_GPIO_MODE_OUTPUT) return ESP_ERR_INVALID_STATE;
+    error = gpio_port_write((gpio_num_t)pin, level);
+    if (error == ESP_OK) slot->output_level = level;
+    return error;
 #endif
 }
 

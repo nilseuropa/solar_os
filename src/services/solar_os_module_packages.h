@@ -6,64 +6,23 @@
 
 #include "esp_err.h"
 #include "solar_os_storage.h"
+#include "solar_os_components.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define SOLAR_OS_MODULE_PACKAGE_ID_MAX 32U
-#define SOLAR_OS_MODULE_PACKAGE_NAME_MAX 64U
-#define SOLAR_OS_MODULE_PACKAGE_VERSION_MAX 32U
-#define SOLAR_OS_MODULE_PACKAGE_DESCRIPTION_MAX 128U
-#define SOLAR_OS_MODULE_PACKAGE_URL_MAX 320U
-#define SOLAR_OS_MODULE_PACKAGE_SHA256_MAX 65U
-#define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 16U
-#define SOLAR_OS_MODULE_DEPENDENCIES_MAX 4U
-#define SOLAR_OS_MODULE_SERVICES_MAX 8U
+#include "solar_os_native_packages_abi.h"
+
 #define SOLAR_OS_MODULE_APP_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_FOREGROUND_LIFECYCLE_ABI 2U
 #define SOLAR_OS_MODULE_JOB_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_DRIVER_LIFECYCLE_ABI 1U
 #define SOLAR_OS_MODULE_LIBRARY_LIFECYCLE_ABI 1U
 
-typedef enum {
-    SOLAR_OS_MODULE_TYPE_INVALID = 0,
-    SOLAR_OS_MODULE_TYPE_APP,
-    SOLAR_OS_MODULE_TYPE_JOB,
-    SOLAR_OS_MODULE_TYPE_DRIVER,
-    SOLAR_OS_MODULE_TYPE_LIBRARY,
-} solar_os_module_type_t;
-
-typedef struct {
-    char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
-    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
-} solar_os_module_dependency_t;
-
-typedef struct {
-    char name[32];
-    uint32_t abi;
-    uint32_t minimum_struct_size;
-} solar_os_module_service_requirement_t;
-
-typedef struct {
-    solar_os_module_type_t type;
-    char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
-    char name[SOLAR_OS_MODULE_PACKAGE_NAME_MAX];
-    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
-    char description[SOLAR_OS_MODULE_PACKAGE_DESCRIPTION_MAX];
-    char artifact_url[SOLAR_OS_MODULE_PACKAGE_URL_MAX];
-    char artifact_sha256[SOLAR_OS_MODULE_PACKAGE_SHA256_MAX];
-    uint32_t artifact_size;
-    uint32_t lifecycle_abi;
-    uint32_t minimum_host_api_size;
-    uint8_t dependency_count;
-    uint8_t service_count;
-    solar_os_module_dependency_t dependencies[SOLAR_OS_MODULE_DEPENDENCIES_MAX];
-    solar_os_module_service_requirement_t services[SOLAR_OS_MODULE_SERVICES_MAX];
-    bool compatible;
-    bool installed;
-    char incompatibility[96];
-} solar_os_module_package_t;
+typedef solar_os_native_package_dependency_v1_t solar_os_module_dependency_t;
+typedef solar_os_native_package_service_requirement_v1_t solar_os_module_service_requirement_t;
+typedef solar_os_native_package_entry_v1_t solar_os_module_package_t;
 
 typedef struct {
     char host_version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
@@ -72,39 +31,16 @@ typedef struct {
     uint32_t native_abi;
     bool signature_verified;
     size_t count;
-    solar_os_module_package_t packages[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    /* Owned count-sized allocation; release with catalog_free. */
+    solar_os_module_package_t *packages;
 } solar_os_module_catalog_t;
 
-typedef bool (*solar_os_module_package_cancel_fn)(void *user);
-typedef void (*solar_os_module_package_progress_fn)(uint32_t bytes,
-                                                    uint32_t total,
-                                                    void *user);
-
-typedef struct {
-    solar_os_module_package_cancel_fn should_cancel;
-    solar_os_module_package_progress_fn progress;
-    void *user;
-} solar_os_module_install_options_t;
-
-typedef struct {
-    solar_os_module_type_t type;
-    char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
-    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
-    char path[SOLAR_OS_STORAGE_PATH_MAX];
-    uint32_t bytes;
-} solar_os_module_install_result_t;
-
-typedef bool (*solar_os_module_package_visit_fn)(const char *id, void *user);
-
-/* Receipts describe the bytes installed by pkg, including exact library pins.
- * A missing receipt is normal for files installed by older firmware. */
-typedef struct {
-    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
-    char sha256[SOLAR_OS_MODULE_PACKAGE_SHA256_MAX];
-    uint32_t size;
-    uint8_t dependency_count;
-    solar_os_module_dependency_t dependencies[SOLAR_OS_MODULE_DEPENDENCIES_MAX];
-} solar_os_module_receipt_t;
+typedef solar_os_native_package_cancel_fn solar_os_module_package_cancel_fn;
+typedef solar_os_native_package_progress_fn solar_os_module_package_progress_fn;
+typedef solar_os_native_package_install_options_v1_t solar_os_module_install_options_t;
+typedef solar_os_native_package_install_result_v1_t solar_os_module_install_result_t;
+typedef solar_os_native_package_installed_visit_fn solar_os_module_package_visit_fn;
+typedef solar_os_native_package_receipt_v1_t solar_os_module_receipt_t;
 
 typedef struct {
     uint8_t package_index;
@@ -114,17 +50,8 @@ typedef struct {
     uint32_t previous_size;
 } solar_os_module_upgrade_entry_t;
 
-typedef enum {
-    SOLAR_OS_MODULE_COMPATIBILITY_UNKNOWN,
-    SOLAR_OS_MODULE_COMPATIBILITY_VERIFIED,
-    SOLAR_OS_MODULE_COMPATIBILITY_INCOMPATIBLE,
-} solar_os_module_compatibility_t;
-
-typedef struct {
-    bool installed;
-    char version[SOLAR_OS_MODULE_PACKAGE_VERSION_MAX];
-    solar_os_module_compatibility_t compatibility;
-} solar_os_module_installed_info_t;
+typedef uint32_t solar_os_module_compatibility_t;
+typedef solar_os_native_package_installed_info_v1_t solar_os_module_installed_info_t;
 
 typedef struct {
     solar_os_module_catalog_t *catalog;
@@ -134,7 +61,7 @@ typedef struct {
     size_t unverified_count;
     size_t incompatible_count;
     uint32_t download_bytes;
-    solar_os_module_upgrade_entry_t entries[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
+    solar_os_module_upgrade_entry_t *entries;
     bool applied;
 } solar_os_module_upgrade_plan_t;
 

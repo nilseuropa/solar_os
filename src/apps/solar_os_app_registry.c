@@ -11,7 +11,7 @@
 #include "solar_os_task.h"
 #include "solar_os_app_file_types.h"
 #include "solar_os_storage.h"
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
 #include "solar_os_native_foreground.h"
 #include "solar_os_module_packages.h"
 #include "solar_os_memory.h"
@@ -351,7 +351,7 @@ static int app_registry_index_by_app(const solar_os_app_t *app)
     return -1;
 }
 
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
 typedef struct {
     char id[SOLAR_OS_MODULE_PACKAGE_ID_MAX];
     const solar_os_app_registry_entry_t *entry;
@@ -385,6 +385,8 @@ static bool app_registry_builtin_name(const char *name)
 static bool app_registry_external_visit(const char *id, void *user)
 {
     app_registry_cache_t *cache = user;
+    for (size_t i = 0; i < cache->count; ++i)
+        if (!strcmp(cache->modules[i].id, id)) return true;
     if (cache->count == SOLAR_OS_MODULE_PACKAGE_COUNT_MAX) return false;
     app_registry_module_t *module = &cache->modules[cache->count++];
     strlcpy(module->id, id, sizeof(module->id));
@@ -421,10 +423,22 @@ static void app_registry_cache_ensure(void)
         next->revision = revision;
         next->mounted = mounted;
         strlcpy(next->root, root, sizeof(next->root));
-        const esp_err_t err = mounted && root[0] ?
-            solar_os_module_package_foreach_installed(SOLAR_OS_MODULE_TYPE_APP,
-                app_registry_external_visit, next) : ESP_OK;
-        if (err != ESP_OK) next->count = next->external_count = 0U;
+        /* Compiled entries do not depend on a mounted storage volume. */
+        for (size_t i = 0; i < solar_os_component_count(); ++i) {
+            const solar_os_component_t *component = solar_os_component_get(i);
+            if (component->type == SOLAR_OS_MODULE_TYPE_APP)
+                (void)app_registry_external_visit(component->id, next);
+        }
+        const size_t compiled_count = next->count, compiled_foreground = next->external_count;
+        esp_err_t err = ESP_OK;
+#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+        if (mounted && root[0]) err = solar_os_module_package_foreach_installed(
+            SOLAR_OS_MODULE_TYPE_APP, app_registry_external_visit, next);
+#endif
+        if (err != ESP_OK) {
+            next->count = compiled_count;
+            next->external_count = compiled_foreground;
+        }
         /* VFS users can bypass storage notifications. Periodically discover
          * their changes; ordinary completion does no filesystem I/O. */
         next->expires_us = esp_timer_get_time() +
@@ -465,30 +479,40 @@ static const solar_os_app_registry_entry_t *app_registry_cached_find(const char 
 
 #endif
 
-void solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user),
+esp_err_t solar_os_app_registry_foreach_module(bool (*visit)(const char *id, void *user),
                                           void *user)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
-    if (!visit) return;
+    if (!visit) return ESP_ERR_INVALID_ARG;
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     app_registry_cache_ensure();
-    char ids[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX][SOLAR_OS_MODULE_PACKAGE_ID_MAX];
+    /* Visitors may reenter discovery. Keep a coherent cold snapshot and call
+     * them outside the publication lock without a catalog-sized stack array. */
+    portENTER_CRITICAL(&app_registry_cache_lock);
+    const bool empty = app_registry_cache.count == 0;
+    portEXIT_CRITICAL(&app_registry_cache_lock);
+    if (empty) return ESP_OK;
+    char (*ids)[SOLAR_OS_MODULE_PACKAGE_ID_MAX] = solar_os_memory_alloc(
+        SOLAR_OS_MODULE_PACKAGE_COUNT_MAX * sizeof(*ids),
+        SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "apps.module.names");
+    if (!ids) return ESP_ERR_NO_MEM;
     portENTER_CRITICAL(&app_registry_cache_lock);
     const size_t count = app_registry_cache.count;
     for (size_t i = 0U; i < count; ++i)
         memcpy(ids[i], app_registry_cache.modules[i].id, sizeof(ids[i]));
     portEXIT_CRITICAL(&app_registry_cache_lock);
-    /* Call visitors outside the lock, with one coherent set of names. */
     for (size_t i = 0U; i < count; ++i)
         if (!visit(ids[i], user)) break;
+    solar_os_memory_free(ids);
+    return ESP_OK;
 #else
-    (void)visit;
     (void)user;
+    return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
 
 size_t solar_os_app_registry_count(void)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     app_registry_cache_ensure();
     portENTER_CRITICAL(&app_registry_cache_lock);
     const size_t count = registered_app_count + app_registry_cache.external_count;
@@ -501,7 +525,7 @@ size_t solar_os_app_registry_count(void)
 
 const solar_os_app_registry_entry_t *solar_os_app_registry_get(size_t index)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     if (index >= registered_app_count) {
         app_registry_cache_ensure();
         const solar_os_app_registry_entry_t *entry = NULL;
@@ -529,7 +553,7 @@ const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name
     if (name == NULL) {
         return NULL;
     }
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     const solar_os_app_registry_entry_t *external = app_registry_cached_find(name);
     if (external != NULL) return external;
 #endif
@@ -545,7 +569,7 @@ const solar_os_app_registry_entry_t *solar_os_app_registry_find(const char *name
 
 const solar_os_app_registry_entry_t *solar_os_app_registry_find_by_app(const solar_os_app_t *app)
 {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     const solar_os_app_registry_entry_t *external = solar_os_native_foreground_entry(app);
     if (external) return external;
 #endif
@@ -799,6 +823,17 @@ bool solar_os_app_registry_can_open(const char *path_or_url)
     return entry != NULL && entry->app != NULL;
 }
 
+bool solar_os_app_registry_opener_info(const char *path_or_url, solar_os_app_discovery_info_t *info)
+{
+    if (!info) return false;
+    char resolved[SOLAR_OS_APP_ARG_LEN];
+    const solar_os_app_registry_entry_t *entry =
+        app_registry_find_target_opener(path_or_url, resolved, sizeof(resolved));
+    if (!entry || !entry->app) return false;
+    app_discovery_native_info(entry, info);
+    return true;
+}
+
 esp_err_t solar_os_app_registry_request_open(solar_os_context_t *ctx,
                                              const char *path_or_url)
 {
@@ -824,7 +859,7 @@ bool solar_os_app_registry_owner(const solar_os_app_t *app, char *owner, size_t 
         owner[0] = '\0';
     }
     if (index < 0) {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
         return solar_os_native_foreground_owner(app, owner, owner_len);
 #else
         return false;
@@ -856,7 +891,7 @@ esp_err_t solar_os_app_registry_claim(const solar_os_app_t *app,
         current_owner[0] = '\0';
     }
     if (index < 0) {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
         if (solar_os_native_foreground_entry(app))
             return solar_os_native_foreground_claim(app, owner, current_owner, current_owner_len);
 #endif
@@ -893,7 +928,7 @@ void solar_os_app_registry_release(const solar_os_app_t *app, const char *owner)
     const int index = app_registry_index_by_app(app);
 
     if (index < 0 || owner == NULL || owner[0] == '\0') {
-#if SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED
         if (index < 0) solar_os_native_foreground_release(app, owner);
 #endif
         return;

@@ -1,0 +1,84 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#define SOLAR_OS_NATIVE_MEDIA_SERVICE "media.video"
+#define SOLAR_OS_NATIVE_MEDIA_ABI 1U
+#define SOLAR_OS_NATIVE_MEDIA_LOCAL 1U
+#define SOLAR_OS_NATIVE_MEDIA_RTSP 2U
+typedef struct solar_os_script_media solar_os_native_media_t;
+typedef struct {
+    uint16_t width, height;
+    uint8_t jpeg_quality;
+    uint32_t timeout_ms;
+} solar_os_native_video_options_v1_t;
+typedef struct {
+    const uint8_t *data;
+    size_t length;
+    uint16_t width, height;
+    uint64_t timestamp_us;
+    bool network;
+    uint32_t rtp_timestamp;
+    uint64_t arrived_us;
+} solar_os_native_video_frame_v1_t;
+
+#define SOLAR_OS_RTSP_CLIENT_ERROR_MAX 112U
+typedef struct {
+    bool negotiated, playing, audio_playing;
+    bool video, audio;
+    uint32_t sample_rate;
+    uint8_t channels;
+    uint32_t video_frames, video_dropped, audio_dropped;
+    uint32_t epoch, reconnects;
+    bool reconnecting;
+    uint32_t audio_stack_min_free;
+    /* Optional diagnostics. Submission gaps are not hardware underrun counts. */
+    uint32_t audio_blocks, audio_output_frames, audio_output_rate;
+    uint32_t audio_write_max_us, audio_gap_max_us, audio_wait_polls;
+    uint32_t audio_concealed, audio_concealed_frames, audio_queued;
+    uint32_t audio_rebuffers;
+    uint16_t audio_block_frames;
+    uint8_t audio_output_channels;
+    int32_t error;
+    /* First causal failure, including operation, socket errno or RTSP status.
+     * Bounded snapshot; never contains URL credentials or received payloads. */
+    char error_detail[SOLAR_OS_RTSP_CLIENT_ERROR_MAX];
+} solar_os_rtsp_client_status_t;
+
+/* One calling task owns each session, serializing all calls on it. Source/frame
+ * IDs are session-local, never pointers. frame() borrows JPEG bytes until
+ * release_frame/close/destroy; image.decode copies them. destroy joins the RTSP
+ * worker and releases all leases/sources. No module callback runs on that worker.
+ * rtsp_read returns OK with frame=0 when no complete frame is ready. */
+typedef struct {
+    uint32_t abi_version, struct_size, capabilities;
+    int (*create)(const char *owner, solar_os_native_cancel_fn cancel, void *user,
+        solar_os_native_media_t **session);
+    /* On provider close failure the session remains valid for retry. */
+    int (*destroy)(solar_os_native_media_t *session);
+    int (*open)(solar_os_native_media_t *session, const char *stream_id,
+        const solar_os_native_video_options_v1_t *options, uint32_t *source);
+    int (*close)(solar_os_native_media_t *session, uint32_t source);
+    int (*acquire)(solar_os_native_media_t *session, uint32_t source, uint32_t *frame);
+    int (*frame)(solar_os_native_media_t *session, uint32_t frame,
+        solar_os_native_video_frame_v1_t *view);
+    int (*release_frame)(solar_os_native_media_t *session, uint32_t frame);
+    int (*snapshot)(solar_os_native_media_t *session, const char *stream_id,
+        uint16_t width, uint16_t height, uint8_t jpeg_quality, uint32_t *frame);
+    /* Without RTSP capability these three functions return NOT_SUPPORTED. */
+    int (*rtsp_open)(solar_os_native_media_t *session, const char *url, uint32_t *source);
+    int (*rtsp_read)(solar_os_native_media_t *session, uint32_t source,
+        uint32_t timeout_ms, uint32_t *frame);
+    int (*rtsp_ended)(solar_os_native_media_t *session, uint32_t source, bool *ended);
+    int (*reset)(solar_os_native_media_t *session);
+    /* Save the held JPEG. file_errno is optional. */
+    int (*save_frame)(solar_os_native_media_t *session, uint32_t frame, const char *path,
+        int *file_errno);
+    /* Audio uses the Core playback route. Select at least one track. */
+    int (*rtsp_open_tracks)(solar_os_native_media_t *session, const char *url,
+        bool video, bool audio, uint32_t *source);
+    int (*rtsp_status)(solar_os_native_media_t *session, uint32_t source,
+        solar_os_rtsp_client_status_t *status, bool *ended);
+    int (*rtsp_lateness)(solar_os_native_media_t *session, uint32_t source,
+        uint32_t frame, int64_t *lateness_us);
+    int (*rtsp_normalize_url)(const char *address, char *url, size_t capacity);
+    int (*rtsp_redact_url)(const char *url, char *label, size_t capacity);
+} solar_os_native_media_api_v1_t;

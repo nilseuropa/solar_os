@@ -130,6 +130,7 @@ int main(void)
     map.physical[2] = 900; map.keys[0][2].usage = 0xe1;
     map.physical[3] = 60000; map.keys[0][3].usage = 0x2c;
     map.keys[0][3].flags = SOLAR_OS_INPUT_KEYMAP_LAYER_TAP;
+    map.keys[0][3].layer = 1U;
     map.keys[1][1].key = '!';
     solar_os_input_keymap_ops_t ops = {.lock=lock, .unlock=unlock, .prepare=prepare, .context=&owner};
     solar_os_input_keymap_info_t info;

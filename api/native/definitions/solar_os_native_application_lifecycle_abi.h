@@ -1,0 +1,60 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#include "solar_os_application_types_v1.h"
+#include "solar_os_native_application_events_abi.h"
+
+#define SOLAR_OS_APPLICATION_LIFECYCLE_ABI 1U
+
+typedef enum {
+    SOLAR_OS_APP_STATE_NONE = 0,
+    SOLAR_OS_APP_STATE_TRANSIENT = 1,
+    SOLAR_OS_APP_STATE_EXTERNAL_PREFERRED = 2,
+    SOLAR_OS_APP_STATE_EXTERNAL_REQUIRED = 3,
+    SOLAR_OS_APP_STATE_INTERNAL_REQUIRED = 4,
+} solar_os_application_state_storage_v1_t;
+
+/* Application-provided callback table. The host owns context and cold-state
+ * allocation. Callbacks run with their application's service scope; context,
+ * events, rendering references and output buffers are borrowed. Keep this
+ * table, its strings, callbacks and state_slot storage alive until the host
+ * has finished cleanup. start returns a normalized SOLAR_OS_NATIVE_* result.
+ * Other callbacks return only handled/readiness values or no result.
+ *
+ * state_slot points to a NULL file-scope pointer before first start. The host
+ * assigns and clears it; the application must not replace or free that block.
+ * Suspend retains it. Before freeing it after stop or failed start, the host
+ * waits for workers to quiesce, closes owned resources and calls cleanup.
+ * Cleanup is idempotent and must finish before code or state can be unloaded. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    const char *name;
+    const char *summary;
+    solar_os_app_class_t app_class;
+    uint32_t flags;
+    int (*start)(solar_os_application_context_t *context);
+    void (*suspend)(solar_os_application_context_t *context);
+    void (*resume)(solar_os_application_context_t *context);
+    void (*stop)(solar_os_application_context_t *context);
+    bool (*event)(solar_os_application_context_t *context, const solar_os_application_event_v1_t *event);
+    void (*title)(solar_os_application_context_t *context, char *buffer, size_t capacity);
+    void **state_slot;
+    size_t state_size;
+    solar_os_application_state_storage_v1_t state_storage;
+    bool (*state_release_ready)(void);
+    void (*state_release_cleanup)(void);
+    /* Admission declaration for an app-owned worker; zero means none. */
+    uint32_t worker_stack_bytes;
+    bool worker_stack_external;
+    /* Zero interval selects 25 ms. Deadlines are execution budgets, not
+     * preemptive limits. The interval query has a read-only name/state scope
+     * without a context; it must handle missing cold state and must not draw
+     * or request context changes. Zero keeps the declared/default interval. */
+    uint32_t tick_interval_ms;
+    uint32_t tick_deadline_ms;
+    uint32_t (*requested_tick_interval_ms)(void);
+} solar_os_application_lifecycle_api_v1_t;
+
+/* The original mandatory prefix stays fixed when optional tail fields grow. */
+#define SOLAR_OS_APPLICATION_LIFECYCLE_V1_MIN_SIZE \
+    (offsetof(solar_os_application_lifecycle_api_v1_t, requested_tick_interval_ms) + \
+     sizeof(((solar_os_application_lifecycle_api_v1_t *)0)->requested_tick_interval_ms))

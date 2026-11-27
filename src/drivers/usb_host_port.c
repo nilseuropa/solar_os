@@ -387,13 +387,24 @@ esp_err_t usb_host_port_enable(void)
     return ret;
 }
 
-size_t usb_host_port_interfaces(usb_host_port_interface_t *out, size_t capacity)
+size_t usb_host_port_interfaces(solar_os_usb_interface_status_t *out, size_t capacity)
 {
+    _Static_assert(SOLAR_OS_USB_HID_KEYBOARD == SOLAR_OS_NATIVE_USB_HID_KEYBOARD, "USB keyboard protocol");
+    _Static_assert(SOLAR_OS_USB_HID_MOUSE == SOLAR_OS_NATIVE_USB_HID_MOUSE, "USB mouse protocol");
+    _Static_assert(SOLAR_OS_USB_HID_JOYSTICK == SOLAR_OS_NATIVE_USB_HID_JOYSTICK, "USB joystick protocol");
     if (guard == NULL || out == NULL) return 0;
     size_t count = 0;
     lock();
     for (size_t i = 0; i < USB_HOST_PORT_INTERFACE_MAX && count < capacity; i++) {
-        if (interfaces[i].handle != NULL) out[count++] = interfaces[i].info;
+        if (interfaces[i].handle == NULL) continue;
+        const usb_host_port_interface_t *info = &interfaces[i].info;
+        out[count++] = (solar_os_usb_interface_status_t){
+            .slot = info->slot, .address = info->address, .interface = info->interface,
+            .protocol = info->protocol, .vendor_id = info->vendor_id, .product_id = info->product_id,
+            .report_protocol = info->report_protocol, .ready = info->ready,
+            .protocol_error = info->protocol_error, .idle_error = info->idle_error,
+            .last_error = info->last_error, .reports = info->reports, .errors = info->errors,
+        };
     }
     unlock();
     return count;

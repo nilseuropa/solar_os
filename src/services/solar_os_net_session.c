@@ -18,6 +18,7 @@
 #include "freertos/FreeRTOS.h"
 #include "lwip/inet.h"
 #include "solar_os_wifi.h"
+#include "solar_os_tls.h"
 
 #define SOLAR_OS_NET_WS_URL_MAX 384U
 #define SOLAR_OS_NET_WS_PATH_MAX 256U
@@ -28,7 +29,10 @@ typedef struct {
     uint32_t generation;
     bool open;
     int fd;
-    esp_transport_handle_t transport;
+    union {
+        esp_transport_handle_t transport;
+        solar_os_tls_connection_t *tls;
+    };
     esp_transport_handle_t parent_transport;
 } solar_os_net_channel_t;
 
@@ -248,6 +252,8 @@ static void net_release_channel(solar_os_net_channel_t *channel)
         if (channel->parent_transport != NULL) {
             (void)esp_transport_destroy(channel->parent_transport);
         }
+    } else if (channel->kind == SOLAR_OS_NET_CHANNEL_TLS) {
+        solar_os_tls_close(channel->tls);
     } else if (channel->fd >= 0) {
         (void)close(channel->fd);
     }
@@ -819,6 +825,80 @@ esp_err_t solar_os_net_session_websocket_receive(solar_os_net_session_t *session
     }
     result->closed = result->opcode == SOLAR_OS_NET_WS_CLOSE;
     return net_cancelled(session) ? ESP_ERR_INVALID_STATE : ESP_OK;
+}
+
+esp_err_t solar_os_net_session_tls_connect(solar_os_net_session_t *session, const char *host,
+    uint16_t port, uint32_t timeout_ms, uint32_t *out)
+{
+    if (!out) return ESP_ERR_INVALID_ARG;
+    *out = 0;
+    if (!session || !host || !*host || !port || net_validate_timeout(timeout_ms) != ESP_OK)
+        return ESP_ERR_INVALID_ARG;
+    const esp_err_t ip = net_require_ip();
+    if (ip != ESP_OK) return ip;
+    if (net_cancelled(session)) return ESP_ERR_INVALID_STATE;
+
+    solar_os_net_channel_t *channel = net_reserve_channel(session, SOLAR_OS_NET_CHANNEL_TLS, out);
+    if (!channel) return ESP_ERR_NO_MEM;
+    const esp_err_t error = solar_os_tls_connect(host, port,
+        timeout_ms ? timeout_ms : SOLAR_OS_NET_DEFAULT_CONNECT_TIMEOUT_MS,
+        session->should_cancel, session->cancel_user, &channel->tls);
+    if (error) {
+        net_release_channel(channel);
+        *out = 0;
+    }
+    return error;
+}
+
+esp_err_t solar_os_net_session_tls_send(solar_os_net_session_t *session, uint32_t id,
+    const void *data, size_t length, uint32_t timeout_ms)
+{
+    solar_os_net_channel_t *channel = net_find_channel(session, id, SOLAR_OS_NET_CHANNEL_TLS);
+    if (!channel || net_validate_timeout(timeout_ms) != ESP_OK ||
+        net_validate_transfer(data, length, SOLAR_OS_NET_MAX_TRANSFER_BYTES) != ESP_OK)
+        return ESP_ERR_INVALID_ARG;
+    if (net_cancelled(session)) return ESP_ERR_INVALID_STATE;
+
+    const int64_t deadline = net_deadline(timeout_ms);
+    size_t offset = 0;
+    while (offset < length) {
+        size_t written;
+        esp_err_t error = solar_os_tls_write(channel->tls, (const uint8_t *)data + offset, length - offset,
+            (uint32_t)net_remaining_ms(deadline), session->should_cancel, session->cancel_user, &written);
+        if (error || !written) {
+            /* The caller cannot resume a partially submitted byte stream. */
+            net_release_channel(channel);
+            return error ? error : ESP_FAIL;
+        }
+        offset += written;
+        if (offset < length && net_remaining_ms(deadline) == 0) {
+            net_release_channel(channel);
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+    return ESP_OK;
+}
+
+esp_err_t solar_os_net_session_tls_receive(solar_os_net_session_t *session, uint32_t id,
+    void *buffer, size_t capacity, uint32_t timeout_ms, solar_os_net_receive_result_t *out)
+{
+    solar_os_net_channel_t *channel = net_find_channel(session, id, SOLAR_OS_NET_CHANNEL_TLS);
+    if (!channel) return ESP_ERR_INVALID_ARG;
+    esp_err_t error = net_prepare_receive(session, buffer, capacity, timeout_ms, out);
+    if (error) return error;
+
+    size_t received;
+    error = solar_os_tls_read(channel->tls, buffer, capacity, timeout_ms,
+        session->should_cancel, session->cancel_user, &received);
+    if (error == ESP_ERR_TIMEOUT) {
+        out->timed_out = true;
+        return ESP_OK;
+    }
+    if (error) return error;
+    out->data_len = received;
+    out->message_len = received;
+    out->closed = received == 0;
+    return ESP_OK;
 }
 
 esp_err_t solar_os_net_session_close(solar_os_net_session_t *session,

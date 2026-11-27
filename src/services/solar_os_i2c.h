@@ -4,10 +4,11 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_bus_abi.h"
 
 #define SOLAR_OS_I2C_SCAN_MIN_ADDR 0x03
 #define SOLAR_OS_I2C_SCAN_MAX_ADDR 0x77
-#define SOLAR_OS_I2C_DEFAULT_BUS "i2c0"
+#define SOLAR_OS_I2C_DEFAULT_BUS SOLAR_OS_NATIVE_BUS_DEFAULT_I2C
 
 esp_err_t solar_os_i2c_init(void);
 uint32_t solar_os_i2c_get_speed_hz(void);

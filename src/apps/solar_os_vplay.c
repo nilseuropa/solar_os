@@ -9,7 +9,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_media_playlist.h"
 #include "solar_os_mpeg.h"
@@ -51,6 +52,7 @@ struct mpeg_player {
     solar_os_mpeg_t *decoder;
     solar_os_audio_player_t *audio;
     solar_os_media_preferences_t *preferences;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     solar_os_mpeg_info_t info;
     solar_os_stream_audio_format_t output;
     solar_os_audio_s16_converter_t resampler;
@@ -415,22 +417,25 @@ end:
 static void viewport(mpeg_player_t *p)
 {
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(p->screen_width, p->screen_height, true, &layout);
+    p->media_ui->player_layout(p->screen_width, p->screen_height, true, &layout);
     p->viewport_x = p->fullscreen ? p->panel.x : layout.view_x;
     p->viewport_y = p->fullscreen ? p->panel.y : layout.view_y;
     p->viewport_width = p->fullscreen ? (uint32_t)p->panel.width : (uint32_t)layout.view_width;
     p->viewport_height = p->fullscreen ? (uint32_t)p->panel.height : (uint32_t)layout.view_height;
 }
-static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bool fit,
+static esp_err_t mpeg_player_start(solar_os_context_t *ctx,
+                                   const solar_os_native_media_widgets_api_v1_t *media_ui,
+                                   const char *path, bool fit,
                                    bool fullscreen, double start_time, bool paused,
                                    solar_os_media_preferences_t *preferences, mpeg_player_t **out)
 {
     *out = NULL;
+    if (!media_ui) return ESP_ERR_NOT_SUPPORTED;
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     if (!gfx || solar_os_gfx_width(gfx) < 84U || solar_os_gfx_height(gfx) < 48U)
         return ESP_ERR_NOT_SUPPORTED;
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), true, &layout);
+    media_ui->player_layout(solar_os_gfx_width(gfx), solar_os_gfx_height(gfx), true, &layout);
     if (!fullscreen && (layout.view_width < 2 || layout.view_height < 2))
         return ESP_ERR_NOT_SUPPORTED;
     mpeg_player_t *p =
@@ -442,6 +447,7 @@ static esp_err_t mpeg_player_start(solar_os_context_t *ctx, const char *path, bo
         solar_os_memory_free(p);
         return ESP_ERR_NO_MEM;
     }
+    p->media_ui = media_ui;
     p->fit = fit;
     p->preferences = preferences;
     p->fullscreen = fullscreen;
@@ -549,7 +555,7 @@ static bool draw_play_time(mpeg_player_t *p, solar_os_gfx_t *gfx, int64_t clock,
     /* Redraw only the status row: never clear or re-rasterize the video. */
     char status[48];
     playback_status_text(p, second, status, sizeof(status));
-    solar_os_media_player_status_draw(gfx, p->screen_width, p->screen_height, status);
+    p->media_ui->player_status_draw(gfx, p->screen_width, p->screen_height, status);
     return true;
 }
 static void draw_chrome(mpeg_player_t *p, solar_os_gfx_t *gfx, int64_t clock)
@@ -557,11 +563,11 @@ static void draw_chrome(mpeg_player_t *p, solar_os_gfx_t *gfx, int64_t clock)
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
     if (!p->fullscreen) {
         const int w = p->screen_width, h = p->screen_height;
-        solar_os_media_player_header_draw(gfx, w, "VPlay", "[Play]  Playlist");
+        p->media_ui->player_header_draw(gfx, w, "VPlay", "[Play]  Playlist");
         p->displayed_second = p->stopped ? p->displayed_second : clock > 0 ? clock / 1000000 : 0;
         char status[48];
         playback_status_text(p, p->displayed_second, status, sizeof(status));
-        solar_os_media_player_controls_draw(gfx, w, h, p->title[0] ? p->title : vplay_basename(p->path), status,
+        p->media_ui->player_controls_draw(gfx, w, h, p->title[0] ? p->title : vplay_basename(p->path), status,
             solar_os_media_preferences_volume(p->preferences), true, p->stopped ? SOLAR_OS_MEDIA_TRANSPORT_PLAY :
             paused(p) ? SOLAR_OS_MEDIA_TRANSPORT_PAUSE : SOLAR_OS_MEDIA_TRANSPORT_STOP);
     } else if (p->seeking) {
@@ -693,6 +699,7 @@ typedef struct {
     int16_t pointer_x, pointer_y;
     solar_os_media_playlist_t playlist;
     solar_os_media_preferences_t *preferences;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
     size_t active, cursor, top;
     bool playlist_visible, playlist_dirty, browsing, suspended;
     solar_os_storage_browser_t *browser;
@@ -706,6 +713,9 @@ static void vplay_draw_playlist(solar_os_context_t *ctx);
 static esp_err_t vplay_start(solar_os_context_t *ctx)
 {
     memset(&vplay_state, 0, sizeof(vplay_state));
+    vplay_state.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, player_button_at) + sizeof(vplay_state.media_ui->player_button_at));
+    if (!vplay_state.media_ui) return ESP_ERR_NOT_SUPPORTED;
     vplay_state.fit = true;
     vplay_state.active = SIZE_MAX;
     const char *path_arg = NULL;
@@ -741,7 +751,7 @@ static esp_err_t vplay_start(solar_os_context_t *ctx)
         return ESP_OK;
     }
     vplay_state.active = selected;
-    err = mpeg_player_start(ctx, vplay_state.playlist.entries[vplay_state.active].path,
+    err = mpeg_player_start(ctx, vplay_state.media_ui, vplay_state.playlist.entries[vplay_state.active].path,
                             vplay_state.fit, vplay_state.fullscreen, 0, false,
                             vplay_state.preferences, &vplay_state.player);
     if (err != ESP_OK) {
@@ -858,19 +868,19 @@ static void vplay_draw_playlist(solar_os_context_t *ctx)
     solar_os_gfx_t *gfx = solar_os_context_gfx(ctx);
     int w = solar_os_gfx_width(gfx), h = solar_os_gfx_height(gfx);
     solar_os_gfx_clear(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_media_player_header_draw(gfx, w, "VPLAY", vplay_state.browsing ? "Files" :
+    vplay_state.media_ui->player_header_draw(gfx, w, "VPLAY", vplay_state.browsing ? "Files" :
         vplay_state.playlist_visible ? "Play  [Playlist]" : "[Play]  Playlist");
     if (vplay_state.browsing) {
-        solar_os_media_playlist_draw(gfx, w, h, solar_os_storage_browser_count(vplay_state.browser),
+        vplay_state.media_ui->playlist_draw(gfx, w, h, solar_os_storage_browser_count(vplay_state.browser),
             solar_os_storage_browser_cursor(vplay_state.browser), SIZE_MAX, &vplay_state.top,
             solar_os_storage_browser_media_entry, vplay_state.browser,
             vplay_state.message[0] ? vplay_state.message : "Enter add/open  Esc back");
     } else if (vplay_state.playlist_visible) {
-        solar_os_media_playlist_draw(gfx, w, h, vplay_state.playlist.count,
+        vplay_state.media_ui->playlist_draw(gfx, w, h, vplay_state.playlist.count,
             vplay_state.cursor, vplay_state.active, &vplay_state.top, vplay_playlist_entry, NULL,
             vplay_state.message[0] ? vplay_state.message : "A add  Del remove  Enter play");
     } else {
-        solar_os_media_player_controls_draw(gfx, w, h, "No video selected", "STOPPED",
+        vplay_state.media_ui->player_controls_draw(gfx, w, h, "No video selected", "STOPPED",
             solar_os_media_preferences_volume(vplay_state.preferences), true, SOLAR_OS_MEDIA_TRANSPORT_PLAY);
     }
     solar_os_gfx_present(gfx);
@@ -975,7 +985,7 @@ static bool vplay_pointer(const solar_os_input_pointer_event_t *event)
     if (p->fullscreen || event->action != SOLAR_OS_INPUT_POINTER_PRESS ||
         !(event->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY))
         return false;
-    int button = solar_os_media_player_button_at(p->screen_width, p->screen_height, true,
+    int button = vplay_state.media_ui->player_button_at(p->screen_width, p->screen_height, true,
                                                   vplay_state.pointer_x, vplay_state.pointer_y);
     static const uint8_t keys[] = {SOLAR_OS_KEY_LEFT, '<', '\r', '>', SOLAR_OS_KEY_RIGHT};
     return button >= 0 ? vplay_transport(keys[button]) : false;
@@ -1063,7 +1073,7 @@ static bool vplay_event(solar_os_context_t *ctx, const solar_os_event_t *event)
             mpeg_player_destroy(vplay_state.player);
             vplay_state.player = NULL;
             vplay_state.restart = false;
-            esp_err_t err = mpeg_player_start(ctx, vplay_state.next_path, vplay_state.fit,
+            esp_err_t err = mpeg_player_start(ctx, vplay_state.media_ui, vplay_state.next_path, vplay_state.fit,
                                              vplay_state.fullscreen, vplay_state.restart_time,
                                              vplay_state.restart_paused, vplay_state.preferences, &vplay_state.player);
             if (err != ESP_OK) {

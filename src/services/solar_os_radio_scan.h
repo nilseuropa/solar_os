@@ -2,25 +2,7 @@
 
 #include "solar_os_radio.h"
 
-#define SOLAR_OS_RADIO_SCAN_BINS 129U
-#define SOLAR_OS_RADIO_SCAN_ROWS 48U
-#define SOLAR_OS_RADIO_SCAN_HISTORY 256U
-#define SOLAR_OS_RADIO_SCAN_EMPTY INT16_MIN
-
-typedef enum {
-    SOLAR_OS_RADIO_SCAN_CHANNEL,
-    SOLAR_OS_RADIO_SCAN_BAND,
-} solar_os_radio_scan_mode_t;
-
-typedef struct {
-    solar_os_radio_scan_mode_t mode;
-    uint32_t start_hz;
-    uint32_t end_hz;
-    uint32_t step_hz;
-    uint32_t frequency_hz; /* Channel: zero follows the current receiver. */
-    uint32_t bandwidth_hz; /* Zero keeps the current receiver bandwidth. */
-    uint32_t interval_ms;  /* Channel sampling interval, at least 100 ms. */
-} solar_os_radio_scan_config_t;
+#include "solar_os_native_radio_scan_abi.h"
 
 /* The core context is caller-serialized. It can be driven synchronously or by
  * the optional worker below; graphical consumers read independent copies. */
@@ -82,3 +64,11 @@ bool solar_os_radio_scan_worker_done(const solar_os_radio_scan_worker_t *worker)
 /* On timeout keep *worker alive; retry close after worker_done becomes true. */
 esp_err_t solar_os_radio_scan_worker_close(solar_os_radio_scan_worker_t **worker,
     solar_os_radio_scan_t *snapshot);
+
+/* Copy through a Core adapter while the sampler owns its snapshot. The
+ * visitor must only copy values and return before the worker resumes. */
+typedef void (*solar_os_radio_scan_snapshot_fn)(const solar_os_radio_scan_t *scan, void *user);
+esp_err_t solar_os_radio_scan_worker_snapshot(solar_os_radio_scan_worker_t *worker,
+    solar_os_radio_scan_snapshot_fn copy, void *user);
+esp_err_t solar_os_radio_scan_worker_close_snapshot(solar_os_radio_scan_worker_t **worker,
+    solar_os_radio_scan_snapshot_fn copy, void *user);

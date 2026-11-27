@@ -1,0 +1,46 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_ENGINES_SERVICE "engines"
+#define SOLAR_OS_NATIVE_ENGINES_ABI 1U
+
+#define SOLAR_OS_ENGINE_NAME_MAX 16
+#define SOLAR_OS_ENGINE_CLASS_MAX 16
+#define SOLAR_OS_ENGINE_OWNER_MAX 24
+#define SOLAR_OS_ENGINE_LABEL_MAX 24
+
+typedef struct {
+    char name[SOLAR_OS_ENGINE_NAME_MAX];
+    char class_name[SOLAR_OS_ENGINE_CLASS_MAX];
+    char owner[SOLAR_OS_ENGINE_OWNER_MAX];
+    char label[SOLAR_OS_ENGINE_LABEL_MAX];
+    bool active;
+    uint32_t active_count;
+    uint64_t op_count;
+    uint64_t unit_count;
+    uint64_t work_us;
+    uint64_t busy_us;
+    uint64_t max_us;
+    uint64_t last_us;
+    uint64_t last_units;
+    uint64_t since_us;
+} solar_os_engine_stats_t;
+
+/* Run one synchronous operation. Set units to describe work completed. */
+typedef int (*solar_os_native_engine_work_fn)(void *user, uint64_t *units);
+typedef struct {
+    uint32_t abi_version, struct_size;
+    size_t (*count)(void);
+    bool (*info)(size_t index, solar_os_engine_stats_t *stats);
+    bool (*find)(const char *engine, solar_os_engine_stats_t *stats);
+    /* Uses the Core interval counters, including overlapping work. The
+     * callback borrows its output pointer until it returns. */
+    int (*measure)(const char *engine, const char *owner, const char *label,
+                    solar_os_native_engine_work_fn work, void *user);
+    /* Record an independently measured interval. Its duration is included
+     * in both work and busy totals. */
+    int (*record)(const char *engine, const char *owner, const char *label,
+                   uint64_t duration_us, uint64_t units);
+    void (*reset)(void);
+} solar_os_native_engines_api_v1_t;

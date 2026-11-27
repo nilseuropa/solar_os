@@ -75,6 +75,7 @@ int main(void) {
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include "solar_os_display_types_v1.h"
 typedef unsigned solar_os_gfx_color_t;
 typedef unsigned u8g2_uint_t;
 static struct {uint8_t pixels[24];} mono;
@@ -83,8 +84,10 @@ typedef struct {void *u8g2;indexed_t *index8;} solar_os_gfx_t;
 static bool gfx_ready(solar_os_gfx_t *g) {return g!=NULL;}
 static bool gfx_uses_index8(solar_os_gfx_t *g) {return g->index8!=NULL;}
 static unsigned gfx_index8_for_color(unsigned color) {return color;}
-static unsigned solar_os_gfx_width(solar_os_gfx_t *g) {(void)g;return 6;}
-static unsigned solar_os_gfx_height(solar_os_gfx_t *g) {(void)g;return 4;}
+static solar_os_display_rect_t solar_os_display_canvas_rect(void *g)
+{(void)g;return (solar_os_display_rect_t){0,0,6,4};}
+static unsigned u8g2_GetDisplayWidth(void *g) {(void)g;return 6;}
+static unsigned u8g2_GetDisplayHeight(void *g) {(void)g;return 4;}
 static unsigned gfx_pattern_draw_color(solar_os_gfx_t *g,unsigned c,int x,int y) {(void)g;(void)x;(void)y;return c;}
 static void u8g2_SetDrawColor(void *g,unsigned c) {(void)g;mono.pixels[23]=c;}
 static void u8g2_DrawPixel(void *g,unsigned x,unsigned y) {(void)g;assert(x<6&&y<4);mono.pixels[y*6+x]=mono.pixels[23];}
@@ -122,5 +125,6 @@ int main(void) {
             path.write_text(source)
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=address,undefined', '-I', str(ROOT / 'tests/host'),
+                '-I', str(ROOT / 'include'),
                 '-I', str(ROOT / 'src/apps'), str(path), *map(str, extra), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

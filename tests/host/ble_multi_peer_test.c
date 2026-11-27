@@ -24,13 +24,26 @@ static fake_peer_t peers[3];
 static atomic_uint delayed_epoch, read_request;
 static bool defer_retirement;
 static bool defer_subscription;
+static bool sample_scan;
+static bool defer_discovery;
+static atomic_bool defer_all_reads;
+static atomic_uint deferred_reads;
 
 size_t solar_os_ble_backend_capacity(void) { return 3; }
 esp_err_t solar_os_ble_backend_register(void) { return ESP_OK; }
 esp_err_t solar_os_ble_backend_init(void) { return solar_os_ble_service_register(); }
 void solar_os_ble_backend_reset(void) { memset(peers, 0, sizeof(peers)); }
 esp_err_t solar_os_ble_backend_scan(solar_os_ble_scan_result_t *r, size_t n, size_t *found)
-{ (void)r; (void)n; *found=0; return ESP_OK; }
+{
+    *found=sample_scan ? 2 : 0;
+    if(sample_scan && n){
+        r[0]=(solar_os_ble_scan_result_t){.bda={1,2,3,4,5,6},.addr_type=1,.rssi=-37,.appearance=0x3c1,
+            .hid_service=true,.keyboard_like=true,.remembered=true};
+        strcpy(r[0].name,"Keyboard");
+        if(n>1){r[1]=(solar_os_ble_scan_result_t){.rssi=-61};strcpy(r[1].name,"Sensor");}
+    }
+    return ESP_OK;
+}
 esp_err_t solar_os_ble_backend_prepare_sleep(uint32_t timeout)
 { (void)timeout; solar_os_ble_service_reset("sleep"); solar_os_ble_backend_reset(); return ESP_OK; }
 bool solar_os_ble_backend_sleep_prepare_ready(void) { return true; }
@@ -55,7 +68,7 @@ esp_err_t solar_os_ble_backend_connect(uint32_t epoch, uint32_t request, const u
     e.type=SOLAR_OS_BLE_BACKEND_SERVICE; e.service.start_handle=1; e.service.end_handle=9;
     snprintf(e.service.uuid,sizeof(e.service.uuid),"peer-%u",bda[5]);
     solar_os_ble_service_event(&e);
-    e.type=SOLAR_OS_BLE_BACKEND_DISCOVERED; solar_os_ble_service_event(&e);
+    e.type=SOLAR_OS_BLE_BACKEND_DISCOVERED;if(!defer_discovery)solar_os_ble_service_event(&e);
     return ESP_OK;
 }
 
@@ -71,11 +84,17 @@ esp_err_t solar_os_ble_backend_cancel(uint32_t epoch)
 { if (peer_for(epoch) && !defer_retirement) retire_peer(epoch); return ESP_OK; }
 esp_err_t solar_os_ble_backend_characteristics(uint32_t epoch, const solar_os_ble_gatt_service_t *service,
     solar_os_ble_gatt_characteristic_t *chars, size_t max, size_t *count)
-{ assert(peer_for(epoch) && service->start_handle==1); *count=max ? 1 : 0; if(max)chars[0].handle=3; return ESP_OK; }
+{
+    assert(peer_for(epoch) && service->start_handle==1);*count=max ? 1 : 0;
+    if(max){chars[0]=(solar_os_ble_gatt_characteristic_t){.handle=3,.properties=0x12};strcpy(chars[0].uuid,"2a19");}
+    return ESP_OK;
+}
 esp_err_t solar_os_ble_backend_read(uint32_t epoch, uint32_t request, uint16_t handle)
 {
     fake_peer_t *p=peer_for(epoch); assert(p);
-    if (atomic_load(&delayed_epoch)==epoch) { atomic_store(&read_request,request); return ESP_OK; }
+    if (atomic_load(&delayed_epoch)==epoch || atomic_load(&defer_all_reads)) {
+        atomic_store(&read_request,request);atomic_fetch_add(&deferred_reads,1);return ESP_OK;
+    }
     uint8_t value=(uint8_t)p->conn;
     solar_os_ble_backend_event_t e={.type=SOLAR_OS_BLE_BACKEND_READ,.epoch=epoch,.request=request,
         .conn_id=p->conn,.handle=handle,.value=&value,.value_len=1};
@@ -253,4 +272,5 @@ int main(void)
     puts("BLE multi-peer: dynamic allocation, ownership, independent I/O, capacity, timeout, close and sleep OK");
     test_notifications();
     puts("BLE notifications: owned queues, binary copy, overflow, unsubscribe, timeout and cleanup OK");
+    return 0;
 }

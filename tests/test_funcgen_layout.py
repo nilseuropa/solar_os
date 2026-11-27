@@ -30,6 +30,7 @@ class FuncgenLayoutTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I", tmp, "-I", str(ROOT / "tests/host"),
+                "-I", str(ROOT / "include"),
                 str(ROOT / "tests/host/funcgen_layout_test.c"), "-o", str(binary),
             ], check=True)
             preview = os.environ.get("SOLAROS_FUNCGEN_PREVIEW_DIR")

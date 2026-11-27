@@ -18,6 +18,7 @@ esp_err_t nvs_get_u16(nvs_handle_t handle, const char *key, uint16_t *value);
 esp_err_t nvs_get_u8(nvs_handle_t handle, const char *key, uint8_t *value);
 esp_err_t nvs_set_u8(nvs_handle_t handle, const char *key, uint8_t value);
 esp_err_t nvs_get_u32(nvs_handle_t handle, const char *key, uint32_t *value);
+esp_err_t nvs_erase_all(nvs_handle_t handle);
 esp_err_t nvs_erase_key(nvs_handle_t handle, const char *key);
 esp_err_t nvs_set_u16(nvs_handle_t handle, const char *key, uint16_t value);
 esp_err_t nvs_set_u32(nvs_handle_t handle, const char *key, uint32_t value);

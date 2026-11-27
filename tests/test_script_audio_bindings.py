@@ -7,7 +7,7 @@ PYTHON_SOURCE = (REPOSITORY / "src/apps/solar_os_python.c").read_text(
     encoding="utf-8"
 )
 LUA_SOURCE = (REPOSITORY / "src/apps/solar_os_lua.c").read_text(encoding="utf-8")
-AUDIO_HEADER = (REPOSITORY / "src/services/solar_os_audio.h").read_text(
+AUDIO_HEADER = (REPOSITORY / "include/solar_os_native_audio_routes_abi.h").read_text(
     encoding="utf-8"
 )
 AUDIO_SOURCE = (REPOSITORY / "src/services/solar_os_audio.c").read_text(
@@ -43,11 +43,15 @@ class ScriptAudioBindingsTest(unittest.TestCase):
         self.assertIn("solar_os_audio_open_default(", capture)
         self.assertIn("SOLAR_OS_STREAM_DIRECTION_SOURCE", capture)
         self.assertIn("SOLAR_OS_STREAM_AUDIO_S16_LE", capture)
-        self.assertIn("solar_os_stream_read(&stream", capture)
-        self.assertIn("captured_format.frames_per_block", capture)
-        self.assertIn("block_frames > remaining_frames", capture)
-        self.assertIn("const size_t read_bytes = block_frames * frame_bytes", capture)
-        self.assertGreaterEqual(capture.count("solar_os_stream_close(&stream);"), 3)
+        self.assertIn("solar_os_audio_capture_frames(&stream,", capture)
+        self.assertIn("solar_os_stream_close(&stream);", capture)
+        frames = AUDIO_SOURCE.split("esp_err_t solar_os_audio_capture_frames(", 1)[1].split(
+            "esp_err_t solar_os_audio_capture(", 1
+        )[0]
+        self.assertIn("solar_os_stream_read(stream,", frames)
+        self.assertIn("captured_format.frames_per_block", frames)
+        self.assertIn("block_frames > remaining_frames", frames)
+        self.assertIn("const size_t read_bytes = block_frames * frame_bytes", frames)
 
     def test_tone_uses_the_selected_default_output_stream(self):
         tone = AUDIO_SOURCE.split(

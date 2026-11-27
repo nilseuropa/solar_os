@@ -26,6 +26,7 @@ static char timezone_posix[SOLAR_OS_TIMEZONE_POSIX_MAX] = "UTC0";
 static bool timezone_loaded;
 static solar_os_time_provider_t time_provider;
 static char time_provider_owner[24];
+static size_t time_provider_calls;
 static portMUX_TYPE time_provider_lock = portMUX_INITIALIZER_UNLOCKED;
 
 static void datetime_from_tm(solar_os_datetime_t *out, const struct tm *in, bool clock_integrity)
@@ -217,21 +218,31 @@ esp_err_t solar_os_time_register_provider(const char *owner,
     return ret;
 }
 
-esp_err_t solar_os_time_unregister_provider(const char *owner)
+static esp_err_t time_unregister_provider(const char *owner, const void *user, bool require_user)
 {
-    if (owner == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (!owner || !*owner) return ESP_ERR_INVALID_ARG;
     esp_err_t ret = ESP_OK;
     portENTER_CRITICAL(&time_provider_lock);
-    if (strcmp(time_provider_owner, owner) != 0) {
+    if (strcmp(time_provider_owner, owner) != 0 || (require_user && time_provider.user != user)) {
         ret = ESP_ERR_NOT_FOUND;
+    } else if (time_provider_calls) {
+        ret = ESP_ERR_INVALID_STATE;
     } else {
         memset(&time_provider, 0, sizeof(time_provider));
         time_provider_owner[0] = '\0';
     }
     portEXIT_CRITICAL(&time_provider_lock);
     return ret;
+}
+
+esp_err_t solar_os_time_unregister_provider(const char *owner)
+{
+    return time_unregister_provider(owner, NULL, false);
+}
+
+esp_err_t solar_os_time_unregister_provider_owned(const char *owner, const void *user)
+{
+    return time_unregister_provider(owner, user, true);
 }
 
 bool solar_os_time_has_provider(void)
@@ -242,7 +253,7 @@ bool solar_os_time_has_provider(void)
     return available;
 }
 
-static bool time_provider_snapshot(solar_os_time_provider_t *provider)
+static bool time_provider_acquire(solar_os_time_provider_t *provider)
 {
     if (provider == NULL) {
         return false;
@@ -251,9 +262,17 @@ static bool time_provider_snapshot(solar_os_time_provider_t *provider)
     const bool available = time_provider_owner[0] != '\0';
     if (available) {
         *provider = time_provider;
+        time_provider_calls++;
     }
     portEXIT_CRITICAL(&time_provider_lock);
     return available;
+}
+
+static void time_provider_release(void)
+{
+    portENTER_CRITICAL(&time_provider_lock);
+    time_provider_calls--;
+    portEXIT_CRITICAL(&time_provider_lock);
 }
 
 uint64_t solar_os_time_uptime_ms(void)
@@ -352,8 +371,10 @@ esp_err_t solar_os_time_get_utc_datetime(solar_os_datetime_t *datetime)
     }
 
     solar_os_time_provider_t provider;
-    if (time_provider_snapshot(&provider)) {
-        return provider.get_utc_datetime(provider.user, datetime);
+    if (time_provider_acquire(&provider)) {
+        const esp_err_t error = provider.get_utc_datetime(provider.user, datetime);
+        time_provider_release();
+        return error;
     }
 
     struct timeval tv;
@@ -373,8 +394,10 @@ esp_err_t solar_os_time_set_utc_datetime(const solar_os_datetime_t *datetime)
     }
 
     solar_os_time_provider_t provider;
-    if (time_provider_snapshot(&provider)) {
-        return provider.set_utc_datetime(provider.user, datetime);
+    if (time_provider_acquire(&provider)) {
+        const esp_err_t error = provider.set_utc_datetime(provider.user, datetime);
+        time_provider_release();
+        return error;
     }
 
     time_t epoch = 0;

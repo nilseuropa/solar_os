@@ -26,6 +26,7 @@ class ZooTuiTest(unittest.TestCase):
                 "-Wno-unused-function", "-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-no-pie",
                 "-include", str(ROOT / "tests/host/compat.h"), "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"), "-I", str(ROOT / "include"),
+                "-I", str(ROOT / "src/apps"),
                 str(path), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

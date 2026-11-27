@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_SERVO
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -119,3 +123,5 @@ void solar_os_shell_cmd_servo(solar_os_context_t *ctx, int argc, char **argv)
         }
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_SERVO */

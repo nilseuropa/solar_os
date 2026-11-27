@@ -89,9 +89,14 @@ typedef struct {
 
 esp_err_t solar_os_port_init(void);
 esp_err_t solar_os_port_register(const solar_os_port_driver_t *driver);
+/* Claimable together after all port streams are successfully registered. */
+esp_err_t solar_os_port_register_many(const solar_os_port_driver_t *drivers, size_t count);
 esp_err_t solar_os_port_unregister(const char *name);
 /* Atomic retirement: busy ports/streams leave the entire set registered. */
 esp_err_t solar_os_port_unregister_many(const char *const *names, size_t count);
+/* Ignore entries already removed or replaced by another provider. */
+esp_err_t solar_os_port_unregister_many_owned(const char *const *names,
+                                               const void *const *users, size_t count);
 esp_err_t solar_os_port_claim(const char *name,
                               const char *owner,
                               solar_os_port_handle_t *handle);

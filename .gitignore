@@ -6,6 +6,7 @@ fonts/build/*
 fonts/build/u8g2/*
 !fonts/build/u8g2/u8g2_font_solar_os_default_*_tf.c
 generated/
+!/src/services/generated/
 sdkconfig
 sdkconfig.old
 sdkconfig.*

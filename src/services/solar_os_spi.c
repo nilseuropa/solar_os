@@ -5,13 +5,13 @@
 #include <string.h>
 
 #include "solar_os_buses.h"
+#include "solar_os_native_bus_abi.h"
 
-#define SOLAR_OS_SPI_COMPAT_BUS "spi0"
 #define SOLAR_OS_SPI_COMPAT_OWNER "legacy-spi"
 
 static bool default_bus(solar_os_bus_info_t *info)
 {
-    if (solar_os_bus_find(SOLAR_OS_SPI_COMPAT_BUS, SOLAR_OS_BUS_PROTOCOL_SPI, info)) {
+    if (solar_os_bus_find(SOLAR_OS_NATIVE_BUS_DEFAULT_SPI, SOLAR_OS_BUS_PROTOCOL_SPI, info)) {
         return true;
     }
     return solar_os_bus_get_protocol(SOLAR_OS_BUS_PROTOCOL_SPI, 0, info);
@@ -53,14 +53,14 @@ esp_err_t solar_os_spi_get_status(solar_os_spi_status_t *status)
     return ESP_OK;
 }
 
-esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
+esp_err_t solar_os_spi_resolve_bus_cs(const char *bus, const char *name, int *pin)
 {
-    if (name == NULL || name[0] == '\0' || pin == NULL) {
+    if ((bus != NULL && bus[0] == '\0') || name == NULL || name[0] == '\0' || pin == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     solar_os_bus_info_t info;
-    if (!default_bus(&info)) {
+    if (!(bus != NULL ? solar_os_bus_find(bus, SOLAR_OS_BUS_PROTOCOL_SPI, &info) : default_bus(&info))) {
         return ESP_ERR_NOT_FOUND;
     }
     for (size_t i = 0; i < info.config.spi.cs_count; i++) {
@@ -86,19 +86,25 @@ esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
     return ESP_ERR_NOT_FOUND;
 }
 
-esp_err_t solar_os_spi_transfer(int cs_pin,
-                                uint8_t mode,
-                                uint32_t speed_hz,
-                                const uint8_t *tx_data,
-                                uint8_t *rx_data,
-                                size_t len)
+esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin)
+{
+    return solar_os_spi_resolve_bus_cs(NULL, name, pin);
+}
+
+esp_err_t solar_os_spi_transfer_bus(const char *bus, const char *owner, int cs_pin,
+                                    uint8_t mode, uint32_t speed_hz,
+                                    const uint8_t *tx_data, uint8_t *rx_data, size_t len)
 {
     solar_os_bus_info_t info;
-    if (!default_bus(&info)) {
-        return ESP_ERR_NOT_FOUND;
-    }
     if (speed_hz == 0) {
         speed_hz = SOLAR_OS_SPI_DEFAULT_SPEED_HZ;
+    }
+    if (bus != NULL) {
+        return solar_os_bus_spi_transfer_once(bus, cs_pin, mode, speed_hz, tx_data, rx_data,
+                                              len, owner);
+    }
+    if (!default_bus(&info)) {
+        return ESP_ERR_NOT_FOUND;
     }
     if (mode > 3 || speed_hz > SOLAR_OS_SPI_MAX_SPEED_HZ || len == 0 ||
         len > info.config.spi.max_transfer_size ||
@@ -112,5 +118,12 @@ esp_err_t solar_os_spi_transfer(int cs_pin,
                                           tx_data,
                                           rx_data,
                                           len,
-                                          SOLAR_OS_SPI_COMPAT_OWNER);
+                                          owner);
+}
+
+esp_err_t solar_os_spi_transfer(int cs_pin, uint8_t mode, uint32_t speed_hz,
+                                const uint8_t *tx_data, uint8_t *rx_data, size_t len)
+{
+    return solar_os_spi_transfer_bus(NULL, SOLAR_OS_SPI_COMPAT_OWNER, cs_pin, mode,
+                                    speed_hz, tx_data, rx_data, len);
 }

@@ -110,7 +110,9 @@ cc sdk export /dev/sdk
 Listing shows provider package versions and byte sizes. Built-in headers are
 borrowed through the compiler's append-only API table; installed-library
 headers and versions are read from their `.solaros.sdk` metadata without
-activating those providers. Export preserves namespaces, validates the complete
+activating those providers. Firmware stores compact copies of generated system
+headers. The public SDK headers in `include/` carry the full contract comments.
+Export preserves namespaces, validates the complete
 inventory and header text before writing, and requires a new destination
 directory. Existing directories are refused. Cancellation and ordinary write
 failures clean up the files created by that export; cleanup errors identify

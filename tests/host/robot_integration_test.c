@@ -7,6 +7,7 @@
 #include "solar_os_encoder.h"
 #include "solar_os_robot.h"
 #include "solar_os_native_motion.h"
+#include "solar_os_native_robot_abi.h"
 #include "solar_os_memory.h"
 #include "../../modules/robot/main/robot.c"
 #include "robot_controller_stubs.inc"
@@ -408,6 +409,11 @@ static void legacy_model_test(void)
 int main(void)
 {
     setup();
+    const solar_os_native_robot_joints_api_v1_t *joint_api = solar_os_native_motion_get_service(
+        SOLAR_OS_NATIVE_ROBOT_JOINTS_SERVICE, SOLAR_OS_NATIVE_ROBOT_JOINTS_ABI, sizeof(*joint_api));
+    const solar_os_native_robot_model_api_v1_t *models = solar_os_native_motion_get_service(
+        SOLAR_OS_NATIVE_ROBOT_MODEL_SERVICE, SOLAR_OS_NATIVE_ROBOT_MODEL_ABI, sizeof(*models));
+    assert(joint_api && models);
     standalone_controllers_test();
     model_parameter_transaction_test();
     char error[128];
@@ -424,13 +430,13 @@ int main(void)
     }
     assert(!provider_allocations);
     fail_release=true;
-    assert(solar_os_robot_model_load_xml("<bad/>",6,error,sizeof(error))!=ESP_OK && leases==1 && !provider_allocations);
+    assert(models->load_xml("<bad/>", 6, error, sizeof(error)) != SOLAR_OS_NATIVE_OK && leases == 1 && !provider_allocations);
     fail_release=false;
-    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
-    assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && leases==1);
+    assert(models->unload() == SOLAR_OS_NATIVE_OK && !leases);
+    assert(models->load_file(ROBOT_MODEL_FIXTURE, error, sizeof(error)) == SOLAR_OS_NATIVE_OK && leases == 1);
     assert(solar_os_robot_engine_shutdown()==STATE);
     solar_os_robot_model_info_t mi;
-    assert(solar_os_robot_model_get_info(&mi)==ESP_OK && mi.links==6 && mi.joints==5);
+    assert(models->info(&mi) == SOLAR_OS_NATIVE_OK && mi.links == 6 && mi.joints == 5);
     char sensor_frame[64]; solar_os_robot_model_device_t sensor;
     assert(solar_os_robot_model_get_device(0,&sensor)==ESP_OK && !strcmp(sensor.name,"imu0"));
     assert(solar_os_robot_model_frame("imu0",sensor_frame,sizeof(sensor_frame))==ESP_OK && !strcmp(sensor_frame,"imu_link"));
@@ -452,15 +458,16 @@ int main(void)
     assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK);
     assert(provider_allocations==model_allocations && leases==1 && !workers);
     fail_release=true;
-    assert(solar_os_robot_model_unload()==ESP_ERR_INVALID_STATE && leases==1 && !provider_allocations);
+    assert(models->unload() == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && leases == 1 && !provider_allocations);
     fail_release=false;
-    assert(solar_os_robot_model_unload()==ESP_OK && !leases);
-    assert(solar_os_robot_model_transform("base_link","base_link",&transform)==ESP_ERR_NOT_FOUND);
-    assert(solar_os_robot_joint_create("wheel",SOLAR_OS_ROBOT_MOTOR_VELOCITY,"python")==ESP_OK && leases==1);
+    assert(models->unload() == SOLAR_OS_NATIVE_OK && !leases);
+    assert(models->transform("base_link", "base_link", &transform) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(joint_api->create("wheel", SOLAR_OS_ROBOT_MOTOR_VELOCITY, "python") == SOLAR_OS_NATIVE_OK && leases == 1);
+    assert(joint_api->count() == 1);
     assert(solar_os_robot_joint_configure("wheel","ppr",7)==ESP_OK);
     assert(solar_os_robot_joint_configure("wheel","gear_ratio",30)==ESP_OK);
     assert(solar_os_robot_joint_bind_motor("wheel","left","left_enc")==ESP_OK);
-    assert(solar_os_robot_joint_enable("wheel")==ESP_OK && workers==1);
+    assert(joint_api->set_enabled("wheel", true) == SOLAR_OS_NATIVE_OK && workers == 1);
     /* Loading a description never touches active joint claims/workers. */
     assert(solar_os_robot_model_load_file(ROBOT_MODEL_FIXTURE,error,sizeof(error))==ESP_OK && workers==1 && leases==2);
     assert(solar_os_robot_model_unload()==ESP_OK && workers==1 && leases==1);

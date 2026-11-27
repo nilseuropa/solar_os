@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class RadioGainTest(unittest.TestCase):
-    def compile_run(self, source, *defines):
+    def compile_run(self, source, *defines, extra_sources=()):
         with tempfile.TemporaryDirectory() as tmp:
             binary = Path(tmp, "radio-gain")
             subprocess.run([
@@ -24,7 +24,7 @@ class RadioGainTest(unittest.TestCase):
                 "-I", str(ROOT / "src"),
                 "-I", str(ROOT / "src/drivers"),
                 "-idirafter", str(ROOT / "include"),
-                str(ROOT / "tests/host" / source), "-o", str(binary),
+                str(ROOT / "tests/host" / source), *map(str, extra_sources), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary), tmp], check=True)
 
@@ -35,4 +35,7 @@ class RadioGainTest(unittest.TestCase):
         self.compile_run("radio_gain_driver_test.c")
 
     def test_service_and_saved_profiles(self):
-        self.compile_run("radio_gain_service_test.c")
+        self.compile_run("radio_gain_service_test.c", "-DSOLAR_OS_PACKAGE_SERVICE_RADIO=1",
+                         extra_sources=[ROOT / "src/services" / source for source in
+                                        ("solar_os_native_radio.c", "solar_os_native_handles.c",
+                                         "solar_os_native_device_providers.c")])

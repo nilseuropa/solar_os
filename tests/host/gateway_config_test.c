@@ -1,9 +1,28 @@
 /* Real Messaging, Contacts and Gateway services, with an in-memory legacy NVS. */
 #define main messaging_existing_tests_main
+#define xTaskGetTickCount messaging_fixture_ticks
+#define vTaskDelay messaging_fixture_delay
 #include "messaging_service_test.c"
 #undef main
-#include "../../src/services/solar_os_chat.c"
+#undef xTaskGetTickCount
+#undef vTaskDelay
+#include "solar_os_native_client.h"
+#include "solar_os_native_messages.h"
 #include <pthread.h>
+
+static TickType_t ticks = 1000;
+static solar_os_messaging_provider_id_t try_removing;
+TickType_t xTaskGetTickCount(void) { return ticks; }
+void vTaskDelay(TickType_t wait)
+{
+    ticks += wait;
+    if (try_removing) {
+        assert(solar_os_messaging_instance_remove(try_removing) == ESP_ERR_INVALID_STATE);
+        try_removing = 0;
+    }
+}
+
+#include "../../src/services/solar_os_chat.c"
 
 static pthread_barrier_t scope_barrier;
 static void *check_task_scope(void *store)
@@ -78,6 +97,48 @@ static void check_gateway_v1_security(solar_os_conversation_id_t room)
     assert(message_flags == expected);
 }
 
+static void check_native_gateway(solar_os_messaging_provider_id_t a, solar_os_messaging_provider_id_t b)
+{
+    const solar_os_native_gateway_api_v1_t *api =
+        solar_os_native_gateway_get(solar_os_native_messages_get_service, sizeof(*api));
+    assert(api && !solar_os_native_messages_get_service("messages.gateway", 2, sizeof(*api)));
+    solar_os_chat_status_t status;
+    assert(!api->status(0, &status) && status.token_set && status.enabled);
+    assert(!api->configure(a, NULL, NULL, SOLAR_OS_GATEWAY_DISABLE));
+    assert(!api->status(a, &status) && status.token_set && !status.enabled);
+    assert(!api->status(b, &status) && status.token_set && status.enabled);
+    fail_migration_promotion = true;
+    assert(api->configure(a, "chats://new.example:7443", "", SOLAR_OS_GATEWAY_ENABLE) != SOLAR_OS_NATIVE_OK);
+    assert(!api->status(a, &status) && status.token_set && !status.enabled);
+    assert(!api->configure(a, NULL, NULL, SOLAR_OS_GATEWAY_ENABLE));
+    assert(api->configure(a, NULL, NULL, 200) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+
+    void *scope = solar_os_gateway_scope_enter(gateway_find(a));
+    assert(!solar_os_gateway_sync_set_status(true, false, ESP_ERR_TIMEOUT, "timed out"));
+    const solar_os_chat_event_t publish = {.type = SOLAR_OS_CHAT_EVENT_ERROR, .text = "radio timeout"};
+    assert(!solar_os_gateway_sync_publish(&publish, NULL, NULL));
+    solar_os_gateway_scope_leave(scope);
+    assert(!api->status(a, &status) && status.last_esp_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!strcmp(api->state_name(status.state), "connecting"));
+    solar_os_chat_event_t event;
+    uint32_t cursor = 0, observer = 0;
+    assert(!api->event_next(a, &cursor, &event, 0) && cursor == event.id);
+    assert(!strcmp(event.text, "radio timeout") && !strcmp(api->event_type_name(event.type), "error"));
+    assert(!api->event_next(a, &observer, &event, 0) && observer == cursor);
+    assert(api->event_next(b, &observer, &event, 0) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    try_removing = a;
+    const TickType_t started = ticks;
+    assert(api->event_next(a, &cursor, &event, 5) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(ticks - started == 5 && !try_removing && !selected_chat);
+
+    solar_os_chat_channel_t channels[4];
+    assert(api->channels(a, channels, 4) == 2 && api->channels(b, channels, 4) == 2);
+    solar_os_conversation_id_t only_a;
+    assert(!solar_os_messaging_join(a, "only-a", &only_a));
+    assert(!api->delete_channel(a, "only-a"));
+    assert(solar_os_messaging_conversation_get(only_a, &(solar_os_messaging_conversation_t){0}) == ESP_ERR_NOT_FOUND);
+}
+
 static void reboot_gateway(void)
 {
     while (gateways.instances) {
@@ -139,6 +200,7 @@ int main(void)
     solar_os_chat_status_t status;
     assert(solar_os_gateway_instance_get_status(a, &status) == ESP_OK && status.enabled && !strcmp(status.url, settings_a[0]));
     assert(solar_os_gateway_instance_get_status(b, &status) == ESP_OK && status.enabled && !strcmp(status.url, settings_b[0]));
+    check_native_gateway(a, b);
     void *scope = solar_os_gateway_scope_enter(gateway_find(a));
     assert(solar_os_chat_send("shared", "from-a") == ESP_OK);
     solar_os_gateway_scope_leave(scope);
@@ -167,27 +229,27 @@ int main(void)
      * token, failed writes preserve it too, and an explicit empty edit clears. */
     solar_os_messaging_settings_t form;
     assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
-    assert(form.count == 2 && form.enabled && form.present[1] && !form.values[1][0]);
-    assert(!strcmp(form.values[0], settings_b[0]) && !strcmp(form.worker, "gateway-sync"));
+    assert(form.data.count == 2 && form.enabled && form.data.present[1] && !form.data.values[1][0]);
+    assert(!strcmp(form.data.values[0], settings_b[0]) && !strcmp(form.worker, "gateway-sync"));
     assert(solar_os_messaging_settings_read("link", b, 0, &form) == ESP_ERR_NOT_FOUND);
     assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
-    form.changed[0] = true; strlcpy(form.values[0], "chats://edited.example:7443", sizeof(form.values[0]));
+    form.data.changed[0] = true; strlcpy(form.data.values[0], "chats://edited.example:7443", sizeof(form.data.values[0]));
     solar_os_messaging_provider_id_t result = 0;
     assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_OK && result == b);
     scope = solar_os_gateway_scope_enter(gateway_find(b));
     assert(solar_os_chat_get_config(&config) == ESP_OK && !strcmp(config.token, "token-b") && config.enabled);
     solar_os_gateway_scope_leave(scope);
     assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK);
-    form.changed[1] = true; strlcpy(form.values[1], "replacement", sizeof(form.values[1]));
+    form.data.changed[1] = true; strlcpy(form.data.values[1], "replacement", sizeof(form.data.values[1]));
     fail_migration_promotion = true;
     assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) != ESP_OK);
     scope = solar_os_gateway_scope_enter(gateway_find(b));
     assert(solar_os_chat_get_config(&config) == ESP_OK && !strcmp(config.token, "token-b"));
     solar_os_gateway_scope_leave(scope);
-    memset(form.values[1], 0, sizeof(form.values[1]));
+    memset(form.data.values[1], 0, sizeof(form.data.values[1]));
     assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_OK);
-    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK && !form.present[1]);
-    memset(form.values[0], 'x', sizeof(form.values[0]));
+    assert(solar_os_messaging_settings_read("gateway", b, 0, &form) == ESP_OK && !form.data.present[1]);
+    memset(form.data.values[0], 'x', sizeof(form.data.values[0]));
     assert(solar_os_messaging_settings_write("gateway", b, 0, NULL, &form, &result) == ESP_ERR_INVALID_SIZE);
     solar_os_messaging_settings_clear(&form);
     assert(solar_os_messaging_instance_remove(b) == ESP_OK);

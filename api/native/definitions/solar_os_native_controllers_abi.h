@@ -1,0 +1,225 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#include "solar_os_native_motion_abi.h"
+
+#define SOLAR_OS_NATIVE_CONTROLLERS_SERVICE "controllers"
+#define SOLAR_OS_NATIVE_CONTROLLERS_ABI 1U
+#define SOLAR_OS_NATIVE_CONTROLLER_MATH_SERVICE "controllers.math"
+#define SOLAR_OS_NATIVE_CONTROLLER_MATH_ABI 1U
+
+/* Portable, allocation-free controller algorithms. All times are seconds;
+ * setpoint and measurement share a unit, output uses the actuator's unit. */
+typedef enum {
+    SOLAR_OS_CONTROLLER_PID,
+    SOLAR_OS_CONTROLLER_HYSTERESIS,
+} solar_os_controller_kind_t;
+
+typedef struct {
+    solar_os_controller_kind_t kind;
+    float kp, ki, kd;
+    float derivative_tau;
+    float output_min, output_max;
+    float hysteresis; /* Full width of the band around the setpoint. */
+    float max_dt;
+    bool reverse; /* Increasing output decreases the measured value. */
+} solar_os_controller_math_config_t;
+
+typedef struct {
+    bool initialized, automatic, tracking, saturated;
+    float previous_measurement;
+    float error, p, i, d, output;
+} solar_os_controller_math_state_t;
+
+typedef enum {
+    SOLAR_OS_CONTROLLER_TUNE_IDLE,
+    SOLAR_OS_CONTROLLER_TUNE_RUNNING,
+    SOLAR_OS_CONTROLLER_TUNE_COMPLETE,
+    SOLAR_OS_CONTROLLER_TUNE_ABORTED,
+    SOLAR_OS_CONTROLLER_TUNE_FAILED,
+} solar_os_controller_tune_state_t;
+typedef enum {
+    SOLAR_OS_CONTROLLER_TUNE_OK,
+    SOLAR_OS_CONTROLLER_TUNE_TIMEOUT,
+    SOLAR_OS_CONTROLLER_TUNE_UNSTABLE,
+    SOLAR_OS_CONTROLLER_TUNE_BAD_SAMPLE,
+    SOLAR_OS_CONTROLLER_TUNE_CLEANUP,
+    SOLAR_OS_CONTROLLER_TUNE_NO_MOTION,
+    SOLAR_OS_CONTROLLER_TUNE_NO_HEADROOM,
+    SOLAR_OS_CONTROLLER_TUNE_WRONG_DIRECTION,
+    SOLAR_OS_CONTROLLER_TUNE_RANGE,
+    SOLAR_OS_CONTROLLER_TUNE_NOT_SETTLED,
+    SOLAR_OS_CONTROLLER_TUNE_VALIDATION,
+} solar_os_controller_tune_reason_t;
+typedef enum {
+    SOLAR_OS_CONTROLLER_TUNE_BASELINE,
+    SOLAR_OS_CONTROLLER_TUNE_FIND_MOTION,
+    SOLAR_OS_CONTROLLER_TUNE_SETTLE,
+    SOLAR_OS_CONTROLLER_TUNE_IDENTIFY,
+    SOLAR_OS_CONTROLLER_TUNE_VALIDATE,
+    SOLAR_OS_CONTROLLER_TUNE_DONE,
+} solar_os_controller_tune_phase_t;
+
+typedef struct {
+    float setpoint, low, high, band, max_dt, timeout;
+    uint32_t cycles;
+    bool reverse;
+    /* Automatic mode uses safe as the rest output and ignores setpoint.
+     * cycles selects 3..12 step-response experiments. With automatic false,
+     * cycles selects the required number of measured relay cycles. */
+    bool automatic;
+    float safe, measurement_min, measurement_max;
+} solar_os_controller_tune_config_t;
+
+typedef struct {
+    uint32_t state, reason, cycles, required_cycles, samples;
+    float elapsed, amplitude, period, ultimate_gain;
+    float kp, ki, kd, derivative_tau;
+    uint32_t phase, point, points;
+    float test_setpoint, drive, breakaway, noise;
+    float process_gain, dead_time, time_constant;
+} solar_os_controller_tune_result_t;
+
+#define SOLAR_OS_CONTROLLER_NAME_MAX 24U
+#define SOLAR_OS_CONTROLLER_TARGET_MAX 76U
+
+typedef struct {
+    char name[SOLAR_OS_CONTROLLER_NAME_MAX];
+    solar_os_controller_math_config_t algorithm;
+    float setpoint, setpoint_min, setpoint_max, safe_output;
+    uint32_t period_ms, timeout_ms, frequency_hz;
+    uint32_t command_timeout_ms;
+    float acceleration_limit, velocity_deadband, friction_bias_forward, friction_bias_reverse;
+    char source[48]; /* Empty: timestamped feed() input. */
+    char target[SOLAR_OS_CONTROLLER_TARGET_MAX]; /* parameter:path, pwm:provider:output or stream:id */
+} solar_os_controller_config_t;
+
+typedef struct {
+    solar_os_controller_config_t config;
+    solar_os_controller_math_state_t state;
+    bool enabled, claimed, faulted, has_measurement;
+    float measurement;
+    uint64_t sample_ms;
+    uint32_t steps, faults;
+    int32_t last_error;
+    char owner[16]; /* Nonempty: explicitly stepped instance; owner keeps its handle. */
+    bool waiting;
+    float feedforward;
+    solar_os_controller_tune_result_t tuning;
+    bool command_valid;
+    uint64_t command_expires_us;
+    float active_setpoint;
+    solar_os_native_encoder_feedback_v1_t feedback;
+    bool input_claimed;
+} solar_os_controller_info_t;
+
+typedef enum {
+    SOLAR_OS_CONTROLLER_TUNE_LABEL_STATE,
+    SOLAR_OS_CONTROLLER_TUNE_LABEL_REASON,
+    SOLAR_OS_CONTROLLER_TUNE_LABEL_PHASE,
+} solar_os_controller_tune_label_t;
+
+typedef struct {
+    float kp, ki, kd, derivative_tau;
+    float output_min, output_max, max_dt, setpoint_min, setpoint_max;
+    uint32_t period_ms, timeout_ms;
+} solar_os_native_controller_config_v1_t;
+
+typedef struct {
+    float setpoint, measurement, dt, feedforward;
+    uint64_t sample_us; /* Host monotonic acquisition time. */
+    uint32_t run; /* Zero monitors feedback and resets PID while waiting. */
+} solar_os_native_controller_sample_v1_t;
+
+typedef struct {
+    float output, p, i, d; /* Output includes feedforward and the configured cap. */
+    uint32_t saturated;
+} solar_os_native_controller_output_v1_t;
+
+/* Bound controllers use the same OS stream/PID/output path as the shell.
+ * Endpoint settings are temporary and restored before releasing ownership. */
+typedef struct {
+    solar_os_native_controller_config_v1_t pid;
+    char motor[20], encoder[20];
+    solar_os_native_encoder_config_v1_t encoder_config;
+    solar_os_native_motor_config_v1_t motor_config;
+    float acceleration_limit, velocity_deadband;
+    float friction_bias_forward, friction_bias_reverse;
+    uint32_t command_timeout_ms;
+} solar_os_native_bound_controller_config_v1_t;
+typedef struct {
+    uint32_t enabled, claimed, waiting, faulted, command_valid, steps, faults, saturated;
+    int32_t last_error;
+    uint64_t command_expires_us;
+    float target, setpoint, output, p, i, d, feedforward;
+    solar_os_native_encoder_feedback_v1_t feedback;
+} solar_os_native_bound_controller_status_v1_t;
+
+/* OS-owned, explicitly stepped PID instances in the common controller registry.
+ * The caller owns its sampling clock and actuator handling. No callbacks or
+ * borrowed pointers are retained. Instances start waiting; evaluate runs the
+ * OS PID synchronously on the caller's task. Generic controller stop revokes
+ * evaluation; the owner must observe failure and stop its actuator. Only the
+ * owner handle may pause, fault or close an instance. Retain it until physical
+ * output cleanup succeeds, and close before unloading the owner module. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*open)(const char *name, const char *owner, const solar_os_native_controller_config_v1_t *config, uint32_t *controller);
+    int (*evaluate)(uint32_t controller, const solar_os_native_controller_sample_v1_t *sample, solar_os_native_controller_output_v1_t *out);
+    int (*pause)(uint32_t controller);
+    int (*fault)(uint32_t controller, int error);
+    int (*close)(uint32_t controller);
+    /* Optional append-only bound endpoint extension. A failed open may return
+     * a nonzero handle when rollback is incomplete: retain it and retry close.
+     * Command timestamps are original acquisitions on the host uptime clock. */
+    int (*open_bound)(const char *name,const char *owner,
+        const solar_os_native_bound_controller_config_v1_t *config,uint32_t *controller);
+    int (*command)(uint32_t controller,float setpoint,uint64_t acquired_us);
+    int (*step_bound)(uint32_t controller,solar_os_native_bound_controller_status_v1_t *status);
+    int (*status_bound)(uint32_t controller,solar_os_native_bound_controller_status_v1_t *status);
+    /* Named controllers use the shared OS registry until removed or rebooted.
+     * Status records are copied, including their most recent tuning report.
+     * Configuration uses the same keys and claim policy as the shell. Feed
+     * takes the original reading time in host monotonic milliseconds. Step
+     * uses seconds and only computes an output. Start assigns actuator
+     * ownership and the scheduler updates it. Stop writes the safe output
+     * before releasing ownership, keeping the claim on a cleanup failure. */
+    int (*create)(const char *name, solar_os_controller_kind_t kind);
+    int (*remove)(const char *name);
+    size_t (*count)(void);
+    int (*info)(size_t index, solar_os_controller_info_t *info);
+    int (*find)(const char *name, solar_os_controller_info_t *info);
+    int (*configure)(const char *name, const char *key, float value);
+    int (*bind)(const char *name, const char *source, const char *target);
+    int (*feed)(const char *name, float measurement, uint64_t sample_ms);
+    int (*step)(const char *name, float measurement, float dt, float *output);
+    int (*set_mode)(const char *name, bool automatic, float manual_output);
+    int (*reset)(const char *name);
+    int (*start)(const char *name);
+    int (*stop)(const char *name);
+    /* Runs an explicit tuning experiment. Results never replace live gains. */
+    int (*tune)(const char *name, float band, uint32_t points, uint32_t timeout_ms);
+    const char *(*tune_label)(solar_os_controller_tune_label_t kind, uint32_t value);
+    int (*stop_all)(void);
+} solar_os_native_controllers_api_v1_t;
+
+/* Caller-owned controller state and tuner storage. No operation accesses a
+ * device or retains a pointer. The caller supplies time in seconds and owns
+ * actuator safety. Allocate tuner storage with the reported size and alignment.
+ * After a successful tuner_begin, keep the storage aligned and serialize its
+ * use through the same service instance. Inspect the copied result after a
+ * failed step or a finished experiment. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    void (*defaults)(solar_os_controller_kind_t kind, solar_os_controller_math_config_t *config);
+    bool (*valid)(const solar_os_controller_math_config_t *config);
+    bool (*reset)(const solar_os_controller_math_config_t *config,
+        solar_os_controller_math_state_t *state, float output);
+    bool (*set_mode)(const solar_os_controller_math_config_t *config,
+        solar_os_controller_math_state_t *state, bool automatic, float manual_output);
+    bool (*step)(const solar_os_controller_math_config_t *config,
+        solar_os_controller_math_state_t *state, float setpoint, float measurement, float dt);
+    void (*tuner_storage)(size_t *bytes, size_t *alignment);
+    bool (*tuner_begin)(void *storage, size_t capacity, const solar_os_controller_tune_config_t *config);
+    bool (*tuner_step)(void *storage, size_t capacity, float measurement, float dt, float *output);
+    bool (*tuner_result)(const void *storage, size_t capacity, solar_os_controller_tune_result_t *result);
+} solar_os_native_controller_math_api_v1_t;

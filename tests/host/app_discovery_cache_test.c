@@ -8,11 +8,15 @@
 #ifndef SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
 #define SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES 1
 #endif
-#define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 16U
+#ifndef SOLAR_OS_NATIVE_FOREGROUND_ENABLED
+#define SOLAR_OS_NATIVE_FOREGROUND_ENABLED SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#endif
+#define SOLAR_OS_MODULE_PACKAGE_COUNT_MAX 256U
 #define SOLAR_OS_MODULE_PACKAGE_ID_MAX 32U
 #define SOLAR_OS_STORAGE_PATH_MAX 256U
 #define SOLAR_OS_MODULE_TYPE_APP 1
 #define SOLAR_OS_MEMORY_TRANSIENT 1
+#define SOLAR_OS_MEMORY_EXTERNAL_REQUIRED 2
 #define SOLAR_OS_APP_STATIC_SRAM_EXCEPTION(reason)
 #define EXT_RAM_BSS_ATTR
 #define portMUX_INITIALIZER_UNLOCKED 0
@@ -20,6 +24,9 @@ typedef int portMUX_TYPE;
 typedef int esp_err_t;
 #define ESP_OK 0
 #define ESP_FAIL -1
+#define ESP_ERR_INVALID_ARG 0x102
+#define ESP_ERR_NO_MEM 0x101
+#define ESP_ERR_NOT_SUPPORTED 0x106
 
 static unsigned locks;
 #define portENTER_CRITICAL(lock) ((void)(lock), assert(locks++ == 0))
@@ -29,6 +36,12 @@ typedef struct { const char *name; } solar_os_app_registry_entry_t;
 static const solar_os_app_registry_entry_t registered_apps[] = {{"clock"}, {"edit"}};
 static const size_t registered_app_count = 2;
 static const solar_os_app_registry_entry_t external[] = {{"apple2"}, {"clock"}, {"tiny386"}};
+typedef struct { int type; const char *id; } solar_os_component_t;
+static bool compiled_app;
+static const solar_os_component_t component = {SOLAR_OS_MODULE_TYPE_APP, "tiny386"};
+static size_t solar_os_component_count(void) { return compiled_app ? 1U : 0U; }
+static const solar_os_component_t *solar_os_component_get(size_t index)
+{ return compiled_app && !index ? &component : NULL; }
 static uint32_t revision;
 static int64_t now;
 static bool mounted = true, fail_alloc, fail_scan, racing_change, reentrant;
@@ -60,6 +73,8 @@ static void *solar_os_memory_calloc(size_t count, size_t size, int kind, const c
     assert(!locks && kind == SOLAR_OS_MEMORY_TRANSIENT && !strcmp(tag, "app.discovery"));
     return fail_alloc ? NULL : calloc(count, size);
 }
+static void *solar_os_memory_alloc(size_t bytes, int kind, const char *tag)
+{ assert(!locks && kind == SOLAR_OS_MEMORY_EXTERNAL_REQUIRED && tag); return fail_alloc ? NULL : malloc(bytes); }
 static void solar_os_memory_free(void *p) { assert(!locks); free(p); }
 static const solar_os_app_registry_entry_t *solar_os_native_foreground_find(const char *id)
 {
@@ -110,7 +125,19 @@ static bool stop_visit(const char *id, void *user)
 
 int main(void)
 {
-#if !SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+#if SOLAR_OS_NATIVE_FOREGROUND_ENABLED && !SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES
+    compiled_app = true; mounted = false; root = "";
+    assert(solar_os_app_registry_count() == 3 && !scans);
+    assert(solar_os_app_registry_find("tiny386") == &external[2]);
+    solar_os_app_registry_foreach_module(command_visit, &commands);
+    assert(commands == 1 && !scans);
+    fail_alloc = true;
+    solar_os_app_registry_foreach_module(command_visit, &commands);
+    assert(commands == 1);
+    fail_alloc = false;
+    puts("compiled foreground discovery works without ELF loading or storage");
+    return 0;
+#elif !SOLAR_OS_NATIVE_FOREGROUND_ENABLED
     assert(solar_os_app_registry_count() == 2);
     assert(solar_os_app_registry_get(0) == &registered_apps[0]);
     assert(solar_os_app_registry_get(1) == &registered_apps[1]);
@@ -141,9 +168,9 @@ int main(void)
     }
     assert(scans == 1 && file_checks == 3);
     commands = 0;
-    solar_os_app_registry_foreach_module(stop_visit, NULL);
+    assert(solar_os_app_registry_foreach_module(stop_visit, NULL) == ESP_OK);
     assert(commands == 1);
-    solar_os_app_registry_foreach_module(NULL, NULL);
+    assert(solar_os_app_registry_foreach_module(NULL, NULL) == ESP_ERR_INVALID_ARG);
 
     apple2_installed = false; tiny386_installed = true; revision++;
     assert(solar_os_app_registry_count() == 3);
@@ -185,6 +212,14 @@ int main(void)
     assert(solar_os_app_registry_count() == 2 && scans == 9);
     now += 1000000LL;
     assert(solar_os_app_registry_count() == 4 && scans == 10);
+    compiled_app = true; mounted = false; root = ""; ++revision;
+    assert(solar_os_app_registry_count() == 3 && scans == 10);
+    assert(solar_os_app_registry_find("tiny386") == &external[2]);
+    commands = 0;
+    solar_os_app_registry_foreach_module(command_visit, &commands);
+    assert(commands == 1);
+    mounted = true; root = "/sdcard/modules/apps"; fail_scan = true; ++revision;
+    assert(solar_os_app_registry_count() == 3 && scans == 11);
     puts("app discovery: zero warm-cache file operations, overrides, commands, refresh and recovery passed");
     return 0;
 #endif

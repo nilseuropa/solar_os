@@ -31,9 +31,8 @@ not change the inference API's `list()` result: it contains ESP-DL handles only.
 
 ## Availability and ownership
 
-`solaros.inference` requires `service.inference`, provided by the `inference`
-group. Standard flavors enable this group on ESP32-S3 boards with PSRAM.
-Camera, display, and image services are optional. No models are built into the
+`solaros.inference` uses the core inference service on ESP32-S3 boards with
+PSRAM. Camera and display hardware are optional. No models are built into the
 firmware; put compatible `.espdl` files on a mounted SolarOS storage volume.
 
 The `inference_backend` group (`backend.inference-espdl`) includes the engine

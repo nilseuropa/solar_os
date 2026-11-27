@@ -6,51 +6,15 @@
 
 #include "esp_err.h"
 #include "solar_os_messaging_types.h"
+#include "solar_os_native_messages_abi.h"
 
 #define SOLAR_OS_MESSAGING_CONVERSATION_CAPACITY 32U
 #define SOLAR_OS_MESSAGING_MESSAGE_CAPACITY 64U
 #define SOLAR_OS_MESSAGING_OUTBOX_CAPACITY 16U
 #define SOLAR_OS_MESSAGING_EVENT_CAPACITY 80U
-#define SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX 64U
-#define SOLAR_OS_MESSAGING_SENDER_MAX 40U
 #define SOLAR_OS_MESSAGING_STORE_DIR ".messages"
 #define SOLAR_OS_MESSAGING_STORE_FILE "history.bin"
 
-typedef enum {
-    SOLAR_OS_MESSAGING_EVENT_PROVIDER = 0,
-    SOLAR_OS_MESSAGING_EVENT_CONVERSATION,
-    SOLAR_OS_MESSAGING_EVENT_CONVERSATION_REMOVED,
-    SOLAR_OS_MESSAGING_EVENT_MESSAGE,
-    SOLAR_OS_MESSAGING_EVENT_MESSAGE_REMOVED,
-    SOLAR_OS_MESSAGING_EVENT_MESSAGES_CLEARED,
-    SOLAR_OS_MESSAGING_EVENT_DELIVERY,
-    SOLAR_OS_MESSAGING_EVENT_ERROR,
-} solar_os_messaging_event_type_t;
-
-typedef struct {
-    solar_os_messaging_provider_id_t id;
-    bool registered;
-    bool running;
-    bool connected;
-    esp_err_t last_error;
-    char name[SOLAR_OS_MESSAGING_LABEL_MAX];
-    char detail[SOLAR_OS_MESSAGING_ERROR_MAX];
-    char class_name[16];
-    uint32_t capabilities;
-    bool connection_oriented;
-    bool removed;
-} solar_os_messaging_provider_status_t;
-
-typedef enum {
-    SOLAR_OS_MESSAGING_JOIN_NONE,
-    SOLAR_OS_MESSAGING_JOIN_LEFT,
-    SOLAR_OS_MESSAGING_JOIN_PENDING,
-    SOLAR_OS_MESSAGING_JOIN_JOINED,
-    SOLAR_OS_MESSAGING_JOIN_FAILED,
-} solar_os_messaging_join_state_t;
-
-#define SOLAR_OS_MESSAGING_SETTINGS_FIELDS 8U
-#define SOLAR_OS_MESSAGING_SETTING_MAX 160U
 typedef struct {
     const char *label;
     const char *hint;
@@ -59,29 +23,19 @@ typedef struct {
     bool required;
 } solar_os_messaging_setting_t;
 
-/* Provider-owned form descriptions have static lifetime. Secret readback is
- * always empty; present indicates a saved value. An unchanged field preserves
- * its current value, including credentials. Changing a secret to empty clears it.
- * Allocate forms outside the task stack. */
-typedef struct {
-    const char *label;
-    const solar_os_messaging_setting_t *fields;
-    size_t count;
-    char worker[48];
-    bool worker_is_resource; /* Resolve a job by its named resource. */
-    bool enabled;
-    char values[SOLAR_OS_MESSAGING_SETTINGS_FIELDS][SOLAR_OS_MESSAGING_SETTING_MAX];
-    bool present[SOLAR_OS_MESSAGING_SETTINGS_FIELDS];
-    bool changed[SOLAR_OS_MESSAGING_SETTINGS_FIELDS];
-} solar_os_messaging_settings_t;
+/* Forms own their copied descriptors and values. The registry clears secret
+ * readback. Allocate forms outside the task stack. */
+typedef solar_os_message_settings_v1_t solar_os_messaging_settings_t;
 
+void solar_os_messaging_settings_form(solar_os_messaging_settings_t *settings, const char *label,
+    const solar_os_messaging_setting_t *fields, size_t count);
 void solar_os_messaging_settings_value(solar_os_messaging_settings_t *settings,
     size_t field, const char *value);
 void solar_os_messaging_settings_clear(solar_os_messaging_settings_t *settings);
 
-/* Class descriptors have static lifetime. Operations lease instance contexts
- * until completion; successful removal destroys them after excluding workers.
- * Operations run outside the Messaging lock. */
+/* Class descriptors stay valid until unregistered. Operations lease their
+ * class and instance contexts. Successful removal excludes workers before
+ * freeing context. Callbacks run outside the Messaging lock. */
 typedef struct {
     const char *name;
     uint32_t capabilities;
@@ -103,126 +57,25 @@ typedef struct {
     esp_err_t (*settings_read)(void *context, unsigned form,
                                solar_os_messaging_settings_t *settings);
     esp_err_t (*settings_write)(void *context, unsigned form, const char *name,
-                                const solar_os_messaging_settings_t *settings,
+                                const solar_os_message_setting_values_v1_t *settings,
                                 solar_os_messaging_provider_id_t *id);
     esp_err_t (*normalize_target)(void *context, const char *target,
                                   char *normalized, size_t size);
-    /* Prepare excludes transport work until finish, including on failure.
-     * No Messaging locks are held by either callback. Finish cannot fail;
+    /* A successful prepare excludes transport work until finish. A failed
+     * prepare leaves the instance active. Finish cannot fail;
      * when removed is true it destroys the context, otherwise it resumes it. */
     esp_err_t (*remove_prepare)(void *context);
     void (*remove_finish)(void *context, bool removed);
+    /* Portable classes supply an owner for class-level dispatch. An instance
+     * may be absent when a settings callback describes a creation form. */
+    void *owner;
+    esp_err_t (*create_owned)(void *owner, const char *name, int argc,
+        const char *const *argv, solar_os_messaging_provider_id_t *id);
+    esp_err_t (*settings_read_owned)(void *owner, void *context, unsigned form,
+        solar_os_messaging_settings_t *settings);
+    esp_err_t (*settings_write_owned)(void *owner, void *context, unsigned form, const char *name,
+        const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id);
 } solar_os_messaging_provider_class_t;
-
-typedef struct {
-    solar_os_conversation_id_t id;
-    solar_os_messaging_provider_id_t provider;
-    solar_os_conversation_kind_t kind;
-    solar_os_contact_id_t contact_id;
-    solar_os_endpoint_id_t endpoint_id;
-    uint32_t group_ref;
-    uint32_t unread_count;
-    uint64_t last_message_ms;
-    uint32_t security_flags;
-    char title[SOLAR_OS_MESSAGING_TITLE_MAX];
-    char provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
-    bool history_only;
-    bool left; /* Explicitly left: hidden in Chat, history retained until rejoin. */
-    solar_os_messaging_join_state_t join_state;
-    char join_error[SOLAR_OS_MESSAGING_ERROR_MAX];
-} solar_os_messaging_conversation_t;
-
-typedef struct {
-    solar_os_message_key_t key;
-    uint64_t provider_message_key;
-    solar_os_conversation_id_t conversation_id;
-    solar_os_contact_id_t contact_id;
-    solar_os_endpoint_id_t endpoint_id;
-    uint64_t timestamp_ms;
-    uint64_t received_ms;
-    solar_os_messaging_provider_id_t provider;
-    solar_os_message_direction_t direction;
-    solar_os_delivery_state_t delivery;
-    uint32_t security_flags;
-    uint32_t inbox_id;
-    bool unread;
-    bool truncated;
-    char sender[SOLAR_OS_MESSAGING_SENDER_MAX];
-    char body[SOLAR_OS_MESSAGING_BODY_MAX];
-    char error[SOLAR_OS_MESSAGING_ERROR_MAX];
-} solar_os_messaging_message_t;
-
-typedef struct {
-    solar_os_messaging_provider_id_t provider;
-    const char *provider_key;
-    solar_os_conversation_kind_t kind;
-    const char *title;
-    solar_os_contact_id_t contact_id;
-    solar_os_endpoint_id_t endpoint_id;
-    uint32_t group_ref;
-    uint32_t security_flags;
-} solar_os_messaging_conversation_upsert_t;
-
-typedef struct {
-    solar_os_messaging_provider_id_t provider;
-    const char *conversation_key;
-    solar_os_conversation_kind_t conversation_kind;
-    const char *conversation_title;
-    solar_os_contact_id_t contact_id;
-    solar_os_endpoint_id_t endpoint_id;
-    uint32_t group_ref;
-    uint64_t provider_message_key;
-    uint64_t timestamp_ms;
-    uint32_t security_flags;
-    const char *sender;
-    const char *body;
-    bool truncated;
-} solar_os_messaging_inbound_t;
-
-typedef struct {
-    uint32_t id;
-    solar_os_message_key_t message_key;
-    solar_os_conversation_id_t conversation_id;
-    solar_os_messaging_provider_id_t provider;
-    uint8_t attempts;
-    bool allow_untrusted;
-    char provider_key[SOLAR_OS_MESSAGING_PROVIDER_KEY_MAX];
-    char body[SOLAR_OS_MESSAGING_BODY_MAX];
-} solar_os_messaging_outbound_t;
-
-typedef struct {
-    uint32_t id;
-    solar_os_messaging_event_type_t type;
-    solar_os_messaging_provider_id_t provider;
-    solar_os_conversation_id_t conversation_id;
-    solar_os_message_key_t message_key;
-    solar_os_delivery_state_t delivery;
-    esp_err_t error;
-} solar_os_messaging_event_t;
-
-typedef struct {
-    bool initialized;
-    bool rings_in_psram;
-    bool persistent;
-    bool inbox_backed;
-    size_t conversations;
-    size_t messages;
-    size_t cached_messages;
-    size_t unread;
-    size_t queued_outbox;
-    size_t queued_events;
-    /* Zero denotes an archive limited by available disk space. */
-    size_t persistent_capacity;
-    size_t persistent_limit_bytes;
-    uint32_t dropped_messages;
-    uint32_t dropped_outbox;
-    uint32_t generation;
-    esp_err_t storage_error;
-} solar_os_messaging_status_t;
-
-typedef bool (*solar_os_messaging_message_visitor_t)(
-    const solar_os_messaging_message_t *message,
-    void *user);
 
 esp_err_t solar_os_messaging_init(void);
 /* Newest matching messages, returned in chronological order. Offset counts
@@ -240,6 +93,11 @@ esp_err_t solar_os_messaging_provider_register(
     const char *name);
 esp_err_t solar_os_messaging_class_register(
     const solar_os_messaging_provider_class_t *provider_class);
+esp_err_t solar_os_messaging_class_unregister(const solar_os_messaging_provider_class_t *provider_class);
+esp_err_t solar_os_messaging_instance_attach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner, void *context);
+esp_err_t solar_os_messaging_instance_detach(solar_os_messaging_provider_id_t id,
+    const solar_os_messaging_provider_class_t *owner);
 esp_err_t solar_os_messaging_instance_register(
     solar_os_messaging_provider_id_t id, const char *class_name,
     const char *name, void *context);
@@ -253,11 +111,6 @@ bool solar_os_messaging_provider_next(solar_os_messaging_provider_id_t *cursor,
 solar_os_messaging_provider_id_t solar_os_messaging_provider_find(const char *name);
 bool solar_os_messaging_provider_is_class(solar_os_messaging_provider_id_t id,
                                          const char *class_name);
-typedef struct {
-    char name[16];
-    uint32_t capabilities;
-    bool creatable;
-} solar_os_messaging_class_status_t;
 /* Pass an empty string initially, then the previous status.name. */
 bool solar_os_messaging_class_next(const char *after, solar_os_messaging_class_status_t *status);
 esp_err_t solar_os_messaging_profile_save(solar_os_messaging_provider_id_t id,
@@ -284,6 +137,9 @@ esp_err_t solar_os_messaging_settings_write(const char *class_name,
     solar_os_messaging_provider_id_t id, unsigned form, const char *name,
     const solar_os_messaging_settings_t *settings,
     solar_os_messaging_provider_id_t *result);
+esp_err_t solar_os_messaging_settings_write_values(const char *class_name,
+    solar_os_messaging_provider_id_t id, unsigned form, const char *name,
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *result);
 esp_err_t solar_os_messaging_join(solar_os_messaging_provider_id_t instance,
     const char *target, solar_os_conversation_id_t *conversation);
 esp_err_t solar_os_messaging_leave(solar_os_conversation_id_t conversation);

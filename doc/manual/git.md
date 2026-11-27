@@ -5,7 +5,7 @@ section = "network"
 summary = "Version small projects locally and synchronize Git repositories over SSH or anonymous HTTPS"
 aliases = ["version-control"]
 keywords = "git clone branch diff commit pull push fetch github bitbucket ssh https"
-packages_any = ["service_git"]
+packages_any = ["app_git"]
 +++
 # Git version control
 

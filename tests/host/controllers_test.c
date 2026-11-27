@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "solar_os_controllers.h"
+#include "solar_os_native_controllers.h"
 #include "solar_os_pwm.h"
 #include "solar_os_memory.h"
 #include <stdlib.h>
@@ -332,6 +333,79 @@ static void setpoint_stream_test(void)
     puts("controller setpoint streams: writer claim, parameter interlock, timestamps, expiry and reader lifetime passed");
 }
 
+static void portable_named_controller_test(void)
+{
+    const solar_os_native_controllers_api_v1_t *api = solar_os_native_controllers_get_service(
+        SOLAR_OS_NATIVE_CONTROLLERS_SERVICE, SOLAR_OS_NATIVE_CONTROLLERS_ABI, sizeof(*api));
+    assert(api && api->count() == 0);
+    assert(!api->create("portable", SOLAR_OS_CONTROLLER_HYSTERESIS));
+    assert(api->create("portable", SOLAR_OS_CONTROLLER_PID) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->configure("portable", "hysteresis", 2.0f));
+    assert(!api->configure("portable", "setpoint", 4.0f));
+    assert(!api->bind("portable", "manual", "parameter:plant.drive"));
+    assert(!api->feed("portable", 1.0f, now));
+    assert(!api->set_mode("portable", false, 0.25f));
+    float output = 0;
+    assert(!api->step("portable", 1.0f, 0.01f, &output) && output == 0.25f);
+    assert(!api->set_mode("portable", true, 0));
+    assert(!api->step("portable", 1.0f, 0.01f, &output) && output == 1.0f);
+    solar_os_controller_info_t snapshot;
+    assert(!api->info(0, &snapshot) && snapshot.config.algorithm.hysteresis == 2.0f);
+    assert(snapshot.config.setpoint == 4.0f && snapshot.state.output == 1.0f);
+    assert(snapshot.steps == 2 && snapshot.has_measurement && snapshot.sample_ms == now);
+    assert(!strcmp(snapshot.config.target, "parameter:plant.drive"));
+    assert(api->tune("portable", 0, 3, 1000) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!strcmp(api->tune_label(SOLAR_OS_CONTROLLER_TUNE_LABEL_PHASE,
+                                   SOLAR_OS_CONTROLLER_TUNE_VALIDATE), "validating"));
+    assert(!api->reset("portable"));
+    solar_os_controller_info_t found;
+    assert(!api->find("portable", &found) && found.state.output == 0 && !found.has_measurement);
+    assert(!api->stop_all());
+    assert(!api->remove("portable") && api->count() == 0);
+    assert(api->find("portable", &found) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !found.config.name[0]);
+    assert(!strcmp(snapshot.config.name, "portable"));
+}
+
+static void portable_controller_math_test(void)
+{
+    const solar_os_native_controller_math_api_v1_t *api = solar_os_native_controllers_get_service(
+        SOLAR_OS_NATIVE_CONTROLLER_MATH_SERVICE, SOLAR_OS_NATIVE_CONTROLLER_MATH_ABI, sizeof(*api));
+    assert(api);
+    solar_os_controller_math_config_t math;
+    api->defaults(SOLAR_OS_CONTROLLER_HYSTERESIS, &math);
+    assert(api->valid(&math));
+    solar_os_controller_math_state_t state;
+    assert(api->reset(&math, &state, 0));
+    assert(api->set_mode(&math, &state, false, 0.25f));
+    assert(api->step(&math, &state, 1, 0, 0.01f) && state.output == 0.25f);
+    assert(api->set_mode(&math, &state, true, 0));
+    assert(api->step(&math, &state, 1, 0, 0.01f) && state.output == 1);
+
+    size_t size = 0, alignment = 0;
+    api->tuner_storage(&size, &alignment);
+    assert(size && alignment && alignment <= _Alignof(max_align_t));
+    void *storage = malloc(size);
+    assert(storage);
+    const solar_os_controller_tune_config_t config = {
+        .low = -1, .high = 1, .band = 0.1f, .max_dt = 0.1f, .timeout = 8, .cycles = 3,
+    };
+    assert(!api->tuner_begin(storage, size - 1, &config));
+    assert(!api->tuner_begin((char *)storage + 1, size, &config));
+    assert(api->tuner_begin(storage, size, &config));
+    solar_os_controller_tune_result_t snapshot;
+    assert(api->tuner_result(storage, size, &snapshot));
+    assert(snapshot.required_cycles == 3 && snapshot.state == SOLAR_OS_CONTROLLER_TUNE_RUNNING);
+    float drive;
+    assert(api->tuner_step(storage, size, 0.2f, 0.01f, &drive));
+    assert(api->tuner_result(storage, size, &snapshot) && snapshot.samples == 1);
+    assert(!api->tuner_step(storage, size, 0.2f, 0, &drive));
+    assert(api->tuner_result(storage, size, &snapshot));
+    assert(snapshot.state == SOLAR_OS_CONTROLLER_TUNE_FAILED && snapshot.reason == SOLAR_OS_CONTROLLER_TUNE_BAD_SAMPLE);
+    assert(api->tuner_begin(storage, size, &config));
+    assert(api->tuner_result(storage, size, &snapshot) && !snapshot.samples);
+    free(storage);
+}
+
 int main(void)
 {
     register_output();
@@ -450,6 +524,8 @@ int main(void)
     owned_controllers_test();
     tuning_service_test();
     setpoint_stream_test();
+    portable_named_controller_test();
+    portable_controller_math_test();
     puts("controllers service tests passed");
     return 0;
 }

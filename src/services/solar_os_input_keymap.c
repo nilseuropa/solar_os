@@ -149,7 +149,7 @@ esp_err_t solar_os_input_keymap_activate(solar_os_input_keymap_handle_t handle)
     return err;
 }
 
-esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle)
+static esp_err_t unregister_profile(solar_os_input_keymap_handle_t handle, bool wait)
 {
     portENTER_CRITICAL(&registry_lock);
     keymap_provider_t *p = find_handle(handle);
@@ -164,11 +164,11 @@ esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle
         const unsigned references = p->references;
         portEXIT_CRITICAL(&registry_lock);
         if (references == 0U) break;
-        if (xTaskGetTickCount() - start >= pdMS_TO_TICKS(UNREGISTER_WAIT_MS)) {
+        if (!wait || xTaskGetTickCount() - start >= pdMS_TO_TICKS(UNREGISTER_WAIT_MS)) {
             portENTER_CRITICAL(&registry_lock);
             p->unregistering = false;
             portEXIT_CRITICAL(&registry_lock);
-            return ESP_ERR_TIMEOUT;
+            return wait ? ESP_ERR_TIMEOUT : ESP_ERR_INVALID_STATE;
         }
         vTaskDelay(pdMS_TO_TICKS(1U) > 0U ? pdMS_TO_TICKS(1U) : 1U);
     }
@@ -180,6 +180,11 @@ esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle
     free(data);
     return ESP_OK;
 }
+
+esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle)
+{ return unregister_profile(handle, true); }
+esp_err_t solar_os_input_keymap_try_unregister(solar_os_input_keymap_handle_t handle)
+{ return unregister_profile(handle, false); }
 
 esp_err_t solar_os_input_keymap_info(const char *name, solar_os_input_keymap_info_t *info)
 {
@@ -207,7 +212,8 @@ unsigned solar_os_input_keymap_press_priority(solar_os_input_keymap_handle_t han
     unsigned priority = 2U;
     if (key.flags == SOLAR_OS_INPUT_KEYMAP_LAYER_TAP) priority = 0U;
     else {
-        const solar_os_input_keymap_key_t symbol = p->data->map.keys[1][slot];
+        const solar_os_input_keymap_key_t symbol =
+            p->data->map.keys[p->data->state.active_layer][slot];
         if (p->data->state.layer_key != 0U &&
             (symbol.usage != 0U || symbol.key != 0U || symbol.shifted_key != 0U || symbol.flags != 0U))
             key = symbol;

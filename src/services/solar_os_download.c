@@ -94,6 +94,8 @@ esp_err_t solar_os_download_file(const solar_os_http_request_options_t *options,
         (expected_sha256 && !solar_os_crypto_sha256_hex_is_valid(expected_sha256)) || !result)
         return ESP_ERR_INVALID_ARG;
     memset(result, 0, sizeof(*result));
+    result->response.status_code = -1;
+    result->response.content_length = -1;
     if (download_cancelled(options)) return ESP_ERR_INVALID_STATE;
     download_state_t state = {.maximum = max_size, .expected = expected_size,
         .total = expected_size, .progress = progress, .user = progress_user};

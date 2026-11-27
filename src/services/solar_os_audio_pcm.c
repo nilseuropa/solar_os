@@ -41,6 +41,14 @@ esp_err_t solar_os_audio_s16_convert(
         return ESP_ERR_INVALID_ARG;
     }
 
+    if (input_frames > SIZE_MAX / sizeof(*input) / source->channels)
+        return ESP_ERR_INVALID_SIZE;
+#if SIZE_MAX > UINT32_MAX
+    /* Leave space for one final phase increment before crossing the limit. */
+    if (input_frames > (UINT64_MAX >> 16) - UINT32_MAX)
+        return ESP_ERR_INVALID_SIZE;
+#endif
+
     if (converter->sample_rate != source->sample_rate ||
         converter->channels != source->channels) {
         converter->sample_rate = source->sample_rate;
@@ -113,5 +121,5 @@ esp_err_t solar_os_audio_s16_convert(
     *source_done = phase >= limit;
     converter->phase_q16 = *source_done ? phase - limit : phase;
     *output_samples = produced;
-    return produced > 0U ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    return ESP_OK;
 }

@@ -14,13 +14,6 @@ typedef struct {
     bool try_unregister;
 } fake_sensor_t;
 
-static unsigned temperature_stream_registers;
-static unsigned humidity_stream_registers;
-static unsigned temperature_stream_unregisters;
-static unsigned humidity_stream_unregisters;
-static uint32_t temperature_stream_handles;
-static uint32_t humidity_stream_handles;
-
 size_t strlcpy(char *dst, const char *src, size_t size)
 {
     const size_t length = strlen(src);
@@ -32,43 +25,17 @@ size_t strlcpy(char *dst, const char *src, size_t size)
     return length;
 }
 
-esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
+static bool stream_exists(const char *id)
 {
-    assert(driver != NULL);
-    assert(strcmp(driver->info.provider, "sensors") == 0);
-    assert(strcmp(driver->info.device, "default") == 0);
-    if (strcmp(driver->info.id, "temperature") == 0) {
-        temperature_stream_registers++;
-    } else {
-        assert(strcmp(driver->info.id, "humidity") == 0);
-        humidity_stream_registers++;
-    }
-    return ESP_OK;
+    solar_os_stream_info_t info;
+    return solar_os_stream_get_info(id, &info) == ESP_OK;
 }
 
-esp_err_t solar_os_stream_unregister(const char *id)
+static esp_err_t unrelated_stream_read(void *user, const solar_os_stream_read_options_t *options, float *value)
 {
-    assert(id != NULL);
-    if (strcmp(id, "temperature") == 0) {
-        temperature_stream_unregisters++;
-    } else {
-        assert(strcmp(id, "humidity") == 0);
-        humidity_stream_unregisters++;
-    }
-    return ESP_OK;
-}
-
-esp_err_t solar_os_stream_get_info(const char *id, solar_os_stream_info_t *info)
-{
-    assert(id != NULL);
-    assert(info != NULL);
-    memset(info, 0, sizeof(*info));
-    if (strcmp(id, "temperature") == 0) {
-        info->active_handles = temperature_stream_handles;
-    } else {
-        assert(strcmp(id, "humidity") == 0);
-        info->active_handles = humidity_stream_handles;
-    }
+    (void)user;
+    (void)options;
+    *value = 2.0F;
     return ESP_OK;
 }
 
@@ -130,8 +97,7 @@ static void register_fake(fake_sensor_t *fake,
 int main(void)
 {
     assert(solar_os_sensors_init() == ESP_OK);
-    assert(temperature_stream_registers == 0U);
-    assert(humidity_stream_registers == 0U);
+    assert(!stream_exists("temperature") && !stream_exists("humidity"));
 
     fake_sensor_t combined = {
         .name = "environment0",
@@ -152,6 +118,27 @@ int main(void)
         .temperature_c = 12.25f,
         .humidity_percent = 63.5f,
     };
+
+    const solar_os_stream_driver_t unrelated = {
+        .info = {.id = "humidity", .provider = "host", .device = "test", .format = "f32",
+                 .type = SOLAR_OS_STREAM_TYPE_SCALAR, .direction = SOLAR_OS_STREAM_DIRECTION_SOURCE,
+                 .sharing = SOLAR_OS_STREAM_SHARING_SHARED},
+        .read_scalar = unrelated_stream_read,
+    };
+    const solar_os_sensors_ops_t both = {.read_environment = fake_read};
+    const solar_os_sensors_registration_t registration = {combined.name, "combined-fake", &both, &combined};
+    assert(!solar_os_stream_register(&unrelated));
+    assert(solar_os_sensors_register(&registration) == ESP_ERR_INVALID_STATE);
+    assert(!solar_os_sensors_count() && !stream_exists("temperature") && stream_exists("humidity"));
+    assert(!solar_os_stream_unregister("humidity"));
+    assert(!solar_os_sensors_register(&registration));
+    solar_os_stream_handle_t held = SOLAR_OS_STREAM_HANDLE_INIT;
+    assert(!solar_os_stream_open("humidity", "reader", &held));
+    assert(solar_os_sensors_unregister(combined.name) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_sensors_count() == 1U && stream_exists("temperature") && stream_exists("humidity"));
+    assert(!solar_os_stream_close_ex(&held));
+    assert(!solar_os_sensors_unregister(combined.name));
+    assert(!stream_exists("temperature") && !stream_exists("humidity"));
 
     register_fake(&combined, "combined-fake", true, true);
     register_fake(&temperature, "temperature-fake", true, false);
@@ -182,8 +169,7 @@ int main(void)
     assert(!solar_os_sensors_get(4U, &info));
 
     assert(solar_os_sensors_init() == ESP_OK);
-    assert(temperature_stream_registers == 1U);
-    assert(humidity_stream_registers == 1U);
+    assert(stream_exists("temperature") && stream_exists("humidity"));
 
     solar_os_environment_t environment;
     assert(solar_os_sensors_read_environment(&environment) == ESP_OK);
@@ -207,24 +193,22 @@ int main(void)
 
     assert(solar_os_sensors_unregister(combined.name) == ESP_OK);
     assert(solar_os_sensors_unregister(split_environment.name) == ESP_OK);
-    assert(temperature_stream_unregisters == 0U);
-    assert(humidity_stream_unregisters == 0U);
+    assert(stream_exists("temperature") && stream_exists("humidity"));
     assert(solar_os_sensors_read_environment(&environment) == ESP_OK);
     assert(environment.temperature_c == temperature.temperature_c);
     assert(environment.humidity_percent == humidity.humidity_percent);
 
-    temperature_stream_handles = 1U;
+    assert(!solar_os_stream_open("temperature", "reader", &held));
     assert(solar_os_sensors_unregister(temperature.name) == ESP_ERR_INVALID_STATE);
     assert(solar_os_sensors_count() == 2U);
-    temperature_stream_handles = 0U;
+    assert(!solar_os_stream_close_ex(&held));
     assert(solar_os_sensors_unregister(temperature.name) == ESP_OK);
-    assert(temperature_stream_unregisters == 1U);
-    assert(humidity_stream_unregisters == 0U);
+    assert(!stream_exists("temperature") && stream_exists("humidity"));
     assert(solar_os_sensors_read_temperature(NULL, &value) == ESP_ERR_NOT_SUPPORTED);
     assert(solar_os_sensors_read_humidity(NULL, &value) == ESP_OK);
 
     assert(solar_os_sensors_unregister(humidity.name) == ESP_OK);
-    assert(humidity_stream_unregisters == 1U);
+    assert(!stream_exists("humidity"));
     assert(!solar_os_sensors_has_provider());
 
     puts("sensor service registry tests: ok");

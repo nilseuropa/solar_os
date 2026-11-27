@@ -1,0 +1,35 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_BATTERY_PROVIDER_SERVICE "battery.provider"
+#define SOLAR_OS_NATIVE_BATTERY_PROVIDER_ABI 1U
+
+typedef struct {
+    uint16_t battery_mv;
+    bool calibrated;
+    bool percent_valid;
+    uint8_t percent;
+    bool external_power_valid;
+    bool external_power;
+    bool charging_valid;
+    bool charging;
+} solar_os_battery_sample_t;
+
+/* The provider supplies normalized battery measurements. Missing values
+ * leave the corresponding valid flag clear. Registration retains callback
+ * code through the library lease, or through the attaching native driver
+ * when library_lease is zero. Keep user state alive until close succeeds. */
+typedef struct {
+    const char *owner;
+    solar_os_native_handle_t library_lease;
+    int (*read)(void *user, solar_os_battery_sample_t *sample);
+    void *user;
+} solar_os_native_battery_provider_v1_t;
+
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*register_provider)(const solar_os_native_battery_provider_v1_t *provider,
+                             solar_os_native_handle_t *registration);
+    int (*close)(solar_os_native_handle_t registration);
+} solar_os_native_battery_provider_api_v1_t;

@@ -10,6 +10,7 @@
 #include "solar_os_sc2_sync.h"
 
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -28,7 +29,7 @@
 #include "mbedtls/sha256.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/pk.h"
-#include "solar_os_jobs.h"
+#include "solar_os_config.h"
 #include "solar_os_identity.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
@@ -37,6 +38,8 @@
 #include "solar_os_sc2_client.h"
 #include "solar_os_sc2_provider.h"
 #include "solar_os_sc2_relay_policy.h"
+#include "solar_os_shutdown.h"
+#include "solar_os_sync.h"
 #include "solar_os_task.h"
 
 static const char *TAG = "sc2-sync";
@@ -46,6 +49,7 @@ _Static_assert(sizeof(((solar_os_sc2_sync_status_t *)0)->host) >= SOLAR_OS_SC2_R
 #define SC2_SYNC_CONNECT_MS 15000
 #define SC2_SYNC_WRITE_MS 8000u
 #define SC2_SYNC_CHECK_MS 2000u
+#define SC2_SYNC_STOP_MS 8000u
 #define SC2_SYNC_DEFAULT_ROOM "pub:general"
 /* Multi-relay: see solar_os_sc2_relay_policy.h. Inbound provider message keys carry the relay index in the top byte (0
  * for the primary, as before), so per-relay sequence numbers never collide
@@ -58,7 +62,7 @@ _Static_assert(sizeof(((solar_os_sc2_sync_status_t *)0)->host) >= SOLAR_OS_SC2_R
  * owns the buffers; the caller only copies out after RQ_DONE. */
 enum { RQ_IDLE = 0, RQ_CLAIMED, RQ_POSTED, RQ_WORKING, RQ_DONE, RQ_ABANDONED };
 typedef struct {
-    volatile uint8_t state;
+    atomic_uint state;
     uint8_t op;
     esp_err_t err;
     char arg[SC2_INVITE_TEXT_MAX + 1];
@@ -68,12 +72,14 @@ typedef struct {
     char out[SOLAR_OS_SC2_ROOM_OUT_MAX];
 } sc2s_rq_t;
 static portMUX_TYPE rq_mux = portMUX_INITIALIZER_UNLOCKED;
+static uint32_t rq_generation;
 
 typedef struct {
     TaskHandle_t task;
-    volatile bool stop;
-    volatile bool done;
-    volatile bool running;
+    atomic_bool stop;
+    atomic_bool done;
+    atomic_bool running;
+    atomic_bool reconfigure;
     bool connected;
     bool ready;
     bool client_ok;
@@ -100,6 +106,12 @@ typedef struct {
 } sc2s_t;
 
 static sc2s_t s;
+static solar_os_lifecycle_t lifecycle;
+static SemaphoreHandle_t wake;
+static StaticSemaphore_t wake_storage;
+static portMUX_TYPE status_mux = portMUX_INITIALIZER_UNLOCKED;
+static solar_os_sc2_sync_status_t status_snapshot;
+static void publish_status(void);
 
 static uint64_t mono_ms(void)
 {
@@ -713,6 +725,13 @@ static void schedule_visit(uint64_t now)
 
 /* ---------------- private rooms ---------------- */
 
+static void rq_release(sc2s_rq_t *q)
+{
+    sc2_memzero(q->out, sizeof(q->out));
+    sc2_memzero(q->arg, sizeof(q->arg));
+    atomic_store(&q->state, RQ_IDLE);
+}
+
 static void rq_finish(esp_err_t err, const char *fmt, ...)
 {
     sc2s_rq_t *q = s.rq;
@@ -729,13 +748,10 @@ static void rq_finish(esp_err_t err, const char *fmt, ...)
     }
     q->err = err;
     portENTER_CRITICAL(&rq_mux);
-    bool gone = q->state == RQ_ABANDONED;
-    q->state = gone ? RQ_IDLE : RQ_DONE;
+    const bool gone = q->state == RQ_ABANDONED;
+    if (!gone) q->state = RQ_DONE;
     portEXIT_CRITICAL(&rq_mux);
-    if (gone) {
-        sc2_memzero(q->out, sizeof(q->out));
-        sc2_memzero(q->arg, sizeof(q->arg));
-    }
+    if (gone) rq_release(q);
 }
 
 static size_t rooms_free(void)
@@ -835,12 +851,11 @@ static void rq_list(sc2s_rq_t *q)
 static void rq_run(void)
 {
     sc2s_rq_t *q = s.rq;
-    if (q == NULL || q->state != RQ_POSTED) {
-        return;
-    }
     portENTER_CRITICAL(&rq_mux);
-    q->state = RQ_WORKING;
+    const bool posted = q->state == RQ_POSTED;
+    if (posted) q->state = RQ_WORKING;
     portEXIT_CRITICAL(&rq_mux);
+    if (!posted) return;
     q->room[0] = '\0';
     q->out[0] = '\0';
     if (s.id == 0 || !s.client_ok) {
@@ -916,52 +931,51 @@ esp_err_t solar_os_sc2_sync_room(solar_os_sc2_room_op_t op, const char *arg, cha
     if (why != NULL && whycap > 0) {
         why[0] = '\0';
     }
-    sc2s_rq_t *q = s.rq;
-    if (!s.running || q == NULL || s.task == NULL) {
-        if (why != NULL) {
-            snprintf(why, whycap, "sc2-sync is not running");
-        }
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (arg != NULL && strlen(arg) >= sizeof(q->arg)) {
-        if (why != NULL) {
-            snprintf(why, whycap, "argument too long");
-        }
+    if (arg && strnlen(arg, sizeof(s.rq->arg)) >= sizeof(s.rq->arg)) {
+        if (why && whycap) snprintf(why, whycap, "argument too long");
         return ESP_ERR_INVALID_SIZE;
     }
-    bool busy;
     portENTER_CRITICAL(&rq_mux);
-    busy = q->state != RQ_IDLE;
-    if (!busy) {
-        q->state = RQ_CLAIMED; /* the worker only picks up RQ_POSTED: the fields are ours */
-    }
+    const bool running = s.running && !s.stop;
+    sc2s_rq_t *q = running ? s.rq : NULL;
+    const uint32_t generation = rq_generation;
+    const bool claimed = q && q->state == RQ_IDLE;
+    if (claimed) q->state = RQ_CLAIMED;
     portEXIT_CRITICAL(&rq_mux);
-    if (busy) {
-        if (why != NULL) {
-            snprintf(why, whycap, "another room request is still running");
+    if (!claimed) {
+        if (why && whycap) {
+            snprintf(why, whycap, "%s", running ? "another room request is still running" : "sc2-sync is not running");
         }
         return ESP_ERR_INVALID_STATE;
     }
     q->op = (uint8_t)op;
     snprintf(q->arg, sizeof(q->arg), "%s", arg != NULL ? arg : "");
     portENTER_CRITICAL(&rq_mux);
-    q->state = RQ_POSTED;
+    const bool posted = s.running && !s.stop && generation == rq_generation;
+    if (posted) q->state = RQ_POSTED;
     portEXIT_CRITICAL(&rq_mux);
-    xTaskNotifyGive(s.task);
+    if (!posted) {
+        rq_release(q);
+        if (why && whycap) snprintf(why, whycap, "sc2-sync is stopping");
+        return ESP_ERR_INVALID_STATE;
+    }
+    (void)xSemaphoreGive(wake);
     const uint64_t end = mono_ms() + timeout_ms;
+    const TickType_t poll = pdMS_TO_TICKS(SOLAR_OS_TASK_STOP_POLL_MS);
     while (q->state != RQ_DONE && mono_ms() < end) {
-        vTaskDelay(pdMS_TO_TICKS(20));
+        vTaskDelay(poll ? poll : 1);
     }
     portENTER_CRITICAL(&rq_mux);
-    uint8_t st = q->state;
+    const unsigned st = q->state;
     if (st == RQ_POSTED) {
-        q->state = RQ_IDLE;
+        q->state = RQ_CLAIMED;
     } else if (st == RQ_WORKING) {
         q->state = RQ_ABANDONED;
     }
     portEXIT_CRITICAL(&rq_mux);
     if (st != RQ_DONE) {
-        if (why != NULL) {
+        if (st == RQ_POSTED) rq_release(q);
+        if (why && whycap) {
             snprintf(why, whycap, "%s", st == RQ_POSTED ? "sc2-sync did not take the request"
                                                        : "no answer from the relay yet");
         }
@@ -977,12 +991,24 @@ esp_err_t solar_os_sc2_sync_room(solar_os_sc2_room_op_t op, const char *arg, cha
     if (why != NULL && err != ESP_OK) {
         snprintf(why, whycap, "%s", q->why);
     }
-    sc2_memzero(q->out, sizeof(q->out)); /* invite texts carry the room secret */
-    sc2_memzero(q->arg, sizeof(q->arg));
-    portENTER_CRITICAL(&rq_mux);
-    q->state = RQ_IDLE;
-    portEXIT_CRITICAL(&rq_mux);
+    rq_release(q);
     return err;
+}
+
+static void close_room_requests(void)
+{
+    sc2s_rq_t *q = s.rq;
+    portENTER_CRITICAL(&rq_mux);
+    s.running = false;
+    ++rq_generation;
+    const bool posted = q->state == RQ_POSTED;
+    if (posted) q->state = RQ_WORKING;
+    portEXIT_CRITICAL(&rq_mux);
+    if (posted) {
+        q->out[0] = '\0';
+        q->room[0] = '\0';
+    }
+    rq_finish(ESP_ERR_INVALID_STATE, "sc2-sync has stopped");
 }
 
 static void worker(void *arg)
@@ -992,9 +1018,9 @@ static void worker(void *arg)
     if (err != ESP_OK) {
         SOLAR_OS_LOGE(TAG, "SC2 service unavailable: %s", solar_os_sc2_err_text(err));
     }
-    while (!s.stop && err == ESP_OK) {
+    while (!s.stop && !solar_os_shutdown_requested() && err == ESP_OK) {
         uint64_t now = mono_ms();
-        if (now - s.checked_at >= SC2_SYNC_CHECK_MS || s.checked_at == 0) {
+        if (atomic_exchange(&s.reconfigure, false) || now - s.checked_at >= SC2_SYNC_CHECK_MS) {
             s.checked_at = now;
             check_config();
         }
@@ -1002,13 +1028,14 @@ static void worker(void *arg)
             (void)build_client();
         }
         rq_run();
+        publish_status();
         if (s.id == 0 || !s.client_ok) {
-            (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(SC2_SYNC_CHECK_MS));
+            (void)xSemaphoreTake(wake, pdMS_TO_TICKS(SC2_SYNC_CHECK_MS));
             continue;
         }
         if (!s.connected) {
             if (now < s.retry_at) {
-                (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(250));
+                (void)xSemaphoreTake(wake, pdMS_TO_TICKS(250));
                 continue;
             }
             try_connect();
@@ -1029,7 +1056,8 @@ static void worker(void *arg)
     }
     client_close();
     s.id = 0;
-    s.running = false;
+    close_room_requests();
+    publish_status();
     s.done = true;
     solar_os_task_delete(NULL);
 }
@@ -1053,65 +1081,113 @@ static bool alloc_state(void)
     }
     if (s.rq == NULL) {
         s.rq = solar_os_memory_calloc(1, sizeof(*s.rq), SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "sc2.sync.rq");
+        if (s.rq != NULL) atomic_init(&s.rq->state, RQ_IDLE);
     }
     return s.c != NULL && s.cfg != NULL && s.next != NULL && s.ep != NULL && s.ob != NULL && s.rq != NULL;
 }
 
-esp_err_t solar_os_sc2_sync_start(void)
+static void reap_worker(void)
 {
+    const TickType_t reap = pdMS_TO_TICKS(SOLAR_OS_TASK_REAP_WAIT_MS);
+    vTaskDelay(reap ? reap : 1);
+    s.task = NULL;
+}
+
+static esp_err_t start_worker(void)
+{
+    if (solar_os_shutdown_requested()) return ESP_ERR_INVALID_STATE;
     if (s.running) {
-        if (s.task != NULL) {
-            xTaskNotifyGive(s.task);
-        }
+        if (s.stop) return ESP_ERR_INVALID_STATE;
+        (void)xSemaphoreGive(wake);
         return ESP_OK;
     }
-    if (s.task != NULL && !s.done) {
-        return ESP_ERR_INVALID_STATE;
+    if (s.task != NULL) {
+        if (!s.done) return ESP_ERR_INVALID_STATE;
+        reap_worker();
     }
-    esp_err_t err = esp_netif_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    if (!alloc_state()) {
-        return ESP_ERR_NO_MEM;
-    }
+    const esp_err_t error = esp_netif_init();
+    if (error != ESP_OK) return error;
+    if (wake == NULL) wake = xSemaphoreCreateBinaryStatic(&wake_storage);
+    if (wake == NULL || !alloc_state()) return ESP_ERR_NO_MEM;
     s.stop = false;
     s.done = false;
+    s.reconfigure = true;
     s.running = true;
-    s.checked_at = 0;
+    publish_status();
     if (solar_os_task_create_pinned(worker, "sc2_sync", SOLAR_OS_SC2_SYNC_STACK, NULL, tskIDLE_PRIORITY + 1, &s.task,
                                     tskNO_AFFINITY, SOLAR_OS_TASK_ROLE_BACKGROUND) != pdPASS) {
-        s.running = false;
+        close_room_requests();
+        publish_status();
         s.task = NULL;
+        s.done = true;
         return ESP_ERR_NO_MEM;
     }
-    (void)solar_os_jobs_note_resource("sc2-sync", SOLAR_OS_JOB_RESOURCE_NET, "SC2 relay", "sc2 messaging instance");
     return ESP_OK;
+}
+
+esp_err_t solar_os_sc2_sync_start(void)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const esp_err_t error = start_worker();
+    solar_os_lifecycle_leave(&lifecycle);
+    return error;
+}
+
+esp_err_t solar_os_sc2_sync_stop_checked(void)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    esp_err_t error = ESP_OK;
+    if (s.task != NULL) {
+        s.stop = true;
+        (void)xSemaphoreGive(wake);
+        const uint64_t end = mono_ms() + SC2_SYNC_STOP_MS;
+        const TickType_t poll = pdMS_TO_TICKS(SOLAR_OS_TASK_STOP_POLL_MS);
+        while (!s.done && mono_ms() < end) vTaskDelay(poll ? poll : 1);
+        if (s.done) {
+            reap_worker();
+        } else {
+            error = ESP_ERR_TIMEOUT;
+        }
+    }
+    solar_os_lifecycle_leave(&lifecycle);
+    return error;
 }
 
 void solar_os_sc2_sync_stop(void)
 {
-    s.stop = true;
-    if (s.task != NULL && !s.done) {
-        xTaskNotifyGive(s.task);
-    }
-    if (solar_os_task_wait_done(s.task, &s.done, 8000)) {
-        s.task = NULL;
-    } else {
+    const esp_err_t error = solar_os_sc2_sync_stop_checked();
+    if (error != ESP_OK) {
+        solar_os_shutdown_note_failure(error);
         SOLAR_OS_LOGW(TAG, "worker is still stopping");
     }
+}
+
+esp_err_t solar_os_sc2_sync_prepare_shutdown(void)
+{
+    if (!solar_os_lifecycle_enter(&lifecycle)) return ESP_ERR_NO_MEM;
+    const bool stopping = s.task != NULL && !s.done;
+    if (stopping) {
+        s.stop = true;
+        (void)xSemaphoreGive(wake);
+    }
+    solar_os_lifecycle_leave(&lifecycle);
+    return stopping ? ESP_ERR_NOT_FINISHED : ESP_OK;
 }
 
 static void provider_changed(solar_os_messaging_provider_id_t id, bool enabled)
 {
     /* Instance settings do not own the job lifecycle. Only wake a worker
      * that was started explicitly (or by configured job autostart). */
-    if (s.running && !s.stop && s.task != NULL) {
-        s.checked_at = 0;
-        xTaskNotifyGive(s.task);
+    if (s.running && !s.stop) {
+        s.reconfigure = true;
+        (void)xSemaphoreGive(wake);
     } else if (enabled) {
-        (void)solar_os_messaging_provider_set_status(id, false, false, ESP_OK,
-                                                     "enabled; run `job start sc2-sync`");
+#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+        const char *detail = "enabled; run `job start sc2-sync`";
+#else
+        const char *detail = "enabled; start the SC2 relay service";
+#endif
+        (void)solar_os_messaging_provider_set_status(id, false, false, ESP_OK, detail);
     }
 }
 
@@ -1120,28 +1196,38 @@ void solar_os_sc2_sync_install(void)
     solar_os_sc2_provider_set_transport(provider_changed);
 }
 
+static void publish_status(void)
+{
+    solar_os_sc2_sync_status_t current = {0};
+    current.running = s.running;
+    if (current.running) {
+        current.connected = s.connected;
+        current.ready = s.ready;
+        current.instance = s.id;
+        current.attempt = s.attempt;
+        if (s.client_ok) {
+            current.outbox = (uint32_t)sc2c_outbox_count(s.c);
+            memcpy(current.relay_id, s.c->relay_id, sizeof(current.relay_id));
+        }
+        memcpy(current.host, s.host, sizeof(current.host));
+        if (s.ep != NULL) {
+            current.port = s.ep->port;
+            current.tls = s.ep->tls;
+        }
+        current.relay = s.rp.relay;
+        current.relays = s.rp.relays;
+        current.home = s.rp.home;
+        current.visiting = s.rp.visiting;
+    }
+    portENTER_CRITICAL(&status_mux);
+    status_snapshot = current;
+    portEXIT_CRITICAL(&status_mux);
+}
+
 void solar_os_sc2_sync_get_status(solar_os_sc2_sync_status_t *out)
 {
-    if (out == NULL) {
-        return;
-    }
-    memset(out, 0, sizeof(*out));
-    out->running = s.running;
-    out->connected = s.connected;
-    out->ready = s.ready;
-    out->instance = (unsigned)s.id;
-    out->attempt = (unsigned)s.attempt;
-    if (s.client_ok) {
-        out->outbox = (unsigned)sc2c_outbox_count(s.c);
-        snprintf(out->relay_id, sizeof(out->relay_id), "%s", s.c->relay_id);
-    }
-    snprintf(out->host, sizeof(out->host), "%s", s.host);
-    if (s.ep != NULL) {
-        out->port = s.ep->port;
-        out->tls = s.ep->tls;
-    }
-    out->relay = s.rp.relay;
-    out->relays = s.rp.relays;
-    out->home = s.rp.home;
-    out->visiting = s.rp.visiting;
+    if (out == NULL) return;
+    portENTER_CRITICAL(&status_mux);
+    *out = status_snapshot;
+    portEXIT_CRITICAL(&status_mux);
 }

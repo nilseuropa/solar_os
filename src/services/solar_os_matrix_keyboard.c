@@ -1,22 +1,11 @@
 #include "solar_os_matrix_keyboard.h"
-#include <string.h>
 #include "solar_os_tca8418_keymap_generated.h"
 
 esp_err_t solar_os_matrix_keyboard_init_map(solar_os_matrix_keyboard_map_t *map,
                                        unsigned rows, unsigned cols)
 {
-    if (map == NULL || rows < 1U || rows > 8U || cols < 1U || cols > 10U)
-        return ESP_ERR_INVALID_ARG;
-    memset(map, 0, sizeof(*map));
-    map->rows = (uint8_t)rows; map->cols = (uint8_t)cols;
-    map->first = 1U; map->stride = 10U;
-    map->slot_count = (uint16_t)((rows - 1U) * 10U + cols);
-    for (unsigned row = 0; row < rows; row++)
-        for (unsigned col = 0; col < cols; col++) {
-            const unsigned id = 1U + row * 10U + col;
-            map->physical[id] = (uint16_t)id;
-        }
-    return ESP_OK;
+    if (rows > 8U || cols > 10U) return ESP_ERR_INVALID_ARG;
+    return solar_os_input_keymap_init_matrix(map, rows, cols, 1U, 10U);
 }
 
 esp_err_t solar_os_matrix_keyboard_default_map(solar_os_matrix_keyboard_map_t *map,
@@ -28,7 +17,7 @@ esp_err_t solar_os_matrix_keyboard_default_map(solar_os_matrix_keyboard_map_t *m
     /* Reference wiring, not a layout supplied by the controller. HID usages
      * let the normal SolarOS keyboard layout translate printable keys. */
     solar_os_matrix_keyboard_init_map(map, rows, cols);
-    for (unsigned layer = 0; layer < 2U; layer++)
+    for (unsigned layer = 0; layer < SOLAR_OS_INPUT_KEYMAP_LAYER_MAX; layer++)
         for (unsigned id = 1; id <= map->slot_count; id++)
             if (map->physical[id] != 0U)
                 map->keys[layer][id] = solar_os_tca8418_default_keys[layer][id];

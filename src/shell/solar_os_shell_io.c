@@ -3,12 +3,36 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "solar_os_input.h"
 #include "solar_os_terminal.h"
 
 #define SHELL_IO_DEFAULT_COLS 80
 #define SHELL_IO_DEFAULT_ROWS 24
 #define SHELL_IO_FOOTER_MAX 160
 #define SHELL_IO_REDRAW_TEXT_MAX 256
+
+esp_err_t solar_os_shell_io_poll_input(const solar_os_shell_io_t *io,
+                                        uint8_t *buffer, size_t capacity, size_t *count)
+{
+    if (count == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *count = 0;
+    if (capacity == 0) {
+        return ESP_OK;
+    }
+    if (buffer == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_PORT) {
+        if (!solar_os_port_handle_valid(&io->port)) {
+            return ESP_ERR_INVALID_STATE;
+        }
+        return solar_os_port_read(&io->port, buffer, capacity, 0U, count);
+    }
+    *count = solar_os_input_read_chars((char *)buffer, capacity);
+    return ESP_OK;
+}
 
 static uint16_t shell_io_nonzero_or_default(uint16_t value, uint16_t fallback)
 {
@@ -237,6 +261,17 @@ void solar_os_shell_io_set_dimensions(solar_os_shell_io_t *io, uint16_t cols, ui
     if (io->rows > 0 && io->cursor_row >= io->rows) {
         io->cursor_row = io->rows - 1U;
     }
+}
+
+solar_os_shell_io_t *solar_os_shell_io_with_fallback(solar_os_context_t *context,
+    solar_os_shell_io_t *fallback, bool replace_empty)
+{
+    solar_os_shell_io_t *io = solar_os_context_shell_io(context);
+    if (io && (!replace_empty || solar_os_shell_io_kind(io) != SOLAR_OS_SHELL_IO_KIND_NONE))
+        return io;
+    solar_os_shell_io_init_terminal(fallback, solar_os_context_terminal(context));
+    solar_os_context_set_shell_io(context, fallback);
+    return fallback;
 }
 
 solar_os_shell_io_kind_t solar_os_shell_io_kind(const solar_os_shell_io_t *io)
@@ -538,7 +573,7 @@ esp_err_t solar_os_shell_io_table_writeln(solar_os_shell_io_t *io, const char *t
     return err == ESP_OK ? solar_os_shell_io_newline(io) : err;
 }
 
-static esp_err_t shell_io_table_vprintf(solar_os_shell_io_t *io, const char *fmt,
+esp_err_t solar_os_shell_io_table_vprintf(solar_os_shell_io_t *io, const char *fmt,
                                         va_list args)
 {
     if (io == NULL || fmt == NULL) return ESP_ERR_INVALID_ARG;
@@ -565,22 +600,28 @@ esp_err_t solar_os_shell_io_table_printf(solar_os_shell_io_t *io, const char *fm
 {
     va_list args;
     va_start(args, fmt);
-    const esp_err_t err = shell_io_table_vprintf(io, fmt, args);
+    const esp_err_t err = solar_os_shell_io_table_vprintf(io, fmt, args);
     va_end(args);
     return err;
 }
 
-esp_err_t solar_os_shell_io_table_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+esp_err_t solar_os_shell_io_table_vprintf_bold(solar_os_shell_io_t *io, const char *fmt, va_list args)
 {
     const bool bold = io != NULL && io->bold;
     esp_err_t err = solar_os_shell_io_set_bold(io, true);
     if (err != ESP_OK) return err;
-    va_list args;
-    va_start(args, fmt);
-    err = shell_io_table_vprintf(io, fmt, args);
-    va_end(args);
+    err = solar_os_shell_io_table_vprintf(io, fmt, args);
     const esp_err_t restore = solar_os_shell_io_set_bold(io, bold);
     return err == ESP_OK ? restore : err;
+}
+
+esp_err_t solar_os_shell_io_table_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    const esp_err_t err = solar_os_shell_io_table_vprintf_bold(io, fmt, args);
+    va_end(args);
+    return err;
 }
 
 esp_err_t solar_os_shell_io_table_write_bold(solar_os_shell_io_t *io, const char *text)
@@ -734,23 +775,29 @@ esp_err_t solar_os_shell_io_write_bold(solar_os_shell_io_t *io, const char *text
     return err != ESP_OK ? err : restore_err;
 }
 
-esp_err_t solar_os_shell_io_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+esp_err_t solar_os_shell_io_vprintf_bold(solar_os_shell_io_t *io, const char *fmt, va_list args)
 {
     if (io == NULL || fmt == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
 
     char buffer[192];
-    va_list args;
-    va_start(args, fmt);
     const int needed = vsnprintf(buffer, sizeof(buffer), fmt, args);
-    va_end(args);
     if (needed < 0) {
         return ESP_FAIL;
     }
 
     buffer[sizeof(buffer) - 1] = '\0';
     return solar_os_shell_io_write_bold(io, buffer);
+}
+
+esp_err_t solar_os_shell_io_printf_bold(solar_os_shell_io_t *io, const char *fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    const esp_err_t err = solar_os_shell_io_vprintf_bold(io, fmt, args);
+    va_end(args);
+    return err;
 }
 
 esp_err_t solar_os_shell_io_clear(solar_os_shell_io_t *io)

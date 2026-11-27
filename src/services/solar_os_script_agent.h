@@ -29,4 +29,7 @@ typedef struct {
  * including after errors. Image sources and samples never outlive this call. */
 esp_err_t solar_os_script_agent_ask(const solar_os_script_agent_request_t *request,
     solar_os_script_agent_result_t *result);
+/* Collect text from an already resolved request; callers own the output. */
+esp_err_t solar_os_script_agent_capture_answer(const solar_os_agent_request_t *request,
+    char *text, size_t capacity, solar_os_native_agent_answer_v1_t *answer);
 void solar_os_script_agent_result_clear(solar_os_script_agent_result_t *result);

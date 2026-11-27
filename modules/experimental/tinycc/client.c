@@ -6,6 +6,7 @@
 #include "solar_os_native_library_abi.h"
 #include "solar_os_native_libc_abi.h"
 #include "solar_os_native_storage_abi.h"
+#include "solar_os_native_client.h"
 #include "solar_os_native_elf.h"
 #include "sdk_reader.h"
 #include "sdk_cli.h"
@@ -142,7 +143,7 @@ typedef struct {
 static int compile_file_work(int argc, char **argv, const solar_os_native_memory_api_v1_t *memory,
     void *output, unsigned capacity, bool create_parents, file_work_t *w)
 {
-    const solar_os_native_storage_api_v1_t *storage = host->get_service("storage", 1,
+    const solar_os_native_storage_api_v1_t *storage = solar_os_native_storage_get(host->get_service,
         create_parents ? sizeof(*storage) : SOLAR_OS_NATIVE_STORAGE_BASE_SIZE);
     if (!storage) { print("cc: file compilation requires the native storage service\n"); return -6; }
     const char *output_name="a.elf";
@@ -233,9 +234,9 @@ static int compile_file(int argc, char **argv, const solar_os_native_memory_api_
 static int compile_project(int argc, char **argv, const solar_os_native_memory_api_v1_t *memory)
 {
     if(argc>3) {print("usage: cc build [path/to/cc.toml]\n");return SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT;}
-    const solar_os_native_storage_api_v1_t *storage=host->get_service("storage",1,sizeof(*storage));
+    const solar_os_native_storage_api_v1_t *storage=solar_os_native_storage_get(host->get_service,sizeof(*storage));
     if(!storage) {print("cc build: update firmware for project storage support\n");return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;}
-    const solar_os_native_time_api_v1_t *clock=host->get_service("time",1,sizeof(*clock));
+    const solar_os_native_time_api_v1_t *clock=solar_os_native_time_get(host->get_service,sizeof(*clock));
     solar_os_cc_project_t *project=memory->alloc(sizeof(*project));
     if(!project) {print("cc build: not enough memory for project\n");return SOLAR_OS_NATIVE_ERROR_NO_MEMORY;}
     int code=solar_os_cc_project_load(storage,memory,clock,argc==3?argv[2]:"cc.toml",project,diagnostics,sizeof(diagnostics));
@@ -255,11 +256,11 @@ static int compile_project(int argc, char **argv, const solar_os_native_memory_a
 }
 int app_main(int argc, char **argv)
 {
-    host = solar_os_native_host_v1();
+    host = solar_os_native_host_get(SOLAR_OS_NATIVE_THROUGH(solar_os_native_host_api_v1_t, get_service));
     if (!host || host->struct_size < sizeof(*host) || !host->get_service) return 1;
-    libc_api = host->get_service("libc", 1, offsetof(solar_os_native_libc_api_v1_t,parse_float));
-    const solar_os_native_memory_api_v1_t *memory = host->get_service("memory", 1, sizeof(*memory));
-    const solar_os_native_library_service_api_v1_t *libraries = host->get_service("library", 1, sizeof(*libraries));
+    libc_api = solar_os_native_libc_get(host->get_service, offsetof(solar_os_native_libc_api_v1_t,parse_float));
+    const solar_os_native_memory_api_v1_t *memory = solar_os_native_memory_get(host->get_service, sizeof(*memory));
+    const solar_os_native_library_service_api_v1_t *libraries = solar_os_native_library_get(host->get_service, sizeof(*libraries));
     if (!libc_api || !memory || !libraries) return 2;
     if (argc < 2 || equal(argv[1], "--help")) {
         print("usage: cc input.c [more.c ...] [-I directory] [-o output.elf]\n");
@@ -268,7 +269,10 @@ int app_main(int argc, char **argv)
         return 0;
     }
     const void *table = NULL; uint32_t lease = 0;
-    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
+    int code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_PACKED_ABI,
+        sizeof(solar_os_cc_api_v2_t), &lease, &table);
+    if (code == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED)
+        code = libraries->acquire(SOLAR_OS_CC_LIBRARY, SOLAR_OS_CC_ABI, SOLAR_OS_CC_API_BASE_SIZE, &lease, &table);
     if (code) { print("CC_ERROR acquire=%d\n", code); return code; }
     compiler = table;
     if(equal(argv[1],"sdk")) {

@@ -6,28 +6,7 @@
 #include "esp_err.h"
 #include "solar_os_gfx.h"
 #include "solar_os_m3u.h"
-
-typedef struct solar_os_cassette_widget solar_os_cassette_widget_t;
-
-typedef enum {
-    SOLAR_OS_MEDIA_INPUT_NONE,
-    SOLAR_OS_MEDIA_INPUT_CHANGED,
-    SOLAR_OS_MEDIA_INPUT_SUBMIT,
-    SOLAR_OS_MEDIA_INPUT_CANCEL,
-} solar_os_media_input_action_t;
-solar_os_media_input_action_t solar_os_media_dialog_input_key(
-    char *text, size_t capacity, size_t *length, uint8_t key);
-
-typedef enum {
-    SOLAR_OS_MEDIA_TRANSPORT_PREVIOUS,
-    SOLAR_OS_MEDIA_TRANSPORT_PLAY,
-    SOLAR_OS_MEDIA_TRANSPORT_PAUSE,
-    SOLAR_OS_MEDIA_TRANSPORT_STOP,
-    SOLAR_OS_MEDIA_TRANSPORT_RECORD,
-    SOLAR_OS_MEDIA_TRANSPORT_NEXT,
-    SOLAR_OS_MEDIA_TRANSPORT_REWIND,
-    SOLAR_OS_MEDIA_TRANSPORT_FORWARD,
-} solar_os_media_transport_icon_t;
+#include "solar_os_native_client_ui.h"
 
 void solar_os_media_transport_button_draw(
     solar_os_gfx_t *gfx,
@@ -38,20 +17,6 @@ void solar_os_media_transport_button_draw(
     solar_os_media_transport_icon_t icon,
     bool active);
 
-#define SOLAR_OS_MEDIA_PLAYER_HEADER_HEIGHT 28
-#define SOLAR_OS_MEDIA_PLAYER_CONTROLS_HEIGHT 78
-
-typedef struct {
-    int view_x, view_y, view_width, view_height;
-    int controls_y, title_y, status_y, volume_y, button_y, button_width, button_count;
-    int header_height, button_height, button_gap;
-    bool compact;
-} solar_os_media_player_layout_t;
-
-typedef struct {
-    int top, row_height, baseline, footer_height, visible;
-    bool compact;
-} solar_os_media_list_layout_t;
 void solar_os_media_list_layout(int width, int height, solar_os_media_list_layout_t *layout);
 void solar_os_media_playlist_draw(solar_os_gfx_t *gfx, int width, int height,
                                    size_t count, size_t cursor, size_t active, size_t *top,
@@ -80,8 +45,6 @@ void solar_os_media_controls_draw(solar_os_gfx_t *gfx, int width, int height,
 /* Returns -1 outside a button, including the gaps. */
 int solar_os_media_player_button_at(int width, int height, bool seek, int x, int y);
 
-esp_err_t solar_os_cassette_widget_create(solar_os_cassette_widget_t **widget);
-void solar_os_cassette_widget_destroy(solar_os_cassette_widget_t *widget);
 void solar_os_cassette_widget_reset(solar_os_cassette_widget_t *widget);
 void solar_os_cassette_widget_update(solar_os_cassette_widget_t *widget,
                                      bool playing,

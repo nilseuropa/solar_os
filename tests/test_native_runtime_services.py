@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class NativeRuntimeServicesTest(unittest.TestCase):
     def test_mutex_condition_tls_lifetimes_and_cooperative_sleep(self):
-        source = (ROOT / 'src/services/solar_os_native.c').read_text()
+        source = ((ROOT / "src/services/solar_os_native.c").read_text() + (ROOT / "src/services/solar_os_system_api.h").read_text() + (ROOT / "src/services/solar_os_system_api.c").read_text())
         names = ('native_time_sleep_ms', 'native_thread_mutex_create',
                  'native_thread_mutex_lock', 'native_thread_mutex_unlock',
                  'native_thread_mutex_destroy', 'native_thread_condition_create',

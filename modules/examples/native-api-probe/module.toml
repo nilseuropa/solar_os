@@ -1,0 +1,17 @@
+schema_version = 2
+type = "app"
+id = "native-api-probe"
+name = "Native API probe"
+version = "1.0.0"
+description = "Verify public native service discovery and compatibility."
+target = "esp32s3"
+native_abi = 1
+lifecycle_abi = 1
+minimum_host_api_size = 24
+required_capabilities = ["psram"]
+artifact = "solaros_native_api_probe.app.elf"
+
+[[required_services]]
+name = "system"
+abi = 1
+minimum_struct_size = 16

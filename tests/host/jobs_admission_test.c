@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "solar_os_jobs.h"
+#include "solar_os_native_jobs.h"
+#include "solar_os_native_core.h"
 #include "solar_os_task.h"
 #include "solar_os_memory.h"
 #include "solar_os_log.h"
@@ -15,6 +17,24 @@ static void (*exit_hook)(void);
 static bool can_create = true;
 static int allocations, starts, stops;
 static solar_os_job_t *descriptor;
+static solar_os_context_t context;
+static bool callback_active;
+static bool expire_claim;
+static solar_os_native_handle_t claimed_port;
+int solar_os_native_port_claim(const char *name, const char *owner, solar_os_native_handle_t *out)
+{
+    assert(!depth && !claimed_port && !strcmp(name, "uart0") && !strcmp(owner, "job:dynamic"));
+    *out = claimed_port = 42;
+    if (expire_claim) assert(solar_os_jobs_stop(NULL, "dynamic") == ESP_OK);
+    return SOLAR_OS_NATIVE_OK;
+}
+int solar_os_native_port_close(solar_os_native_handle_t handle)
+{
+    assert(handle && handle == claimed_port);
+    claimed_port = 0;
+    return SOLAR_OS_NATIVE_OK;
+}
+solar_os_context_t *solar_os_application_context(void) { return callback_active ? &context : NULL; }
 void test_enter_critical(void) { ++depth; }
 void test_leave_critical(void)
 {
@@ -45,12 +65,26 @@ const char *esp_err_to_name(esp_err_t error) { (void)error; return "test error";
 static esp_err_t start(solar_os_context_t *ctx, int argc, char **argv)
 { (void)ctx; (void)argv; assert(!depth && argc == 0); ++starts; return ESP_OK; }
 static void stop(solar_os_context_t *ctx) { (void)ctx; assert(!depth); ++stops; }
+static void detail(solar_os_context_t *ctx)
+{
+    assert(ctx == &context && !depth);
+    assert(solar_os_jobs_unregister_dynamic("dynamic", descriptor) == ESP_ERR_INVALID_STATE);
+}
+static void error_detail(char *buffer, size_t capacity)
+{
+    detail(&context);
+    strlcpy(buffer, "test detail", capacity);
+}
 static void register_job(void)
 {
-    descriptor = calloc(1,sizeof(*descriptor)); assert(descriptor);
-    *descriptor = (solar_os_job_t){.name="dynamic",.summary="admission test",
-        .kind=SOLAR_OS_JOB_KIND_BACKGROUND,.start=start,.stop=stop,.worker_stack_bytes=4096};
-    assert(!solar_os_jobs_register_dynamic("dynamic",descriptor->summary,descriptor));
+    descriptor = calloc(1, sizeof(*descriptor) + 32); assert(descriptor);
+    char *text = (char *)(descriptor + 1);
+    strcpy(text, "dynamic");
+    strcpy(text + 8, "admission test");
+    *descriptor = (solar_os_job_t){.name=text,.summary=text+8,
+        .kind=SOLAR_OS_JOB_KIND_BACKGROUND,.start=start,.stop=stop,.worker_stack_bytes=4096,
+        .detail=detail,.error_detail=error_detail};
+    assert(!solar_os_jobs_register_dynamic(descriptor->name,descriptor->summary,descriptor));
 }
 static void release_job(void)
 {
@@ -61,8 +95,23 @@ static void release_job(void)
 #include "../../src/solar_os_jobs.c"
 int main(void)
 {
-    register_job(); assert(!solar_os_jobs_start(NULL,"dynamic",0,NULL));
+    const solar_os_native_jobs_api_v1_t *api =
+        solar_os_native_jobs_get_service("jobs", 1, sizeof(*api));
+    assert(api && !solar_os_native_jobs_get_service("jobs", 2, 8));
+    assert(!solar_os_native_jobs_get_service("jobs", 1, sizeof(*api) + 1));
+    register_job();
+    solar_os_job_inspection_v1_t snapshot;
+    assert(api->find_owner("job:dynamic", &snapshot) == SOLAR_OS_NATIVE_OK && snapshot.status.has_detail);
+    assert(snapshot.disposition == SOLAR_OS_JOB_START_READY && api->count() == 1);
+    char error[20];
+    assert(api->error_detail("dynamic", error, sizeof(error)) && !strcmp(error, "test detail"));
+    assert(api->print_detail("dynamic") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    callback_active = true;
+    assert(api->print_detail("dynamic") == SOLAR_OS_NATIVE_OK);
+    callback_active = false;
+    assert(api->start("dynamic", 0, NULL) == SOLAR_OS_NATIVE_OK);
     assert(starts == 1); release_job(); assert(stops == 1 && !allocations);
+    assert(!strcmp(snapshot.status.name, "dynamic") && !strcmp(snapshot.status.summary, "admission test"));
     /* Admission was copied, but the descriptor disappears before preflight.
      * A queued request allocated afterwards must also be released on lookup. */
     register_job(); can_create = false;
@@ -80,6 +129,38 @@ int main(void)
     can_create = true; job_retry_pending_start(0,NULL); assert(starts == 2 && !allocations);
     release_job(); assert(stops == 2 && !depth && !allocations);
     register_job();
+    assert(api->start("dynamic", 0, NULL) == SOLAR_OS_NATIVE_OK);
+    assert(!api->find("dynamic", &snapshot));
+    const uint32_t old_generation = snapshot.status.generation;
+    assert(!api->owner_name("dynamic", error, sizeof(error)) && !strcmp(error, "job:dynamic"));
+    assert(!api->note_resource("dynamic", old_generation, SOLAR_OS_JOB_RESOURCE_FILE, "cache", "read"));
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.resource_count == 1);
+    assert(!api->clear_resources("dynamic", old_generation));
+    solar_os_native_handle_t port;
+    expire_claim = true;
+    assert(api->claim_port("dynamic", old_generation, "uart0", &port) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!port && !claimed_port && stops == 3);
+    expire_claim = false;
+    release_job();
+
+    register_job();
+    assert(!api->start("dynamic", 0, NULL) && !api->find("dynamic", &snapshot));
+    const uint32_t generation = snapshot.status.generation;
+    assert(generation != old_generation);
+    assert(api->note_resource("dynamic", old_generation, SOLAR_OS_JOB_RESOURCE_FILE, "cache", NULL) ==
+        SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->claim_port("dynamic", generation, "uart0", &port) && port == claimed_port);
+    assert(api->clear_resources("dynamic", old_generation) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.resource_count == 1);
+    assert(!strcmp(snapshot.status.resources[0].name, "uart0"));
+    assert(!solar_os_native_port_close(port));
+    assert(!api->complete("dynamic", generation, SOLAR_OS_NATIVE_ERROR_TIMEOUT));
+    assert(!api->find("dynamic", &snapshot) && snapshot.status.state == SOLAR_OS_JOB_STOPPED &&
+        snapshot.status.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT && !snapshot.status.resource_count);
+    assert(api->complete("dynamic", generation, SOLAR_OS_NATIVE_OK) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    release_job();
+
+    register_job();
     assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_OK);
     assert(solar_os_shutdown_request() == ESP_OK);
     assert(solar_os_jobs_start(NULL,"dynamic",0,NULL) == ESP_ERR_INVALID_STATE);
@@ -90,10 +171,10 @@ int main(void)
     job_runtimes[0].state = SOLAR_OS_JOB_RUNNING;
     job_runtimes[0].callback_refs = 1;
     assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_ERR_NOT_FINISHED);
-    assert(stops == 2 && job_runtimes[0].state == SOLAR_OS_JOB_RUNNING);
+    assert(stops == 3 && job_runtimes[0].state == SOLAR_OS_JOB_RUNNING);
     job_runtimes[0].callback_refs = 0;
     assert(solar_os_jobs_prepare_shutdown(NULL) == ESP_OK);
-    assert(stops == 3);
+    assert(stops == 4);
     release_job();
     puts("native job admission/unregister lifetime tests passed");
 }

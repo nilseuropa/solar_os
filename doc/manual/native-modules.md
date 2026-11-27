@@ -9,6 +9,14 @@ packages_any = ["service_native_modules"]
 +++
 # Native ELF modules
 
+Native modules use versioned public services through `get_service`. Include
+`solar_os_native_client.h` for typed lookup and optional method checks. The
+`system` service reports which tables the current execution can access. See
+[Use the C SDK](#use-the-c-sdk).
+
+Signed catalogs support up to 256 modules. A module can declare up to eight
+exact library dependencies and 64 required system service tables.
+
 `load` validates and runs trusted Xtensa ELF32 dynamic modules on ESP32-S3
 boards with PSRAM. Paths use the calling shell's directory. It reads at most
 2 MiB into executable PSRAM, checks headers and table boundaries, relocates
@@ -41,8 +49,9 @@ API size. Signed types select `/modules/apps/<module>.elf`, `/modules/jobs`,
 
 Application lifecycle ABI 1 runs synchronous `main(argc, argv)` and unloads on
 return. Job ABI 1 registers start/stop/tick callbacks; its ELF remains until
-the stopped job is removed. Driver ABI 1 registers a zero-binding utility
-driver and remains until its devices are detached and the module removed.
+the stopped job is removed. Driver ABI 1 supports utility drivers and bound
+hardware drivers. Drivers remain loaded until their devices are detached and
+their providers and resource handles are closed.
 Library ABI 1 supplies a versioned API protected by consumer leases. Libraries
 load on demand; `pkg unload ID` releases an unused image while keeping its file.
 See [Native libraries](native-library.md).
@@ -91,6 +100,56 @@ pkg install hello
 hello SolarOS
 pkg remove hello
 ```
+
+Compiled native components use the same package IDs and versions as their ELF
+forms. `pkg installed` marks them as compiled. A matching compiled library
+satisfies an exact dependency without downloading another copy, even when that
+version is absent from the current catalog. `pkg install` also reuses a compiled
+app and installs any library dependencies it still needs. A self-contained
+compiled component needs no catalog refresh.
+
+Compiled components cannot be overwritten, upgraded or removed with `pkg`.
+Change the firmware flavor to omit one before installing its external form.
+Version conflicts are reported before any files are downloaded. Upgrading an
+external library also checks the pins of compiled apps that use it.
+
+## Use the C SDK
+
+The public headers declare service names, ABI versions, table members, error
+values and resource ownership. At lookup, request the table prefix through
+the last required member. Check optional methods on the returned table before
+calling them.
+
+```c
+#include "solar_os_native_client.h"
+
+int wait_briefly(void)
+{
+    const solar_os_native_host_api_v1_t *host = solar_os_native_host_get(
+        SOLAR_OS_NATIVE_THROUGH(solar_os_native_host_api_v1_t, get_service));
+    if (!host || !host->get_service) return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+
+    const solar_os_native_time_api_v1_t *time = solar_os_native_time_get(
+        host->get_service,
+        SOLAR_OS_NATIVE_THROUGH(solar_os_native_time_api_v1_t, sleep_ms));
+    if (!solar_os_native_time_has_sleep_ms(time)) return SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED;
+
+    time->sleep_ms(10);
+    return SOLAR_OS_NATIVE_OK;
+}
+```
+
+Use `system.service_count` and `system.service_info` to inspect the available
+tables. A table with size zero is unavailable to the current caller. Check
+hardware capabilities and resource claims before using a device.
+
+Keep scoped tables within the execution context that acquired them. Retain
+dependent library leases while workers or callbacks can still use them. Stop
+and join that work before releasing handles, leases or the module itself.
+Keep resources alive if shutdown must be retried.
+
+Use `cc sdk list`, `cc sdk show HEADER`, and `cc sdk export NEW_DIRECTORY` to
+browse or export the headers installed on the device. See [C compiler](c.md).
 
 ## Update installed modules
 

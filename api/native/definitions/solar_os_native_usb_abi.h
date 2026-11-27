@@ -1,0 +1,82 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_USB_SERVICE "usb"
+#define SOLAR_OS_NATIVE_USB_ABI 1U
+#define SOLAR_OS_NATIVE_USB_INTERFACE_MAX 8U
+#define SOLAR_OS_NATIVE_USB_CAP_CDC (1U << 0)
+#define SOLAR_OS_NATIVE_USB_CAP_STORAGE (1U << 1)
+#define SOLAR_OS_NATIVE_USB_CAP_VBUS_SWITCH (1U << 2)
+#define SOLAR_OS_NATIVE_USB_CAP_SERIAL (1U << 3)
+
+#define SOLAR_OS_NATIVE_USB_HID_KEYBOARD 1U
+#define SOLAR_OS_NATIVE_USB_HID_MOUSE 2U
+#define SOLAR_OS_NATIVE_USB_HID_JOYSTICK 3U
+#define SOLAR_OS_NATIVE_USB_REPORT_PROTOCOL_BOOT 0U
+#define SOLAR_OS_NATIVE_USB_REPORT_PROTOCOL_REPORT 1U
+#define SOLAR_OS_NATIVE_USB_REPORT_PROTOCOL_UNKNOWN UINT8_MAX
+
+typedef enum {
+    SOLAR_OS_USB_MODE_DEVICE,
+    SOLAR_OS_USB_MODE_HOST,
+    SOLAR_OS_USB_MODE_SUSPENDED,
+    SOLAR_OS_USB_MODE_FAULT,
+    SOLAR_OS_USB_MODE_OFF,
+} solar_os_usb_mode_t;
+
+typedef struct {
+    uint8_t slot, address, interface, protocol;
+    uint16_t vendor_id, product_id;
+    uint8_t report_protocol;
+    bool ready;
+    int32_t protocol_error, idle_error, last_error;
+    uint32_t reports, errors;
+} solar_os_usb_interface_status_t;
+
+typedef struct {
+    solar_os_usb_mode_t mode;
+    bool sleep_prepared;
+    /* Commanded VBUS switch state on boards with software-controlled power. */
+    bool vbus_enabled;
+    int32_t last_error, rollback_error;
+    size_t interface_count;
+    solar_os_usb_interface_status_t interfaces[SOLAR_OS_NATIVE_USB_INTERFACE_MAX];
+} solar_os_usb_status_t;
+
+typedef struct {
+    bool initialized, connected, driver_installed, port_claimed;
+    char port_owner[24];
+} solar_os_cdc_status_t;
+
+typedef struct {
+    bool connected, mounted;
+    bool ufi_cbi, media_present, write_protected;
+    uint8_t address;
+    uint16_t vendor_id, product_id;
+    uint32_t sector_size, sector_count;
+    size_t open_handles;
+    int32_t last_error;
+} solar_os_usb_storage_status_t;
+
+/* Device, host and off are selectable modes. Suspended and fault are status
+ * values. Role changes respect the current serial, HID and storage owners.
+ * Status methods copy metadata. Error fields use SOLAR_OS_NATIVE_ERROR codes.
+ * Use storage.volumes to mount or unmount the attached storage volume. */
+typedef struct {
+    uint32_t abi_version, struct_size, capabilities;
+    int (*set_mode)(solar_os_usb_mode_t mode);
+    int (*status)(solar_os_usb_status_t *status);
+    const char *(*mode_name)(solar_os_usb_mode_t mode);
+    int (*cdc_status)(solar_os_cdc_status_t *status);
+    int (*storage_status)(solar_os_usb_storage_status_t *status);
+} solar_os_native_usb_api_v1_t;
+
+#define SOLAR_OS_NATIVE_USB_CDC_SERVICE "usb.cdc"
+#define SOLAR_OS_NATIVE_USB_CDC_ABI 1U
+
+/* Snapshot the device serial endpoint on boards with USB CDC. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*status)(solar_os_cdc_status_t *status);
+} solar_os_native_usb_cdc_api_v1_t;

@@ -68,7 +68,8 @@ typedef struct {
     size_t count;
     size_t blob_used;
     char *blob;
-    bool packed;
+    size_t readers;
+    bool packed, attached;
     solar_os_manual_page_t pages[];
 } docs_manual_index_t;
 
@@ -131,6 +132,7 @@ static esp_err_t docs_catalog_page_applies(
 
 static portMUX_TYPE docs_lock = portMUX_INITIALIZER_UNLOCKED;
 static solar_os_docs_status_t docs_status;
+static uint64_t docs_generation;
 static docs_manual_index_t *docs_manual_index;
 static docs_manual_index_t *docs_manual_retired_index;
 
@@ -148,12 +150,42 @@ static void docs_manual_index_replace(docs_manual_index_t *replacement)
     docs_manual_index_t *expired = docs_manual_retired_index;
     docs_manual_retired_index = docs_manual_index;
     docs_manual_index = replacement;
+    if (replacement) replacement->attached = true;
+    if (expired) {
+        expired->attached = false;
+        if (expired->readers) expired = NULL;
+    }
     portEXIT_CRITICAL(&docs_lock);
 
-    /* API users keep page pointers only for one synchronous Help operation.
-     * Retain one complete prior generation across the next package update so
-     * a concurrent reader can finish without observing freed metadata. */
+    /* Keep the preceding generation for callers of the legacy pointer API.
+     * Explicit snapshots can outlive any number of catalog updates. */
     docs_manual_index_free(expired);
+}
+
+bool solar_os_docs_manual_snapshot_acquire(solar_os_manual_catalog_t *catalog)
+{
+    if (!catalog) return false;
+    *catalog = (solar_os_manual_catalog_t){0};
+    portENTER_CRITICAL(&docs_lock);
+    docs_manual_index_t *index = docs_status.available ? docs_manual_index : NULL;
+    if (index && index->readers < SIZE_MAX) {
+        index->readers++;
+        *catalog = (solar_os_manual_catalog_t){.pages = index->pages, .count = index->count, .pin = index};
+    }
+    portEXIT_CRITICAL(&docs_lock);
+    return catalog->pin != NULL;
+}
+
+void solar_os_docs_manual_snapshot_release(solar_os_manual_catalog_t *catalog)
+{
+    if (!catalog || !catalog->pin) return;
+    docs_manual_index_t *index = catalog->pin;
+    *catalog = (solar_os_manual_catalog_t){0};
+    portENTER_CRITICAL(&docs_lock);
+    index->readers--;
+    const bool expired = !index->readers && !index->attached;
+    portEXIT_CRITICAL(&docs_lock);
+    if (expired) docs_manual_index_free(index);
 }
 
 static void docs_report_progress(solar_os_docs_progress_fn callback,
@@ -174,14 +206,10 @@ static void docs_set_error(const char *message)
     portEXIT_CRITICAL(&docs_lock);
 }
 
-static void docs_set_result(bool available,
-                            bool updating,
-                            const char *manual_version,
-                            const char *revision,
-                            size_t page_count,
-                            const char *error)
+static void docs_store_result_locked(bool available, bool updating, const char *manual_version,
+                                      const char *revision, size_t page_count, const char *error)
 {
-    portENTER_CRITICAL(&docs_lock);
+    docs_generation++;
     docs_status.available = available;
     docs_status.updating = updating;
     strlcpy(docs_status.manual_version,
@@ -194,6 +222,21 @@ static void docs_set_result(bool available,
     strlcpy(docs_status.last_error,
             error != NULL ? error : "",
             sizeof(docs_status.last_error));
+}
+
+static void docs_set_result(bool available, bool updating, const char *manual_version,
+                            const char *revision, size_t page_count, const char *error)
+{
+    portENTER_CRITICAL(&docs_lock);
+    docs_store_result_locked(available, updating, manual_version, revision, page_count, error);
+    portEXIT_CRITICAL(&docs_lock);
+}
+
+static void docs_reject_loaded_page(uint64_t generation)
+{
+    portENTER_CRITICAL(&docs_lock);
+    if (docs_generation == generation && docs_status.available && !docs_status.updating)
+        docs_store_result_locked(false, false, "", "", 0U, "cached documentation integrity check failed");
     portEXIT_CRITICAL(&docs_lock);
 }
 
@@ -1172,6 +1215,7 @@ esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
     char revision[SOLAR_OS_DOCS_REVISION_MAX];
     portENTER_CRITICAL(&docs_lock);
     const bool available = docs_status.available;
+    const uint64_t generation = docs_generation;
     strlcpy(revision, docs_status.revision, sizeof(revision));
     portEXIT_CRITICAL(&docs_lock);
     if (!available) {
@@ -1237,9 +1281,8 @@ esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
             break;
         }
     }
-    if (err == ESP_OK && !found) {
-        err = ESP_ERR_NOT_FOUND;
-    }
+    const bool absent_from_catalog = err == ESP_OK && !found;
+    if (absent_from_catalog) err = ESP_ERR_NOT_FOUND;
     if (err == ESP_OK) {
         err = docs_join(base, relative, path, sizeof(path));
     }
@@ -1255,13 +1298,8 @@ esp_err_t solar_os_docs_load_page(const char *id, char **body, size_t *body_len)
         *body = data;
         *body_len = data_len;
         data = NULL;
-    } else if (err != ESP_ERR_NO_MEM) {
-        docs_set_result(false,
-                        false,
-                        "",
-                        "",
-                        0U,
-                        "cached documentation integrity check failed");
+    } else if (err != ESP_ERR_NO_MEM && !absent_from_catalog) {
+        docs_reject_loaded_page(generation);
         SOLAR_OS_LOGW(TAG,
                       "cached page '%s' rejected: %s",
                       id,

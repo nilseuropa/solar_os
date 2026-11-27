@@ -36,8 +36,6 @@ void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
 }
 static bool solar_os_display_terminal_draw_state(u8g2_t *u, uint32_t *epoch)
 { (void)u; *epoch = display_epoch; return display_available; }
-static int solar_os_display_request_present_mode(u8g2_t *u, int mode)
-{ (void)u; (void)mode; return 0; }
 static void solar_os_display_present(u8g2_t *u, int mode)
 {
     (void)u; (void)mode; presents++;
@@ -60,8 +58,9 @@ static void terminal_apply_settings(solar_os_terminal_t *t, bool clear)
 static uint8_t terminal_text_scale(const solar_os_terminal_t *t) { (void)t; return 1; }
 static const uint8_t *terminal_selected_font(const solar_os_terminal_t *t, bool b, bool i)
 { (void)t; (void)b; (void)i; return u8g2_font_5x8_tf; }
-const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint)
-{ (void)font; (void)codepoint; return NULL; }
+bool solar_os_font_fallback(const uint8_t *font, uint32_t codepoint, solar_os_font_face_ref_t *ref)
+{ (void)font; (void)codepoint; (void)ref; return false; }
+void solar_os_font_face_release(solar_os_font_face_ref_t *ref) { (void)ref; assert(false); }
 uint32_t solar_os_font_pack_generation(void) { return font_pack_generation; }
 static bool terminal_draw_box_cell(u8g2_t *u, int x, int y, int w, int h, uint16_t c)
 { (void)u; (void)x; (void)y; (void)w; (void)h; (void)c; return false; }

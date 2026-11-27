@@ -13,6 +13,7 @@
 #include "freertos/semphr.h"
 #include "solar_os_memory.h"
 #include "solar_os_storage.h"
+#include "solar_os_sync.h"
 
 #define AGENT_CONVERSATION_DIRECTORY ".solar/agent/conversations"
 #define AGENT_CONVERSATION_MAGIC 0x56434f53UL
@@ -60,35 +61,16 @@ typedef struct {
     agent_conversation_record_t header;
 } agent_conversation_record_meta_t;
 
-static SemaphoreHandle_t conversation_mutex;
-static portMUX_TYPE conversation_mutex_lock = portMUX_INITIALIZER_UNLOCKED;
+static solar_os_lifecycle_t conversation_write_lock;
 
 static esp_err_t conversation_take_mutex(void)
 {
-    if (conversation_mutex == NULL) {
-        SemaphoreHandle_t created = xSemaphoreCreateMutex();
-        if (created == NULL) {
-            return ESP_ERR_NO_MEM;
-        }
-        portENTER_CRITICAL(&conversation_mutex_lock);
-        if (conversation_mutex == NULL) {
-            conversation_mutex = created;
-            created = NULL;
-        }
-        portEXIT_CRITICAL(&conversation_mutex_lock);
-        if (created != NULL) {
-            vSemaphoreDelete(created);
-        }
-    }
-    return xSemaphoreTake(conversation_mutex, portMAX_DELAY) == pdTRUE ?
-        ESP_OK : ESP_ERR_INVALID_STATE;
+    return solar_os_lifecycle_enter(&conversation_write_lock) ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static void conversation_give_mutex(void)
 {
-    if (conversation_mutex != NULL) {
-        (void)xSemaphoreGive(conversation_mutex);
-    }
+    solar_os_lifecycle_leave(&conversation_write_lock);
 }
 
 static uint32_t conversation_crc32_update(uint32_t crc,
@@ -538,7 +520,7 @@ esp_err_t solar_os_agent_conversations_list(
         conversation_header_to_info(&header, &items[(*count)++]);
     }
     closedir(dir);
-    qsort(items, *count, sizeof(*items), conversation_info_compare);
+    if (*count > 1) qsort(items, *count, sizeof(*items), conversation_info_compare);
     return ESP_OK;
 }
 

@@ -15,6 +15,10 @@
 #define PS2_PROTOCOL_RESEND 0xfeU
 #define PS2_COMMAND_RETRIES 2U
 
+static solar_os_ps2_bus_t *ps2_buses;
+static uint32_t ps2_next_interrupt;
+static portMUX_TYPE ps2_bus_lock = portMUX_INITIALIZER_UNLOCKED;
+
 static unsigned ps2_ones(uint8_t value)
 {
     unsigned count = 0;
@@ -32,13 +36,8 @@ static void ps2_frame_reset(solar_os_ps2_bus_t *bus)
     bus->frame_parity = 0;
 }
 
-static void ps2_clock_isr(void *arg)
+static void ps2_handle_clock(solar_os_ps2_bus_t *bus, BaseType_t *woken)
 {
-    solar_os_ps2_bus_t *bus = arg;
-    if (bus == NULL || !bus->running) {
-        return;
-    }
-
     portENTER_CRITICAL_ISR(&bus->lock);
     if (bus->transmitting) {
         const uint8_t bit = bus->tx_bit;
@@ -67,13 +66,7 @@ static void ps2_clock_isr(void *arg)
                 bus->stats.command_errors++;
             }
             portEXIT_CRITICAL_ISR(&bus->lock);
-            if (bus->tx_semaphore != NULL) {
-                BaseType_t task_woken = pdFALSE;
-                xSemaphoreGiveFromISR(bus->tx_semaphore, &task_woken);
-                if (task_woken == pdTRUE) {
-                    portYIELD_FROM_ISR();
-                }
-            }
+            if (bus->tx_semaphore) xSemaphoreGiveFromISR(bus->tx_semaphore, woken);
             return;
         }
         portEXIT_CRITICAL_ISR(&bus->lock);
@@ -128,76 +121,125 @@ static void ps2_clock_isr(void *arg)
     portEXIT_CRITICAL_ISR(&bus->lock);
 }
 
-esp_err_t solar_os_ps2_bus_start(solar_os_ps2_bus_t *bus,
-                                 const solar_os_bus_ps2_config_t *config)
+/* The GPIO callback owns an ID rather than a pointer to a caller's bus.
+ * Detach removes the ID under this lock and joins any in-flight dispatch.
+ * A delayed callback carrying an older ID cannot reach a reused bus. */
+static void ps2_clock_isr(void *arg)
 {
-    if (bus == NULL || config == NULL || config->clock_pin < 0 ||
-        config->data_pin < 0 || config->clock_pin == config->data_pin) {
-        return ESP_ERR_INVALID_ARG;
+    BaseType_t woken = pdFALSE;
+    portENTER_CRITICAL_ISR(&ps2_bus_lock);
+    for (solar_os_ps2_bus_t *bus = ps2_buses; bus; bus = bus->next) {
+        if (bus->interrupt_id == (uint32_t)(uintptr_t)arg && bus->running) {
+            ps2_handle_clock(bus, &woken);
+            break;
+        }
     }
+    portEXIT_CRITICAL_ISR(&ps2_bus_lock);
+    if (woken == pdTRUE) portYIELD_FROM_ISR();
+}
 
+static esp_err_t ps2_reserve(solar_os_ps2_bus_t *bus, const solar_os_bus_ps2_config_t *config)
+{
+    portENTER_CRITICAL(&ps2_bus_lock);
+    for (solar_os_ps2_bus_t *active = ps2_buses; active; active = active->next) {
+        if (active == bus || active->clock_pin == config->clock_pin || active->data_pin == config->data_pin ||
+            active->clock_pin == config->data_pin || active->data_pin == config->clock_pin) {
+            portEXIT_CRITICAL(&ps2_bus_lock);
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    if (bus->lines_pending) {
+        portEXIT_CRITICAL(&ps2_bus_lock);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (ps2_next_interrupt == UINT32_MAX) {
+        portEXIT_CRITICAL(&ps2_bus_lock);
+        return ESP_ERR_NO_MEM;
+    }
     memset(bus, 0, sizeof(*bus));
     bus->clock_pin = config->clock_pin;
     bus->data_pin = config->data_pin;
     bus->lock = (portMUX_TYPE)portMUX_INITIALIZER_UNLOCKED;
-    bus->tx_semaphore = xSemaphoreCreateBinaryStatic(
-        &bus->tx_semaphore_storage);
-    if (bus->tx_semaphore == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    /* Preload released levels before output enable to avoid a low glitch. */
-    (void)gpio_set_level((gpio_num_t)config->data_pin, 1);
-    (void)gpio_set_level((gpio_num_t)config->clock_pin, 1);
-
-    const gpio_config_t data_config = {
-        .pin_bit_mask = 1ULL << (unsigned)config->data_pin,
-        .mode = GPIO_MODE_INPUT_OUTPUT_OD,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
-    };
-    esp_err_t err = gpio_config(&data_config);
-    if (err != ESP_OK) {
-        return err;
-    }
-    const gpio_config_t clock_config = {
-        .pin_bit_mask = 1ULL << (unsigned)config->clock_pin,
-        .mode = GPIO_MODE_INPUT_OUTPUT_OD,
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_NEGEDGE,
-    };
-    err = gpio_config(&clock_config);
-    if (err != ESP_OK) {
-        return err;
-    }
-    (void)gpio_set_level((gpio_num_t)config->data_pin, 1);
-    (void)gpio_set_level((gpio_num_t)config->clock_pin, 1);
-    err = solar_os_gpio_isr_service_ensure();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        (void)gpio_set_intr_type((gpio_num_t)config->clock_pin, GPIO_INTR_DISABLE);
-        return err;
-    }
-    bus->running = true;
-    err = gpio_isr_handler_add((gpio_num_t)config->clock_pin, ps2_clock_isr, bus);
-    if (err != ESP_OK) {
-        bus->running = false;
-        (void)gpio_set_intr_type((gpio_num_t)config->clock_pin, GPIO_INTR_DISABLE);
-        return err;
-    }
+    bus->interrupt_id = ++ps2_next_interrupt;
+    bus->next = ps2_buses;
+    ps2_buses = bus;
+    portEXIT_CRITICAL(&ps2_bus_lock);
     return ESP_OK;
+}
+
+static esp_err_t ps2_connect(solar_os_ps2_bus_t *bus)
+{
+    bus->tx_semaphore = xSemaphoreCreateBinaryStatic(&bus->tx_semaphore_storage);
+    if (!bus->tx_semaphore) return ESP_ERR_NO_MEM;
+    /* Preload released levels before output enable. */
+    bus->lines_pending = true;
+    (void)gpio_set_level(bus->data_pin, 1);
+    (void)gpio_set_level(bus->clock_pin, 1);
+    gpio_config_t config = {
+        .pin_bit_mask = UINT64_C(1) << bus->data_pin, .mode = GPIO_MODE_INPUT_OUTPUT_OD,
+        .pull_up_en = GPIO_PULLUP_ENABLE, .pull_down_en = GPIO_PULLDOWN_DISABLE, .intr_type = GPIO_INTR_DISABLE,
+    };
+    esp_err_t error = gpio_config(&config);
+    if (error != ESP_OK) return error;
+    config.pin_bit_mask = UINT64_C(1) << bus->clock_pin;
+    config.intr_type = GPIO_INTR_NEGEDGE;
+    error = gpio_config(&config);
+    if (error != ESP_OK) return error;
+    (void)gpio_set_level(bus->data_pin, 1);
+    (void)gpio_set_level(bus->clock_pin, 1);
+    error = solar_os_gpio_isr_service_ensure();
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) return error;
+
+    portENTER_CRITICAL(&ps2_bus_lock);
+    bus->running = true;
+    portEXIT_CRITICAL(&ps2_bus_lock);
+    error = gpio_isr_handler_add(bus->clock_pin, ps2_clock_isr, (void *)(uintptr_t)bus->interrupt_id);
+    bus->handler_attached = error == ESP_OK;
+    return error;
+}
+
+esp_err_t solar_os_ps2_bus_start(solar_os_ps2_bus_t *bus, const solar_os_bus_ps2_config_t *config)
+{
+    if (!bus || !config || !GPIO_IS_VALID_OUTPUT_GPIO(config->clock_pin) ||
+        !GPIO_IS_VALID_OUTPUT_GPIO(config->data_pin) || config->clock_pin == config->data_pin) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t error = ps2_reserve(bus, config);
+    if (error != ESP_OK) return error;
+    error = ps2_connect(bus);
+    if (error != ESP_OK) (void)solar_os_ps2_bus_stop_checked(bus);
+    return error;
+}
+
+esp_err_t solar_os_ps2_bus_stop_checked(solar_os_ps2_bus_t *bus)
+{
+    if (!bus) return ESP_OK;
+    portENTER_CRITICAL(&ps2_bus_lock);
+    solar_os_ps2_bus_t **slot = &ps2_buses;
+    while (*slot && *slot != bus) slot = &(*slot)->next;
+    if (*slot) *slot = bus->next;
+    bus->running = false;
+    bus->next = NULL;
+    portEXIT_CRITICAL(&ps2_bus_lock);
+
+    if (!bus->lines_pending) return ESP_OK;
+    esp_err_t error = gpio_set_intr_type(bus->clock_pin, GPIO_INTR_DISABLE);
+    if (error != ESP_OK) return error;
+    if (bus->handler_attached) {
+        error = gpio_isr_handler_remove(bus->clock_pin);
+        if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) return error;
+        bus->handler_attached = false;
+    }
+    const esp_err_t data_result = gpio_set_level(bus->data_pin, 1);
+    const esp_err_t clock_result = gpio_set_level(bus->clock_pin, 1);
+    error = data_result == ESP_OK ? clock_result : data_result;
+    if (error == ESP_OK) bus->lines_pending = false;
+    return error;
 }
 
 void solar_os_ps2_bus_stop(solar_os_ps2_bus_t *bus)
 {
-    if (bus == NULL || !bus->running) {
-        return;
-    }
-    bus->running = false;
-    (void)gpio_set_intr_type((gpio_num_t)bus->clock_pin, GPIO_INTR_DISABLE);
-    (void)gpio_isr_handler_remove((gpio_num_t)bus->clock_pin);
-    (void)gpio_set_level((gpio_num_t)bus->data_pin, 1);
-    (void)gpio_set_level((gpio_num_t)bus->clock_pin, 1);
+    (void)solar_os_ps2_bus_stop_checked(bus);
 }
 
 size_t solar_os_ps2_bus_read(solar_os_ps2_bus_t *bus,
@@ -215,6 +257,12 @@ size_t solar_os_ps2_bus_read(solar_os_ps2_bus_t *bus,
     }
     portEXIT_CRITICAL(&bus->lock);
     return count;
+}
+
+static TickType_t ps2_timeout_ticks(uint32_t milliseconds)
+{
+    const uint64_t ticks = ((uint64_t)milliseconds * configTICK_RATE_HZ + 999U) / 1000U;
+    return (TickType_t)(ticks >= portMAX_DELAY ? portMAX_DELAY - 1 : ticks);
 }
 
 static esp_err_t ps2_bus_write(solar_os_ps2_bus_t *bus,
@@ -246,9 +294,7 @@ static esp_err_t ps2_bus_write(solar_os_ps2_bus_t *bus,
     (void)gpio_set_intr_type((gpio_num_t)bus->clock_pin, GPIO_INTR_NEGEDGE);
     (void)gpio_set_level((gpio_num_t)bus->clock_pin, 1);
 
-    const TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms) > 0
-        ? pdMS_TO_TICKS(timeout_ms)
-        : 1;
+    const TickType_t timeout_ticks = ps2_timeout_ticks(timeout_ms);
     if (xSemaphoreTake(bus->tx_semaphore, timeout_ticks) == pdTRUE) {
         portENTER_CRITICAL(&bus->lock);
         const bool acknowledged = bus->tx_ack;
@@ -278,9 +324,7 @@ static esp_err_t ps2_bus_wait_response(solar_os_ps2_bus_t *bus,
                                        uint8_t *response)
 {
     const TickType_t start = xTaskGetTickCount();
-    const TickType_t timeout_ticks = pdMS_TO_TICKS(timeout_ms) > 0
-        ? pdMS_TO_TICKS(timeout_ms)
-        : 1;
+    const TickType_t timeout_ticks = ps2_timeout_ticks(timeout_ms);
     do {
         if (solar_os_ps2_bus_read(bus, response, 1) == 1) {
             return ESP_OK;

@@ -2161,18 +2161,17 @@ static void terminal_draw_cell(solar_os_terminal_t *terminal,
 
     const uint8_t *cell_font = terminal_selected_font(terminal, bold, italic);
     u8g2_SetFont(u8g2, cell_font);
-    if (cell > 0xffU && !u8g2_IsGlyph(u8g2, cell)) {
-        /* The built-in face lacks the glyph; a loaded font pack has it for the
-         * same cell, so it draws in the same place. */
-        const uint8_t *extra = solar_os_font_fallback(cell_font, cell);
-        if (extra != NULL) {
-            u8g2_SetFont(u8g2, extra);
-        }
-    }
+    solar_os_font_face_ref_t ref = {0};
+    if (cell > 0xffU && !u8g2_IsGlyph(u8g2, cell) &&
+        solar_os_font_fallback(cell_font, cell, &ref)) u8g2_SetFont(u8g2, ref.face);
     if (text_scale == 2) {
         (void)solar_os_canvas_glyph_x2(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, cell);
     } else {
         (void)solar_os_canvas_glyph(u8g2, (u8g2_uint_t)x, (u8g2_uint_t)y, cell);
+    }
+    if (ref.face) {
+        u8g2_SetFont(u8g2, cell_font);
+        solar_os_font_face_release(&ref);
     }
     if (underline) {
         int underline_y = y + 1;
@@ -3027,7 +3026,7 @@ void solar_os_terminal_draw(solar_os_terminal_t *terminal)
     }
 
     u8g2_t *u8g2 = terminal->u8g2;
-    (void)solar_os_display_request_present_mode(u8g2, SOLAR_OS_DISPLAY_PRESENT_TEXT);
+
     terminal_apply_settings(terminal, false);
     u8g2_SetFontMode(u8g2, 1);
     u8g2_SetFontPosBaseline(u8g2);

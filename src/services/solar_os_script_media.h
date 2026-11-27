@@ -30,6 +30,8 @@ esp_err_t solar_os_script_media_create(const char *owner,
 void solar_os_script_media_destroy(solar_os_script_media_t *session);
 esp_err_t solar_os_script_media_open(solar_os_script_media_t *session,
     const char *id, const solar_os_stream_open_options_t *options, uint32_t *handle);
+esp_err_t solar_os_script_media_open_typed(solar_os_script_media_t *session, const char *id,
+    solar_os_stream_type_t type, const solar_os_stream_open_options_t *options, uint32_t *handle);
 esp_err_t solar_os_script_media_close(solar_os_script_media_t *session, uint32_t handle);
 esp_err_t solar_os_script_media_close_all(solar_os_script_media_t *session);
 esp_err_t solar_os_script_media_stream_info(solar_os_script_media_t *session,

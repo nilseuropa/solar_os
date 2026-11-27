@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 
 #include "solar_os_terminal.h"
@@ -22,6 +23,7 @@ static void test_columns(void)
     assert(solar_os_terminal_columns_compute(4, 4, 5, 160) == 1U);
     assert(solar_os_terminal_columns_compute(792, -1, 5, 160) == 0U);
     assert(solar_os_terminal_columns_compute(792, 4, 5, 0) == 0U);
+    assert(solar_os_terminal_columns_compute(INT_MAX, INT_MAX, 1, 160) == 1U);
 }
 
 static void expect_geometry(int height, int status, int footer, int line, int ascent)
@@ -47,6 +49,7 @@ int main(void)
     assert(small.rows == 8 && small.baseline_offset == 7);
     assert(solar_os_terminal_geometry_compute(64, 16, 0, 8, 7, 64, &small));
     assert(small.rows == 6);
+    assert(!solar_os_terminal_geometry_compute(64, INT_MAX, 0, 8, 7, 64, &small));
     const int heights[] = {200, 240, 288, 300};
     const int lines[] = {10, 12, 14, 16, 18, 20};
     for (size_t h = 0; h < sizeof(heights) / sizeof(heights[0]); h++) {

@@ -463,12 +463,9 @@ static esp_err_t uart_start_instance_locked(solar_os_uart_instance_t *instance)
 }
 #endif
 
-esp_err_t solar_os_uart_start_bus(const char *name)
+#if SOLAR_OS_BOARD_HAS_UART
+static esp_err_t uart_start_bus(const char *name)
 {
-#if !SOLAR_OS_BOARD_HAS_UART
-    (void)name;
-    return ESP_ERR_NOT_SUPPORTED;
-#else
     solar_os_uart_ref_t ref;
     const esp_err_t pin_ret = uart_pin_name(name, &ref);
     if (pin_ret != ESP_OK) {
@@ -477,30 +474,8 @@ esp_err_t solar_os_uart_start_bus(const char *name)
     const esp_err_t ret = uart_start_instance_locked(ref.instance);
     uart_unpin(&ref);
     return ret;
-#endif
 }
-
-esp_err_t solar_os_uart_stop_bus(const char *name)
-{
-#if !SOLAR_OS_BOARD_HAS_UART
-    (void)name;
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    solar_os_uart_ref_t ref;
-    esp_err_t ret = uart_pin_name(name, &ref);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-    solar_os_port_info_t info;
-    if (solar_os_port_get_info(name, &info) == ESP_OK && info.claimed) {
-        uart_unpin(&ref);
-        return ESP_ERR_INVALID_STATE;
-    }
-    ret = uart_stop_instance_locked(ref.instance);
-    uart_unpin(&ref);
-    return ret;
 #endif
-}
 
 esp_err_t solar_os_uart_unregister_bus(const char *name)
 {
@@ -653,7 +628,7 @@ esp_err_t solar_os_uart_init(void)
             uart_unpin(&ref);
         }
 #if !SOLAR_OS_PACKAGE_SERVICE_RESOURCES
-        ret = solar_os_uart_start_bus(SOLAR_OS_UART_PORT_NAME);
+        ret = uart_start_bus(SOLAR_OS_UART_PORT_NAME);
 #endif
     }
     return ret;
@@ -824,7 +799,7 @@ esp_err_t solar_os_uart_set_baud_rate(uint32_t baud_rate)
     return solar_os_uart_bus_set_baud_rate(SOLAR_OS_UART_PORT_NAME, baud_rate);
 }
 
-esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode)
+static esp_err_t uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode, const char *owner)
 {
     if (name == NULL ||
         (mode != SOLAR_OS_UART_MODE_RAW && mode != SOLAR_OS_UART_MODE_LINE)) {
@@ -838,17 +813,31 @@ esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode
     if (ret != ESP_OK) {
         return ret;
     }
-    ret = uart_require_available(name, NULL);
+    ret = uart_require_available(name, owner);
     if (ret != ESP_OK) {
         uart_unpin(&ref);
         return ret;
     }
 
     solar_os_uart_instance_t *instance = ref.instance;
+    const solar_os_uart_mode_t previous = instance->mode;
     instance->mode = mode;
     ret = instance->persistent ? uart_save_config(instance) : ESP_OK;
+    if (ret != ESP_OK) instance->mode = previous;
     uart_unpin(&ref);
     return ret;
+}
+
+esp_err_t solar_os_uart_bus_set_mode(const char *name, solar_os_uart_mode_t mode)
+{
+    return uart_bus_set_mode(name, mode, NULL);
+}
+
+esp_err_t solar_os_uart_bus_set_mode_owned(const char *name, solar_os_uart_mode_t mode,
+                                          const char *owner)
+{
+    if (owner == NULL || *owner == '\0') return ESP_ERR_INVALID_ARG;
+    return uart_bus_set_mode(name, mode, owner);
 }
 
 esp_err_t solar_os_uart_set_mode(solar_os_uart_mode_t mode)
@@ -1078,15 +1067,16 @@ esp_err_t solar_os_uart_read(uint8_t *data,
                                   read_len);
 }
 
-bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *status)
+esp_err_t solar_os_uart_copy_bus_status(const char *name, solar_os_uart_status_t *status)
 {
+    _Static_assert(sizeof(status->name) == SOLAR_OS_BUS_NAME_MAX, "UART name capacity");
+    _Static_assert(sizeof(status->port_owner) == SOLAR_OS_PORT_OWNER_MAX, "UART owner capacity");
     if (name == NULL || status == NULL) {
-        return false;
+        return ESP_ERR_INVALID_ARG;
     }
     solar_os_uart_ref_t ref;
-    if (uart_pin_name_timeout(name, 0, &ref) != ESP_OK) {
-        return false;
-    }
+    const esp_err_t err = uart_pin_name_timeout(name, 0, &ref);
+    if (err != ESP_OK) return err;
     solar_os_uart_instance_t *instance = ref.instance;
 
     memset(status, 0, sizeof(*status));
@@ -1107,8 +1097,6 @@ bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *stat
             status->rx_buffered_valid = true;
         }
     }
-    uart_unpin(&ref);
-
     solar_os_port_info_t port_info;
     if (solar_os_port_get_info(name, &port_info) == ESP_OK) {
         status->port_claimed = port_info.claimed;
@@ -1116,7 +1104,13 @@ bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *stat
             strlcpy(status->port_owner, port_info.owner, sizeof(status->port_owner));
         }
     }
-    return true;
+    uart_unpin(&ref);
+    return ESP_OK;
+}
+
+bool solar_os_uart_get_bus_status(const char *name, solar_os_uart_status_t *status)
+{
+    return solar_os_uart_copy_bus_status(name, status) == ESP_OK;
 }
 
 void solar_os_uart_get_status(solar_os_uart_status_t *status)

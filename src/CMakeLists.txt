@@ -208,10 +208,19 @@ set(SOLAR_OS_GENERATED_FONT_SENTINEL
 if(NOT EXISTS "${SOLAR_OS_GENERATED_FONT_SENTINEL}")
     message(FATAL_ERROR "SolarOS generated default fonts missing: ${SOLAR_OS_GENERATED_FONT_SENTINEL}. Run: make -C fonts/tools/bdfconv && python3 fonts/generate_u8g2_fonts.py")
 endif()
+if(CMAKE_SCRIPT_MODE_FILE)
+    file(GLOB_RECURSE SOLAR_OS_MODULE_MANIFESTS
+        "${SOLAR_OS_PROJECT_DIR}/modules/*/module.toml")
+else()
+    file(GLOB_RECURSE SOLAR_OS_MODULE_MANIFESTS CONFIGURE_DEPENDS
+        "${SOLAR_OS_PROJECT_DIR}/modules/*/module.toml")
+endif()
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
     "${SOLAR_OS_FLAVOR_INPUT}"
     "${SOLAR_OS_PACKAGE_CATALOG}"
     "${SOLAR_OS_PROJECT_DIR}/scripts/generate_flavor_config.py"
+    "${SOLAR_OS_PROJECT_DIR}/scripts/solaros_components.py"
+    ${SOLAR_OS_MODULE_MANIFESTS}
     "${SOLAR_OS_GENERATED_FONT_SENTINEL}"
 )
 
@@ -536,6 +545,9 @@ if(DEFINED SOLAR_OS_BOARD_STORAGE_DRIVER)
     endif()
 endif()
 list(APPEND SOLAR_OS_SRCS ${SOLAR_OS_BOARD_SRCS})
+if(NOT SOLAR_OS_BOARD_CDC_DRIVER STREQUAL "tinyusb_composite")
+    list(APPEND SOLAR_OS_SRCS "drivers/hid_port_unavailable.c")
+endif()
 list(APPEND SOLAR_OS_REQUIRES ${SOLAR_OS_BOARD_REQUIRES})
 
 list(APPEND SOLAR_OS_SRCS ${SOLAR_OS_PACKAGE_SRCS})
@@ -597,6 +609,53 @@ idf_component_register(
 if(SOLAR_OS_PACKAGE_APP_CC)
     include("${SOLAR_OS_PROJECT_DIR}/cmake/solar_os_cc_builtin.cmake")
     solar_os_link_builtin_cc(${COMPONENT_LIB})
+endif()
+
+include("${SOLAR_OS_PROJECT_DIR}/cmake/solar_os_components.cmake")
+solar_os_link_components(${COMPONENT_LIB})
+
+if(SOLAR_OS_PACKAGE_JOB_DISPLAYD)
+    set(SOLAR_OS_DISPLAY_PAGE_INPUT "${CMAKE_CURRENT_LIST_DIR}/jobs/displayd_page_html.inc")
+    set(SOLAR_OS_DISPLAY_PAGE_PACK "${SOLAR_OS_PROJECT_DIR}/scripts/pack_display_page.py")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${SOLAR_OS_DISPLAY_PAGE_INPUT}" "${SOLAR_OS_DISPLAY_PAGE_PACK}")
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_DISPLAY_PAGE_PACK}"
+        "${SOLAR_OS_DISPLAY_PAGE_INPUT}" "${SOLAR_OS_GENERATED_DIR}/solar_os_display_page_packed.h"
+        RESULT_VARIABLE SOLAR_OS_DISPLAY_PAGE_RESULT)
+    if(NOT SOLAR_OS_DISPLAY_PAGE_RESULT EQUAL 0)
+        message(FATAL_ERROR "SolarOS display page packing failed")
+    endif()
+endif()
+
+if(SOLAR_OS_PACKAGE_APP_FLASH)
+    idf_component_get_property(SOLAR_OS_FLASHER_DIR espressif__esp-serial-flasher COMPONENT_DIR)
+    idf_component_get_property(SOLAR_OS_FLASHER_LIB espressif__esp-serial-flasher COMPONENT_LIB)
+    set(SOLAR_OS_FLASHER_PACK "${SOLAR_OS_PROJECT_DIR}/scripts/pack_flash_stubs.py")
+    set(SOLAR_OS_FLASHER_GENERATED "${SOLAR_OS_GENERATED_DIR}/flash_stubs")
+    file(GLOB SOLAR_OS_FLASHER_STUBS CONFIGURE_DEPENDS "${SOLAR_OS_FLASHER_DIR}/src/stubs/esp_stub_*.c")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${SOLAR_OS_FLASHER_PACK}" ${SOLAR_OS_FLASHER_STUBS}
+        "${SOLAR_OS_FLASHER_DIR}/src/esp_loader.c" "${SOLAR_OS_FLASHER_DIR}/src/protocol_sdio.c")
+    execute_process(COMMAND "${Python3_EXECUTABLE}" "${SOLAR_OS_FLASHER_PACK}"
+        "${SOLAR_OS_FLASHER_DIR}" "${SOLAR_OS_FLASHER_GENERATED}"
+        RESULT_VARIABLE SOLAR_OS_FLASHER_PACK_RESULT)
+    if(NOT SOLAR_OS_FLASHER_PACK_RESULT EQUAL 0)
+        message(FATAL_ERROR "SolarOS serial flasher stub packing failed")
+    endif()
+    get_target_property(SOLAR_OS_FLASHER_SOURCES ${SOLAR_OS_FLASHER_LIB} SOURCES)
+    set(SOLAR_OS_FLASHER_PACKED_SOURCES)
+    foreach(SOLAR_OS_FLASHER_SOURCE IN LISTS SOLAR_OS_FLASHER_SOURCES)
+        get_filename_component(SOLAR_OS_FLASHER_NAME "${SOLAR_OS_FLASHER_SOURCE}" NAME)
+        if(SOLAR_OS_FLASHER_NAME MATCHES "^(esp_loader|protocol_sdio|esp_stub_.*)\\.c$")
+            list(APPEND SOLAR_OS_FLASHER_PACKED_SOURCES "${SOLAR_OS_FLASHER_GENERATED}/${SOLAR_OS_FLASHER_NAME}")
+        elseif(IS_ABSOLUTE "${SOLAR_OS_FLASHER_SOURCE}")
+            list(APPEND SOLAR_OS_FLASHER_PACKED_SOURCES "${SOLAR_OS_FLASHER_SOURCE}")
+        else()
+            list(APPEND SOLAR_OS_FLASHER_PACKED_SOURCES "${SOLAR_OS_FLASHER_DIR}/${SOLAR_OS_FLASHER_SOURCE}")
+        endif()
+    endforeach()
+    set_property(TARGET ${SOLAR_OS_FLASHER_LIB} PROPERTY SOURCES ${SOLAR_OS_FLASHER_PACKED_SOURCES})
+    target_include_directories(${SOLAR_OS_FLASHER_LIB} PRIVATE "${SOLAR_OS_PROJECT_DIR}/src/apps")
 endif()
 
 if(SOLAR_OS_PACKAGE_SERVICE_USB_HOST)

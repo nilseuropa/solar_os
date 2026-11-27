@@ -12,7 +12,7 @@
 #define portENTER_CRITICAL(p) ((void)(p))
 #define portEXIT_CRITICAL(p) ((void)(p))
 static int module_catalog_cache_lock;
-static struct { size_t count; char ids[16][32]; } module_catalog_id_cache;
+static struct { size_t count; char ids[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX][32]; } module_catalog_id_cache;
 static bool fail_write, fail_publish, installed;
 static unsigned allocations, signature_checks, parses;
 size_t strlcpy(char *d,const char *s,size_t n) { size_t len=strlen(s);if(n)snprintf(d,n,"%s",s);return len; }
@@ -26,7 +26,7 @@ static esp_err_t module_release_url(char *out,size_t n) { strlcpy(out,"https://e
 static esp_err_t module_verify_catalog_signature(const void *body,size_t n,const char *sig)
 { (void)body;(void)n;signature_checks++;return !strcmp(sig,"valid")?ESP_OK:ESP_ERR_INVALID_CRC; }
 static esp_err_t module_parse_catalog(const void *body,size_t n,const char *url,solar_os_module_catalog_t *out)
-{ (void)url;parses++;if(n!=7 || memcmp(body,"current",7))return ESP_ERR_NOT_SUPPORTED;out->count=1;strcpy(out->packages[0].id,"robot");out->packages[0].installed=installed;return ESP_OK; }
+{ (void)url;parses++;if(n!=7 || memcmp(body,"current",7))return ESP_ERR_NOT_SUPPORTED;out->packages=solar_os_memory_calloc(1,sizeof(*out->packages),1,"entries");if(!out->packages)return ESP_ERR_NO_MEM;out->count=1;strcpy(out->packages[0].id,"robot");out->packages[0].installed=installed;return ESP_OK; }
 esp_err_t solar_os_storage_default_path(const char *r,char *out,size_t n) { return snprintf(out,n,"%s",r)<(int)n?ESP_OK:ESP_ERR_INVALID_SIZE; }
 esp_err_t solar_os_storage_makedirs(const char *p,bool ok)
 { (void)ok;(void)mkdir("modules",0700);return mkdir(p,0700)==0 || access(p,F_OK)==0?ESP_OK:ESP_FAIL; }
@@ -48,13 +48,13 @@ int main(void) {
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);
     assert(out->signature_verified && out->count==1 && !out->packages[0].installed);
     assert(signature_checks==1 && parses==1 && module_catalog_id_cache.count==1);
-    solar_os_memory_free(out);assert(!allocations);
+    solar_os_module_catalog_free(out);assert(!allocations);
     installed=true;
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK && out->packages[0].installed);
-    solar_os_memory_free(out);
+    solar_os_module_catalog_free(out);
     fail_write=true;assert(module_catalog_save("broken",6,"invalid",7)==ESP_FAIL);fail_write=false;
     fail_publish=true;assert(module_catalog_save("broken",6,"invalid",7)==ESP_FAIL);fail_publish=false;
-    assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);solar_os_memory_free(out);
+    assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);solar_os_module_catalog_free(out);
     assert(module_catalog_save("current",7,"invalid",7)==ESP_OK);
     unsigned old_parses=parses;
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_ERR_INVALID_CRC && !out && parses==old_parses);
@@ -69,7 +69,7 @@ int main(void) {
     assert(module_catalog_save("current",7,"valid",5)==ESP_ERR_INVALID_STATE);
     atomic_flag_clear(&module_catalog_file_busy);
     assert(module_catalog_save("current",7,"valid",5)==ESP_OK);
-    assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);solar_os_memory_free(out);
+    assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);solar_os_module_catalog_free(out);
     assert(!allocations);
     puts("pkg cache: offline reload, verification, host checks, installed freshness and failed save preservation passed");
 }

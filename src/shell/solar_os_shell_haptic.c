@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_HAPTIC
+
 #include "solar_os_shell_commands.h"
 #include "solar_os_shell_common.h"
 #include "solar_os_shell_io.h"
@@ -72,3 +76,5 @@ void solar_os_shell_cmd_haptic(solar_os_context_t *ctx, int argc, char **argv)
         solar_os_shell_io_printf(term, "haptic: %s\r\n", esp_err_to_name(ret));
     }
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_HAPTIC */

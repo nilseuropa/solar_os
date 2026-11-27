@@ -125,11 +125,16 @@ static esp_err_t publish(motor_t *m)
 static esp_err_t unpublish(motor_t *m)
 {
     esp_err_t err=ESP_OK;
-    if(m->stream_registered) {
-        err=solar_os_stream_unregister(m->endpoint);if(err!=ESP_OK) return err;m->stream_registered=false;
+    if (m->stream_registered) {
+        const char *id = m->endpoint;
+        const void *owner = m;
+        err = solar_os_stream_unregister_many_owned(&id, &owner, 1);
+        if (err != ESP_OK) return err;
+        m->stream_registered = false;
     }
-    if(m->parameters.token) err=solar_os_parameters_unregister(&m->parameters);
-    return err;
+    if (m->parameters.token) err = solar_os_parameters_unregister(&m->parameters);
+    /* Only a missing device registry entry authorizes discarding its owner. */
+    return err == ESP_ERR_NOT_FOUND ? ESP_FAIL : err;
 }
 static esp_err_t reap_failed(const char *name)
 {

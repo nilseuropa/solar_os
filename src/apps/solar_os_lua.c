@@ -42,8 +42,6 @@
 #if SOLAR_OS_PACKAGE_SERVICE_DLP_CLIENT
 #include "solar_os_display_link.h"
 #endif
-#include "solar_os_tcp_stream.h"
-#include "solar_os_ble_stream.h"
 #include "solar_os_script_media.h"
 #if SOLAR_OS_PACKAGE_SERVICE_CAMERA
 #include "solar_os_camera.h"
@@ -66,8 +64,9 @@
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
 #include "solar_os_robot.h"
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_DSP
-#include "solar_os_dsp.h"
+#if SOLAR_OS_PACKAGE_SERVICE_DSP || SOLAR_OS_PACKAGE_SERVICE_BLE || SOLAR_OS_PACKAGE_SERVICE_HID || SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+#include "solar_os_native_client.h"
+#include "solar_os_script_service_query.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_AUDIO
 #include "solar_os_audio.h"
@@ -81,10 +80,6 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BATTERY
 #include "solar_os_battery.h"
-#endif
-#if SOLAR_OS_PACKAGE_SERVICE_BLE
-#include "solar_os_ble_keyboard.h"
-#include "solar_os_hid.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_RESOURCES
 #include "solar_os_buses.h"
@@ -112,7 +107,6 @@
 #include "solar_os_sc2.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-#include "solar_os_hid.h"
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_I2C
 #include "solar_os_i2c.h"
@@ -458,13 +452,7 @@ static bool solua_set_tick_interval_ms(uint32_t interval_ms)
 
 static solar_os_shell_io_t *solua_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL) {
-        solar_os_shell_io_init_terminal(&solua.fallback_io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &solua.fallback_io);
-        io = &solua.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &solua.fallback_io, false);
 }
 
 static void solua_return_to_shell(solar_os_context_t *ctx,
@@ -1042,7 +1030,7 @@ static void solua_push_mqtt_status(lua_State *L, const solar_os_mqtt_status_t *s
     solua_set_str(L, -1, "username", status->username);
     solua_set_str(L, -1, "client_id", status->client_id);
     solua_set_str(L, -1, "last_error", status->last_error);
-    solua_set_int(L, -1, "last_esp_error", status->last_esp_error);
+    solua_set_int(L, -1, "last_esp_error", status->error);
     solua_set_int(L, -1, "last_msg_id", status->last_msg_id);
     solua_set_int(L, -1, "rx_count", status->rx_count);
     solua_set_int(L, -1, "tx_count", status->tx_count);
@@ -4320,8 +4308,8 @@ static int solua_expansion_drivers(lua_State *L)
     lua_newtable(L);
     int out = 1;
     for (size_t i = 0; i < solar_os_expansion_driver_count(); i++) {
-        solar_os_expansion_driver_t driver;
-        if (!solar_os_expansion_get_driver(i, &driver)) {
+        solar_os_expansion_driver_info_t driver;
+        if (solar_os_expansion_get_driver_info(i, &driver) != ESP_OK) {
             continue;
         }
         lua_newtable(L);
@@ -5588,164 +5576,11 @@ static int solua_synth_stop(lua_State *L)
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
-static int solua_ble_status(lua_State *L)
-{
-    char status[96];
-    solar_os_ble_keyboard_get_status(status, sizeof(status));
-    lua_pushstring(L, status);
-    return 1;
-}
-
-static int solua_ble_connected(lua_State *L)
-{
-    lua_pushboolean(L, solar_os_ble_keyboard_is_connected());
-    return 1;
-}
-
-static int solua_ble_pair(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_ble_keyboard_start_pairing());
-}
-
-static int solua_ble_forget(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_ble_keyboard_forget());
-}
-
-static int solua_ble_layout(lua_State *L)
-{
-    if (lua_gettop(L) == 0 || lua_isnil(L, 1)) {
-        lua_pushstring(L, solar_os_ble_keyboard_layout_name(solar_os_ble_keyboard_layout()));
-        return 1;
-    }
-
-    solar_os_ble_keyboard_layout_t layout;
-    if (!solar_os_ble_keyboard_parse_layout(luaL_checkstring(L, 1), &layout)) {
-        return luaL_error(L, "expected us, de, ua, fr or ro");
-    }
-    return solua_check_esp(L, solar_os_ble_keyboard_set_layout(layout));
-}
-
-static int solua_ble_read(lua_State *L)
-{
-    const uint32_t len = solua_optional_u32(L, 1, 64);
-    if (len == 0 || len > 256) {
-        return luaL_error(L, "expected length 1..256");
-    }
-
-    char buffer[256];
-    const size_t read_len = solar_os_ble_keyboard_read_chars(buffer, len);
-    lua_pushlstring(L, buffer, read_len);
-    return 1;
-}
 #include "solar_os_lua_ble.inc"
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-static int solua_hid_status(lua_State *L)
-{
-    solar_os_hid_status_t status;
-    solar_os_hid_get_status(&status);
-    lua_createtable(L, 0, 2);
-    solua_set_bool(L, -1, "initialized", status.initialized);
-    solua_set_bool(L, -1, "connected", status.connected);
-    return 1;
-}
-
-static size_t solua_hid_keys(lua_State *L, uint16_t *keys, size_t capacity)
-{
-    const int count = lua_gettop(L);
-    if (count < 1 || (size_t)count > capacity) {
-        luaL_error(L, "expected 1..8 keys");
-    }
-    for (int index = 0; index < count; index++) {
-        const lua_Integer value = luaL_checkinteger(L, index + 1);
-        if (value < 0 || value > UINT16_MAX) {
-            luaL_error(L, "invalid HID key");
-        }
-        keys[index] = (uint16_t)value;
-    }
-    return (size_t)count;
-}
-
-static int solua_hid_keyboard_press(lua_State *L)
-{
-    uint16_t keys[8];
-    return solua_check_esp(L,
-                           solar_os_hid_keyboard_press(
-                               keys, solua_hid_keys(L, keys, 8)));
-}
-
-static int solua_hid_keyboard_release(lua_State *L)
-{
-    uint16_t keys[8];
-    return solua_check_esp(L,
-                           solar_os_hid_keyboard_release(
-                               keys, solua_hid_keys(L, keys, 8)));
-}
-
-static int solua_hid_keyboard_release_all(lua_State *L)
-{
-    (void)L;
-    return solua_check_esp(L, solar_os_hid_keyboard_release_all());
-}
-
-static int solua_hid_mouse_move(lua_State *L)
-{
-    const lua_Integer x = luaL_checkinteger(L, 1);
-    const lua_Integer y = luaL_checkinteger(L, 2);
-    if (x < INT32_MIN || x > INT32_MAX || y < INT32_MIN || y > INT32_MAX) {
-        return luaL_error(L, "mouse delta out of range");
-    }
-    return solua_check_esp(L, solar_os_hid_mouse_move((int32_t)x, (int32_t)y));
-}
-
-static int solua_hid_mouse_button(lua_State *L)
-{
-    const lua_Integer button = luaL_checkinteger(L, 1);
-    if (button < 0 || button > UINT8_MAX) {
-        return luaL_error(L, "invalid mouse button");
-    }
-    return solua_check_esp(L,
-                           solar_os_hid_mouse_button((uint8_t)button,
-                                                     lua_toboolean(L, 2)));
-}
-
-static int solua_hid_gamepad_axis(lua_State *L)
-{
-    const lua_Integer axis = luaL_checkinteger(L, 1);
-    const lua_Integer value = luaL_checkinteger(L, 2);
-    if (value < INT16_MIN || value > INT16_MAX) {
-        return luaL_error(L, "expected axis value -32768..32767");
-    }
-    return solua_check_esp(L,
-                           solar_os_hid_gamepad_axis((solar_os_hid_axis_t)axis,
-                                                     (int16_t)value));
-}
-
-static int solua_hid_gamepad_button(lua_State *L)
-{
-    const lua_Integer button = luaL_checkinteger(L, 1);
-    if (button < 0 || button > UINT8_MAX) {
-        return luaL_error(L, "invalid gamepad button");
-    }
-    return solua_check_esp(L,
-                           solar_os_hid_gamepad_button((uint8_t)button,
-                                                       lua_toboolean(L, 2)));
-}
-
-static int solua_hid_gamepad_hat(lua_State *L)
-{
-    return solua_check_esp(L,
-                           solar_os_hid_gamepad_hat(
-                               (solar_os_hid_hat_t)luaL_checkinteger(L, 1)));
-}
-
-static int solua_hid_gamepad_send(lua_State *L)
-{
-    (void)L;
-    return solua_check_esp(L, solar_os_hid_gamepad_send());
-}
+#include "solar_os_lua_hid.inc"
 #endif
 
 static int solua_clipboard_set(lua_State *L)
@@ -8238,6 +8073,12 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solua_ble_destroy();
 #endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+    solua_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+    solua_tcp_stream_cleanup();
+#endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();
 #endif
@@ -8261,7 +8102,7 @@ esp_err_t solar_os_lua_run(const solar_os_script_run_request_t *request,
 
 cleanup:
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-    solar_os_hid_release_all();
+    solua_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_IMAGE
     if (solua_runtime_state != NULL) {
@@ -8344,7 +8185,7 @@ done:
 #endif
     if (L != NULL) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-        solar_os_hid_release_all();
+        solua_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SYNTH
         (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
@@ -8354,6 +8195,12 @@ done:
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
         solua_ble_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+        solua_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+        solua_tcp_stream_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
         solua_net_destroy();
@@ -8709,13 +8556,19 @@ static void solua_stop(solar_os_context_t *ctx)
     (void)solar_os_synth_voice_stop(SOLUA_SYNTH_OWNER);
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_HID
-    solar_os_hid_release_all();
+    solua_hid_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_MIDI
     solua_midi_destroy();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_BLE
     solua_ble_destroy();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
+    solua_ble_stream_cleanup();
+#endif
+#if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
+    solua_tcp_stream_cleanup();
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_NET
     solua_net_destroy();

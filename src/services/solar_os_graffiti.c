@@ -14,10 +14,14 @@
 #define GRAFFITI_PI 3.14159265358979323846f
 
 typedef struct {
-    int value;
-    uint32_t flags;
+    uint8_t x, y;
+} graffiti_raw_point_t;
+
+typedef struct {
+    uint16_t value;
+    uint8_t flags;
     uint8_t count;
-    solar_os_unistroke_point_t points[GRAFFITI_RAW_POINT_MAX];
+    graffiti_raw_point_t points[GRAFFITI_RAW_POINT_MAX];
 } graffiti_raw_template_t;
 
 typedef struct {
@@ -26,19 +30,12 @@ typedef struct {
     size_t count;
 } graffiti_context_t;
 
-#define P(x_value, y_value) {(float)(x_value), (float)(y_value)}
-#define LETTER(ch, ...) {(ch), GRAFFITI_FLAG_LETTERS, \
-                         sizeof((solar_os_unistroke_point_t[]){__VA_ARGS__}) / \
-                             sizeof(solar_os_unistroke_point_t), \
-                         {__VA_ARGS__}}
-#define NUMBER(ch, ...) {(ch), GRAFFITI_FLAG_NUMBERS, \
-                         sizeof((solar_os_unistroke_point_t[]){__VA_ARGS__}) / \
-                             sizeof(solar_os_unistroke_point_t), \
-                         {__VA_ARGS__}}
-#define CONTROL(value_arg, ...) {(value_arg), GRAFFITI_FLAG_BOTH, \
-                                 sizeof((solar_os_unistroke_point_t[]){__VA_ARGS__}) / \
-                                     sizeof(solar_os_unistroke_point_t), \
-                                 {__VA_ARGS__}}
+#define P(x_value, y_value) {(x_value), (y_value)}
+#define RAW_TEMPLATE(value_arg, flags_arg, ...) {(value_arg), (flags_arg), \
+    sizeof((graffiti_raw_point_t[]){__VA_ARGS__}) / sizeof(graffiti_raw_point_t), {__VA_ARGS__}}
+#define LETTER(ch, ...) RAW_TEMPLATE(ch, GRAFFITI_FLAG_LETTERS, __VA_ARGS__)
+#define NUMBER(ch, ...) RAW_TEMPLATE(ch, GRAFFITI_FLAG_NUMBERS, __VA_ARGS__)
+#define CONTROL(value_arg, ...) RAW_TEMPLATE(value_arg, GRAFFITI_FLAG_BOTH, __VA_ARGS__)
 
 /*
  * Palm Graffiti 1 canonical stroke order. Coordinates are normalized tracings
@@ -138,11 +135,17 @@ static const graffiti_raw_template_t graffiti_raw_templates[] = {
 #undef CONTROL
 #undef NUMBER
 #undef LETTER
+#undef RAW_TEMPLATE
 #undef P
 
 size_t solar_os_graffiti_context_size(void)
 {
     return sizeof(graffiti_context_t);
+}
+
+size_t solar_os_graffiti_context_alignment(void)
+{
+    return _Alignof(graffiti_context_t);
 }
 
 size_t solar_os_graffiti_template_count(void)
@@ -152,7 +155,8 @@ size_t solar_os_graffiti_template_count(void)
 
 bool solar_os_graffiti_init(void *storage, size_t storage_size)
 {
-    if (storage == NULL || storage_size < sizeof(graffiti_context_t) ||
+    if (storage == NULL || (uintptr_t)storage % _Alignof(graffiti_context_t) != 0 ||
+        storage_size < sizeof(graffiti_context_t) ||
         solar_os_graffiti_template_count() >
             sizeof(((graffiti_context_t *)0)->templates) /
                 sizeof(solar_os_unistroke_template_t)) {
@@ -168,10 +172,14 @@ bool solar_os_graffiti_init(void *storage, size_t storage_size)
     context->config.minimum_score = 0.62f;
     context->count = solar_os_graffiti_template_count();
     for (size_t i = 0; i < context->count; i++) {
-        context->templates[i].value = graffiti_raw_templates[i].value;
-        context->templates[i].flags = graffiti_raw_templates[i].flags;
-        if (solar_os_unistroke_prepare(graffiti_raw_templates[i].points,
-                                      graffiti_raw_templates[i].count,
+        const graffiti_raw_template_t *raw = &graffiti_raw_templates[i];
+        solar_os_unistroke_point_t points[GRAFFITI_RAW_POINT_MAX];
+        for (size_t j = 0; j < raw->count; j++) {
+            points[j] = (solar_os_unistroke_point_t){raw->points[j].x, raw->points[j].y};
+        }
+        context->templates[i].value = raw->value;
+        context->templates[i].flags = raw->flags;
+        if (solar_os_unistroke_prepare(points, raw->count,
                                       &context->config,
                                       &context->templates[i].path) !=
             SOLAR_OS_UNISTROKE_OK) {
@@ -198,11 +206,15 @@ bool solar_os_graffiti_recognize(
     size_t point_count,
     solar_os_graffiti_result_t *result)
 {
-    if (storage == NULL || result == NULL) {
+    if (storage == NULL || (uintptr_t)storage % _Alignof(graffiti_context_t) != 0 || result == NULL ||
+        (zone != SOLAR_OS_GRAFFITI_LETTERS && zone != SOLAR_OS_GRAFFITI_NUMBERS)) {
         return false;
     }
     memset(result, 0, sizeof(*result));
     const graffiti_context_t *context = storage;
+    if (context->count > sizeof(context->templates) / sizeof(context->templates[0])) {
+        return false;
+    }
     const uint32_t flags = zone == SOLAR_OS_GRAFFITI_NUMBERS ?
         GRAFFITI_FLAG_NUMBERS : GRAFFITI_FLAG_LETTERS;
     solar_os_unistroke_result_t match;

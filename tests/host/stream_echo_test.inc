@@ -32,7 +32,7 @@ esp_err_t solar_os_time_get_utc_epoch_ms(uint64_t *v) {(void)v;return ESP_ERR_NO
 void vTaskDelay(TickType_t ticks) {now+=ticks;}
 size_t strlcpy(char *dst,const char *src,size_t n) {size_t len=strlen(src);if(n){size_t copy=len<n-1?len:n-1;memcpy(dst,src,copy);dst[copy]=0;}return len;}
 static solar_os_shell_io_t *solar_os_shell_command_io(solar_os_context_t *c) {return &c->io;}
-static int solar_os_shell_io_kind(solar_os_shell_io_t *io) {return io->kind;}
+static int solar_os_shell_io_kind(const solar_os_shell_io_t *io) {return io->kind;}
 static void solar_os_shell_io_printf(solar_os_shell_io_t *io,const char *fmt,...) {
     char text[192];va_list args;va_start(args,fmt);int n=vsnprintf(text,sizeof(text),fmt,args);va_end(args);
     assert(n>=0 && n<(int)sizeof(text) && io->used+(size_t)n<sizeof(io->output));
@@ -48,10 +48,12 @@ static const char *solar_os_shell_error_text(esp_err_t e) {
 static size_t solar_os_input_read_chars(char *out,size_t n) {
     (void)n;if(cancel_at && now>=cancel_at && !cancelled) {cancelled=true;out[0]=3;return 1;}return 0;
 }
-static esp_err_t solar_os_port_read(int *p,void *out,size_t n,uint32_t timeout,size_t *count) {
+static bool solar_os_port_handle_valid(const int *port) {return port != NULL;}
+static esp_err_t solar_os_port_read(const int *p,void *out,size_t n,uint32_t timeout,size_t *count) {
     (void)p;(void)timeout;if(disconnect_at && now>=disconnect_at){*count=0;return ESP_FAIL;}
     *count=solar_os_input_read_chars(out,n);return *count?ESP_OK:ESP_ERR_TIMEOUT;
 }
+/* POLL INPUT */
 /* COMMAND */
 static esp_err_t open_source(void *u,const char *o,const solar_os_stream_open_options_t *p,solar_os_stream_handle_t *h)
 {(void)u;(void)o;(void)p;opens++;return reject_open && !strcmp(reject_open,h->id)?ESP_ERR_INVALID_STATE:ESP_OK;}

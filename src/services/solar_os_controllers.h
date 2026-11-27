@@ -10,38 +10,6 @@
 #include "solar_os_native_controllers_abi.h"
 
 #define SOLAR_OS_CONTROLLER_MAX 8U
-#define SOLAR_OS_CONTROLLER_NAME_MAX 24U
-#define SOLAR_OS_CONTROLLER_TARGET_MAX (SOLAR_OS_PARAMETER_PATH_MAX + 12U)
-
-typedef struct {
-    char name[SOLAR_OS_CONTROLLER_NAME_MAX];
-    solar_os_controller_math_config_t algorithm;
-    float setpoint, setpoint_min, setpoint_max, safe_output;
-    uint32_t period_ms, timeout_ms, frequency_hz;
-    uint32_t command_timeout_ms;
-    float acceleration_limit, velocity_deadband, friction_bias_forward, friction_bias_reverse;
-    char source[SOLAR_OS_STREAM_ID_MAX]; /* Empty: timestamped feed() input. */
-    char target[SOLAR_OS_CONTROLLER_TARGET_MAX]; /* parameter:path or pwm:provider:output */
-} solar_os_controller_config_t;
-
-typedef struct {
-    solar_os_controller_config_t config;
-    solar_os_controller_math_state_t state;
-    bool enabled, claimed, faulted, has_measurement;
-    float measurement;
-    uint64_t sample_ms;
-    uint32_t steps, faults;
-    esp_err_t last_error;
-    char owner[16]; /* Nonempty: explicitly stepped instance; owner keeps its handle. */
-    bool waiting;
-    float feedforward;
-    solar_os_controller_tune_result_t tuning;
-    bool command_valid;
-    uint64_t command_expires_us;
-    float active_setpoint;
-    solar_os_native_encoder_feedback_v1_t feedback;
-    bool input_claimed;
-} solar_os_controller_info_t;
 
 esp_err_t solar_os_controller_create(const char *name, solar_os_controller_kind_t kind);
 esp_err_t solar_os_controller_delete(const char *name);

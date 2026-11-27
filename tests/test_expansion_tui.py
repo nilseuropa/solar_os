@@ -60,7 +60,7 @@ class ExpansionTuiTest(unittest.TestCase):
         self.assertNotIn("solar_os_bus_unregister(", TUI)
 
     def test_package_builds_tui_with_expansion_service(self):
-        package_start = PACKAGES.index("[packages.service_expansion]")
+        package_start = PACKAGES.index("[packages.core_shell]")
         package_end = PACKAGES.index("\n[packages.", package_start + 1)
         package = PACKAGES[package_start:package_end]
         self.assertIn('"shell/solar_os_shell_expansion_command.c"', package)

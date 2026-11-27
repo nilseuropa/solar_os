@@ -10,7 +10,10 @@ static const u8x8_display_info_t display_info = {8, 8};
 static const u8x8_t u8x8 = {&display_info};
 static const u8x8_t *u8g2_GetU8x8(u8g2_t *display) { (void)display; return &u8x8; }
 static unsigned u8g2_GetBufferTileWidth(u8g2_t *display) { (void)display; return 1; }
-static uint32_t display_foreground_rgb888 = 0xff00ff, display_background_rgb888 = 0x00ff00;
+static solar_os_display_theme_v1_t display_theme_snapshot(void)
+{
+    return (solar_os_display_theme_v1_t){.foreground_rgb888 = 0xff00ff, .background_rgb888 = 0x00ff00};
+}
 typedef struct {
     bool export_enabled, export_publishing;
     unsigned export_readers, refs;

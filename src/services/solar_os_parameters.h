@@ -73,6 +73,9 @@ esp_err_t solar_os_parameters_update_range(
     const solar_os_parameter_registration_t *registration, const char *name,
     float minimum, float maximum);
 
+esp_err_t solar_os_parameter_resource_path(const char *kind, const char *id,
+                                            const char *name, char *path, size_t capacity);
+
 size_t solar_os_parameter_count(void);
 bool solar_os_parameter_get_info(size_t index, solar_os_parameter_info_t *info);
 esp_err_t solar_os_parameter_find(const char *path,

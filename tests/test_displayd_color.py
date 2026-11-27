@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import zlib
 import unittest
 
 from test_foreground_presenter import production_functions
@@ -26,12 +27,24 @@ class DisplaydColorTest(unittest.TestCase):
             ], check=True)
             subprocess.run([str(binary)], check=True)
 
+    def test_packed_page_is_the_same_http_payload(self):
+        source = ROOT / "src/jobs/displayd_page_html.inc"
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "asset.h"
+            command = ["python3", str(ROOT / "scripts/pack_display_page.py"), str(source), str(output)]
+            subprocess.run(command, check=True)
+            header = output.read_text()
+            subprocess.run(command, check=True)
+            self.assertEqual(output.read_text(), header)
+            expected = "".join(ast.literal_eval(line.strip()) for line in source.read_text().splitlines())
+            packed = bytes(int(value, 16) for value in re.findall(r"0x[0-9a-f]{2}", header))
+            self.assertEqual(zlib.decompress(packed), expected.encode("utf-8"))
+            self.assertLess(len(packed), len(expected))
+
     @unittest.skipUnless(shutil.which("node"), "requires Node.js")
     def test_browser_color_and_monochrome_rotation(self):
-        source = (ROOT / "src/jobs/solar_os_displayd_job.c").read_text()
-        page = source.split("static const char display_page[] =", 1)[1].split(
-            "static esp_err_t displayd_send_503", 1)[0]
-        html = "".join(ast.literal_eval(s) for s in re.findall(r'"(?:[^"\\]|\\.)*"', page))
+        page = (ROOT / "src/jobs/displayd_page_html.inc").read_text()
+        html = "".join(ast.literal_eval(line.strip()) for line in page.splitlines())
         script = html.split("<script>", 1)[1].split("</script>", 1)[0]
         harness = r"""
 const assert = require('node:assert/strict');

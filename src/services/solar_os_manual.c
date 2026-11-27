@@ -11,7 +11,7 @@
 #endif
 #include "solar_os_memory.h"
 
-#define MANUAL_SEARCH_MAX 12U
+#define MANUAL_SEARCH_MAX SOLAR_OS_NATIVE_MANUAL_SEARCH_MAX
 #define MANUAL_TOKEN_MAX 31U
 
 #include "solar_os_manual_data.h"
@@ -365,6 +365,32 @@ const solar_os_manual_page_t *solar_os_manual_embedded_get(size_t index)
         &SOLAR_OS_MANUAL_GENERATED_PAGES[index] : NULL;
 }
 
+void solar_os_manual_catalog_acquire(bool bundled, solar_os_manual_catalog_t *catalog)
+{
+    if (!catalog) return;
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    if (!bundled && solar_os_docs_manual_snapshot_acquire(catalog)) {
+        if (catalog->count) return;
+        solar_os_docs_manual_snapshot_release(catalog);
+    }
+#else
+    (void)bundled;
+#endif
+    *catalog = (solar_os_manual_catalog_t){
+        .pages = SOLAR_OS_MANUAL_GENERATED_PAGES,
+        .count = solar_os_manual_embedded_count(),
+    };
+}
+
+void solar_os_manual_catalog_release(solar_os_manual_catalog_t *catalog)
+{
+    if (!catalog) return;
+#if SOLAR_OS_PACKAGE_SERVICE_DOCS
+    solar_os_docs_manual_snapshot_release(catalog);
+#endif
+    *catalog = (solar_os_manual_catalog_t){0};
+}
+
 static bool manual_alias_matches(const char *aliases, const char *name)
 {
     if (aliases == NULL || name == NULL || name[0] == '\0') {
@@ -386,22 +412,33 @@ static bool manual_alias_matches(const char *aliases, const char *name)
     return false;
 }
 
-const solar_os_manual_page_t *solar_os_manual_find(const char *name)
+static size_t manual_query_count(const solar_os_manual_catalog_t *catalog)
+{
+    return catalog ? catalog->count : solar_os_manual_count();
+}
+
+static const solar_os_manual_page_t *manual_query_page(const solar_os_manual_catalog_t *catalog, size_t index)
+{
+    return catalog ? &catalog->pages[index] : solar_os_manual_get(index);
+}
+
+const solar_os_manual_page_t *solar_os_manual_catalog_find(const solar_os_manual_catalog_t *catalog,
+                                                           const char *name)
 {
     if (name == NULL || name[0] == '\0') {
         return NULL;
     }
-    for (size_t i = 0; i < solar_os_manual_count(); i++) {
-        const solar_os_manual_page_t *page = solar_os_manual_get(i);
-        if (page != NULL && strcasecmp(page->id, name) == 0) {
+    for (size_t i = 0; i < manual_query_count(catalog); i++) {
+        const solar_os_manual_page_t *page = manual_query_page(catalog, i);
+        if (page && strcasecmp(page->id, name) == 0) {
             return page;
         }
     }
 
     const solar_os_manual_page_t *match = NULL;
-    for (size_t i = 0; i < solar_os_manual_count(); i++) {
-        const solar_os_manual_page_t *page = solar_os_manual_get(i);
-        if (page == NULL || !manual_alias_matches(page->aliases, name)) {
+    for (size_t i = 0; i < manual_query_count(catalog); i++) {
+        const solar_os_manual_page_t *page = manual_query_page(catalog, i);
+        if (!page || !manual_alias_matches(page->aliases, name)) {
             continue;
         }
         if (match != NULL) {
@@ -410,6 +447,11 @@ const solar_os_manual_page_t *solar_os_manual_find(const char *name)
         match = page;
     }
     return match;
+}
+
+const solar_os_manual_page_t *solar_os_manual_find(const char *name)
+{
+    return solar_os_manual_catalog_find(NULL, name);
 }
 
 static bool manual_contains_ci(const char *text, const char *needle)
@@ -509,9 +551,8 @@ static unsigned manual_score(const solar_os_manual_page_t *page, const char *que
     return score;
 }
 
-size_t solar_os_manual_search(const char *query,
-                              const solar_os_manual_page_t **results,
-                              size_t capacity)
+size_t solar_os_manual_catalog_search(const solar_os_manual_catalog_t *catalog, const char *query,
+                                      const solar_os_manual_page_t **results, size_t capacity)
 {
     if (query == NULL || query[0] == '\0' || results == NULL || capacity == 0U) {
         return 0U;
@@ -522,8 +563,8 @@ size_t solar_os_manual_search(const char *query,
 
     unsigned scores[MANUAL_SEARCH_MAX] = {0};
     size_t count = 0U;
-    for (size_t candidate = 0U; candidate < solar_os_manual_count(); candidate++) {
-        const solar_os_manual_page_t *page = solar_os_manual_get(candidate);
+    for (size_t candidate = 0U; candidate < manual_query_count(catalog); candidate++) {
+        const solar_os_manual_page_t *page = manual_query_page(catalog, candidate);
         const unsigned score = manual_score(page, query);
         if (score == 0U) {
             continue;
@@ -549,6 +590,11 @@ size_t solar_os_manual_search(const char *query,
         scores[insert] = score;
     }
     return count;
+}
+
+size_t solar_os_manual_search(const char *query, const solar_os_manual_page_t **results, size_t capacity)
+{
+    return solar_os_manual_catalog_search(NULL, query, results, capacity);
 }
 
 size_t solar_os_manual_reference_count(void)
@@ -579,7 +625,10 @@ esp_err_t solar_os_manual_reference_text(
     if (reference == NULL || text == NULL || text_len == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    const solar_os_manual_page_t *page = solar_os_manual_find(reference->page_id);
+    solar_os_manual_catalog_t embedded;
+    solar_os_manual_catalog_acquire(true, &embedded);
+    const solar_os_manual_page_t *page = solar_os_manual_catalog_find(&embedded, reference->page_id);
+    solar_os_manual_catalog_release(&embedded);
     if (page == NULL || page->body == NULL) {
         return ESP_ERR_NOT_FOUND;
     }

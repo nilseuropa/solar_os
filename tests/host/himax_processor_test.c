@@ -3,7 +3,10 @@
 #include "pipeline_test.c"
 #undef main
 #include "solar_os_native.h"
+#include "solar_os_native_application_lifecycle_abi.h"
 #include "solar_os_native_libc_abi.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_media.h"
 #include "solar_os_native_time_abi.h"
 #include "solar_os_native_sscma_abi.h"
 #include "solar_os_processor_provider_abi.h"
@@ -125,9 +128,117 @@ int solar_os_native_library_release(uint32_t lease)
 static void clean(void)
 { assert(!allocations && !workers && !hardware_owners && !provider_leases && !sources && !leases); }
 
+const solar_os_application_lifecycle_api_v1_t *solar_os_application_descriptor(void) { return NULL; }
+
+typedef struct {
+    const solar_os_native_processor_api_v1_t *api;
+    solar_os_native_handle_t processor, image;
+    char *json;
+    int result;
+} capture_request_t;
+
+static void *capture_request(void *opaque)
+{
+    capture_request_t *request = opaque;
+    request->result = request->api->capture(request->processor, "camera0", 9, &request->image, &request->json);
+    return NULL;
+}
+
+static int check_native_sample(const solar_os_native_media_sample_view_v1_t *sample, void *user)
+{
+    const uint64_t sequence = user ? *(const uint64_t *)user : 9;
+    assert(sample->kind == SOLAR_OS_NATIVE_MEDIA_SAMPLE_IMAGE && sample->metadata.sequence == sequence);
+    assert(sample->metadata.width == 160 && sample->metadata.height == 120 && sample->metadata.timestamp_us == 123456);
+    assert(!strcmp(sample->metadata.source, "camera0") && sample->length == sizeof(jpeg));
+    assert(!memcmp(sample->data, jpeg, sizeof(jpeg)));
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static void test_native_processor(void)
+{
+    const solar_os_native_processor_api_v1_t *api = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_PROCESSOR_SERVICE, SOLAR_OS_NATIVE_PROCESSOR_ABI, sizeof(*api));
+    const solar_os_native_media_sample_api_v1_t *samples = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_MEDIA_SAMPLE_SERVICE, SOLAR_OS_NATIVE_MEDIA_SAMPLE_ABI, sizeof(*samples));
+    assert(api && samples);
+    assert(api->kind_valid("himax") && !api->kind_valid("../himax"));
+    char *json = NULL;
+    assert(!api->query("himax", "camera0", "info", &json) && strstr(json, "models"));
+    solar_os_memory_free(json);
+    clean();
+
+    capture_request_t request = {.api = api};
+    assert(!api->create("himax", 0, 1000, &request.processor) && api->captures(request.processor));
+    assert(!api->bind_source(request.processor, "camera0"));
+    atomic_store(&invoke_entered, false);
+    block_invoke = true;
+    pthread_t capture_worker;
+    assert(!pthread_create(&capture_worker, NULL, capture_request, &request));
+    while (!atomic_load(&invoke_entered)) vTaskDelay(1);
+    assert(api->close(request.processor) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->bind_source(request.processor, "camera0") == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(!api->cancel(request.processor));
+    assert(!pthread_join(capture_worker, NULL));
+    block_invoke = false;
+    assert(request.result == SOLAR_OS_NATIVE_ERROR_TIMEOUT && !request.image && !request.json);
+    assert(api->cancel(request.processor) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    capture_request(&request);
+    assert(!request.result && request.image && strstr(request.json, "boxes"));
+    solar_os_memory_free(request.json);
+
+    close_refusals = 1;
+    assert(api->close(request.processor) == SOLAR_OS_NATIVE_ERROR_BUSY && hardware_owners == 1);
+    assert(api->bind_source(request.processor, "camera0") == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(!api->close(request.processor) && !hardware_owners && !provider_leases);
+    assert(!samples->visit(request.image, check_native_sample, NULL));
+    assert(!samples->close(request.image) && !solar_os_native_handle_count());
+    clean();
+}
+
+static void test_native_pipeline(void)
+{
+    const solar_os_native_pipeline_api_v1_t *api = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_PIPELINE_SERVICE, SOLAR_OS_NATIVE_PIPELINE_ABI, sizeof(*api));
+    const solar_os_native_media_sample_api_v1_t *samples = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_MEDIA_SAMPLE_SERVICE, SOLAR_OS_NATIVE_MEDIA_SAMPLE_ABI, sizeof(*samples));
+    assert(api && samples);
+    const solar_os_pipeline_config_t config = {.source = "camera0", .processor = "himax", .timeout_ms = 1000, .limit = 1};
+    uint32_t id, listed = 0;
+    assert(!api->start(&config, &id) && id);
+    size_t count = 0;
+    assert(api->list(NULL, 0, &count) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE && count == 1);
+    assert(!api->list(&listed, 1, &count) && count == 1 && listed == id);
+    finish(id);
+    solar_os_pipeline_status_t status;
+    assert(!api->status(id, &status) && status.done && !status.last_error && status.sequence == 1);
+    char *json = NULL;
+    solar_os_native_handle_t sample = 0;
+    assert(!api->result(id, status.sequence, &json, &sample) && !json && !sample);
+    failures = 0;
+    assert(api->result(id, 0, &json, &sample) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY && !json && !sample);
+    failures = -1;
+    assert(!api->result(id, 0, &json, &sample) && sample && strstr(json, "\"sequence\":1"));
+    solar_os_memory_free(json);
+    assert(!api->stop(id) && !api->destroy(id));
+    assert(!samples->visit(sample, check_native_sample, &status.sequence));
+    assert(!samples->close(sample));
+    assert(api->status(id, &status) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !status.id);
+    clean();
+
+    fail_invoke = true;
+    assert(!api->start(&config, &id));
+    finish(id);
+    assert(!api->status(id, &status) && status.last_error == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    assert(!api->destroy(id));
+    fail_invoke = false;
+    clean();
+}
+
 int main(void)
 {
     pipeline_baseline_main();clean();
+    test_native_processor();
+    test_native_pipeline();
     char *json=NULL;
     assert(!solar_os_processor_query("himax","camera0","info",&json));
     cJSON *info=cJSON_Parse(json);assert(info);

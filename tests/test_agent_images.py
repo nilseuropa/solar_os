@@ -14,14 +14,22 @@ class AgentImagesTest(unittest.TestCase):
         for rtsp, pipeline in ((0, 0), (1, 0), (1, 1)):
             with self.subTest(rtsp=rtsp, pipeline=pipeline), tempfile.TemporaryDirectory() as directory:
                 binary = Path(directory) / 'sources'
-                subprocess.run([
+                adapter = Path(directory) / 'native-media.o'
+                support = [
                     'cc', '-std=c11', '-D_GNU_SOURCE', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
-                    '-fsanitize=address,undefined', '-no-pie',
-                    f'-DSOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT={rtsp}', f'-DSOLAR_OS_PACKAGE_SERVICE_PIPELINE={pipeline}',
-                    '-I', str(ROOT / 'tests/host/script_media_stubs'), '-I', str(ROOT / 'tests/host/rtsp_stubs'),
-                    '-I', str(ROOT / 'tests/host'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
-                    '-idirafter', str(ROOT / 'include'), str(ROOT / 'tests/host/media_sample_source_test.c'),
+                    '-fsanitize=address,undefined', '-fno-pie',
+                    '-DSOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE=1', '-DSOLAR_OS_PACKAGE_SERVICE_MEDIA_SAMPLE_SOURCE=1',
+                    '-I', str(ROOT / 'tests/host/script_media_stubs'), '-I', str(ROOT / 'tests/host'),
+                    '-I', str(ROOT / 'tests/host/rtsp_stubs'), '-I', str(ROOT / 'src'), '-I', str(ROOT / 'src/services'),
+                    '-idirafter', str(ROOT / 'include'),
+                ]
+                subprocess.run([*support, '-c', str(ROOT / 'src/services/solar_os_native_media.c'),
+                                '-o', str(adapter)], check=True)
+                subprocess.run([
+                    *support, '-no-pie', str(adapter), f'-DSOLAR_OS_PACKAGE_SERVICE_RTSP_CLIENT={rtsp}',
+                    f'-DSOLAR_OS_PACKAGE_SERVICE_PIPELINE={pipeline}', str(ROOT / 'tests/host/media_sample_source_test.c'),
                     str(ROOT / 'src/services/solar_os_media_sample.c'),
+                    str(ROOT / 'src/services/solar_os_native_handles.c'),
                     str(ROOT / 'src/services/solar_os_media_sample_source.c'), '-o', str(binary),
                 ], check=True)
                 subprocess.run([str(binary)], check=True, timeout=15)

@@ -5,6 +5,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "solar_os_memory.h"
+#include "solar_os_native_handles.h"
+#include "solar_os_native_media.h"
+#include "solar_os_native_memory_reclaimer.h"
+#include "solar_os_native_memory_reclaimer_abi.h"
 #include <esp_heap_caps.h>
 #include "sdkconfig.h"
 
@@ -19,6 +23,27 @@ static size_t used_external, used_internal;
 static void *idle_library;
 static unsigned reclaim_calls;
 static unsigned registered_calls;
+static bool retained_library;
+static const solar_os_native_memory_reclaimer_api_v1_t *reclaimer_api;
+static solar_os_native_handle_t cache_token;
+
+int solar_os_native_library_retain(uint32_t lease, uint32_t *retained)
+{
+    assert(retained);
+    if (lease != 11U) return SOLAR_OS_NATIVE_ERROR_NOT_FOUND;
+    assert(!retained_library);
+    retained_library = true;
+    *retained = 12U;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(uint32_t lease)
+{
+    assert(lease == 12U && retained_library);
+    retained_library = false;
+    return SOLAR_OS_NATIVE_OK;
+}
+
 int64_t esp_timer_get_time(void) { static int64_t now; return now += 100; }
 static size_t registered_reclaim(const solar_os_memory_pressure_request_t *request, void *user)
 {
@@ -122,13 +147,58 @@ void test_log(const char *tag, const char *format, ...) { (void)tag; (void)forma
 void __wrap_free(void *);
 void __wrap_heap_caps_free(void *);
 
-static size_t reclaim(void)
+static size_t reclaim(void *user, const solar_os_native_memory_reclaim_request_v1_t *request)
 {
+    assert(user == &cache_token && retained_library);
+    assert(reclaimer_api->close(cache_token) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    if (request && idle_library) {
+        assert(request->size && request->tag && request->memory_class == SOLAR_OS_MEMORY_EXTERNAL_REQUIRED);
+        assert(request->requirements == (SOLAR_OS_NATIVE_MEMORY_REQUIRE_EXTERNAL |
+                                         SOLAR_OS_NATIVE_MEMORY_REQUIRE_BYTE_ACCESS));
+    }
     reclaim_calls++;
     assert(solar_os_memory_reclaim() == 0); /* Nested pressure cannot recurse. */
     if (!idle_library) return 0;
     solar_os_memory_free(idle_library); idle_library = NULL;
     return 1;
+}
+
+static void verify_native_allocation(void)
+{
+    const solar_os_native_memory_api_v1_t *api = solar_os_native_media_get_service(
+        SOLAR_OS_NATIVE_MEMORY_SERVICE, SOLAR_OS_NATIVE_MEMORY_ABI, sizeof(*api));
+    assert(api);
+    assert(!api->alloc_class(16, SOLAR_OS_MEMORY_CLASS_COUNT, "invalid"));
+    assert(!api->calloc_class(SIZE_MAX, 2, SOLAR_OS_MEMORY_INTERNAL_PREFERRED, "overflow"));
+    const solar_os_memory_class_t cls = no_psram ? SOLAR_OS_MEMORY_DMA : SOLAR_OS_MEMORY_EXTERNAL_REQUIRED;
+    uint8_t *buffer = api->calloc_class(2, 64, cls, "native.class");
+    assert(buffer && api->is_external(buffer) == !no_psram);
+    for (size_t i = 0; i < 128U; i++) assert(!buffer[i]);
+    memset(buffer, 0xa5, 128);
+    assert(!api->realloc_class(buffer, 256, UINT32_MAX, "invalid") && buffer[127] == 0xa5);
+    assert(!api->realloc_class(buffer, EXTERNAL_BYTES * 2U, cls, "too-big") && buffer[127] == 0xa5);
+    buffer = api->realloc_class(buffer, 256, cls, "native.class");
+    assert(buffer && api->is_external(buffer) == !no_psram && buffer[127] == 0xa5);
+    assert(!api->realloc_class(buffer, 0, cls, NULL));
+    char name[] = "native.owner";
+    solar_os_native_memory_buffer_t *movable = api->buffer_create_tagged(200000, name);
+    assert(movable);
+    memset(name, 'x', sizeof(name) - 1U);
+    if (!no_psram) {
+        solar_os_memory_owner_status_t owners[16];
+        const size_t count = solar_os_memory_get_owners(owners, 16);
+        bool found = false;
+        for (size_t i = 0; i < count; i++) {
+            if (!strcmp(owners[i].owner, "native.owner")) {
+                assert(owners[i].movable_bytes >= 200000U);
+                found = true;
+            }
+        }
+        assert(found);
+    }
+    assert(api->buffer_pin(movable));
+    assert(!api->buffer_destroy(movable));
+    assert(api->buffer_unpin(movable) && api->buffer_destroy(movable));
 }
 
 int main(int argc, char **argv)
@@ -154,11 +224,14 @@ int main(int argc, char **argv)
         __wrap_free(sdk);
         assert(!used_internal && !raws);
         assert(!solar_os_memory_alloc(INTERNAL_BYTES + 1U, SOLAR_OS_MEMORY_EXTERNAL_PREFERRED, "test.oom"));
+        verify_native_allocation();
+        assert(!used_internal && !raws);
         puts("no-PSRAM handles: fixed internal fallback, pin lifetime and recoverable OOM passed");
         return 0;
     }
     solar_os_memory_status_t before, after;
     solar_os_memory_init(); solar_os_memory_init();
+    verify_native_allocation();
     solar_os_memory_get_status(&before);
     assert(before.arena.total > 6U * 1024U * 1024U);
     assert(before.external.free > 7U * 1024U * 1024U);
@@ -321,7 +394,16 @@ int main(int argc, char **argv)
 
     /* Large pressure releases an idle resident image and retries once. */
     idle_library = solar_os_memory_elf_alloc(1024U * 1024U);
-    solar_os_memory_set_reclaimer(reclaim);
+    reclaimer_api = solar_os_native_memory_reclaimer_get_service(
+        SOLAR_OS_NATIVE_MEMORY_RECLAIMER_SERVICE, SOLAR_OS_NATIVE_MEMORY_RECLAIMER_ABI,
+        sizeof(*reclaimer_api));
+    assert(reclaimer_api);
+    assert(reclaimer_api->register_cache(10U, "test.idle", UINT8_MAX, reclaim,
+                                         &cache_token, &cache_token) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!cache_token && !retained_library && !solar_os_native_handle_count());
+    assert(!reclaimer_api->register_cache(11U, "test.idle", UINT8_MAX, reclaim,
+                                          &cache_token, &cache_token));
+    assert(cache_token && retained_library && solar_os_native_handle_count() == 1);
     solar_os_memory_get_status(&after);
     void *large = solar_os_memory_alloc(after.arena.largest + 100000,
         SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "pressure");
@@ -360,6 +442,11 @@ int main(int argc, char **argv)
     assert(((unsigned char *)small)[127] == 0);
     solar_os_memory_free(small);
     solar_os_memory_free(large);
+    (void)solar_os_memory_reclaim();
+    assert(reclaim_calls > calls_before + 1U);
+    assert(!reclaimer_api->close(cache_token));
+    assert(reclaimer_api->close(cache_token) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!retained_library && !solar_os_native_handle_count());
 
     fail_raw = true;
     small = solar_os_memory_alloc(32, SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "small-fallback");

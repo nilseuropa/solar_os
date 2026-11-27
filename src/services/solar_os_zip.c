@@ -4,11 +4,14 @@
 #include <errno.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -31,6 +34,16 @@
 #define ZIP_IO_BUFFER_SIZE 4096U
 #define ZIP_INFLATE_DICT_SIZE TINFL_LZ_DICT_SIZE
 #define ZIP_NAME_MAX SOLAR_OS_STORAGE_PATH_MAX
+#define ZIP_STAGE_PATH_MAX (SOLAR_OS_STORAGE_PATH_MAX + 32U)
+
+static atomic_flag zip_writing = ATOMIC_FLAG_INIT;
+static uint32_t zip_stage_sequence;
+
+typedef struct {
+    char directory[ZIP_STAGE_PATH_MAX];
+    char output[ZIP_STAGE_PATH_MAX];
+    char backup[ZIP_STAGE_PATH_MAX];
+} zip_stage_t;
 
 static void zip_yield(void)
 {
@@ -50,6 +63,7 @@ typedef struct {
 typedef struct {
     FILE *file;
     const char *archive_path;
+    const char *stage_directory;
     const solar_os_zip_options_t *options;
     uint8_t *in_buffer;
     uint8_t *out_buffer;
@@ -73,6 +87,7 @@ typedef struct {
 typedef struct {
     FILE *file;
     uint16_t entry_count;
+    const char *archive_path;
     uint32_t central_offset;
     uint32_t central_size;
 } zip_reader_t;
@@ -266,6 +281,63 @@ static esp_err_t zip_mkdir_parent(const char *path)
 
     *slash = '\0';
     return zip_mkdir_p(parent);
+}
+
+/* A private sibling directory reserves both names on the destination volume.
+ * Only a complete archive or a validated entry is published by storage. */
+static esp_err_t zip_stage_open(const char *path, zip_stage_t *stage, FILE **file)
+{
+    *file = NULL;
+    const char *slash = strrchr(path, '/');
+    if (!slash || !slash[1]) return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < 16; i++) {
+        const int size = snprintf(stage->directory, sizeof(stage->directory),
+            "%.*s/.solarzip-%08lx", (int)(slash - path), path, (unsigned long)++zip_stage_sequence);
+        if (size < 0 || (size_t)size >= sizeof(stage->directory)) return ESP_ERR_INVALID_SIZE;
+        if (mkdir(stage->directory, 0700) != 0) {
+            if (errno == EEXIST) continue;
+            return ESP_FAIL;
+        }
+        const char *backup_name = !strcasecmp(slash + 1, ".previous") ? ".backup" : ".previous";
+        if (!zip_join_path(stage->output, sizeof(stage->output), stage->directory, slash + 1) ||
+            !zip_join_path(stage->backup, sizeof(stage->backup), stage->directory, backup_name)) {
+            (void)rmdir(stage->directory);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        *file = fopen(stage->output, "wb");
+        if (*file) return ESP_OK;
+        const int error = errno;
+        (void)rmdir(stage->directory);
+        errno = error;
+        return ESP_FAIL;
+    }
+    return ESP_ERR_NO_MEM;
+}
+
+static esp_err_t zip_stage_finish(FILE *file, const zip_stage_t *stage,
+                                  const char *path, esp_err_t status)
+{
+    if (status == ESP_OK) status = solar_os_storage_sync_file(file);
+    int output_errno = errno;
+    if (fclose(file) != 0 && status == ESP_OK) {
+        output_errno = errno;
+        status = ESP_FAIL;
+    }
+    if (status == ESP_OK) {
+        status = solar_os_storage_replace_file(stage->output, path, stage->backup);
+        output_errno = errno;
+    }
+    if (status != ESP_OK) (void)unlink(stage->output);
+    /* A failed rollback can leave the previous file in the private directory. */
+    (void)rmdir(stage->directory);
+    errno = output_errno;
+    return status;
+}
+
+static bool zip_cancelled(const solar_os_unzip_options_t *options)
+{
+    return options && ((options->cancel_flag && *options->cancel_flag) ||
+        (options->cancelled && options->cancelled(options->user)));
 }
 
 static void zip_report(zip_writer_t *writer,
@@ -520,10 +592,6 @@ static esp_err_t zip_add_file_entry(zip_writer_t *writer,
                                     const char *source_path,
                                     const char *archive_name)
 {
-    if (strcmp(source_path, writer->archive_path) == 0) {
-        return ESP_OK;
-    }
-
     FILE *source = fopen(source_path, "rb");
     if (source == NULL) {
         return ESP_FAIL;
@@ -585,6 +653,8 @@ static esp_err_t zip_add_path(zip_writer_t *writer,
                               const char *source_path,
                               const char *archive_name)
 {
+    if (!strcmp(source_path, writer->archive_path) ||
+        !strcmp(source_path, writer->stage_directory)) return ESP_OK;
     if (!zip_name_is_safe(archive_name)) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -700,6 +770,7 @@ static esp_err_t zip_reader_open(zip_reader_t *reader, const char *archive_path)
 {
     memset(reader, 0, sizeof(*reader));
 
+    reader->archive_path = archive_path;
     reader->file = fopen(archive_path, "rb");
     if (reader->file == NULL) {
         return ESP_FAIL;
@@ -815,6 +886,9 @@ static esp_err_t zip_reader_read_central_entry(FILE *file, zip_reader_entry_t *e
     if (fread(entry->name, 1, name_len, file) != name_len) {
         return ESP_FAIL;
     }
+    if (memchr(entry->name, '\0', name_len) != NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
     entry->name[name_len] = '\0';
     entry->directory = entry->name[name_len - 1] == '/';
 
@@ -860,14 +934,15 @@ static esp_err_t zip_copy_stored(FILE *archive,
                                  uint8_t *buffer,
                                  uint32_t *crc32,
                                  uint32_t *bytes_written,
-                                 const volatile bool *cancel)
+                                 const solar_os_unzip_options_t *options)
 {
+    if (entry->compressed_size != entry->uncompressed_size) return ESP_ERR_INVALID_SIZE;
     uint32_t remaining = entry->compressed_size;
     *crc32 = MZ_CRC32_INIT;
     *bytes_written = 0;
 
     while (remaining > 0) {
-        if (cancel && *cancel) return ESP_ERR_TIMEOUT;
+        if (zip_cancelled(options)) return ESP_ERR_TIMEOUT;
         const size_t request = remaining > ZIP_IO_BUFFER_SIZE ? ZIP_IO_BUFFER_SIZE : remaining;
         const size_t bytes_read = fread(buffer, 1, request, archive);
         if (bytes_read != request) {
@@ -928,7 +1003,8 @@ static esp_err_t zip_inflate_file(FILE *archive,
                                   uint8_t *input,
                                   uint8_t *dict,
                                   uint32_t *crc32,
-                                  uint32_t *bytes_written)
+                                  uint32_t *bytes_written,
+                                  const solar_os_unzip_options_t *options)
 {
 #ifdef CONFIG_IDF_TARGET_ESP32
     /* The original ESP32 ROM inflater corrupts resumed raw-deflate output
@@ -948,6 +1024,10 @@ static esp_err_t zip_inflate_file(FILE *archive,
                                                bytes_written);
         size_t offset = 0U;
         while (ret == ESP_OK && offset < *bytes_written) {
+            if (zip_cancelled(options)) {
+                ret = ESP_ERR_TIMEOUT;
+                break;
+            }
             const size_t remaining = *bytes_written - offset;
             const size_t chunk = remaining > ZIP_IO_BUFFER_SIZE ?
                 ZIP_IO_BUFFER_SIZE : remaining;
@@ -978,6 +1058,10 @@ static esp_err_t zip_inflate_file(FILE *archive,
     *bytes_written = 0;
 
     while (status != TINFL_STATUS_DONE) {
+        if (zip_cancelled(options)) {
+            solar_os_memory_free(decompressor);
+            return ESP_ERR_TIMEOUT;
+        }
         if (input_pos == input_len && compressed_left > 0) {
             const size_t request = compressed_left > ZIP_IO_BUFFER_SIZE ?
                 ZIP_IO_BUFFER_SIZE :
@@ -1004,7 +1088,7 @@ static esp_err_t zip_inflate_file(FILE *archive,
         input_pos += in_bytes;
 
         if (out_bytes > 0) {
-            if (*bytes_written > UINT32_MAX - out_bytes) {
+            if (*bytes_written > entry->uncompressed_size || out_bytes > entry->uncompressed_size - *bytes_written) {
                 solar_os_memory_free(decompressor);
                 return ESP_ERR_INVALID_SIZE;
             }
@@ -1183,6 +1267,7 @@ static esp_err_t zip_extract_entry(zip_reader_t *reader,
         return ESP_ERR_INVALID_SIZE;
     }
 
+    if (!strcmp(out_path, reader->archive_path)) return ESP_ERR_INVALID_ARG;
     if (entry->directory) {
         const esp_err_t ret = zip_mkdir_p(out_path);
         if (ret == ESP_OK) {
@@ -1206,32 +1291,22 @@ static esp_err_t zip_extract_entry(zip_reader_t *reader,
         return ret;
     }
 
-    FILE *output = fopen(out_path, "wb");
-    if (output == NULL) {
-        return ESP_FAIL;
-    }
+    zip_stage_t stage;
+    FILE *output;
+    ret = zip_stage_open(out_path, &stage, &output);
+    if (ret != ESP_OK) return ret;
 
     uint32_t crc32 = 0;
     uint32_t bytes_written = 0;
     ret = entry->method == ZIP_METHOD_STORE ?
-        zip_copy_stored(reader->file, output, entry, input, &crc32, &bytes_written,
-                        options ? options->cancel_flag : NULL) :
-        zip_inflate_file(reader->file, output, entry, input, dict, &crc32, &bytes_written);
+        zip_copy_stored(reader->file, output, entry, input, &crc32, &bytes_written, options) :
+        zip_inflate_file(reader->file, output, entry, input, dict, &crc32, &bytes_written, options);
 
-    const int output_errno = errno;
-    if (fclose(output) != 0 && ret == ESP_OK) {
-        ret = ESP_FAIL;
-    }
-    if (ret != ESP_OK) {
-        errno = output_errno;
-        remove(out_path);
-        return ret;
-    }
-
-    if (crc32 != entry->crc32 || bytes_written != entry->uncompressed_size) {
-        remove(out_path);
-        return ESP_ERR_INVALID_CRC;
-    }
+    if (ret == ESP_OK && (crc32 != entry->crc32 || bytes_written != entry->uncompressed_size))
+        ret = ESP_ERR_INVALID_CRC;
+    if (ret == ESP_OK && zip_cancelled(options)) ret = ESP_ERR_TIMEOUT;
+    ret = zip_stage_finish(output, &stage, out_path, ret);
+    if (ret != ESP_OK) return ret;
 
     zip_report_read(options,
                     SOLAR_OS_ZIP_EVENT_EXTRACT,
@@ -1243,7 +1318,7 @@ static esp_err_t zip_extract_entry(zip_reader_t *reader,
     return ESP_OK;
 }
 
-esp_err_t solar_os_zip_create(const char *archive_path,
+static esp_err_t zip_create(const char *archive_path,
                               const char * const *source_paths,
                               size_t source_count,
                               const solar_os_zip_options_t *options)
@@ -1254,8 +1329,14 @@ esp_err_t solar_os_zip_create(const char *archive_path,
         return ESP_ERR_INVALID_ARG;
     }
 
+    char archive[SOLAR_OS_STORAGE_PATH_MAX];
+    const esp_err_t normalized = solar_os_storage_normalize_path(archive_path, archive, sizeof(archive));
+    if (normalized != ESP_OK) return normalized;
+
+    zip_stage_t stage;
     zip_writer_t writer = {
-        .archive_path = archive_path,
+        .archive_path = archive,
+        .stage_directory = stage.directory,
         .options = options,
     };
     writer.in_buffer = zip_malloc(ZIP_IO_BUFFER_SIZE);
@@ -1266,11 +1347,8 @@ esp_err_t solar_os_zip_create(const char *archive_path,
         return ESP_ERR_NO_MEM;
     }
 
-    esp_err_t ret = zip_mkdir_parent(archive_path);
-    if (ret == ESP_OK) {
-        writer.file = fopen(archive_path, "wb");
-        ret = writer.file != NULL ? ESP_OK : ESP_FAIL;
-    }
+    esp_err_t ret = zip_mkdir_parent(archive);
+    if (ret == ESP_OK) ret = zip_stage_open(archive, &stage, &writer.file);
 
     for (size_t i = 0; ret == ESP_OK && i < source_count; i++) {
         if (source_paths[i] == NULL || source_paths[i][0] == '\0') {
@@ -1278,30 +1356,37 @@ esp_err_t solar_os_zip_create(const char *archive_path,
             break;
         }
 
-        const char *base = zip_path_basename(source_paths[i]);
+        char source[SOLAR_OS_STORAGE_PATH_MAX];
+        ret = solar_os_storage_normalize_path(source_paths[i], source, sizeof(source));
+        if (ret != ESP_OK) break;
+        const char *base = zip_path_basename(source);
         if (base[0] == '\0') {
             ret = ESP_ERR_INVALID_ARG;
             break;
         }
-        ret = zip_add_path(&writer, source_paths[i], base);
+        ret = zip_add_path(&writer, source, base);
     }
 
     if (ret == ESP_OK) {
         ret = zip_writer_finish(&writer);
     }
 
-    const int saved_errno = errno;
-    if (writer.file != NULL && fclose(writer.file) != 0 && ret == ESP_OK) {
-        ret = ESP_FAIL;
-    }
-    if (ret != ESP_OK) {
-        remove(archive_path);
-    }
-    errno = saved_errno;
+    if (writer.file) ret = zip_stage_finish(writer.file, &stage, archive, ret);
     solar_os_memory_free(writer.entries);
     solar_os_memory_free(writer.in_buffer);
     solar_os_memory_free(writer.out_buffer);
     return ret;
+}
+
+esp_err_t solar_os_zip_create(const char *archive_path,
+                              const char *const *source_paths,
+                              size_t source_count,
+                              const solar_os_zip_options_t *options)
+{
+    if (atomic_flag_test_and_set(&zip_writing)) return ESP_ERR_INVALID_STATE;
+    const esp_err_t result = zip_create(archive_path, source_paths, source_count, options);
+    atomic_flag_clear(&zip_writing);
+    return result;
 }
 
 esp_err_t solar_os_zip_list(const char *archive_path,
@@ -1344,7 +1429,7 @@ esp_err_t solar_os_zip_list(const char *archive_path,
     return ret;
 }
 
-esp_err_t solar_os_zip_extract(const char *archive_path,
+static esp_err_t zip_extract(const char *archive_path,
                                const char *dest_dir,
                                const solar_os_unzip_options_t *options)
 {
@@ -1354,13 +1439,18 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
         return ESP_ERR_INVALID_ARG;
     }
 
-    esp_err_t ret = zip_mkdir_p(dest_dir);
+    char archive[SOLAR_OS_STORAGE_PATH_MAX], destination[SOLAR_OS_STORAGE_PATH_MAX];
+    esp_err_t ret = solar_os_storage_normalize_path(archive_path, archive, sizeof(archive));
+    if (ret == ESP_OK) ret = solar_os_storage_normalize_path(dest_dir, destination, sizeof(destination));
+    if (ret != ESP_OK) return ret;
+
+    ret = zip_mkdir_p(destination);
     if (ret != ESP_OK) {
         return ret;
     }
 
     zip_reader_t reader;
-    ret = zip_reader_open(&reader, archive_path);
+    ret = zip_reader_open(&reader, archive);
     if (ret != ESP_OK) {
         return ret;
     }
@@ -1379,7 +1469,7 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
     }
 
     for (uint16_t i = 0; ret == ESP_OK && i < reader.entry_count; i++) {
-        if (options && options->cancel_flag && *options->cancel_flag) { ret = ESP_ERR_TIMEOUT; break; }
+        if (zip_cancelled(options)) { ret = ESP_ERR_TIMEOUT; break; }
         const long next_central = ftell(reader.file);
         zip_reader_entry_t entry;
         ret = zip_reader_read_central_entry(reader.file, &entry);
@@ -1387,7 +1477,7 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
         if (ret != ESP_OK) {
             break;
         }
-        ret = zip_extract_entry(&reader, &entry, dest_dir, options, input, dict);
+        ret = zip_extract_entry(&reader, &entry, destination, options, input, dict);
         if (ret != ESP_OK) {
             break;
         }
@@ -1404,95 +1494,100 @@ esp_err_t solar_os_zip_extract(const char *archive_path,
     return ret;
 }
 
-esp_err_t solar_os_zip_read_file(const char *archive_path,
-                                 const char *entry_name,
-                                 size_t max_len,
-                                 uint8_t **out_data,
-                                 size_t *out_len)
+esp_err_t solar_os_zip_extract(const char *archive_path, const char *dest_dir,
+                               const solar_os_unzip_options_t *options)
 {
-    if (archive_path == NULL || archive_path[0] == '\0' ||
-        entry_name == NULL || entry_name[0] == '\0' ||
-        out_data == NULL || out_len == NULL ||
-        !zip_name_is_safe(entry_name)) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    if (atomic_flag_test_and_set(&zip_writing)) return ESP_ERR_INVALID_STATE;
+    const esp_err_t result = zip_extract(archive_path, dest_dir, options);
+    atomic_flag_clear(&zip_writing);
+    return result;
+}
 
+static esp_err_t zip_open_entry(const char *path, const char *name,
+                                zip_reader_t *reader, zip_reader_entry_t *entry)
+{
+    if (!path || !*path || !zip_name_is_safe(name)) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = zip_reader_open(reader, path);
+    if (err != ESP_OK) return err;
+    err = zip_reader_find_entry(reader, name, entry);
+    if (err == ESP_OK) err = zip_skip_local_header(reader->file, entry);
+    if (err != ESP_OK) zip_reader_close(reader);
+    return err;
+}
+
+static esp_err_t zip_read_entry(zip_reader_t *reader, const zip_reader_entry_t *entry,
+                                 uint8_t *data)
+{
+    uint32_t crc32 = 0;
+    uint32_t bytes_written = entry->uncompressed_size;
+    esp_err_t err;
+    if (entry->method == ZIP_METHOD_STORE) {
+        if (entry->compressed_size != entry->uncompressed_size) return ESP_ERR_INVALID_SIZE;
+        err = zip_copy_stored_memory(reader->file, entry, data, &crc32);
+    } else {
+        uint8_t *input = zip_malloc(ZIP_IO_BUFFER_SIZE);
+        uint8_t *dict = zip_malloc(ZIP_INFLATE_DICT_SIZE);
+        err = input && dict ?
+            zip_inflate_memory(reader->file, entry, data, input, dict, &crc32, &bytes_written) :
+            ESP_ERR_NO_MEM;
+        solar_os_memory_free(input);
+        solar_os_memory_free(dict);
+    }
+    if (err != ESP_OK) return err;
+    return crc32 == entry->crc32 && bytes_written == entry->uncompressed_size ?
+        ESP_OK : ESP_ERR_INVALID_CRC;
+}
+
+esp_err_t solar_os_zip_read_into(const char *archive_path, const char *entry_name,
+                                 void *data, size_t capacity, size_t *out_len)
+{
+    if (!out_len || (!data && capacity)) return ESP_ERR_INVALID_ARG;
+    *out_len = 0;
+    zip_reader_t reader;
+    zip_reader_entry_t entry;
+    esp_err_t err = zip_open_entry(archive_path, entry_name, &reader, &entry);
+    if (err != ESP_OK) return err;
+
+    if (entry.uncompressed_size > capacity) {
+        *out_len = entry.uncompressed_size;
+        err = ESP_ERR_INVALID_SIZE;
+    } else {
+        uint8_t empty = 0;
+        err = zip_read_entry(&reader, &entry, data ? data : &empty);
+        if (err == ESP_OK) *out_len = entry.uncompressed_size;
+    }
+    zip_reader_close(&reader);
+    return err;
+}
+
+esp_err_t solar_os_zip_read_file(const char *archive_path,
+                                  const char *entry_name,
+                                  size_t max_len,
+                                  uint8_t **out_data,
+                                  size_t *out_len)
+{
+    if (!out_data || !out_len) return ESP_ERR_INVALID_ARG;
     *out_data = NULL;
     *out_len = 0;
-
     zip_reader_t reader;
-    esp_err_t ret = zip_reader_open(&reader, archive_path);
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
     zip_reader_entry_t entry;
-    ret = zip_reader_find_entry(&reader, entry_name, &entry);
-    if (ret != ESP_OK) {
-        zip_reader_close(&reader);
-        return ret;
-    }
-    if (entry.directory ||
-        entry.uncompressed_size == 0 ||
-        (max_len > 0 && entry.uncompressed_size > max_len)) {
+    esp_err_t err = zip_open_entry(archive_path, entry_name, &reader, &entry);
+    if (err != ESP_OK) return err;
+    const size_t size = entry.uncompressed_size;
+    if (!size || size == SIZE_MAX || (max_len && size > max_len)) {
         zip_reader_close(&reader);
         return ESP_ERR_INVALID_SIZE;
     }
-
-    ret = zip_skip_local_header(reader.file, &entry);
-    if (ret != ESP_OK) {
-        zip_reader_close(&reader);
-        return ret;
-    }
-
-    uint8_t *data = zip_malloc((size_t)entry.uncompressed_size + 1U);
-    uint8_t *input = NULL;
-    uint8_t *dict = NULL;
-    if (data == NULL) {
-        zip_reader_close(&reader);
-        return ESP_ERR_NO_MEM;
-    }
-
-    uint32_t crc32 = 0;
-    uint32_t bytes_written = entry.uncompressed_size;
-    if (entry.method == ZIP_METHOD_STORE) {
-        if (entry.compressed_size != entry.uncompressed_size) {
-            ret = ESP_ERR_INVALID_SIZE;
-        } else {
-            ret = zip_copy_stored_memory(reader.file, &entry, data, &crc32);
-        }
-    } else {
-        input = zip_malloc(ZIP_IO_BUFFER_SIZE);
-        dict = zip_malloc(ZIP_INFLATE_DICT_SIZE);
-        if (input == NULL || dict == NULL) {
-            ret = ESP_ERR_NO_MEM;
-        } else {
-            ret = zip_inflate_memory(reader.file,
-                                     &entry,
-                                     data,
-                                     input,
-                                     dict,
-                                     &crc32,
-                                     &bytes_written);
-        }
-    }
-
-    solar_os_memory_free(input);
-    solar_os_memory_free(dict);
+    uint8_t *data = zip_malloc(size + 1U);
+    err = data ? zip_read_entry(&reader, &entry, data) : ESP_ERR_NO_MEM;
     zip_reader_close(&reader);
-
-    if (ret != ESP_OK) {
+    if (err != ESP_OK) {
         solar_os_memory_free(data);
-        return ret;
+        return err;
     }
-    if (crc32 != entry.crc32 || bytes_written != entry.uncompressed_size) {
-        solar_os_memory_free(data);
-        return ESP_ERR_INVALID_CRC;
-    }
-
-    data[entry.uncompressed_size] = '\0';
+    data[size] = '\0';
     *out_data = data;
-    *out_len = entry.uncompressed_size;
+    *out_len = size;
     return ESP_OK;
 }
 

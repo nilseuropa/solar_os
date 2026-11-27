@@ -5,13 +5,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define SOLAR_OS_FTP_NAME_MAX 64
+#define SOLAR_OS_REMOTE_FILE_NAME_MAX 96
 #define SOLAR_OS_STORAGE_PATH_MAX 128
 #define SOLAR_OS_NET_HOST_MAX 64
-#define SOLAR_OS_FTP_REPLY_MAX 128
+#define SOLAR_OS_REMOTE_FILE_ERROR_MAX 192
 #define FTP_APP_INPUT_MAX 80
 #define FTP_APP_MESSAGE_MAX 128
-#define FTP_APP_PROTOCOL "FTP"
 #define ESP_OK 0
 #define ESP_ERR_INVALID_CRC 10
 #define pdTRUE 1
@@ -21,12 +20,14 @@ typedef int solar_os_tui_t;
 typedef int solar_os_tui_input_state_t;
 typedef int solar_os_text_search_state_t;
 typedef int solar_os_context_t;
+typedef int solar_os_remote_file_protocol_t;
 typedef void *QueueHandle_t;
 typedef void *TaskHandle_t;
 
 /* TYPES */
 
 static ftp_app_state_t ftp_app;
+static const ftp_app_transport_t transport = {.label = "FTP"};
 static ftp_app_request_t submitted[16];
 static size_t submitted_count;
 static ftp_app_result_t pending_result;
@@ -101,6 +102,7 @@ static void reset(void)
     ftp_app_batch_clear();
     for (unsigned i = 0; i < 2; i++) free(ftp_app.panes[i].entries);
     memset(&ftp_app, 0, sizeof(ftp_app));
+    ftp_app.transport = &transport;
     ftp_app.show_hidden = true;
     ftp_app.requests = (void *)1;
     ftp_app.results = (void *)2;

@@ -83,8 +83,8 @@ esp_err_t solar_os_script_media_create(const char *owner,
     return ESP_OK;
 }
 
-esp_err_t solar_os_script_media_open(solar_os_script_media_t *s,
-    const char *id, const solar_os_stream_open_options_t *options, uint32_t *handle)
+static esp_err_t script_media_open(solar_os_script_media_t *s, const char *id,
+    const solar_os_stream_open_options_t *options, const solar_os_stream_type_t *type, uint32_t *handle)
 {
     if (!s || !id || !options || !handle || options->timeout_ms > SOLAR_OS_SCRIPT_MEDIA_TIMEOUT_MAX)
         return ESP_ERR_INVALID_ARG;
@@ -96,12 +96,26 @@ esp_err_t solar_os_script_media_open(solar_os_script_media_t *s,
         const uint32_t key = new_id();
         if (!key) return ESP_ERR_NO_MEM;
         p->stream = (solar_os_stream_handle_t)SOLAR_OS_STREAM_HANDLE_INIT;
-        esp_err_t err = solar_os_stream_open_ex(id, s->owner, options, &p->stream);
+        const esp_err_t err = type ?
+            solar_os_stream_open_typed(id, s->owner, *type, options, &p->stream) :
+            solar_os_stream_open_ex(id, s->owner, options, &p->stream);
         if (err != ESP_OK) return err;
         p->id = key; p->snapshot = false; *handle = key;
         return ESP_OK;
     }
     return ESP_ERR_NO_MEM;
+}
+
+esp_err_t solar_os_script_media_open(solar_os_script_media_t *s,
+    const char *id, const solar_os_stream_open_options_t *options, uint32_t *handle)
+{
+    return script_media_open(s, id, options, NULL, handle);
+}
+
+esp_err_t solar_os_script_media_open_typed(solar_os_script_media_t *s, const char *id,
+    solar_os_stream_type_t type, const solar_os_stream_open_options_t *options, uint32_t *handle)
+{
+    return script_media_open(s, id, options, &type, handle);
 }
 
 esp_err_t solar_os_script_media_release(solar_os_script_media_t *s, uint32_t id)
@@ -221,12 +235,7 @@ esp_err_t solar_os_script_media_stream_info(solar_os_script_media_t *s,
 {
     media_source_t *p = source(s, id);
     if (!p || !info) return ESP_ERR_INVALID_ARG;
-    esp_err_t err = solar_os_stream_get_info(p->stream.id, info);
-    if (err != ESP_OK) return err;
-    info->direction = p->stream.direction;
-    if (info->type == SOLAR_OS_STREAM_TYPE_VIDEO) info->video = p->stream.video;
-    if (info->type == SOLAR_OS_STREAM_TYPE_AUDIO) info->audio = p->stream.audio;
-    return ESP_OK;
+    return solar_os_stream_handle_info(&p->stream, info);
 }
 
 esp_err_t solar_os_script_media_write(solar_os_script_media_t *s, uint32_t id,
@@ -323,7 +332,7 @@ esp_err_t solar_os_script_media_snapshot(solar_os_script_media_t *s,
             .width = width, .height = height, .jpeg_quality = quality},
     };
     uint32_t handle;
-    esp_err_t err = solar_os_script_media_open(s, id, &options, &handle);
+    esp_err_t err = solar_os_script_media_open_typed(s, id, SOLAR_OS_STREAM_TYPE_VIDEO, &options, &handle);
     if (err != ESP_OK) return err;
     err = solar_os_script_media_acquire(s, handle, frame);
     if (err != ESP_OK) { (void)solar_os_script_media_close(s, handle); return err; }

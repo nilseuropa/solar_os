@@ -54,6 +54,7 @@ idf_build_set_property(
 )
 idf_build_set_property(COMPILE_DEFINITIONS "MEMP_NUM_PPP_PCB=2" APPEND)
 project(solar_os)
+include(cmake/solar_os_native_api.cmake)
 solar_os_check_classic_psram_workaround()
 idf_build_get_property(solar_os_elf EXECUTABLE)
 # SDK/prebuilt consumers share large PSRAM storage and can release OS-owned

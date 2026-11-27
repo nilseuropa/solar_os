@@ -347,12 +347,10 @@ static esp_err_t meshcore_settings_read(void *context, unsigned form, solar_os_m
     if (node) xSemaphoreTake(node->config_lock, portMAX_DELAY);
     unsigned backend = meshcore_settings_backend(node, form);
     if (!backend) { if (node) xSemaphoreGive(node->config_lock); return ESP_ERR_NOT_FOUND; }
-    settings->label = backend == 1 ? "MeshCore radio" : "MeshCore BLE";
-    settings->fields = backend == 1 ? meshcore_radio_fields : meshcore_ble_fields;
-    settings->count = backend == 1 ? 4 : 5;
+    solar_os_messaging_settings_form(settings, backend == 1 ? "MeshCore radio" : "MeshCore BLE", backend == 1 ? meshcore_radio_fields : meshcore_ble_fields, backend == 1 ? 4 : 5);
     strlcpy(settings->worker, backend == 1 ? "meshcore" : "meshcore-ble", sizeof(settings->worker));
-    if (backend == 2) strlcpy(settings->values[1], "public", sizeof(settings->values[1]));
-    strlcpy(settings->values[settings->count - 1], "on", sizeof(settings->values[0]));
+    if (backend == 2) strlcpy(settings->data.values[1], "public", sizeof(settings->data.values[1]));
+    strlcpy(settings->data.values[settings->data.count - 1], "on", sizeof(settings->data.values[0]));
     if (node) {
         const solar_os_meshcore_instance_config_t *config = &node->config;
         settings->enabled = config->enabled;
@@ -360,20 +358,20 @@ static esp_err_t meshcore_settings_read(void *context, unsigned form, solar_os_m
             solar_os_messaging_settings_value(settings, 0, config->radio);
             solar_os_messaging_settings_value(settings, 1, config->profile);
         } else if (config->backend == 2) {
-            snprintf(settings->values[0], sizeof(settings->values[0]), "%02X:%02X:%02X:%02X:%02X:%02X",
+            snprintf(settings->data.values[0], sizeof(settings->data.values[0]), "%02X:%02X:%02X:%02X:%02X:%02X",
                 config->bda[0], config->bda[1], config->bda[2], config->bda[3], config->bda[4], config->bda[5]);
             static const char *const types[] = {"public", "random", "rpa_public", "rpa_random"};
-            strlcpy(settings->values[1], types[config->addr_type], sizeof(settings->values[1]));
-            settings->present[2] = config->pin_supplied;
+            strlcpy(settings->data.values[1], types[config->addr_type], sizeof(settings->data.values[1]));
+            settings->data.present[2] = config->pin_supplied;
         }
-        solar_os_messaging_settings_value(settings, settings->count - 2, config->name);
-        strlcpy(settings->values[settings->count - 1], config->public_channel ? "on" : "off", sizeof(settings->values[0]));
+        solar_os_messaging_settings_value(settings, settings->data.count - 2, config->name);
+        strlcpy(settings->data.values[settings->data.count - 1], config->public_channel ? "on" : "off", sizeof(settings->data.values[0]));
         xSemaphoreGive(node->config_lock);
     }
     return ESP_OK;
 }
 static esp_err_t meshcore_settings_write(void *context, unsigned form, const char *name,
-    const solar_os_messaging_settings_t *settings, solar_os_messaging_provider_id_t *id)
+    const solar_os_message_setting_values_v1_t *settings, solar_os_messaging_provider_id_t *id)
 {
     meshcore_instance_t *node = context;
     xSemaphoreTake(meshcore_instances.edit, portMAX_DELAY); workers_lock();
@@ -489,30 +487,61 @@ esp_err_t solar_os_meshcore_instances_init(void)
     atomic_flag_clear(&init_lock); return error;
 }
 
-esp_err_t solar_os_meshcore_legacy_begin(unsigned kind, void **lease)
+static bool instance_matches(const meshcore_instance_t *node, unsigned kind)
+{
+    return !node->config.backend || node->config.backend == kind;
+}
+
+static esp_err_t meshcore_begin(unsigned kind, solar_os_messaging_provider_id_t id, void **lease)
 {
     if (!lease) return ESP_ERR_INVALID_ARG;
     *lease = NULL;
-    if (kind < SOLAR_OS_MESHCORE_BACKEND_RADIO || kind > SOLAR_OS_MESHCORE_BACKEND_BLE) return ESP_ERR_INVALID_ARG;
-    if (selected_instance) return ESP_OK;
-    esp_err_t error = solar_os_meshcore_instances_init(); if (error != ESP_OK) return error;
-    xSemaphoreTake(meshcore_instances.edit, portMAX_DELAY); workers_lock();
+    if (kind < SOLAR_OS_MESHCORE_BACKEND_RADIO || kind > SOLAR_OS_MESHCORE_BACKEND_BLE ||
+        id > SOLAR_OS_MESSAGING_INSTANCE_ID_MAX) return ESP_ERR_INVALID_ARG;
+    if (selected_instance) {
+        if (id && (selected_instance->id != id || !instance_matches(selected_instance, kind)))
+            return ESP_ERR_INVALID_STATE;
+        return ESP_OK;
+    }
+    esp_err_t error = solar_os_meshcore_instances_init();
+    if (error != ESP_OK) return error;
+    xSemaphoreTake(meshcore_instances.edit, portMAX_DELAY);
+    workers_lock();
+
+    const solar_os_messaging_provider_id_t preferred = id ? id : SOLAR_OS_MESSAGING_PROVIDER_MESHCORE;
     meshcore_instance_t *node = meshcore_instances.instances;
-    while (node && node->id != SOLAR_OS_MESSAGING_PROVIDER_MESHCORE) node = node->next;
-    if (!node || (node->config.backend && node->config.backend != kind)) {
-        node = NULL;
+    while (node && node->id != preferred) node = node->next;
+    if (node && !instance_matches(node, kind)) node = NULL;
+    if (!node && !id) {
         for (meshcore_instance_t *candidate = meshcore_instances.instances; candidate; candidate = candidate->next) {
             if (candidate->config.backend != kind) continue;
             if (node) {
-                workers_unlock(); xSemaphoreGive(meshcore_instances.edit);
-                return ESP_ERR_INVALID_STATE;
+                error = ESP_ERR_INVALID_STATE;
+                break;
             }
             node = candidate;
         }
     }
-    if (!node) { workers_unlock(); xSemaphoreGive(meshcore_instances.edit); return ESP_ERR_NOT_FOUND; }
-    selected_instance = node; *lease = node; return ESP_OK;
+    if (error != ESP_OK || !node) {
+        workers_unlock();
+        xSemaphoreGive(meshcore_instances.edit);
+        return error != ESP_OK ? error : ESP_ERR_NOT_FOUND;
+    }
+    selected_instance = node;
+    *lease = node;
+    return ESP_OK;
 }
+
+esp_err_t solar_os_meshcore_legacy_begin(unsigned kind, void **lease)
+{
+    return meshcore_begin(kind, 0, lease);
+}
+
+esp_err_t solar_os_meshcore_instance_begin(unsigned kind, solar_os_messaging_provider_id_t id, void **lease)
+{
+    return meshcore_begin(kind, id, lease);
+}
+
 void solar_os_meshcore_legacy_end(void *lease)
 {
     if (!lease) return;

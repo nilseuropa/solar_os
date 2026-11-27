@@ -1,0 +1,69 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#include "solar_os_tui_types_v1.h"
+
+#define SOLAR_OS_NATIVE_TUI_SERVICE "tui"
+#define SOLAR_OS_NATIVE_TUI_ABI 1U
+
+/* begin and screen_begin create a core-owned TUI for the calling application's
+ * current callback scope. screen_begin enables buffered frames and adaptive
+ * fullscreen behavior. Methods require that same application's scope; helpers
+ * operating only on value records need none. Cache the table and keep the
+ * handle in app state. end releases it; stop/failed start also release it before
+ * cold state is freed. Suspend retains it; attach_session reattaches on resume.
+ * The core owns the channel and buffers; no private TUI layout crosses the ABI.
+ * Text, value records and form row callbacks are borrowed only until return.
+ * Form row callbacks must not draw and must remain executable until return.
+ * Drawing performs no adapter allocation or additional character-buffer copy.
+ * End refuses active calls. Scalar getters return zero/false for invalid or
+ * foreign handles. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*begin)(solar_os_native_handle_t *tui);
+    int (*attach_session)(solar_os_native_handle_t id);
+    int (*end)(solar_os_native_handle_t tui);
+    int (*enable_diff)(solar_os_native_handle_t id, bool enabled);
+    size_t (*rows)(solar_os_native_handle_t id);
+    size_t (*cols)(solar_os_native_handle_t id);
+    int (*clear)(solar_os_native_handle_t id);
+    int (*refresh)(solar_os_native_handle_t id);
+    int (*move)(solar_os_native_handle_t id, size_t row, size_t col);
+    int (*set_cursor_visible)(solar_os_native_handle_t id, bool visible);
+    int (*write)(solar_os_native_handle_t id, const char *text, uint8_t attr);
+    int (*addstr)(solar_os_native_handle_t id, size_t row, size_t col, const char *text, uint8_t attr);
+    int (*putch)(solar_os_native_handle_t id, size_t row, size_t col, uint32_t codepoint, uint8_t attr);
+    int (*hline)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, uint32_t codepoint, uint8_t attr);
+    int (*vline)(solar_os_native_handle_t id, size_t row, size_t col, size_t height, uint32_t codepoint, uint8_t attr);
+    int (*vrule)(solar_os_native_handle_t id, size_t row, size_t col, size_t height, uint8_t width, uint8_t attr);
+    int (*box)(solar_os_native_handle_t id, size_t row, size_t col, size_t height, size_t width, uint8_t attr);
+    int (*fill)(solar_os_native_handle_t id, size_t row, size_t col, size_t height, size_t width, uint32_t codepoint, uint8_t attr);
+    int (*text_popup)(solar_os_native_handle_t id, const solar_os_tui_rect_t *bounds, const char *title, const char *text, solar_os_tui_rect_t *popup);
+    int (*progress_bar)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, const char *label, uint64_t value, uint64_t total, bool total_known);
+    int (*draw_form)(solar_os_native_handle_t id, const solar_os_tui_form_t *form);
+    int (*screen_begin)(solar_os_native_handle_t *tui);
+    bool (*screen_should_fullscreen)(size_t rows);
+    bool (*screen_fullscreen)(solar_os_native_handle_t id);
+    size_t (*screen_bottom_rows)(solar_os_native_handle_t id, size_t normal_rows);
+    size_t (*screen_content_rows)(solar_os_native_handle_t id, size_t top_rows, size_t normal_bottom_rows);
+    size_t (*screen_content_end)(solar_os_native_handle_t id, size_t normal_bottom_rows);
+    solar_os_tui_screen_key_action_t (*screen_key)(solar_os_native_handle_t id, uint8_t key);
+    bool (*screen_layout)(solar_os_native_handle_t id, size_t tab_rows, size_t status_rows, size_t input_rows, solar_os_tui_screen_layout_t *layout);
+    bool (*layout_compute)(size_t rows, size_t cols, size_t tab_rows, size_t status_rows, size_t input_rows, solar_os_tui_screen_layout_t *layout);
+    bool (*layout_compute_fullscreen)(size_t rows, size_t cols, size_t tab_rows, size_t input_rows, solar_os_tui_screen_layout_t *layout);
+    int (*write_cell)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, const char *text, uint8_t attr);
+    int (*draw_title)(solar_os_native_handle_t id, const char *title, const char *detail);
+    int (*draw_help)(solar_os_native_handle_t id, const char *text);
+    int (*draw_footer)(solar_os_native_handle_t id, const char *status, const char *help);
+    int (*draw_tab)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, const char *text, bool selected);
+    int (*draw_too_small)(solar_os_native_handle_t id, const char *name);
+    void (*viewport_reconcile)(solar_os_tui_viewport_t *viewport, size_t item_count, size_t visible_rows);
+    bool (*viewport_key)(solar_os_tui_viewport_t *viewport, uint8_t key, size_t item_count, size_t visible_rows, bool wrap);
+    solar_os_tui_input_action_t (*input_key)(char *text, size_t capacity, solar_os_tui_input_state_t *state, uint32_t key, size_t visible_cells);
+    int (*draw_input)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, const char *label, const char *text, solar_os_tui_input_state_t *state, uint8_t attr);
+    int (*draw_input_ex)(solar_os_native_handle_t id, size_t row, size_t col, size_t width, const char *label, const char *text, solar_os_tui_input_state_t *state, uint8_t attr, bool masked);
+    /* Insert an explicit UTF-8 text span using the shared frontend editor.
+     * Invalid/incomplete text, controls, overlap or insufficient capacity leave
+     * both buffer and state unchanged. No context or service state is needed. */
+    solar_os_tui_input_action_t (*input_text)(char *text, size_t capacity,
+        solar_os_tui_input_state_t *state, const char *input, size_t length, size_t visible_cells);
+} solar_os_native_tui_api_v1_t;

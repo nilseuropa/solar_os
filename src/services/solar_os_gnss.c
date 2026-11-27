@@ -87,12 +87,17 @@ esp_err_t solar_os_gnss_register(const solar_os_gnss_registration_t *registratio
 
 esp_err_t solar_os_gnss_unregister(const char *name)
 {
+    return solar_os_gnss_unregister_owned(name, NULL);
+}
+
+esp_err_t solar_os_gnss_unregister_owned(const char *name, const void *context)
+{
     if (!name_valid(name) || ensure_mutex() != ESP_OK) {
         return ESP_ERR_INVALID_ARG;
     }
     xSemaphoreTake(gnss_mutex, portMAX_DELAY);
     for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
-        if (gnss_devices[i].active && strcmp(gnss_devices[i].info.name, name) == 0) {
+        if (gnss_devices[i].active && (!context || gnss_devices[i].ctx == context) && strcmp(gnss_devices[i].info.name, name) == 0) {
             if (gnss_devices[i].refs > 0U) {
                 xSemaphoreGive(gnss_mutex);
                 return ESP_ERR_INVALID_STATE;
@@ -233,34 +238,27 @@ esp_err_t solar_os_gnss_set_enabled(const char *name, bool enabled)
 
 esp_err_t solar_os_gnss_notify_enabled_state(const char *name, bool enabled)
 {
-    if (!name_valid(name) || ensure_mutex() != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    xSemaphoreTake(gnss_mutex, portMAX_DELAY);
-    for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
-        if (gnss_devices[i].active && strcmp(gnss_devices[i].info.name, name) == 0) {
-            gnss_devices[i].info.enabled = enabled;
-            xSemaphoreGive(gnss_mutex);
-            return ESP_OK;
-        }
-    }
-    xSemaphoreGive(gnss_mutex);
-    return ESP_ERR_NOT_FOUND;
+    return solar_os_gnss_notify_state_owned(name, NULL, SOLAR_OS_NATIVE_GNSS_ENABLE_CONTROL, enabled);
 }
 
 esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered)
 {
-    if (!name_valid(name) || ensure_mutex() != ESP_OK) {
-        return ESP_ERR_INVALID_ARG;
-    }
+    return solar_os_gnss_notify_state_owned(name, NULL, SOLAR_OS_NATIVE_GNSS_POWER_CONTROL, powered);
+}
+
+esp_err_t solar_os_gnss_notify_state_owned(const char *name, const void *context, uint32_t property, bool enabled)
+{
+    if (!name_valid(name) || (property != SOLAR_OS_NATIVE_GNSS_POWER_CONTROL &&
+        property != SOLAR_OS_NATIVE_GNSS_ENABLE_CONTROL) || ensure_mutex() != ESP_OK) return ESP_ERR_INVALID_ARG;
     xSemaphoreTake(gnss_mutex, portMAX_DELAY);
     for (size_t i = 0; i < GNSS_DEVICE_MAX; i++) {
-        if (gnss_devices[i].active &&
-            strcmp(gnss_devices[i].info.name, name) == 0) {
-            gnss_devices[i].info.powered = powered;
-            xSemaphoreGive(gnss_mutex);
-            return ESP_OK;
-        }
+        gnss_device_t *device = &gnss_devices[i];
+        if (!device->active || (context && device->ctx != context) || strcmp(device->info.name, name) != 0)
+            continue;
+        if (property == SOLAR_OS_NATIVE_GNSS_POWER_CONTROL) device->info.powered = enabled;
+        else device->info.enabled = enabled;
+        xSemaphoreGive(gnss_mutex);
+        return ESP_OK;
     }
     xSemaphoreGive(gnss_mutex);
     return ESP_ERR_NOT_FOUND;

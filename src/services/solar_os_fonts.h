@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /* Public-domain fixed bitmap face; terminal uses a 6x8 cell. */
 extern const uint8_t u8g2_font_5x8_tf[];
@@ -29,10 +30,15 @@ extern const uint8_t u8g2_font_solar_os_default_b_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_i_20_tf[];
 extern const uint8_t u8g2_font_solar_os_default_bi_20_tf[];
 
-/* The loaded font-pack face that goes with a built-in face and has the glyph
- * for a code point, or NULL (no pack loaded, an icon face, glyph not in any
- * pack). See solar_os_font_packs.h. */
-const uint8_t *solar_os_font_fallback(const uint8_t *font, uint32_t codepoint);
+typedef struct {
+    const uint8_t *face;
+    struct solar_os_font_pack_data *pack;
+} solar_os_font_face_ref_t;
+
+/* Retain the matching pack face for a glyph in an empty reference. Restore
+ * the built-in face after drawing, then release the retained reference once. */
+bool solar_os_font_fallback(const uint8_t *font, uint32_t codepoint, solar_os_font_face_ref_t *ref);
+void solar_os_font_face_release(solar_os_font_face_ref_t *ref);
 
 /* Next code point of a UTF-8 string, advancing *text; U+FFFD for a bad
  * sequence and 0 at the end of the string. */

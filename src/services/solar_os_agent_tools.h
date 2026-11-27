@@ -59,6 +59,10 @@ esp_err_t solar_os_agent_tools_execute(const char *name,
                                        bool confirmed,
                                        char *result,
                                        size_t result_len);
+/* Invoke with current settings and the same approval handling as a run. */
+esp_err_t solar_os_agent_invoke_tool(const char *name, const char *arguments,
+                                     const solar_os_agent_request_t *request,
+                                     char *result, size_t capacity);
 solar_os_agent_tool_policy_decision_t solar_os_agent_tools_policy_decision(
     solar_os_agent_tool_policy_t policy,
     solar_os_agent_tool_risk_t risk);

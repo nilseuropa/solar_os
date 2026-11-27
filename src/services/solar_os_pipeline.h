@@ -4,21 +4,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "solar_os_media_sample.h"
-
-#define SOLAR_OS_PIPELINES_MAX 4U
-typedef struct {
-    /* Absolute file path, native video stream ID, or rtsp:// JPEG URL. */
-    const char *source;
-    const char *processor; /* qr, model, or processor-<kind> native provider */
-    uint32_t model, limit, interval_ms, timeout_ms;
-} solar_os_pipeline_config_t;
-typedef struct {
-    uint32_t id, model;
-    char job[20], state[12], source[256], processor[12];
-    uint64_t sequence, frames, busy_frames, source_timestamp_us, decode_us, process_us, frame_us;
-    esp_err_t last_error;
-    bool done;
-} solar_os_pipeline_status_t;
+#include "solar_os_native_processor_abi.h"
 
 /* Native jobs outlive clients. Up to four configurations/latest-result slots
  * remain until explicit destroy. Stop joins and releases sources/processors;

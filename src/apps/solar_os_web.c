@@ -710,9 +710,7 @@ static esp_err_t web_prepare_mjpeg_worker(web_http_worker_t *worker)
     const esp_err_t error = solar_os_mjpeg_parser_init(
         &worker->parser,
         worker->frame_buffer,
-        WEB_IMAGE_MAX_BYTES,
-        web_mjpeg_decode_frame,
-        worker);
+        WEB_IMAGE_MAX_BYTES);
     if (error != ESP_OK) {
         solar_os_memory_free(worker->frame_buffer);
         worker->frame_buffer = NULL;
@@ -752,7 +750,10 @@ static esp_err_t web_http_event(const solar_os_http_event_t *event, void *user_d
             }
             return solar_os_mjpeg_parser_feed(&worker->parser,
                                               event->data,
-                                              event->data_len);
+                                              event->data_len,
+                                              web_mjpeg_decode_frame,
+                                              worker,
+                                              NULL);
         }
         web_append_html(event->data, event->data_len);
     }

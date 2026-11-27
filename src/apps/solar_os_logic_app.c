@@ -166,10 +166,8 @@ static esp_err_t logic_load_latest(void)
     }
 
     size_t copied = 0;
-    err = solar_os_logic_copy_samples(0,
-                                      logic_app.samples,
-                                      status.config.sample_count,
-                                      &copied);
+    err = solar_os_logic_copy_generation(status.generation, 0, logic_app.samples,
+        status.config.sample_count, &copied);
     if (err != ESP_OK || copied != status.config.sample_count) {
         return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
     }

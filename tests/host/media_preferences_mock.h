@@ -1,5 +1,5 @@
 #pragma once
-#include "solar_os_media_preferences.h"
+#include "../../src/apps/solar_os_media_preferences.h"
 
 struct solar_os_media_preferences { uint8_t volume, visualizer; };
 static solar_os_media_preferences_t mock_media_preferences[4] = {{50, 0}, {50, 0}, {50, 0}, {50, 0}};

@@ -38,7 +38,6 @@ static char last_failure_tag[SOLAR_OS_MEMORY_TAG_MAX];
 static solar_os_memory_arena_t memory_arena;
 static StaticSemaphore_t arena_mutex_storage;
 static SemaphoreHandle_t arena_mutex;
-static size_t (*memory_reclaimer)(void);
 static atomic_bool reclaim_running;
 #define MEMORY_RECLAIMERS_MAX 64U
 #define MEMORY_OWNERS_MAX 512U
@@ -293,13 +292,6 @@ static size_t memory_external_largest(void)
     return status.external.largest_free;
 }
 
-void solar_os_memory_set_reclaimer(size_t (*reclaim)(void))
-{
-    portENTER_CRITICAL(&memory_stats_lock);
-    memory_reclaimer = reclaim;
-    portEXIT_CRITICAL(&memory_stats_lock);
-}
-
 bool solar_os_memory_register_reclaimer(solar_os_memory_reclaimer_t *entry)
 {
     if (!entry || !entry->owner || !entry->reclaim) return false;
@@ -462,7 +454,6 @@ static size_t memory_pressure_run(const solar_os_memory_pressure_request_t *requ
             memory_reclaimers[i]->references++;
         }
     }
-    size_t (*legacy)(void) = memory_reclaimer;
     portEXIT_CRITICAL(&memory_stats_lock);
     for (size_t i = 1; i < count; ++i) {
         solar_os_memory_reclaimer_t *entry = entries[i];
@@ -483,7 +474,6 @@ static size_t memory_pressure_run(const solar_os_memory_pressure_request_t *requ
             satisfied = memory_request_fits(request);
         }
     }
-    if (legacy && !satisfied) (void)legacy();
     /* Freeing coalesces adjacent holes. Defer relocation until owners have
      * released their caches rather than scanning the arena after each owner.
      * A pressure pass performs at most two complete compaction scans. */
@@ -575,7 +565,8 @@ static void memory_owner_visit(void *user, const void *pointer, size_t size,
 
 size_t solar_os_memory_get_owners(solar_os_memory_owner_status_t *owners, size_t capacity)
 {
-    if (!owners || !capacity || !arena_mutex || capacity > MEMORY_OWNERS_MAX + 1U) return 0;
+    if (!owners || !capacity || !arena_mutex) return 0;
+    if (capacity > MEMORY_OWNERS_MAX + 1U) capacity = MEMORY_OWNERS_MAX + 1U;
     memset(owners, 0, capacity * sizeof(*owners));
     memory_owner_query_t query = {.owners = owners, .capacity = capacity};
     arena_lock();

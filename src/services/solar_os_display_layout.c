@@ -585,7 +585,7 @@ static bool layout_backing_valid(const char *name,
         target->u8g2 != NULL && strcmp(target->source, "layout") != 0;
 }
 
-esp_err_t solar_os_display_layout_join(
+static esp_err_t layout_join(
     const char *name,
     solar_os_display_layout_axis_t axis,
     size_t target_count,
@@ -593,9 +593,6 @@ esp_err_t solar_os_display_layout_join(
     char *busy_owner,
     size_t busy_owner_len)
 {
-    if (busy_owner != NULL && busy_owner_len > 0U) {
-        busy_owner[0] = '\0';
-    }
     if (!layout_name_valid(name) || !layout_axis_valid(axis) ||
         targets == NULL || target_count < 2U ||
         target_count > SOLAR_OS_DISPLAY_LAYOUT_MEMBER_MAX ||
@@ -667,7 +664,7 @@ esp_err_t solar_os_display_layout_join(
     return ESP_OK;
 }
 
-esp_err_t solar_os_display_layout_split(
+static esp_err_t layout_split(
     const char *target_name,
     solar_os_display_layout_axis_t axis,
     const char *first,
@@ -675,9 +672,6 @@ esp_err_t solar_os_display_layout_split(
     char *busy_owner,
     size_t busy_owner_len)
 {
-    if (busy_owner != NULL && busy_owner_len > 0U) {
-        busy_owner[0] = '\0';
-    }
     if (!layout_name_valid(target_name) || !layout_name_valid(first) ||
         !layout_name_valid(second) || !layout_axis_valid(axis) ||
         strcmp(first, second) == 0 || strcmp(first, target_name) == 0 ||
@@ -764,41 +758,41 @@ static esp_err_t layout_destroy(solar_os_display_layout_runtime_t *layout)
     return ESP_OK;
 }
 
-esp_err_t solar_os_display_layout_unjoin(const char *name)
+esp_err_t solar_os_display_layout_create(const solar_os_display_layout_request_v1_t *request,
+                                         char *busy_owner, size_t capacity)
 {
-    if (!layout_name_valid(name)) {
+    if (busy_owner && capacity) busy_owner[0] = '\0';
+    if (!request || !request->members) return ESP_ERR_INVALID_ARG;
+    switch (request->kind) {
+    case SOLAR_OS_DISPLAY_LAYOUT_JOIN:
+        return layout_join(request->name, request->axis, request->member_count, request->members,
+                           busy_owner, capacity);
+    case SOLAR_OS_DISPLAY_LAYOUT_SPLIT:
+        if (request->member_count != 2) return ESP_ERR_INVALID_ARG;
+        return layout_split(request->name, request->axis, request->members[0], request->members[1],
+                            busy_owner, capacity);
+    default:
         return ESP_ERR_INVALID_ARG;
     }
-    const int slot = layout_reserve_destroy(SOLAR_OS_DISPLAY_LAYOUT_JOIN, name);
-    if (slot < 0) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    const esp_err_t err = layout_destroy(&layouts[slot]);
-    if (err != ESP_OK) {
-        portENTER_CRITICAL(&layouts_lock);
-        layouts[slot].destroying = false;
-        portEXIT_CRITICAL(&layouts_lock);
-    }
-    return err;
 }
 
-esp_err_t solar_os_display_layout_unsplit(const char *target)
+static bool layout_kind_valid(solar_os_display_layout_kind_t kind)
 {
-    if (!layout_name_valid(target)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    const int slot = layout_reserve_destroy(SOLAR_OS_DISPLAY_LAYOUT_SPLIT,
-                                            target);
-    if (slot < 0) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    const esp_err_t err = layout_destroy(&layouts[slot]);
-    if (err != ESP_OK) {
+    return kind == SOLAR_OS_DISPLAY_LAYOUT_JOIN || kind == SOLAR_OS_DISPLAY_LAYOUT_SPLIT;
+}
+
+esp_err_t solar_os_display_layout_remove(solar_os_display_layout_kind_t kind, const char *name)
+{
+    if (!layout_kind_valid(kind) || !layout_name_valid(name)) return ESP_ERR_INVALID_ARG;
+    const int slot = layout_reserve_destroy(kind, name);
+    if (slot < 0) return ESP_ERR_NOT_FOUND;
+    const esp_err_t error = layout_destroy(&layouts[slot]);
+    if (error != ESP_OK) {
         portENTER_CRITICAL(&layouts_lock);
         layouts[slot].destroying = false;
         portEXIT_CRITICAL(&layouts_lock);
     }
-    return err;
+    return error;
 }
 
 size_t solar_os_display_layout_count(void)
@@ -814,38 +808,53 @@ size_t solar_os_display_layout_count(void)
     return count;
 }
 
-bool solar_os_display_layout_get(size_t index,
-                                 solar_os_display_layout_info_t *info)
+static void layout_copy_info(const solar_os_display_layout_runtime_t *layout,
+                             solar_os_display_layout_info_t *info)
 {
-    if (info == NULL) {
-        return false;
-    }
-    size_t current = 0U;
+    info->kind = layout->kind;
+    info->axis = layout->axis;
+    strlcpy(info->name, layout->name, sizeof(info->name));
+    info->width = layout->width;
+    info->height = layout->height;
+    info->backing_count = layout->backing_count;
+    info->logical_count = layout->logical_count;
+    for (size_t i = 0; i < layout->backing_count; i++)
+        strlcpy(info->backing[i], layout->members->backing[i].name, sizeof(info->backing[i]));
+    for (size_t i = 0; i < layout->logical_count; i++)
+        strlcpy(info->logical[i], layout->members->logical[i].name, sizeof(info->logical[i]));
+}
+
+bool solar_os_display_layout_get(size_t index, solar_os_display_layout_info_t *info)
+{
+    if (!info) return false;
+    *info = (solar_os_display_layout_info_t){0};
+    size_t current = 0;
     portENTER_CRITICAL(&layouts_lock);
-    for (size_t i = 0U; i < SOLAR_OS_DISPLAY_LAYOUT_MAX; i++) {
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_LAYOUT_MAX; i++) {
         const solar_os_display_layout_runtime_t *layout = &layouts[i];
-        if (!layout->active || current++ != index) {
-            continue;
-        }
-        memset(info, 0, sizeof(*info));
-        info->kind = layout->kind;
-        info->axis = layout->axis;
-        strlcpy(info->name, layout->name, sizeof(info->name));
-        info->width = layout->width;
-        info->height = layout->height;
-        info->backing_count = layout->backing_count;
-        info->logical_count = layout->logical_count;
-        for (size_t member = 0U; member < layout->backing_count; member++) {
-            strlcpy(info->backing[member], layout->members->backing[member].name,
-                    sizeof(info->backing[member]));
-        }
-        for (size_t member = 0U; member < layout->logical_count; member++) {
-            strlcpy(info->logical[member], layout->members->logical[member].name,
-                    sizeof(info->logical[member]));
-        }
+        if (!layout->active || current++ != index) continue;
+        layout_copy_info(layout, info);
         portEXIT_CRITICAL(&layouts_lock);
         return true;
     }
     portEXIT_CRITICAL(&layouts_lock);
     return false;
+}
+
+esp_err_t solar_os_display_layout_find(solar_os_display_layout_kind_t kind, const char *name,
+                                       solar_os_display_layout_info_t *info)
+{
+    if (!info) return ESP_ERR_INVALID_ARG;
+    *info = (solar_os_display_layout_info_t){0};
+    if (!layout_kind_valid(kind) || !layout_name_valid(name)) return ESP_ERR_INVALID_ARG;
+    portENTER_CRITICAL(&layouts_lock);
+    for (size_t i = 0; i < SOLAR_OS_DISPLAY_LAYOUT_MAX; i++) {
+        const solar_os_display_layout_runtime_t *layout = &layouts[i];
+        if (!layout->active || layout->kind != kind || strcmp(layout->name, name)) continue;
+        layout_copy_info(layout, info);
+        portEXIT_CRITICAL(&layouts_lock);
+        return ESP_OK;
+    }
+    portEXIT_CRITICAL(&layouts_lock);
+    return ESP_ERR_NOT_FOUND;
 }

@@ -1,5 +1,6 @@
-#include "solar_os_email.h"
+#include "solar_os_email_sync_internal.h"
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -24,8 +25,8 @@ typedef struct {
     size_t count;
     size_t unread;
     uint32_t next_id;
-    bool initialized;
     bool configured;
+    uint32_t account_revision;
     bool ring_in_psram;
     bool syncing;
     uint32_t sync_count;
@@ -34,25 +35,24 @@ typedef struct {
     uint32_t last_sync_ms;
     esp_err_t last_error;
     char last_error_text[SOLAR_OS_EMAIL_ERROR_MAX];
-    solar_os_email_config_t config;
+    solar_os_email_account_t config;
 } email_state_t;
 
 static email_state_t email_state = {
     .next_id = 1,
 };
+static StaticSemaphore_t email_lock_storage;
+static portMUX_TYPE email_init_lock = portMUX_INITIALIZER_UNLOCKED;
+static atomic_bool email_ready;
 
 static void email_lock(void)
 {
-    if (email_state.lock != NULL) {
-        (void)xSemaphoreTake(email_state.lock, portMAX_DELAY);
-    }
+    xSemaphoreTake(email_state.lock, portMAX_DELAY);
 }
 
 static void email_unlock(void)
 {
-    if (email_state.lock != NULL) {
-        xSemaphoreGive(email_state.lock);
-    }
+    xSemaphoreGive(email_state.lock);
 }
 
 static bool email_text_valid(const char *text, size_t max_len, bool allow_empty)
@@ -102,22 +102,22 @@ static void email_clear_locked(void)
     email_state.unread = 0;
 }
 
-static esp_err_t email_save_config_locked(void)
+static esp_err_t email_save_config_locked(const solar_os_email_account_t *config)
 {
     nvs_handle_t nvs;
     esp_err_t err = nvs_open(EMAIL_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
         return err;
     }
-    err = nvs_set_str(nvs, EMAIL_NVS_URL_KEY, email_state.config.url);
+    err = nvs_set_str(nvs, EMAIL_NVS_URL_KEY, config->url);
     if (err == ESP_OK) {
-        err = nvs_set_str(nvs, EMAIL_NVS_USER_KEY, email_state.config.user);
+        err = nvs_set_str(nvs, EMAIL_NVS_USER_KEY, config->user);
     }
     if (err == ESP_OK) {
-        err = nvs_set_str(nvs, EMAIL_NVS_PASSWORD_KEY, email_state.config.password);
+        err = nvs_set_str(nvs, EMAIL_NVS_PASSWORD_KEY, config->password);
     }
     if (err == ESP_OK) {
-        err = nvs_set_str(nvs, EMAIL_NVS_MAILBOX_KEY, email_state.config.mailbox);
+        err = nvs_set_str(nvs, EMAIL_NVS_MAILBOX_KEY, config->mailbox);
     }
     if (err == ESP_OK) {
         err = nvs_commit(nvs);
@@ -133,7 +133,7 @@ static void email_load_config_locked(void)
         return;
     }
 
-    solar_os_email_config_t config = {0};
+    solar_os_email_account_t config = {0};
     size_t len = sizeof(config.url);
     esp_err_t err = nvs_get_str(nvs, EMAIL_NVS_URL_KEY, config.url, &len);
     len = sizeof(config.user);
@@ -157,30 +157,32 @@ static void email_load_config_locked(void)
         email_state.config = config;
         email_state.configured = true;
     }
+    explicit_bzero(&config, sizeof(config));
 }
 
 esp_err_t solar_os_email_init(void)
 {
-    if (email_state.initialized) {
-        return ESP_OK;
-    }
-    email_state.lock = xSemaphoreCreateMutex();
-    if (email_state.lock == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-    email_state.ring = solar_os_memory_calloc(SOLAR_OS_EMAIL_CAPACITY,
-                                              sizeof(email_state.ring[0]),
-                                              SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                              "email.ring");
-    email_state.ring_in_psram = solar_os_memory_is_external(email_state.ring);
-    if (email_state.ring == NULL) {
-        vSemaphoreDelete(email_state.lock);
-        email_state.lock = NULL;
-        return ESP_ERR_NO_MEM;
-    }
-    email_state.initialized = true;
+    if (atomic_load(&email_ready)) return ESP_OK;
+    portENTER_CRITICAL(&email_init_lock);
+    if (!email_state.lock) email_state.lock = xSemaphoreCreateMutexStatic(&email_lock_storage);
+    const SemaphoreHandle_t lock = email_state.lock;
+    portEXIT_CRITICAL(&email_init_lock);
+    if (!lock) return ESP_ERR_NO_MEM;
+
     email_lock();
-    email_load_config_locked();
+    if (!atomic_load(&email_ready)) {
+        email_state.ring = solar_os_memory_calloc(SOLAR_OS_EMAIL_CAPACITY,
+                                                  sizeof(email_state.ring[0]),
+                                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
+                                                  "email.ring");
+        if (!email_state.ring) {
+            email_unlock();
+            return ESP_ERR_NO_MEM;
+        }
+        email_state.ring_in_psram = solar_os_memory_is_external(email_state.ring);
+        email_load_config_locked();
+        atomic_store(&email_ready, true);
+    }
     email_unlock();
     return ESP_OK;
 }
@@ -203,20 +205,27 @@ esp_err_t solar_os_email_configure(const char *url,
         return ESP_ERR_INVALID_ARG;
     }
 
+    solar_os_email_account_t config = {0};
+    strlcpy(config.url, url, sizeof(config.url));
+    strlcpy(config.user, user, sizeof(config.user));
+    strlcpy(config.password, password, sizeof(config.password));
+    strlcpy(config.mailbox, selected_mailbox, sizeof(config.mailbox));
+
     email_lock();
-    const bool changed = strcmp(email_state.config.url, url) != 0 ||
-        strcmp(email_state.config.user, user) != 0 ||
-        strcmp(email_state.config.mailbox, selected_mailbox) != 0;
-    strlcpy(email_state.config.url, url, sizeof(email_state.config.url));
-    strlcpy(email_state.config.user, user, sizeof(email_state.config.user));
-    strlcpy(email_state.config.password, password, sizeof(email_state.config.password));
-    strlcpy(email_state.config.mailbox, selected_mailbox, sizeof(email_state.config.mailbox));
-    email_state.configured = true;
-    err = email_save_config_locked();
-    if (err == ESP_OK && changed) {
-        email_clear_locked();
+    err = email_state.syncing ? ESP_ERR_INVALID_STATE : email_save_config_locked(&config);
+    if (err == ESP_OK) {
+        const bool changed = strcmp(email_state.config.url, config.url) != 0 ||
+            strcmp(email_state.config.user, config.user) != 0 ||
+            strcmp(email_state.config.mailbox, config.mailbox) != 0;
+        email_state.config = config;
+        email_state.configured = true;
+        if (changed) {
+            email_state.account_revision++;
+            email_clear_locked();
+        }
     }
     email_unlock();
+    explicit_bzero(&config, sizeof(config));
     return err;
 }
 
@@ -226,8 +235,9 @@ esp_err_t solar_os_email_forget(void)
     if (err != ESP_OK) {
         return err;
     }
+    email_lock();
     nvs_handle_t nvs;
-    err = nvs_open(EMAIL_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    err = email_state.syncing ? ESP_ERR_INVALID_STATE : nvs_open(EMAIL_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err == ESP_OK) {
         err = nvs_erase_all(nvs);
         if (err == ESP_OK) {
@@ -236,32 +246,13 @@ esp_err_t solar_os_email_forget(void)
         nvs_close(nvs);
     }
     if (err == ESP_OK) {
-        email_lock();
         memset(&email_state.config, 0, sizeof(email_state.config));
         email_state.configured = false;
+        email_state.account_revision++;
         email_clear_locked();
-        email_unlock();
     }
-    return err;
-}
-
-esp_err_t solar_os_email_get_config(solar_os_email_config_t *config)
-{
-    if (config == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t err = solar_os_email_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-    email_lock();
-    if (!email_state.configured) {
-        email_unlock();
-        return ESP_ERR_INVALID_STATE;
-    }
-    *config = email_state.config;
     email_unlock();
-    return ESP_OK;
+    return err;
 }
 
 esp_err_t solar_os_email_get_status(solar_os_email_status_t *status)
@@ -275,7 +266,7 @@ esp_err_t solar_os_email_get_status(solar_os_email_status_t *status)
     }
     email_lock();
     *status = (solar_os_email_status_t){
-        .initialized = email_state.initialized,
+        .initialized = true,
         .configured = email_state.configured,
         .syncing = email_state.syncing,
         .ring_in_psram = email_state.ring_in_psram,
@@ -518,16 +509,24 @@ esp_err_t solar_os_email_clear(void)
     return ESP_OK;
 }
 
-void solar_os_email_sync_started(void)
+esp_err_t solar_os_email_sync_begin(solar_os_email_account_t *account, uint32_t *revision)
 {
-    if (solar_os_email_init() != ESP_OK) {
-        return;
+    esp_err_t error = solar_os_email_init();
+    if (error != ESP_OK) {
+        return error;
     }
     email_lock();
-    email_state.syncing = true;
-    email_state.last_error = ESP_OK;
-    email_state.last_error_text[0] = '\0';
+    if (!email_state.configured || email_state.syncing) {
+        error = email_state.syncing ? ESP_ERR_NOT_FINISHED : ESP_ERR_INVALID_STATE;
+    } else {
+        *account = email_state.config;
+        *revision = email_state.account_revision;
+        email_state.syncing = true;
+        email_state.last_error = ESP_OK;
+        email_state.last_error_text[0] = '\0';
+    }
     email_unlock();
+    return error;
 }
 
 void solar_os_email_sync_finished(esp_err_t error, const char *error_text)
@@ -541,7 +540,7 @@ void solar_os_email_sync_finished(esp_err_t error, const char *error_text)
     email_state.last_sync_ms = (uint32_t)(esp_timer_get_time() / 1000ULL);
     email_state.last_error = error;
     strlcpy(email_state.last_error_text,
-            error == ESP_OK ? "" : (error_text != NULL ? error_text : esp_err_to_name(error)),
+            error == ESP_OK ? "" : (error_text && *error_text ? error_text : esp_err_to_name(error)),
             sizeof(email_state.last_error_text));
     email_unlock();
 }

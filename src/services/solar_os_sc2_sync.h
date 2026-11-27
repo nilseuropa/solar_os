@@ -15,44 +15,32 @@
 
 #include <stdbool.h>
 #include "esp_err.h"
+#include "solar_os_native_sc2_relay_abi.h"
 
 /* Worker stack (internal RAM); the job descriptor uses it for admission. */
 #define SOLAR_OS_SC2_SYNC_STACK 12288u
 
 esp_err_t solar_os_sc2_sync_start(void);
 void solar_os_sc2_sync_stop(void);
-/* Install the provider hook so enabling an instance starts the worker. */
+esp_err_t solar_os_sc2_sync_stop_checked(void);
+esp_err_t solar_os_sc2_sync_prepare_shutdown(void);
+/* Install the provider hook to wake a worker that is already running. */
 void solar_os_sc2_sync_install(void);
 
-typedef struct {
-    bool running;
-    bool connected;
-    bool ready;
-    unsigned instance;
-    unsigned outbox;
-    unsigned attempt;
-    char relay_id[64];
-    char host[128]; /* SOLAR_OS_SC2_RELAY_URL_MAX */
-    unsigned port;
-    bool tls;
-    unsigned relay;  /* in use: 0 primary, 1.. fallback */
-    unsigned relays; /* configured: primary + fallbacks */
-    unsigned home;   /* relay to stay on (the primary unless it failed) */
-    bool visiting;   /* short visit: keys and mailbox, then back home */
-} solar_os_sc2_sync_status_t;
+typedef solar_os_native_sc2_relay_status_v1_t solar_os_sc2_sync_status_t;
 
 void solar_os_sc2_sync_get_status(solar_os_sc2_sync_status_t *status);
 
 /* Private rooms (shell side). The worker runs the request between two
  * relay reads; the call waits up to timeout_ms for it. */
 typedef enum {
-    SOLAR_OS_SC2_ROOM_CREATE = 1, /* new room, this device admin; out = invite text */
-    SOLAR_OS_SC2_ROOM_INVITE,     /* arg = room (hex or unique prefix); out = invite text */
-    SOLAR_OS_SC2_ROOM_JOIN,       /* arg = invite text "sc2i:..." */
-    SOLAR_OS_SC2_ROOM_LIST,       /* out = one line per room */
+    SOLAR_OS_SC2_ROOM_CREATE = SOLAR_OS_NATIVE_SC2_ROOM_CREATE, /* new room, this device admin; out = invite text */
+    SOLAR_OS_SC2_ROOM_INVITE = SOLAR_OS_NATIVE_SC2_ROOM_INVITE,     /* arg = room (hex or unique prefix); out = invite text */
+    SOLAR_OS_SC2_ROOM_JOIN = SOLAR_OS_NATIVE_SC2_ROOM_JOIN,       /* arg = invite text "sc2i:..." */
+    SOLAR_OS_SC2_ROOM_LIST = SOLAR_OS_NATIVE_SC2_ROOM_LIST,       /* out = one line per room */
 } solar_os_sc2_room_op_t;
 
-#define SOLAR_OS_SC2_ROOM_OUT_MAX 2048u
+#define SOLAR_OS_SC2_ROOM_OUT_MAX SOLAR_OS_NATIVE_SC2_ROOM_OUT_CAPACITY
 
 /* room (33 bytes, may be NULL) gets the room key; out (cap bytes, may be
  * NULL) the text; why (whycap) a reason when the result is not ESP_OK. */

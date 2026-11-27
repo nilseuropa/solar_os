@@ -322,6 +322,10 @@ esp_err_t solar_os_controller_configure(const char *name, const char *key, float
 
 esp_err_t solar_os_controller_bind(const char *name, const char *source, const char *target)
 {
+    _Static_assert(sizeof(((solar_os_controller_config_t *)0)->source) == SOLAR_OS_STREAM_ID_MAX,
+                   "controller source capacity");
+    _Static_assert(SOLAR_OS_CONTROLLER_TARGET_MAX == SOLAR_OS_PARAMETER_PATH_MAX + 12U,
+                   "controller target capacity");
     if (source == NULL || target == NULL || strlen(source) >= SOLAR_OS_STREAM_ID_MAX ||
         strlen(target) >= SOLAR_OS_CONTROLLER_TARGET_MAX ||
         (strncmp(target, "parameter:", 10) != 0 && strncmp(target, "pwm:", 4) != 0 && strncmp(target,"stream:",7)!=0) ||
@@ -330,12 +334,18 @@ esp_err_t solar_os_controller_bind(const char *name, const char *source, const c
     lock(); controller_slot_t *slot = find(name);
     esp_err_t err = slot == NULL ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_STATE;
     if (slot != NULL && !slot->owner_id && !slot->input_writer && !tuning_running(slot) && !slot->info.enabled && !slot->info.claimed) {
-        strlcpy(slot->info.config.source, strcmp(source, "manual") == 0 ? "" : source, sizeof(slot->info.config.source));
-        strlcpy(slot->info.config.target, target, sizeof(slot->info.config.target));
-        slot->info.has_measurement = false;
-        solar_os_stream_info_t info;char path[SOLAR_OS_STREAM_ID_MAX];input_path(slot,path,sizeof(path));
-        const char *unit=slot->info.config.source[0] && solar_os_stream_get_info(slot->info.config.source,&info)==ESP_OK?info.unit:"";
-        err = solar_os_stream_set_unit(path,unit);
+        const char *selected_source = strcmp(source, "manual") == 0 ? "" : source;
+        solar_os_stream_info_t info;
+        char path[SOLAR_OS_STREAM_ID_MAX];
+        input_path(slot, path, sizeof(path));
+        const char *unit = *selected_source && solar_os_stream_get_info(selected_source, &info) == ESP_OK
+            ? info.unit : "";
+        err = solar_os_stream_set_unit(path, unit);
+        if (err == ESP_OK) {
+            strlcpy(slot->info.config.source, selected_source, sizeof(slot->info.config.source));
+            strlcpy(slot->info.config.target, target, sizeof(slot->info.config.target));
+            slot->info.has_measurement = false;
+        }
     }
     xSemaphoreGive(mutex); return err;
 }

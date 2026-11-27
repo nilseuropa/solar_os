@@ -9,3 +9,5 @@ esp_err_t solar_os_camera_stream_register(const char *name);
 esp_err_t solar_os_camera_stream_register_config(const char *name,
                                                   const solar_os_camera_config_t *config);
 esp_err_t solar_os_camera_stream_unregister(const char *name);
+esp_err_t solar_os_camera_stream_register_owned(const char *name, const solar_os_camera_config_t *config, void *owner);
+esp_err_t solar_os_camera_stream_unregister_owned(const char *name, const void *owner);

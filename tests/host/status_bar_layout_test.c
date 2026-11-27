@@ -32,7 +32,9 @@ static u8g2_uint_t track_string(u8g2_t *u, u8g2_uint_t x, u8g2_uint_t y, const c
     return u8g2_DrawStr(u, x, y, text);
 }
 #define u8g2_DrawStr track_string
+#define solar_os_canvas_str track_string
 #include "status_bar_layout.inc"
+#undef solar_os_canvas_str
 #undef u8g2_DrawStr
 
 int main(int argc, char **argv)

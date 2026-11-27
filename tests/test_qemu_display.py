@@ -31,6 +31,7 @@ class QemuDisplayTest(unittest.TestCase):
                         f'-DSOLAR_OS_BOARD_DISPLAY_HEIGHT={height}',
                         '-I' + str(ROOT / 'tests/host'),
                         '-I' + str(ROOT / 'src/services'),
+                        '-I', str(ROOT / 'include'),
                         '-I' + str(ROOT / 'components/u8g2/src/clib'),
                         str(path), '-o', str(binary),
                     ], check=True)

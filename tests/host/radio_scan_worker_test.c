@@ -6,6 +6,8 @@
 #include <string.h>
 #include <time.h>
 
+#include "solar_os.h"
+#include "solar_os_native_radio_scan.h"
 #include "../../src/services/solar_os_radio_scan.c"
 #include "../../src/services/solar_os_radio_scan_worker.c"
 
@@ -22,7 +24,7 @@ static _Thread_local TaskHandle_t current;
 static bool fail_create;
 static unsigned allocations, configurations, tunes;
 static bool claimed;
-static atomic_bool fail_read, block_read, reading;
+static atomic_bool fail_read, block_read, reading, fail_release;
 static solar_os_radio_status_t device;
 
 int64_t esp_timer_get_time(void)
@@ -101,7 +103,14 @@ esp_err_t solar_os_radio_claim(const char *name, const char *owner, solar_os_rad
     claimed = true; handle->index = 0; handle->token = 1; return ESP_OK;
 }
 esp_err_t solar_os_radio_release(solar_os_radio_handle_t *handle)
-{ assert(claimed); claimed = false; handle->index = -1; handle->token = 0; return ESP_OK; }
+{
+    assert(claimed);
+    if (atomic_load(&fail_release)) return ESP_ERR_TIMEOUT;
+    claimed = false;
+    handle->index = -1;
+    handle->token = 0;
+    return ESP_OK;
+}
 esp_err_t solar_os_radio_handle_get_status(const solar_os_radio_handle_t *handle, solar_os_radio_status_t *out)
 { (void)handle; *out = device; return ESP_OK; }
 esp_err_t solar_os_radio_handle_configure(const solar_os_radio_handle_t *handle, const solar_os_radio_config_t *config)
@@ -116,6 +125,51 @@ esp_err_t solar_os_radio_read_rssi(const char *name, int16_t *dbm)
     while (atomic_load(&block_read)) vTaskDelay(1);
     if (atomic_load(&fail_read)) return ESP_FAIL;
     *dbm = -110 + (device.config.frequency_hz / 125000) % 8; return ESP_OK;
+}
+
+const solar_os_app_t *solar_os_application_descriptor(void)
+{
+    return NULL;
+}
+
+static void test_native_scan(const solar_os_radio_scan_config_t *config)
+{
+    const solar_os_native_radio_scan_api_v1_t *api = solar_os_native_radio_scan_get_service(
+        SOLAR_OS_NATIVE_RADIO_SCAN_SERVICE, SOLAR_OS_NATIVE_RADIO_SCAN_ABI, sizeof(*api));
+    assert(api && api->struct_size == sizeof(*api));
+    solar_os_native_handle_t scan = 0;
+    assert(api->open("radio0", config, &scan) == SOLAR_OS_NATIVE_OK);
+    solar_os_native_radio_scan_snapshot_v1_t view;
+    uint64_t deadline = esp_timer_get_time() + 500000U;
+    do {
+        vTaskDelay(2);
+        assert(api->read(scan, &view) == SOLAR_OS_NATIVE_OK);
+    } while (!view.sweeps && (uint64_t)esp_timer_get_time() < deadline);
+    assert(view.sweeps && view.bins == 3 && view.rows && view.running && !view.error);
+    assert(!strcmp(view.name, "radio0") && view.levels[0] != SOLAR_OS_RADIO_SCAN_EMPTY);
+    assert(api->clear(scan) == SOLAR_OS_NATIVE_OK);
+    bool done = true;
+    assert(api->done(scan, &done) == SOLAR_OS_NATIVE_OK && !done);
+
+    atomic_store(&fail_release, true);
+    assert(api->stop(scan, &view) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(claimed && api->done(scan, &done) == SOLAR_OS_NATIVE_OK && done);
+    assert(api->close(scan) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    atomic_store(&fail_release, false);
+    /* Release the radio and report the earlier stop failure in the snapshot. */
+    assert(api->stop(scan, &view) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!view.running && view.error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!claimed && api->close(scan) == SOLAR_OS_NATIVE_OK);
+    assert(api->done(scan, &done) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!allocations);
+
+    fail_create = true;
+    atomic_store(&fail_release, true);
+    assert(api->open("radio0", config, &scan) == SOLAR_OS_NATIVE_ERROR_NO_MEMORY);
+    assert(scan && claimed && allocations == 2);
+    atomic_store(&fail_release, false);
+    fail_create = false;
+    assert(api->close(scan) == SOLAR_OS_NATIVE_OK && !claimed && !allocations);
 }
 
 int main(void)
@@ -174,6 +228,7 @@ int main(void)
     atomic_store(&block_read, false);
     assert(solar_os_radio_scan_worker_close(&worker, &view) == ESP_OK);
     assert(worker == NULL && !claimed && allocations == 0);
+    test_native_scan(&config);
     puts("radio scan worker: independent sampling, snapshots, failure rollback, timed stop and lifetime: ok");
     return 0;
 }

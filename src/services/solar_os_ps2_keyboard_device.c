@@ -140,6 +140,7 @@ static void emit_transition(solar_os_ps2_keyboard_device_t *device,
 static void ps2_keyboard_worker(void *arg)
 {
     solar_os_ps2_keyboard_device_t *device = arg;
+    const TickType_t poll = pdMS_TO_TICKS(PS2_KEYBOARD_POLL_MS);
     while (!device->stop_requested) {
         uint8_t bytes[SOLAR_OS_PS2_RX_BUFFER_SIZE];
         const size_t count = solar_os_ps2_bus_read(&device->bus,
@@ -157,7 +158,7 @@ static void ps2_keyboard_worker(void *arg)
                 device->unsupported++;
             }
         }
-        (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(PS2_KEYBOARD_POLL_MS));
+        vTaskDelay(poll ? poll : 1);
     }
 
     device->worker_done = true;
@@ -261,15 +262,15 @@ esp_err_t solar_os_ps2_keyboard_detach(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     device->stop_requested = true;
-    if (device->worker_task != NULL) {
-        (void)xTaskNotifyGive(device->worker_task);
-    }
     if (!solar_os_task_wait_done(device->worker_task,
                                  &device->worker_done,
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
         return ESP_ERR_TIMEOUT;
     }
+    device->worker_task = NULL;
 
+    const esp_err_t stopped = solar_os_ps2_bus_stop_checked(&device->bus);
+    if (stopped != ESP_OK) return stopped;
     solar_os_ps2_bus_stats_t stats;
     solar_os_ps2_bus_get_stats(&device->bus, &stats);
     ESP_LOGI(TAG,

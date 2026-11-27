@@ -112,15 +112,16 @@ esp_err_t solar_os_display_set_high_refresh_override(const char *name, bool enab
 #include "frame_fitting.inc"
 
 /* No host thread runs; suspension only releases the mocked task handle. */
+esp_err_t solar_os_frame_presenter_suspend_checked(solar_os_frame_presenter_t *presenter)
+{ presenter->task = NULL; return ESP_OK; }
 void solar_os_frame_presenter_suspend(solar_os_frame_presenter_t *presenter)
-{ presenter->task = NULL; }
+{ (void)solar_os_frame_presenter_suspend_checked(presenter); }
 
 static void check_fit(uint16_t width, uint16_t height, uint16_t output_width,
     uint16_t output_height, bool mono, solar_os_frame_fit_t fit)
 {
     uint16_t palette[256] = {[1] = 0xffff};
-    solar_os_frame_presenter_config_t config = {
-        .gfx = (solar_os_gfx_t *)&captured,
+    solar_os_frame_presenter_options_v1_t config = {
         .width = width, .height = height, .stride = width,
         .format = SOLAR_OS_DISPLAY_FORMAT_INDEX8,
         .palette_rgb565 = palette, .palette_size = 256,
@@ -130,7 +131,7 @@ static void check_fit(uint16_t width, uint16_t height, uint16_t output_width,
                             (prefer_mono ? SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT : 0U) :
                             SOLAR_OS_DISPLAY_FORMAT_INDEX8_BIT;
     solar_os_frame_presenter_t *p = NULL;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK);
     assert(p && p->task);
     assert(p->source_size == (size_t)width * height);
     assert(p->output_width == output_width && p->output_height == output_height);
@@ -169,15 +170,15 @@ static void check_runtime_rotation(void)
         display_formats = mono ? SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT :
             SOLAR_OS_DISPLAY_FORMAT_BIT(formats[f]);
         display_width = 400; display_height = 240;
-        solar_os_frame_presenter_config_t config = {
-            .gfx = (solar_os_gfx_t *)&captured, .format = formats[f],
+        solar_os_frame_presenter_options_v1_t config = {
+            .format = formats[f],
             .width = 320, .height = 240,
             .stride = frame_minimum_stride(formats[f], 320),
             .palette_rgb565 = palette, .palette_size = 256,
             .allow_mono_fallback = true,
         };
         solar_os_frame_presenter_t *p = NULL;
-        assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+        assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK);
         memset(p->presenting, 0, p->source_size);
         uint8_t *source = p->presenting;
         for (unsigned rotation = 0; rotation < 8; rotation++) {
@@ -219,10 +220,9 @@ int main(void)
     /* Native monochrome keeps every host-owned frame packed, including the
      * third buffer obtained by the zero-copy exchange API. */
     display_width=624;display_height=468;display_formats=SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
-    solar_os_frame_presenter_config_t packed={.gfx=(solar_os_gfx_t *)&captured,
-        .width=624,.height=468,.stride=78,.format=SOLAR_OS_DISPLAY_FORMAT_MONO1};
+    solar_os_frame_presenter_options_v1_t packed={.width=624,.height=468,.stride=78,.format=SOLAR_OS_DISPLAY_FORMAT_MONO1};
     solar_os_frame_presenter_t *compact=NULL;
-    assert(solar_os_frame_presenter_init(&compact,&packed)==ESP_OK);
+    assert(solar_os_frame_presenter_init(&compact, (solar_os_gfx_t *)&captured, &packed)==ESP_OK);
     uint8_t *compact_writing=NULL;size_t compact_bytes=0;
     assert(solar_os_frame_presenter_acquire(compact,&compact_writing,&compact_bytes)==ESP_OK);
     assert(compact_bytes==36504 && compact->source_size==36504 && compact->writing==compact_writing);
@@ -245,39 +245,39 @@ int main(void)
     panel_width=panel_height=0; display_width=400; display_height=300;
 
     uint16_t palette[256] = {0};
-    solar_os_frame_presenter_config_t config = {
-        .gfx = (solar_os_gfx_t *)&captured, .width = 320, .height = 240, .stride = 320,
+    solar_os_frame_presenter_options_v1_t config = {
+        .width = 320, .height = 240, .stride = 320,
         .format = SOLAR_OS_DISPLAY_FORMAT_INDEX8,
         .palette_rgb565 = palette, .palette_size = 256,
         .fit = SOLAR_OS_FRAME_FIT_HEIGHT, .allow_mono_fallback = true,
     };
     solar_os_frame_presenter_t *p = NULL;
     config.width = 0;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     config.width = 320; config.height = 0;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     config.height = 240; config.stride = 319;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     config.stride = 320; display_width = 0;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     display_width = 384; display_height = 0;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     display_height = 168;
     config.fit = SOLAR_OS_FRAME_FIT_DEFAULT;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK);
     assert(p->output_width == 224 && p->output_height == 168);
     assert(solar_os_frame_presenter_deinit(p) == ESP_OK); p = NULL;
     config.fit = SOLAR_OS_FRAME_FIT_HEIGHT; config.width = 1; config.height = UINT16_MAX;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_NOT_SUPPORTED && !p);
 
     config.width = 320; config.height = 240;
     fail_task_creation = true;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NO_MEM);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_NO_MEM);
     assert(p && !p->task);
     assert(solar_os_frame_presenter_deinit(p) == ESP_OK);
     p = NULL;
     fail_task_creation = false;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK);
     uint8_t *writing = (void *)1;
     size_t bytes = 1;
     fail_allocation = true;
@@ -337,6 +337,14 @@ int main(void)
     assert(p->output_width == 168 && p->output_height == 126);
     assert(frame_present(p) == ESP_OK);
     solar_os_frame_presenter_suspend(p);
+    assert(solar_os_frame_presenter_release(p, p->presenting) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_frame_presenter_release(p, writing) == ESP_OK);
+    assert(solar_os_frame_presenter_release(p, writing) == ESP_ERR_INVALID_STATE);
+    assert(solar_os_frame_presenter_resume(p) == ESP_OK);
+    uint8_t *copy = calloc(1, bytes);
+    assert(copy && solar_os_frame_presenter_submit(p, copy, bytes));
+    free(copy);
+    solar_os_frame_presenter_suspend(p);
     display_width = 0;
     assert(solar_os_frame_presenter_resume(p) == ESP_ERR_NOT_SUPPORTED);
     assert(!p->task);
@@ -346,15 +354,15 @@ int main(void)
      * opt-in; a target supporting both formats always takes the direct path. */
     display_width = 64; display_height = 48;
     display_formats = SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
-    config = (solar_os_frame_presenter_config_t){
-        .gfx = (solar_os_gfx_t *)&captured, .format = SOLAR_OS_DISPLAY_FORMAT_RGB565,
+    config = (solar_os_frame_presenter_options_v1_t){
+        .format = SOLAR_OS_DISPLAY_FORMAT_RGB565,
         .width = 64, .height = 48, .stride = 128,
         .fit = SOLAR_OS_FRAME_FIT_HEIGHT,
     };
     p = NULL;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_NOT_SUPPORTED && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_NOT_SUPPORTED && !p);
     config.allow_mono_fallback = true;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK && p->mono_fallback);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK && p->mono_fallback);
     assert(solar_os_frame_presenter_acquire(p, &writing, &bytes) == ESP_OK);
     memset(writing, 0xff, bytes);
     assert(solar_os_frame_presenter_exchange(p, &writing) == ESP_OK);
@@ -372,9 +380,9 @@ int main(void)
     display_formats = SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT | SOLAR_OS_DISPLAY_FORMAT_MONO1_BIT;
     p = NULL;
     config.stride = 127;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_ERR_INVALID_ARG && !p);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_ERR_INVALID_ARG && !p);
     config.stride = 128;
-    assert(solar_os_frame_presenter_init(&p, &config) == ESP_OK);
+    assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config) == ESP_OK);
     assert(!p->mono_fallback && !p->mono);
     assert(solar_os_frame_presenter_acquire(p, &writing, &bytes) == ESP_OK);
     assert(bytes == 64 * 48 * 2);
@@ -391,7 +399,7 @@ int main(void)
     fullscreen_test=true;display_width=display_height=291;
     panel_width=panel_height=412;display_formats=SOLAR_OS_DISPLAY_FORMAT_RGB565_BIT;
     config.width=config.height=412;config.stride=824;config.fullscreen=true;
-    p=NULL;assert(solar_os_frame_presenter_init(&p,&config)==ESP_OK);
+    p=NULL;assert(solar_os_frame_presenter_init(&p, (solar_os_gfx_t *)&captured, &config)==ESP_OK);
     assert(frame_present_current_output(p)==ESP_OK);
     assert(captured.source_width==412&&captured.width==412&&signed_x==-60&&signed_y==-60);
     assert(display_width==291&&display_height==291);

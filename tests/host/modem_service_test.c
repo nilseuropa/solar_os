@@ -2,10 +2,15 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "nvs.h"
 #include "solar_os_modem.h"
+#include "solar_os_native_device.h"
+#include "solar_os_native_modem_provider.h"
+#include "solar_os_native_runtime.h"
+#include "solar_os_memory.h"
 
 typedef struct {
     solar_os_modem_profile_t profile;
@@ -257,8 +262,89 @@ static const solar_os_modem_ops_t always_on_ops = {
     .get_status = fake_get_status,
 };
 
+static const solar_os_native_modem_provider_api_v1_t *provider;
+static solar_os_native_handle_t native_modem;
+static unsigned library_pins, restore_calls, allocations;
+
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t kind, const char *tag)
+{
+    assert(kind == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && tag);
+    void *pointer = calloc(count, size);
+    if (pointer) ++allocations;
+    return pointer;
+}
+
+void solar_os_memory_free(void *pointer)
+{
+    if (pointer) {
+        assert(allocations);
+        --allocations;
+        free(pointer);
+    }
+}
+
+int solar_os_native_library_retain(solar_os_native_handle_t lease, solar_os_native_handle_t *out)
+{
+    assert(lease == 123);
+    ++library_pins;
+    *out = 456;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+int solar_os_native_library_release(solar_os_native_handle_t lease)
+{
+    assert(lease == 456 && library_pins);
+    --library_pins;
+    return SOLAR_OS_NATIVE_OK;
+}
+
+static int native_status(void *user, solar_os_native_modem_status_v1_t *status)
+{
+    assert(library_pins == 1 && native_modem);
+    assert(provider->close(native_modem) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    return fake_get_status(user, status);
+}
+
+static int native_restore_rate(void *user, uint32_t rate)
+{
+    ++restore_calls;
+    assert(library_pins == 1 && solar_os_modem_unregister("modem0") == ESP_ERR_INVALID_STATE);
+    return fake_set_transport_rate(user, rate);
+}
+
+static void test_native_provider(const solar_os_native_modem_api_v1_t *modem, fake_modem_t *fake)
+{
+    provider = solar_os_native_modem_provider_get_service(SOLAR_OS_NATIVE_MODEM_PROVIDER_SERVICE, 1, sizeof(*provider));
+    assert(provider);
+    solar_os_native_modem_registration_v1_t in = {
+        .name = "modem0", .driver = "native", .transport = "uart0", .user = fake,
+        .operations = {.status = native_status, .get_transport_rate = fake_get_transport_rate,
+                       .set_transport_rate = native_restore_rate},
+    };
+    assert(provider->register_modem(&in, &native_modem) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!native_modem && !allocations && !library_pins);
+    in.library_lease = 123;
+    fake->try_unregister = false;
+    assert(!provider->register_modem(&in, &native_modem));
+    assert(restore_calls == 1 && library_pins == 1 && native_modem && fake->configured_transport_rate == 230400U);
+    assert(solar_os_modem_unregister_owned(in.name, fake) == ESP_ERR_NOT_FOUND);
+    solar_os_native_modem_status_v1_t status;
+    assert(!modem->status(in.name, &status));
+    assert(modem->count() == 1 && !provider->close(native_modem));
+    assert(!modem->count() && !library_pins && !allocations);
+    assert(provider->close(native_modem) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+}
+
 int main(void)
 {
+    _Static_assert(sizeof(solar_os_modem_profile_t) == 260, "retain saved profile layout");
+    const solar_os_native_modem_api_v1_t *api = solar_os_native_device_get_service(
+        SOLAR_OS_NATIVE_MODEM_SERVICE, SOLAR_OS_NATIVE_MODEM_ABI, sizeof(*api));
+    assert(api && !api->count() && !api->label(UINT32_MAX, 0));
+    uint32_t parsed;
+    assert(!api->parse(SOLAR_OS_MODEM_LABEL_AUTH, "pap", &parsed) && parsed == SOLAR_OS_MODEM_AUTH_PAP);
+    assert(api->parse(SOLAR_OS_MODEM_LABEL_AUTH, "invalid", &parsed) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!strcmp(api->label(SOLAR_OS_MODEM_LABEL_IP_TYPE, SOLAR_OS_MODEM_IP_IPV6), "ipv6"));
     solar_os_modem_profile_t profile = {
         .apn = "5g.vodafone.iot",
         .ip_type = SOLAR_OS_MODEM_IP_IPV4V6,
@@ -303,9 +389,11 @@ int main(void)
         .powered = true,
     };
     assert(solar_os_modem_register(&registration) == ESP_OK);
-    assert(solar_os_modem_count() == 1U);
+    assert(solar_os_modem_count() == 1U && api->count() == 1U);
     solar_os_modem_info_t info;
-    assert(solar_os_modem_get(0U, &info));
+    assert(!api->info(0, &info));
+    assert(api->info(1, &info) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(api->set_active("modem0", UINT32_MAX, true) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
     assert(strcmp(info.name, "modem0") == 0);
     assert(strcmp(info.driver, "fake") == 0);
     assert(info.power_control && info.powered && info.reset_control);
@@ -334,15 +422,15 @@ int main(void)
 
     assert(solar_os_modem_profile_get("modem0", &profile) ==
            ESP_ERR_NOT_FOUND);
-    assert(solar_os_modem_profile_set("modem0", &profile) == ESP_OK);
+    assert(!api->profile_write("modem0", &profile));
     assert(fake.apply_count == 1U);
     solar_os_modem_profile_t loaded;
-    assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_OK);
+    assert(!api->profile_read("modem0", &loaded));
     assert(strcmp(loaded.apn, profile.apn) == 0);
     assert(strcmp(loaded.dns, profile.dns) == 0);
     assert(loaded.ip_type == SOLAR_OS_MODEM_IP_IPV4V6);
 
-    assert(solar_os_modem_set_data_active("modem0", true) == ESP_OK);
+    assert(!api->set_active("modem0", SOLAR_OS_MODEM_PACKET_DATA, true));
     assert(fake.apply_count == 2U);
     assert(fake.data_count == 1U && fake.data_active);
     assert(solar_os_modem_set_data_active("modem0", false) == ESP_OK);
@@ -360,7 +448,7 @@ int main(void)
 
     assert(solar_os_modem_reset("modem0") == ESP_OK);
     assert(fake.reset_count == 1U);
-    assert(solar_os_modem_set_power("modem0", false) == ESP_OK);
+    assert(!api->set_active("modem0", SOLAR_OS_MODEM_SUPPLY, false));
     assert(fake.power_count == 1U && !fake.powered);
     assert(solar_os_modem_get(0U, &info));
     assert(info.power_control && !info.powered);
@@ -383,7 +471,7 @@ int main(void)
     assert(solar_os_modem_reset("modem0") == ESP_OK);
     assert(fake.reset_count == 2U);
 
-    assert(solar_os_modem_profile_clear("modem0") == ESP_OK);
+    assert(!api->profile_write("modem0", NULL));
     assert(fake.clear_count == 1U);
     assert(solar_os_modem_profile_get("modem0", &loaded) == ESP_ERR_NOT_FOUND);
     assert(solar_os_modem_unregister("modem0") == ESP_OK);
@@ -435,6 +523,7 @@ int main(void)
                       SOLAR_OS_MODEM_NETWORK_CONNECTING),
                   "connecting") == 0);
 
-    puts("Modem service registry/profile tests: ok");
+    test_native_provider(api, &fake);
+    puts("Modem service registry/profile and native lifetimes: ok");
     return 0;
 }

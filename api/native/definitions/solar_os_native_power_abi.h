@@ -1,0 +1,85 @@
+#pragma once
+#include "solar_os_native_service_abi.h"
+#define SOLAR_OS_NATIVE_POWER_SERVICE "power"
+#define SOLAR_OS_NATIVE_POWER_ABI 1U
+typedef enum {
+    SOLAR_OS_NATIVE_POWER_PERFORMANCE = 0,
+    SOLAR_OS_NATIVE_POWER_BALANCED = 1,
+    SOLAR_OS_NATIVE_POWER_BATTERY = 2,
+    SOLAR_OS_NATIVE_POWER_LOWPOWER = 3,
+} solar_os_native_power_profile_v1_t;
+typedef enum {
+    SOLAR_OS_NATIVE_POWER_KEY_OFF = 0,
+    SOLAR_OS_NATIVE_POWER_KEY_SLEEP = 1,
+    SOLAR_OS_NATIVE_POWER_KEY_SUSPEND = 2,
+    SOLAR_OS_NATIVE_POWER_KEY_DEEPSLEEP = 3,
+    SOLAR_OS_NATIVE_POWER_KEY_BLE_PAIR = 4,
+    SOLAR_OS_NATIVE_POWER_KEY_ENTER = 5,
+    SOLAR_OS_NATIVE_POWER_KEY_APP_EXIT = 6,
+    SOLAR_OS_NATIVE_POWER_KEY_DEFAULT = 7,
+    SOLAR_OS_NATIVE_POWER_KEY_SHUTDOWN = 8,
+} solar_os_native_power_key_action_v1_t;
+typedef enum {
+    SOLAR_OS_NATIVE_WAKE_UNDEFINED = 0,
+    SOLAR_OS_NATIVE_WAKE_EXT0 = 1,
+    SOLAR_OS_NATIVE_WAKE_EXT1 = 2,
+    SOLAR_OS_NATIVE_WAKE_TIMER = 3,
+    SOLAR_OS_NATIVE_WAKE_TOUCHPAD = 4,
+    SOLAR_OS_NATIVE_WAKE_ULP = 5,
+    SOLAR_OS_NATIVE_WAKE_GPIO = 6,
+    SOLAR_OS_NATIVE_WAKE_UART = 7,
+    SOLAR_OS_NATIVE_WAKE_UART1 = 8,
+    SOLAR_OS_NATIVE_WAKE_UART2 = 9,
+    SOLAR_OS_NATIVE_WAKE_WIFI = 10,
+    SOLAR_OS_NATIVE_WAKE_COCPU = 11,
+    SOLAR_OS_NATIVE_WAKE_COCPU_TRAP = 12,
+    SOLAR_OS_NATIVE_WAKE_BT = 13,
+    SOLAR_OS_NATIVE_WAKE_VAD = 14,
+    SOLAR_OS_NATIVE_WAKE_VBAT_UNDER_VOLT = 15,
+    SOLAR_OS_NATIVE_WAKE_USB = 16,
+    SOLAR_OS_NATIVE_WAKE_UNKNOWN = 17,
+} solar_os_native_wakeup_v1_t;
+typedef enum {
+    SOLAR_OS_NATIVE_SHUTDOWN_WAKE = 0,
+    SOLAR_OS_NATIVE_SHUTDOWN_PORTS = 1,
+    SOLAR_OS_NATIVE_SHUTDOWN_APPS = 2,
+    SOLAR_OS_NATIVE_SHUTDOWN_JOBS = 3,
+    SOLAR_OS_NATIVE_SHUTDOWN_RADIOS = 4,
+    SOLAR_OS_NATIVE_SHUTDOWN_STORAGE = 5,
+    SOLAR_OS_NATIVE_SHUTDOWN_DISPLAY = 6,
+    SOLAR_OS_NATIVE_SHUTDOWN_POWER = 7,
+    SOLAR_OS_NATIVE_SHUTDOWN_COMPLETE = 8,
+} solar_os_native_shutdown_stage_v1_t;
+typedef struct {
+    uint32_t initialized, profile, effective_profile, key_action, key_long_action;
+    uint32_t idle_sleep_ms, cpu_min_mhz, cpu_max_mhz, automatic_light_sleep;
+    uint32_t explicit_sleep_active, suspend_active, automatic_light_sleep_holdoff_ms, pm_configured;
+    int32_t pm_last_error;
+    uint32_t bt_sleep_enabled;
+    int32_t bt_sleep_last_error;
+    uint32_t light_sleep_count, last_activity_ms, last_sleep_duration_ms, last_wakeup_cause;
+    uint64_t last_wakeup_ext1;
+} solar_os_native_power_status_v1_t;
+typedef struct { uint32_t requested, stage; int32_t error; } solar_os_native_shutdown_status_v1_t;
+/* Settings use the OS persistence policy. off cuts power through the board's
+ * registered provider; request_shutdown instead asks the runtime to complete
+ * its ordered cleanup. No callback or pointer is retained by these methods. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*status)(solar_os_native_power_status_v1_t *status);
+    int (*set_profile)(uint32_t profile);
+    int (*set_idle_sleep_ms)(uint32_t interval_ms);
+    int (*set_key_action)(uint32_t action);
+    int (*set_key_long_action)(uint32_t action);
+    int (*hold_automatic_light_sleep)(uint32_t duration_ms);
+    void (*note_activity)(uint32_t now_ms);
+    bool (*should_idle_sleep)(uint32_t now_ms);
+    int (*off)(void);
+    int (*request_shutdown)(void);
+    int (*shutdown_status)(solar_os_native_shutdown_status_v1_t *status);
+    const char *(*profile_name)(uint32_t profile);
+    int (*parse_profile)(const char *name, uint32_t *profile);
+    const char *(*key_action_name)(uint32_t action);
+    int (*parse_key_action)(const char *name, uint32_t *action);
+    const char *(*shutdown_stage_name)(uint32_t stage);
+} solar_os_native_power_api_v1_t;

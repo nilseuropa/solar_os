@@ -14,7 +14,7 @@ FIXTURE = ROOT / "tests/fixtures/usb_host_hid_transfers_1_2_1.c"
 
 
 def function(source, name):
-    match = re.search(r"^(?:static )?(?:esp_err_t|void) " + name
+    match = re.search(r"^(?:static )?(?:esp_err_t|size_t|void) " + name
                       + r"\([^;]*?\n\{.*?^\}", source, re.M | re.S)
     assert match, name
     return match.group()
@@ -27,6 +27,7 @@ def run_c(source):
         result = subprocess.run(
             ["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
              "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/drivers"),
+             "-I", str(ROOT / "include"),
              str(path / "test.c"), "-o", str(path / "test")],
             capture_output=True, text=True)
         if result.returncode:
@@ -335,6 +336,7 @@ typedef struct { uint16_t VID, PID; } hid_host_dev_info_t;
 typedef struct { void (*callback)(void); void *callback_arg; } hid_host_device_config_t;
 typedef struct { hid_host_device_handle_t handle; usb_host_port_interface_t info; solar_os_usb_hid_joystick_layout_t joystick_layout; bool close_pending; } usb_interface_t;
 static usb_interface_t interfaces[USB_HOST_PORT_INTERFACE_MAX];
+static const void *guard = interfaces;
 static atomic_bool stop_worker;
 static hid_host_dev_params_t params;
 static esp_err_t set_error, report_set_error, idle_error, query_error, start_error, close_error;
@@ -410,7 +412,7 @@ static esp_err_t input_callback(usb_host_port_event_t event,
     if (event == USB_HOST_PORT_CLOSE) closed++;
     return ESP_OK;
 }
-''' + function(source, "open_interface") + r'''
+''' + function(source, "open_interface") + "\n" + function(source, "usb_host_port_interfaces") + r'''
 static void reset(uint8_t protocol) {
     memset(interfaces, 0, sizeof(interfaces));
     params = (hid_host_dev_params_t){1, 1, HID_SUBCLASS_BOOT_INTERFACE, protocol};
@@ -436,6 +438,11 @@ int main(void) {
     assert(interfaces[0].info.ready && starts == 1 && interfaces[0].info.report_protocol == 0xff);
     assert(interfaces[0].info.idle_error == ESP_ERR_NOT_SUPPORTED);
     assert(interfaces[0].info.protocol_error == ESP_ERR_NOT_SUPPORTED);
+    solar_os_usb_interface_status_t status;
+    assert(usb_host_port_interfaces(&status, 0) == 0);
+    assert(usb_host_port_interfaces(&status, 1) == 1);
+    assert(status.address == 1 && status.interface == 1 && status.vendor_id == 0x1234);
+    assert(status.ready && status.protocol_error == ESP_ERR_NOT_SUPPORTED);
     reset(HID_PROTOCOL_MOUSE); set_error = ESP_ERR_NOT_SUPPORTED;
     open_interface(&params);
     assert(!interfaces[0].info.ready && starts == 0 && opened == 0 && idle_calls == 0);

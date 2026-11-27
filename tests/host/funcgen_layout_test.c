@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esp_err.h"
+#include "solar_os_native_client_ui.h"
 
 #include "controls.inc"
 enum { SOLAR_OS_GFX_COLOR_WHITE, SOLAR_OS_GFX_COLOR_BLACK };
@@ -13,10 +14,8 @@ enum {
     SOLAR_OS_GFX_FONT_BITMAP_8, SOLAR_OS_GFX_FONT_MONO_12,
     SOLAR_OS_GFX_FONT_BOLD_12, SOLAR_OS_GFX_FONT_BOLD_14, SOLAR_OS_GFX_FONT_BOLD_20,
 };
-enum { SOLAR_OS_TUI_ATTR_NORMAL, SOLAR_OS_TUI_ATTR_BOLD, SOLAR_OS_TUI_ATTR_INVERSE };
 typedef struct { int width, height, font; } solar_os_gfx_t;
 typedef struct { size_t rows, cols; } solar_os_tui_t;
-typedef struct { size_t cursor, top; } solar_os_tui_viewport_t;
 typedef struct { solar_os_gfx_t *gfx; } solar_os_context_t;
 typedef struct { bool running; char playback_stream[48]; uint32_t sample_rate; } solar_os_synth_status_t;
 static struct {
@@ -96,7 +95,7 @@ static void solar_os_gfx_line(solar_os_gfx_t *gfx, int x, int y, int x1, int y1)
     bounds(gfx, (box_t){x, y, 1, 1}); bounds(gfx, (box_t){x1, y1, 1, 1});
     if (trace) fprintf(trace, "LINE %d %d %d %d\n", x, y, x1, y1);
 }
-static void solar_os_oscilloscope_widget_draw(void *scope, solar_os_gfx_t *gfx, int x, int y, int width, int height)
+static void solar_os_signal_widget_draw(void *scope, solar_os_gfx_t *gfx, int x, int y, int width, int height)
 {
     (void)scope; scope_box = (box_t){x, y, width, height}; bounds(gfx, scope_box); scopes++;
     for (size_t i = 0; i < texts; i++) assert(!overlap(scope_box, text_boxes[i]));

@@ -8,8 +8,6 @@
 #include "solar_os_module_packages.h"
 
 #define SOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES 1
-#define SOLAR_OS_KEY_APP_EXIT 0x91
-#define SOLAR_OS_KEY_ESCAPE 0x1b
 #define SOLAR_OS_SHELL_IO_KIND_PORT 2
 #define PKG_NETWORK_WAIT_MS 50U
 #define pdMS_TO_TICKS(n) (n)
@@ -17,6 +15,8 @@ typedef struct { int kind; int port; } solar_os_shell_io_t;
 typedef struct { int code; } solar_os_shell_session_t;
 typedef struct { solar_os_shell_session_t *shell_session; bool exit_requested; } solar_os_context_t;
 static solar_os_shell_io_t io;
+static solar_os_module_package_t packages[1];
+static solar_os_module_upgrade_entry_t entries[1];
 static solar_os_module_catalog_t catalog;
 static solar_os_module_upgrade_plan_t plan;
 static char output[8192], input[64];
@@ -45,11 +45,11 @@ static esp_err_t solar_os_shell_io_write(solar_os_shell_io_t *term, const char *
 #define solar_os_shell_io_printf emit
 #define solar_os_shell_io_table_printf emit
 static const char *solar_os_shell_io_app_exit_key(solar_os_shell_io_t *term) { (void)term; return "Ctrl+]"; }
-static int solar_os_shell_io_kind(solar_os_shell_io_t *term) { return term->kind; }
-static bool solar_os_port_handle_valid(int *port) { (void)port; return !disconnected; }
+static int solar_os_shell_io_kind(const solar_os_shell_io_t *term) { return term->kind; }
+static bool solar_os_port_handle_valid(const int *port) { (void)port; return !disconnected; }
 static size_t read_input(uint8_t *bytes, size_t capacity)
 { size_t n = input_count - input_at; if (n > capacity) n = capacity; memcpy(bytes, input + input_at, n); input_at += n; return n; }
-static esp_err_t solar_os_port_read(int *port, uint8_t *bytes, size_t n, unsigned timeout, size_t *count)
+static esp_err_t solar_os_port_read(const int *port, uint8_t *bytes, size_t n, unsigned timeout, size_t *count)
 { (void)port; (void)timeout; if (disconnected) return ESP_FAIL; *count = read_input(bytes, n); return ESP_OK; }
 static size_t solar_os_input_read_chars(char *bytes, size_t n) { return read_input((uint8_t *)bytes, n); }
 static void vTaskDelay(unsigned ticks) { (void)ticks; assert(!"confirmation unexpectedly waited for input"); }
@@ -99,6 +99,8 @@ static void reset(const char *keys)
     unloads = 0; loaded_type = SOLAR_OS_MODULE_TYPE_INVALID;
     disconnected = saved_failure = false; fetch_error = plan_error = check_error = apply_error = ESP_OK;
     memset(&catalog, 0, sizeof(catalog)); memset(&plan, 0, sizeof(plan));
+    catalog.packages = packages; plan.entries = entries;
+    memset(packages, 0, sizeof(packages)); memset(entries, 0, sizeof(entries));
     catalog.count = 1; catalog.packages[0].type = SOLAR_OS_MODULE_TYPE_LIBRARY;
     strcpy(catalog.packages[0].id, "jet"); strcpy(catalog.packages[0].version, "1.12.0");
     plan.catalog = &catalog; plan.count = 1; plan.download_bytes = 100;

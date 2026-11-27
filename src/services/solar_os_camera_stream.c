@@ -87,8 +87,7 @@ esp_err_t solar_os_camera_stream_register(const char *name)
     return solar_os_camera_stream_register_config(name, &config);
 }
 
-esp_err_t solar_os_camera_stream_register_config(const char *name,
-                                                  const solar_os_camera_config_t *config)
+esp_err_t solar_os_camera_stream_register_owned(const char *name, const solar_os_camera_config_t *config, void *owner)
 {
     if (config == NULL || name == NULL || name[0] == '\0' ||
         strnlen(name, SOLAR_OS_STREAM_DEVICE_MAX) >= SOLAR_OS_STREAM_DEVICE_MAX) {
@@ -104,12 +103,22 @@ esp_err_t solar_os_camera_stream_register_config(const char *name,
                       .width = config->width, .height = config->height,
                       .jpeg_quality = config->jpeg_quality},
         },
-        .open = camera_open, .close_checked = camera_close,
+        .open = camera_open, .close_checked = camera_close, .user = owner,
         .acquire_frame = camera_acquire_frame, .release_frame = camera_release_frame,
     };
     strlcpy(driver.info.id, name, sizeof(driver.info.id));
     strlcpy(driver.info.device, name, sizeof(driver.info.device));
     return solar_os_stream_register(&driver);
+}
+
+esp_err_t solar_os_camera_stream_register_config(const char *name, const solar_os_camera_config_t *config)
+{
+    return solar_os_camera_stream_register_owned(name, config, NULL);
+}
+
+esp_err_t solar_os_camera_stream_unregister_owned(const char *name, const void *owner)
+{
+    return solar_os_stream_unregister_many_owned(&name, &owner, 1);
 }
 
 esp_err_t solar_os_camera_stream_unregister(const char *name)

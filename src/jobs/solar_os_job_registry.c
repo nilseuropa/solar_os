@@ -1,7 +1,6 @@
 #include "solar_os_job_registry.h"
 
 #include <stddef.h>
-#include <string.h>
 
 #include "solar_os_config.h"
 #if SOLAR_OS_PACKAGE_JOB_MODEL_UPLOAD
@@ -238,20 +237,4 @@ const solar_os_job_registry_entry_t *solar_os_job_registry_get(size_t index)
     }
 
     return &registered_jobs[index];
-}
-
-const solar_os_job_registry_entry_t *solar_os_job_registry_find(const char *name)
-{
-    if (name == NULL) {
-        return NULL;
-    }
-
-    for (size_t i = 0; i < registered_job_count; i++) {
-        if (registered_jobs[i].name != NULL &&
-            strcmp(registered_jobs[i].name, name) == 0) {
-            return &registered_jobs[i];
-        }
-    }
-
-    return NULL;
 }

@@ -6,6 +6,11 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 
+_Static_assert(sizeof(((solar_os_midi_status_t *)0)->bus_name) == SOLAR_OS_BUS_NAME_MAX,
+               "MIDI bus name capacity");
+_Static_assert(sizeof(((solar_os_midi_cc_stream_info_t *)0)->id) == SOLAR_OS_STREAM_ID_MAX,
+               "MIDI stream ID capacity");
+
 #define SOLAR_OS_MIDI_SUBSCRIBER_MAX 4U
 #define SOLAR_OS_MIDI_RX_QUEUE_DEPTH 32U
 #define SOLAR_OS_MIDI_TX_QUEUE_DEPTH 32U
@@ -37,6 +42,7 @@ static size_t midi_tx_count;
 static solar_os_midi_status_t midi_status;
 static SemaphoreHandle_t midi_mutex;
 static StaticSemaphore_t midi_mutex_buffer;
+static portMUX_TYPE midi_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint32_t midi_next_token;
 
 static esp_err_t midi_ensure_mutex(void);
@@ -93,10 +99,11 @@ static esp_err_t midi_cc_stream_read_scalar(
 
 static esp_err_t midi_ensure_mutex(void)
 {
-    if (midi_mutex == NULL) {
-        midi_mutex = xSemaphoreCreateMutexStatic(&midi_mutex_buffer);
-    }
-    return midi_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    portENTER_CRITICAL(&midi_init_lock);
+    if (!midi_mutex) midi_mutex = xSemaphoreCreateMutexStatic(&midi_mutex_buffer);
+    const bool ready = midi_mutex != NULL;
+    portEXIT_CRITICAL(&midi_init_lock);
+    return ready ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static uint32_t midi_allocate_token(void)

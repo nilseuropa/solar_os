@@ -27,6 +27,7 @@ class Ili9488Test(unittest.TestCase):
                 '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                 '-I' + str(ROOT / 'tests/host/epd_stubs'),
                 '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/drivers'),
+                '-I' + str(ROOT / 'include'),
                 '-I' + str(ROOT / 'src/services'),
                 '-I' + str(ROOT / 'components/u8g2/src/clib'),
                 str(path), '-o', str(binary),

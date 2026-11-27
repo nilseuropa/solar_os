@@ -62,6 +62,21 @@ more controls.
 | Tab | Complete a command, subcommand, or path. |
 | Tab twice | List matching completions; at an empty prompt, list commands. |
 
+## In application text fields
+
+Shared text fields, including WebRadio channel details, RTSP stream details and
+Recorder filenames, use the same editing keys in terminal and graphical views.
+Fields accept UTF-8 text and keep the insertion cursor visible while scrolling.
+
+| Key | Action |
+| --- | --- |
+| Left / Right | Move one character. |
+| Ctrl+Left / Ctrl+Right | Move one word. |
+| Home / End | Move to the beginning or end. |
+| Backspace / Delete | Delete before / at the cursor. |
+| Enter | Confirm the field or continue to the next field. |
+| Escape | Cancel the dialog. |
+
 ## LilyGO T-LoRa-Pager (T-Pager)
 
 | Control | Action |
@@ -83,6 +98,19 @@ Use a custom keyboard profile or a compatible external keyboard for those
 keys, horizontal launcher navigation, and the usual session-switch and
 app-close combinations. You can also launch apps by typing their command
 names. Space+Enter remains Escape rather than the universal app-close key.
+
+### Optional navigation override
+
+The source tree includes an opt-in mapping at
+`keymaps/overrides/lilygo-pager-custom.json`. Copy it to device storage and
+load it with `input keymap keyboard0 load <path>` to move symbols to the left
+yellow key and add a Space-held navigation layer: H/J/K/L give
+Left/Down/Up/Right, Q/E give Home/End, A gives Tab, Z gives Left Alt, I/O/P
+give `(`, `)` and `|`, Backspace gives Delete, and Enter gives Escape.
+A plain Space tap still types a space. If both layer keys are held, the first
+one pressed wins. This override is not part of the shipped default;
+`input keymap keyboard0 reset` restores the standard Pager profile. See
+[source keymaps](input.keymap.md) for runtime and compiled override options.
 
 ## LilyGO T-Deck Plus
 

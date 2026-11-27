@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#define SOLAR_OS_FTP_NAME_MAX 64
+#define SOLAR_OS_REMOTE_FILE_NAME_MAX 96
 #define SOLAR_OS_STORAGE_PATH_MAX 128
 static struct { int tui; bool show_hidden; } ftp_app;
 static size_t rows = 20;

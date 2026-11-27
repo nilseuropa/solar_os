@@ -13,7 +13,7 @@
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER
 #include "solar_os_sc2_provider.h"
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
 #include "solar_os_sc2_sync.h"
 #endif
 #endif
@@ -114,7 +114,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (usb_err != ESP_OK) {
         SOLAR_OS_LOGW(TAG, "USB unavailable: %s", esp_err_to_name(usb_err));
     }
-#else
+#elif SOLAR_OS_PACKAGE_SERVICE_USB_CDC
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC)) {
         const esp_err_t cdc_err =
 #if SOLAR_OS_BOARD_USB_DEFAULT_OFF
@@ -130,7 +130,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (solar_os_board_has(SOLAR_OS_BOARD_CAP_CDC) && !SOLAR_OS_BOARD_USB_DEFAULT_OFF) {
 #if SOLAR_OS_PACKAGE_SERVICE_HID
         const esp_err_t hid_err = solar_os_hid_init();
-        if (hid_err != ESP_OK) {
+        if (hid_err != ESP_OK && hid_err != ESP_ERR_NOT_SUPPORTED) {
             SOLAR_OS_LOGW(TAG, "USB HID unavailable: %s", esp_err_to_name(hid_err));
         }
 #endif
@@ -231,7 +231,7 @@ void solar_os_boot_services_init(uint32_t now_ms)
     if (irc_err != ESP_OK) SOLAR_OS_LOGW(TAG, "IRC unavailable: %s", esp_err_to_name(irc_err));
 #endif
 
-#if SOLAR_OS_PACKAGE_JOB_SC2_SYNC
+#if SOLAR_OS_PACKAGE_SERVICE_SC2_RELAY
     solar_os_sc2_sync_install(); /* notify an already-running worker of instance changes */
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SC2_PROVIDER

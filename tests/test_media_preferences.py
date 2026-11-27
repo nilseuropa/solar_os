@@ -24,8 +24,8 @@ class MediaPreferencesTest(unittest.TestCase):
                 "-include", str(ROOT / "tests/host/compat.h"),
                 f"-I{ROOT / 'tests/host/media_preferences_stubs'}", f"-I{ROOT / 'tests/host'}",
                 f"-I{directory}",
-                f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}", "-idirafter", str(ROOT / "include"),
+                f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src/apps'}", "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/media_preferences_test.c"),
-                str(ROOT / "src/services/solar_os_media_preferences.c"), "-o", str(binary),
+                str(ROOT / "src/apps/solar_os_media_preferences.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

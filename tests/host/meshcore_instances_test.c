@@ -2,6 +2,10 @@
 #define main messaging_existing_tests_main
 #include "messaging_service_test.c"
 #undef main
+#include "solar_os_meshcore.h"
+#include "solar_os_meshcore_ble.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_meshcore.h"
 #include "../../src/services/solar_os_meshcore_instances.c"
 
 static bool legacy_name = true, legacy_public = true;
@@ -72,6 +76,119 @@ static void install(void)
 {
     solar_os_meshcore_backend_register(1, &fake_ops); solar_os_meshcore_backend_register(2, &fake_ops);
 }
+void solar_os_meshcore_install_backend(void) { solar_os_meshcore_backend_register(1, &fake_ops); }
+void solar_os_meshcore_ble_install_backend(void) { solar_os_meshcore_backend_register(2, &fake_ops); }
+
+esp_err_t solar_os_meshcore_get_status(solar_os_meshcore_status_t *status)
+{
+    *status = (solar_os_meshcore_status_t){.generation = solar_os_meshcore_current_id(), .last_error = ESP_ERR_TIMEOUT};
+    return ESP_OK;
+}
+
+esp_err_t solar_os_meshcore_ble_get_status(solar_os_meshcore_ble_status_t *status)
+{
+    *status = (solar_os_meshcore_ble_status_t){.state = SOLAR_OS_MESHCORE_BLE_ONLINE,
+        .received = solar_os_meshcore_current_id(), .last_error = ESP_ERR_TIMEOUT};
+    return ESP_OK;
+}
+
+const char *solar_os_meshcore_ble_state_name(solar_os_meshcore_ble_state_t state)
+{
+    return state == SOLAR_OS_MESHCORE_BLE_ONLINE ? "online" : "stopped";
+}
+
+esp_err_t solar_os_meshcore_name_get(char name[SOLAR_OS_MESHCORE_NAME_MAX + 1U])
+{
+    solar_os_meshcore_instance_config_t config;
+    esp_err_t error = solar_os_meshcore_current_config(&config);
+    if (error == ESP_OK) strlcpy(name, config.name, SOLAR_OS_MESHCORE_NAME_MAX + 1U);
+    return error;
+}
+
+esp_err_t solar_os_meshcore_name_set(const char *name) { return solar_os_meshcore_current_name_set(name); }
+esp_err_t solar_os_meshcore_channel_public_set(bool enabled) { return solar_os_meshcore_current_public_set(enabled); }
+esp_err_t solar_os_meshcore_identity_generate(bool force) { return force ? ESP_OK : ESP_ERR_INVALID_STATE; }
+esp_err_t solar_os_meshcore_identity_import(const char *hex) { return hex ? ESP_OK : ESP_ERR_INVALID_ARG; }
+
+esp_err_t solar_os_meshcore_identity_public(char out[SOLAR_OS_MESHCORE_PUBLIC_KEY_HEX_LEN])
+{
+    snprintf(out, SOLAR_OS_MESHCORE_PUBLIC_KEY_HEX_LEN, "%064lu", (unsigned long)solar_os_meshcore_current_id());
+    return ESP_OK;
+}
+
+esp_err_t solar_os_meshcore_identity_export_private(char out[SOLAR_OS_MESHCORE_PRIVATE_KEY_HEX_LEN])
+{
+    snprintf(out, SOLAR_OS_MESHCORE_PRIVATE_KEY_HEX_LEN, "%0128lu", (unsigned long)solar_os_meshcore_current_id());
+    return ESP_OK;
+}
+
+size_t solar_os_meshcore_channel_snapshot(solar_os_meshcore_channel_t *out, size_t capacity)
+{
+    if (!capacity) return 0;
+    *out = (solar_os_meshcore_channel_t){.id = solar_os_meshcore_current_id(), .enabled = true};
+    return 1;
+}
+
+esp_err_t solar_os_meshcore_channel_add(const char *name, const char *key)
+{
+    (void)key;
+    return name && *name ? ESP_OK : ESP_ERR_INVALID_ARG;
+}
+
+esp_err_t solar_os_meshcore_channel_remove(const char *name) { return solar_os_meshcore_channel_add(name, NULL); }
+esp_err_t solar_os_meshcore_request_advert(solar_os_meshcore_advert_t mode)
+{ return mode == SOLAR_OS_MESHCORE_ADVERT_FLOOD ? ESP_OK : ESP_ERR_INVALID_ARG; }
+
+static void verify_native_instances(solar_os_messaging_provider_id_t a, solar_os_messaging_provider_id_t b,
+    solar_os_messaging_provider_id_t companion)
+{
+    const solar_os_native_meshcore_radio_api_v1_t *radio =
+        solar_os_native_meshcore_radio_get(solar_os_native_meshcore_get_service, sizeof(*radio));
+    const solar_os_native_meshcore_ble_api_v1_t *ble =
+        solar_os_native_meshcore_ble_get(solar_os_native_meshcore_get_service, sizeof(*ble));
+    assert(radio && ble);
+    assert(!solar_os_native_meshcore_get_service("meshcore.radio", 2, sizeof(*radio)));
+    solar_os_messaging_provider_id_t cursor = 0;
+    solar_os_messaging_provider_status_t provider;
+    assert(radio->provider_next(&cursor, &provider) && cursor == a);
+    assert(radio->provider_next(&cursor, &provider) && cursor == b);
+    assert(!radio->provider_next(&cursor, &provider));
+    cursor = 0;
+    assert(ble->provider_next(&cursor, &provider) && cursor == companion);
+    assert(!ble->provider_next(&cursor, &provider));
+    solar_os_meshcore_status_t status;
+    assert(!radio->status(0, &status) && status.generation == a);
+    assert(!radio->status(b, &status) && status.generation == b && status.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(radio->status(companion, &status) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND && !selected_instance);
+    solar_os_meshcore_ble_status_t ble_status;
+    assert(!ble->status(companion, &ble_status) && ble_status.received == companion);
+    assert(ble_status.last_error == SOLAR_OS_NATIVE_ERROR_TIMEOUT && !strcmp(ble->state_name(ble_status.state), "online"));
+
+    char name[SOLAR_OS_MESHCORE_NAME_MAX + 1U];
+    assert(!radio->get_name(a, name, sizeof(name)) && !strcmp(name, "legacy"));
+    assert(!radio->set_name(b, "native-radio-b"));
+    assert(!radio->get_name(b, name, sizeof(name)) && !strcmp(name, "native-radio-b"));
+    assert(!radio->get_name(a, name, sizeof(name)) && !strcmp(name, "legacy"));
+    assert(!radio->channel_public_set(b, true) && !selected_instance);
+    solar_os_meshcore_channel_t channel;
+    size_t count;
+    assert(!radio->channels(b, &channel, 1, &count) && count == 1 && channel.id == b);
+    assert(radio->identity_export_private(b, name, sizeof(name)) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    char identity[SOLAR_OS_MESHCORE_PRIVATE_KEY_HEX_LEN];
+    assert(!radio->identity_export_private(b, identity, sizeof(identity)) && strlen(identity) == sizeof(identity) - 1);
+    assert(!radio->identity_public(b, identity, sizeof(identity)) && strlen(identity) == SOLAR_OS_MESHCORE_PUBLIC_KEY_HEX_LEN - 1);
+    assert(radio->identity_generate(b, false) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !selected_instance);
+    assert(!radio->identity_generate(b, true) && !radio->identity_import(b, identity));
+    assert(!radio->channel_add(b, "#test", NULL) && !radio->channel_remove(b, "#test"));
+    assert(!radio->advertise(b, SOLAR_OS_MESHCORE_ADVERT_FLOOD) && !selected_instance);
+
+    void *scope, *nested;
+    assert(!solar_os_meshcore_instance_begin(SOLAR_OS_MESHCORE_BACKEND_RADIO, a, &scope) && scope);
+    assert(solar_os_meshcore_instance_begin(SOLAR_OS_MESHCORE_BACKEND_RADIO, b, &nested) == ESP_ERR_INVALID_STATE && !nested);
+    assert(!solar_os_meshcore_instance_begin(SOLAR_OS_MESHCORE_BACKEND_RADIO, a, &nested) && !nested);
+    solar_os_meshcore_legacy_end(scope);
+    assert(!selected_instance);
+}
 static void assert_legacy_instance(unsigned kind, solar_os_messaging_provider_id_t id)
 {
     void *lease, *nested;
@@ -116,24 +233,25 @@ int main(void)
     const char *ble_args[] = {"ble", "01:02:03:04:05:06", "random", "123456"};
     assert(solar_os_messaging_instance_add("meshcore", "radio-b", 3, radio_args, &b) == ESP_OK);
     assert(solar_os_messaging_instance_add("meshcore", "companion", 4, ble_args, &companion) == ESP_OK);
+    verify_native_instances(a, b, companion);
     solar_os_messaging_settings_t form;
-    assert(solar_os_messaging_settings_read("meshcore", 0, 0, &form) == ESP_OK && form.count == 4);
+    assert(solar_os_messaging_settings_read("meshcore", 0, 0, &form) == ESP_OK && form.data.count == 4);
     assert(!strcmp(form.label, "MeshCore radio"));
-    assert(solar_os_messaging_settings_read("meshcore", 0, 1, &form) == ESP_OK && form.count == 5);
+    assert(solar_os_messaging_settings_read("meshcore", 0, 1, &form) == ESP_OK && form.data.count == 5);
     assert(!strcmp(form.label, "MeshCore BLE"));
     assert(solar_os_messaging_settings_read("meshcore", companion, 0, &form) == ESP_OK);
-    assert(form.present[2] && !form.values[2][0] && !strcmp(form.values[0], ble_args[1]));
+    assert(form.data.present[2] && !form.data.values[2][0] && !strcmp(form.data.values[0], ble_args[1]));
     assert(!strcmp(form.worker, "meshcore-ble"));
-    form.changed[3] = true; strlcpy(form.values[3], "edited", sizeof(form.values[3]));
+    form.data.changed[3] = true; strlcpy(form.data.values[3], "edited", sizeof(form.data.values[3]));
     solar_os_messaging_provider_id_t saved;
     assert(solar_os_messaging_settings_write("meshcore", companion, 0, NULL, &form, &saved) == ESP_OK && saved == companion);
     assert(solar_os_messaging_profile_load(companion, &config, sizeof(config)) == ESP_OK);
     assert(config.pin_supplied && config.pin == 123456 && !strcmp(config.name, "edited") && !config.enabled);
-    form.changed[2] = true; /* Explicit empty edit clears a saved PIN. */
+    form.data.changed[2] = true; /* Explicit empty edit clears a saved PIN. */
     assert(solar_os_messaging_settings_write("meshcore", companion, 0, NULL, &form, &saved) == ESP_OK);
     assert(solar_os_messaging_profile_load(companion, &config, sizeof(config)) == ESP_OK && !config.pin_supplied);
-    form.changed[2] = false; form.changed[4] = true;
-    strlcpy(form.values[4], "invalid", sizeof(form.values[4]));
+    form.data.changed[2] = false; form.data.changed[4] = true;
+    strlcpy(form.data.values[4], "invalid", sizeof(form.data.values[4]));
     assert(solar_os_messaging_settings_write("meshcore", companion, 0, NULL, &form, &saved) == ESP_ERR_INVALID_SIZE);
     solar_os_messaging_settings_clear(&form);
     assert_legacy_instance(1, a);

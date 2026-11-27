@@ -46,6 +46,8 @@ typedef struct {
 esp_err_t solar_os_ssh_start(const solar_os_ssh_config_t *config,
                              solar_os_ssh_session_t **session);
 bool solar_os_ssh_stop(solar_os_ssh_session_t *session);
+/* Strict ownership: timeout retains the session for another join attempt. */
+esp_err_t solar_os_ssh_stop_wait(solar_os_ssh_session_t *session, uint32_t timeout_ms);
 esp_err_t solar_os_ssh_send(solar_os_ssh_session_t *session, const char *data, size_t len);
 bool solar_os_ssh_poll(solar_os_ssh_session_t *session, solar_os_ssh_event_t *event);
 esp_err_t solar_os_ssh_hosts_visit(solar_os_ssh_host_visitor_t visitor, void *user);

@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "solar_os_graffiti.h"
+#include "solar_os_native_ui.h"
 
 static solar_os_graffiti_result_t recognize(
     void *context,
@@ -18,6 +19,9 @@ static solar_os_graffiti_result_t recognize(
 
 int main(void)
 {
+    const solar_os_native_gesture_api_v1_t *api = solar_os_native_ui_get_service(
+        SOLAR_OS_NATIVE_GESTURE_SERVICE, SOLAR_OS_NATIVE_GESTURE_ABI, sizeof(*api));
+    assert(api && api->graffiti_recognize == solar_os_graffiti_recognize);
     assert(solar_os_graffiti_zone_for_start(199, 300) ==
            SOLAR_OS_GRAFFITI_LETTERS);
     assert(solar_os_graffiti_zone_for_start(200, 300) ==
@@ -25,9 +29,13 @@ int main(void)
     assert(solar_os_graffiti_zone_for_start(299, 300) ==
            SOLAR_OS_GRAFFITI_NUMBERS);
 
-    void *context = calloc(1, solar_os_graffiti_context_size());
+    const size_t size = api->graffiti_context_size();
+    void *context = calloc(1, size + 1);
     assert(context != NULL);
-    assert(solar_os_graffiti_init(context, solar_os_graffiti_context_size()));
+    assert((uintptr_t)context % api->graffiti_context_alignment() == 0);
+    assert(!api->graffiti_init((char *)context + 1, size));
+    assert(!api->graffiti_init(context, size - 1));
+    assert(api->graffiti_init(context, size));
     assert(solar_os_graffiti_template_count() >= 50U);
 
     const solar_os_unistroke_point_t a[] = {{5, 95}, {50, 5}, {95, 95}};

@@ -6,51 +6,13 @@
 
 #include "esp_err.h"
 #include "solar_os_messaging_types.h"
+#include "solar_os_native_contacts_abi.h"
 
 #define SOLAR_OS_CONTACT_CAPACITY 512U
 #define SOLAR_OS_ENDPOINT_CAPACITY 576U
-#define SOLAR_OS_CONTACT_NAME_MAX 32U
-#define SOLAR_OS_CONTACT_PROVIDER_METADATA_MAX 48U
 #define SOLAR_OS_CONTACT_STORE_DIR ".contacts"
 #define SOLAR_OS_CONTACT_STORE_FILE "contacts.bin"
 #define SOLAR_OS_CONTACT_STORE_LIMIT_BYTES (192U * 1024U)
-
-typedef struct {
-    solar_os_contact_id_t id;
-    uint32_t flags;
-    uint64_t created_ms;
-    uint64_t updated_ms;
-    size_t endpoint_count;
-    solar_os_messaging_provider_id_t primary_provider;
-    solar_os_contact_trust_t primary_trust;
-    char display_name[SOLAR_OS_CONTACT_NAME_MAX + 1U];
-} solar_os_contact_t;
-
-typedef struct {
-    solar_os_endpoint_id_t id;
-    solar_os_contact_id_t contact_id;
-    solar_os_messaging_provider_id_t provider;
-    solar_os_contact_trust_t trust;
-    uint32_t capabilities;
-    uint64_t last_seen_ms;
-    solar_os_messaging_address_t address;
-    uint8_t provider_metadata[SOLAR_OS_CONTACT_PROVIDER_METADATA_MAX];
-    uint8_t provider_metadata_len;
-} solar_os_endpoint_t;
-
-typedef struct {
-    bool initialized;
-    bool records_in_psram;
-    bool persistent;
-    size_t contact_capacity;
-    size_t endpoint_capacity;
-    size_t contact_count;
-    size_t endpoint_count;
-    uint32_t generation;
-    uint32_t evicted;
-    size_t storage_bytes;
-    esp_err_t storage_error;
-} solar_os_contacts_status_t;
 
 esp_err_t solar_os_contacts_init(void);
 esp_err_t solar_os_contacts_get_status(solar_os_contacts_status_t *status);
@@ -73,6 +35,8 @@ esp_err_t solar_os_contacts_find_endpoint(
     size_t address_len,
     solar_os_endpoint_t *endpoint);
 
+esp_err_t solar_os_contacts_apply_discovery(const solar_os_contact_discovery_v1_t *entry,
+    bool batch, solar_os_contact_id_t *contact, solar_os_endpoint_id_t *endpoint);
 esp_err_t solar_os_contacts_upsert_discovered(
     solar_os_messaging_provider_id_t provider,
     const uint8_t *address,

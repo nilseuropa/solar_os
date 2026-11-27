@@ -1,0 +1,75 @@
+#pragma once
+
+#include "solar_os_native_stream_abi.h"
+
+#define SOLAR_OS_NATIVE_AUDIO_ROUTES_SERVICE "media.audio.routes"
+#define SOLAR_OS_NATIVE_AUDIO_ROUTES_ABI 1U
+#define SOLAR_OS_AUDIO_DEVICE_ID_MAX 16U
+#define SOLAR_OS_AUDIO_DEVICE_NAME_MAX 40U
+#define SOLAR_OS_AUDIO_CAPTURE_MAX_FRAMES 4096U
+#define SOLAR_OS_AUDIO_CAPTURE_MAX_CHANNELS 2U
+
+typedef enum {
+    SOLAR_OS_AUDIO_DEVICE_CAP_INPUT = 1U << 0,
+    SOLAR_OS_AUDIO_DEVICE_CAP_OUTPUT = 1U << 1,
+    SOLAR_OS_AUDIO_DEVICE_CAP_VOLUME = 1U << 2,
+    SOLAR_OS_AUDIO_DEVICE_CAP_INPUT_GAIN = 1U << 3,
+} solar_os_audio_device_capability_t;
+
+typedef struct {
+    char id[SOLAR_OS_AUDIO_DEVICE_ID_MAX], name[SOLAR_OS_AUDIO_DEVICE_NAME_MAX], provider[20];
+    char capture_stream[48], playback_stream[48];
+    uint32_t capabilities;
+    solar_os_native_stream_format_v1_t format;
+} solar_os_audio_route_v1_t;
+
+typedef struct {
+    uint32_t samples;
+    uint8_t peak_percent;
+    uint8_t average_percent;
+} solar_os_audio_level_t;
+
+typedef struct {
+    bool initialized;
+    int32_t i2s_port, mclk_pin, bclk_pin, ws_pin, din_pin, dout_pin, pa_pin;
+    char output_codec[32], input_codec[32];
+    solar_os_native_stream_format_v1_t format;
+} solar_os_audio_board_status_v1_t;
+
+/* Routes are copied records. Endpoint IDs can be opened with stream.
+ * Discover input-gain controls by constructing a parameters resource path
+ * from kind "audio", the device ID and property "input-gain".
+ *
+ * Output preference uses a device ID. An empty string restores automatic
+ * selection, and get_default_output returns an empty string in that mode.
+ * Global volume and mute are shared with built-in players. A nonempty
+ * device ID applies volume directly to that device. A null or empty
+ * device ID updates the shared level on the selected output. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    size_t (*count)(void);
+    int (*info)(size_t index, solar_os_audio_route_v1_t *route);
+    int (*find)(const char *device, solar_os_audio_route_v1_t *route);
+    bool (*output_available)(void);
+    int (*get_default_output)(char *device, size_t capacity);
+    int (*set_default_output)(const char *device);
+    uint8_t (*get_volume)(void);
+    int (*set_volume)(const char *device, uint8_t volume);
+    int (*toggle_mute)(uint8_t *volume_after);
+    /* Select the Core capture or playback route. Use stream.handle_info for
+     * the negotiated PCM format and stream.close to release the token. A
+     * nonzero token after an error must still be closed before retrying. */
+    int (*open_default)(const char *owner, const solar_os_native_stream_options_v1_t *options,
+        solar_os_native_handle_t *stream);
+    /* Read complete frames of the negotiated signed 16-bit PCM. Capacity
+     * counts interleaved samples. The caller retains the capture stream. */
+    int (*capture_frames)(solar_os_native_handle_t stream, size_t frames,
+        int16_t *samples, size_t sample_capacity);
+    /* Measure across the input for channel -1, or one zero-based channel.
+     * Duration is converted to frames using the negotiated sample rate. */
+    int (*measure_level)(solar_os_native_handle_t stream, uint32_t duration_ms, int channel,
+        solar_os_audio_level_t *level);
+    /* Physical board diagnostics. Absent pins/port use -1. Use route and
+     * parameter records for device selection and control. */
+    int (*board_status)(solar_os_audio_board_status_v1_t *status);
+} solar_os_native_audio_routes_api_v1_t;

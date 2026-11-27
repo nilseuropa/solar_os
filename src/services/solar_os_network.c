@@ -44,8 +44,6 @@ static EXT_RAM_BSS_ATTR network_path_entry_t
     network_paths[SOLAR_OS_NETWORK_PATH_MAX];
 static EXT_RAM_BSS_ATTR network_interface_entry_t
     network_interfaces[NETWORK_AUX_INTERFACE_MAX];
-static solar_os_network_router_provider_t router_provider;
-static bool router_provider_registered;
 static network_priority_store_t priority_store;
 static bool priority_store_loaded;
 static struct netif * volatile network_preferred_lwip;
@@ -615,78 +613,5 @@ const char *solar_os_network_interface_state_name(
         return "error";
     default:
         return "unknown";
-    }
-}
-
-esp_err_t solar_os_network_router_register(
-    const solar_os_network_router_provider_t *provider)
-{
-    if (provider == NULL || !name_valid(provider->name) ||
-        provider->start == NULL || provider->stop == NULL ||
-        provider->get_status == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    esp_err_t ret = ensure_mutex();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    xSemaphoreTake(network_mutex, portMAX_DELAY);
-    if (router_provider_registered) {
-        ret = strcmp(router_provider.name, provider->name) == 0 ?
-            ESP_OK : ESP_ERR_INVALID_STATE;
-    } else {
-        router_provider = *provider;
-        router_provider_registered = true;
-        ret = ESP_OK;
-    }
-    xSemaphoreGive(network_mutex);
-    return ret;
-}
-
-static bool router_provider_get(solar_os_network_router_provider_t *provider)
-{
-    if (provider == NULL || ensure_mutex() != ESP_OK) {
-        return false;
-    }
-    xSemaphoreTake(network_mutex, portMAX_DELAY);
-    const bool found = router_provider_registered;
-    if (found) {
-        *provider = router_provider;
-    }
-    xSemaphoreGive(network_mutex);
-    return found;
-}
-
-esp_err_t solar_os_network_router_start(void)
-{
-    solar_os_network_router_provider_t provider = {0};
-    return router_provider_get(&provider) ?
-        provider.start(provider.context) : ESP_ERR_NOT_SUPPORTED;
-}
-
-esp_err_t solar_os_network_router_stop(void)
-{
-    solar_os_network_router_provider_t provider = {0};
-    return router_provider_get(&provider) ?
-        provider.stop(provider.context) : ESP_ERR_NOT_SUPPORTED;
-}
-
-void solar_os_network_router_get_status(solar_os_network_router_status_t *status)
-{
-    if (status == NULL) {
-        return;
-    }
-    memset(status, 0, sizeof(*status));
-    solar_os_network_router_provider_t provider = {0};
-    if (!router_provider_get(&provider)) {
-        return;
-    }
-    status->available = true;
-    strlcpy(status->downstream, provider.name, sizeof(status->downstream));
-    provider.get_status(provider.context, status);
-    status->available = true;
-    if (status->downstream[0] == '\0') {
-        strlcpy(status->downstream, provider.name, sizeof(status->downstream));
     }
 }

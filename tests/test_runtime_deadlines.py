@@ -76,6 +76,7 @@ int main(void) {
             binary = Path(directory, 'deadlines')
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                 '-fsanitize=address,undefined', '-I' + str(ROOT / 'src'),
+                '-I', str(ROOT / 'include'),
                 '-I' + str(ROOT / 'tests/host'), str(source),
                 str(ROOT / 'src/solar_os_scheduler.c'), '-o', str(binary)], check=True)
             subprocess.run([str(binary)], check=True)

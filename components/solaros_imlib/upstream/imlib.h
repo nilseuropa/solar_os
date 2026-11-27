@@ -342,7 +342,12 @@ typedef struct color_thresholds_list_lnk_data {
 
 extern const int8_t lab_table[196608 / 2];
 
-#ifdef IMLIB_ENABLE_LAB_LUT
+#if defined(IMLIB_ENABLE_LAB_LUT) && defined(IMLIB_SOLAROS_PACKED_LAB_LUT)
+#include "solaros_imlib_lab.h"
+#define COLOR_RGB565_TO_L(pixel)                solaros_imlib_l(pixel)
+#define COLOR_RGB565_TO_A(pixel)                solaros_imlib_lab_ab[(pixel) >> 1].a
+#define COLOR_RGB565_TO_B(pixel)                solaros_imlib_lab_ab[(pixel) >> 1].b
+#elif defined(IMLIB_ENABLE_LAB_LUT)
 #define COLOR_RGB565_TO_L(pixel)                lab_table[((pixel >> 1) * 3) + 0]
 #define COLOR_RGB565_TO_A(pixel)                lab_table[((pixel >> 1) * 3) + 1]
 #define COLOR_RGB565_TO_B(pixel)                lab_table[((pixel >> 1) * 3) + 2]

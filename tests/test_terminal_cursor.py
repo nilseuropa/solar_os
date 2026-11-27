@@ -37,7 +37,7 @@ class TerminalCursorTest(unittest.TestCase):
                 "cc", "-std=c11", "-O2", "-ffunction-sections", "-fdata-sections",
                 "-I" + str(component / "src/clib"), "-I" + tmp,
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src"),
-                "-I" + str(ROOT / "src/services"),
+                "-I" + str(ROOT / "src/services"), "-I" + str(ROOT / "include"),
                 str(ROOT / "tests/host/terminal_cursor_test.c"),
                 *sources, "-Wl,--gc-sections", "-o", binary,
             ], check=True)

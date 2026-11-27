@@ -344,15 +344,15 @@ esp_err_t solar_os_emotion_open(const solar_os_emotion_options_t *o,
     if (!s->state || !s->pixels || !s->previous || !s->commands) { err = ESP_ERR_NO_MEM; goto fail; }
     err = result(s->api->init(s->state, now_ms(), (uint32_t)esp_timer_get_time()));
     if (err != ESP_OK) goto fail;
-    const solar_os_frame_presenter_config_t config = {
-        .gfx = s->gfx, .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
+    const solar_os_frame_presenter_options_v1_t config = {
+        .format = SOLAR_OS_DISPLAY_FORMAT_INDEX2,
         .width = s->width, .height = s->height, .stride = s->stride,
         .palette_rgb565 = s->palette, .palette_size = 4, .preferred_fps = s->fps,
         .allow_mono_fallback = true, .literal_direct_palette = true, .literal_mono_palette = true,
         .clear_background_on_resume = true, .background_index = 0,
         .fullscreen = o->fullscreen,
     };
-    err = s->software ? ESP_OK : solar_os_frame_presenter_init(&s->presenter, &config);
+    err = s->software ? ESP_OK : solar_os_frame_presenter_init(&s->presenter, s->gfx, &config);
     if (err != ESP_OK) goto fail;
     err = start_worker(s);
     if (err != ESP_OK) goto fail;

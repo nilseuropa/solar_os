@@ -283,6 +283,7 @@ int main(void) {
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I", str(ROOT / "tests/host"), "-I", str(ROOT / "src/drivers"),
                 "-I", str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 str(path / "test.c"), str(ROOT / "src/drivers/solar_os_rgb_panel_buffer.c"),
                 "-o", str(path / "test"),
             ], check=True)

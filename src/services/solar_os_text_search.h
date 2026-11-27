@@ -1,36 +1,6 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-
-#define SOLAR_OS_TEXT_SEARCH_QUERY_MAX 64U
-
-typedef enum {
-    SOLAR_OS_TEXT_SEARCH_FORWARD,
-    SOLAR_OS_TEXT_SEARCH_BACKWARD,
-} solar_os_text_search_direction_t;
-
-typedef struct {
-    size_t segment_index;
-    size_t offset;
-    size_t length;
-    bool wrapped;
-} solar_os_text_search_match_t;
-
-typedef struct {
-    bool input_active;
-    bool match_valid;
-    size_t input_len;
-    size_t query_len;
-    char input[SOLAR_OS_TEXT_SEARCH_QUERY_MAX];
-    char query[SOLAR_OS_TEXT_SEARCH_QUERY_MAX];
-    solar_os_text_search_match_t match;
-} solar_os_text_search_state_t;
-
-typedef bool (*solar_os_text_search_segment_fn)(void *user,
-                                                size_t segment_index,
-                                                const char **text,
-                                                size_t *text_len);
+#include "solar_os_native_text_search_abi.h"
 
 void solar_os_text_search_reset(solar_os_text_search_state_t *state);
 void solar_os_text_search_begin_input(solar_os_text_search_state_t *state);

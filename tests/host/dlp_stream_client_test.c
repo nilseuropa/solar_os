@@ -4,9 +4,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "solar_os.h"
 #include "solar_os_display_link_transport.h"
 #include "solar_os_dlp_receiver.h"
+#include "solar_os_dlp_display.h"
+#include "solar_os_display.h"
+#include "solar_os_native_display_link_target_abi.h"
 #include "solar_os_memory.h"
+#include "solar_os_native_display_link.h"
+#include "solar_os_native_handles.h"
 #include "esp_log.h"
 #undef ESP_LOGW
 #define ESP_LOGW(tag, ...) ((void)(tag), (void)snprintf(NULL, 0, __VA_ARGS__))
@@ -19,12 +25,38 @@ static uint8_t images[52], shown[26], input[16384], output[16384];
 static size_t in_at, in_size, out_at, out_size;
 static uint64_t clock_us;
 static unsigned presented, allocations, opens, closes;
-static bool fail_write, cancel, legacy_only, silent_peer;
+static bool fail_write, cancel, legacy_only, silent_peer, fail_close;
 static uint64_t cancel_at;
 static bool fail_cache;
 static unsigned transient_reads, transient_writes;
 static bool graphics;
+static solar_os_display_target_t target;
+static bool target_claimed;
+
+esp_err_t solar_os_display_register_target(const solar_os_display_target_t *in)
+{
+    if (target.u8g2) return ESP_ERR_INVALID_STATE;
+    target = *in;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_unregister_target_owned(const char *name, const u8g2_t *canvas)
+{
+    if (!target.u8g2 || target.u8g2 != canvas || strcmp(target.name, name)) return ESP_ERR_NOT_FOUND;
+    if (target_claimed) return ESP_ERR_INVALID_STATE;
+    memset(&target, 0, sizeof(target));
+    return ESP_OK;
+}
+
+esp_err_t solar_os_display_link_surface(void *link, const solar_os_display_surface_t *surface)
+{ assert(link && surface); return ESP_OK; }
+esp_err_t solar_os_display_link_frame(void *link, const solar_os_display_raster_t *frame)
+{ assert(link && frame); return ESP_OK; }
+esp_err_t solar_os_display_link_power_state(void *link)
+{ assert(link); return ESP_OK; }
 static const char *fail_graphics_tag;
+static const solar_os_app_t app = {.name = "display-link-test"};
+const solar_os_app_t *solar_os_application_descriptor(void) { return &app; }
 uint32_t esp_random(void) { return 1000 + opens; }
 int64_t esp_timer_get_time(void) { return clock_us; }
 uint64_t solar_os_time_uptime_ms(void) { return clock_us / 1000; }
@@ -69,7 +101,12 @@ static esp_err_t open_port(void *ctx) {
     solar_os_dlp_receiver_reset(&receiver, receiver.device.boot + 1);
     return ESP_OK;
 }
-static esp_err_t close_port(void *ctx) { (void)ctx; closes++; return ESP_OK; }
+static esp_err_t close_port(void *ctx) {
+    (void)ctx;
+    if (fail_close) return ESP_ERR_TIMEOUT;
+    closes++;
+    return ESP_OK;
+}
 static esp_err_t read_port(void *ctx, uint8_t *data, size_t size, uint32_t timeout, size_t *count) {
     (void)ctx; (void)timeout;
     *count = 0;
@@ -94,10 +131,102 @@ static esp_err_t write_port(void *ctx, const uint8_t *data, size_t size, size_t 
     return ESP_OK;
 }
 static bool should_cancel(void *ctx) { (void)ctx; return cancel || (cancel_at && clock_us >= cancel_at); }
+typedef struct { unsigned calls; bool cancel; } borrowed_callback_t;
+static bool borrowed_cancel(void *ctx) {
+    borrowed_callback_t *state = ctx;
+    state->calls++;
+    return state->cancel;
+}
 static const char *TAG = "dlp-host";
 #include "dlp_client_core.inc"
 
+static bool cancel_native_present(void *ctx) {
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    solar_os_native_handle_t handle = *(solar_os_native_handle_t *)ctx;
+    solar_os_native_display_link_info_v1_t info;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_BUSY && !info.width);
+    return true;
+}
+
+static void test_native_link(void) {
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    assert(api);
+    assert(!solar_os_native_display_link_get_service("display.link", 2, 0));
+    solar_os_native_display_link_options_v1_t options = {.format = -1, .timeout_ms = 100};
+    solar_os_native_handle_t handle = 0;
+    assert(api->open("missing", "native", &options, NULL, NULL, &handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!handle && !allocations);
+    assert(!api->open("test0", "native", &options, NULL, NULL, &handle));
+    solar_os_native_display_link_info_v1_t info;
+    assert(!api->info(handle, &info));
+    assert(info.width == 13 && info.height == 13 && info.stride == 2 && info.frame_bytes == 26);
+    assert(info.format == SOLAR_OS_NATIVE_DISPLAY_LINK_MONO1 && (info.capabilities & SOLAR_OS_NATIVE_DISPLAY_LINK_SYNC));
+    uint8_t pixels[26] = {0x17};
+    assert(api->present(handle, pixels, 25, NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_SIZE);
+    assert(api->present(handle, pixels, 26, cancel_native_present, &handle) == SOLAR_OS_NATIVE_ERROR_CANCELLED);
+    assert(!api->present(handle, pixels, 26, NULL, NULL) && !memcmp(shown, pixels, 26));
+    fail_close = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE && !info.width);
+    assert(api->present(handle, pixels, 26, NULL, NULL) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(allocations && opens == closes + 1);
+    fail_close = false;
+    assert(!solar_os_native_handle_close_owner(&app));
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_NOT_FOUND);
+    assert(!allocations && opens == closes && !solar_os_native_handle_count());
+
+    fail_close = silent_peer = true;
+    assert(api->open("test0", "native", &options, NULL, NULL, &handle) != SOLAR_OS_NATIVE_OK);
+    assert(handle && allocations && opens == closes + 1);
+    assert(api->info(handle, &info) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    fail_close = silent_peer = false;
+    assert(!api->close(handle));
+    assert(!allocations && opens == closes && !solar_os_native_handle_count());
+}
+
+static void test_native_target(void)
+{
+    const solar_os_native_display_link_api_v1_t *api =
+        solar_os_native_display_link_get_service("display.link", 1, sizeof(*api));
+    const solar_os_native_display_link_target_api_v1_t *attach =
+        solar_os_native_display_link_get_service("display.link.target", 1, sizeof(*attach));
+    assert(api && attach);
+    solar_os_native_handle_t handle = 0;
+    const solar_os_native_display_link_options_v1_t options = {.format = -1, .timeout_ms = 100};
+    const uint8_t pixels[26] = {0};
+    assert(!api->open("test0", "native-target", &options, NULL, NULL, &handle));
+    assert(attach->attach(handle, NULL, 0) == SOLAR_OS_NATIVE_ERROR_INVALID_ARGUMENT);
+    assert(!api->present(handle, pixels, sizeof(pixels), NULL, NULL));
+    graphics = true;
+    assert(!attach->attach(handle, "aux-test", 1690));
+    assert(target.u8g2 && target.max_stream_pixels_per_second == 1690 && target.preferred_stream_fps == 10);
+    assert(attach->attach(handle, "second", 0) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(api->present(handle, pixels, sizeof(pixels), NULL, NULL) == SOLAR_OS_NATIVE_ERROR_BUSY);
+    assert(solar_os_dlp_display_detach("aux-test") == ESP_ERR_NOT_FOUND);
+
+    target_claimed = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_INVALID_STATE);
+    assert(target.u8g2 && allocations && opens == closes + 1);
+    target_claimed = false;
+    fail_close = true;
+    assert(api->close(handle) == SOLAR_OS_NATIVE_ERROR_TIMEOUT);
+    assert(!target.u8g2 && allocations && opens == closes + 1);
+    u8g2_t replacement = {0};
+    strcpy(target.name, "aux-test");
+    target.u8g2 = &replacement;
+    fail_close = false;
+    assert(!api->close(handle));
+    assert(target.u8g2 == &replacement && !allocations && opens == closes);
+    memset(&target, 0, sizeof(target));
+    graphics = false;
+}
+
 int main(void) {
+    const solar_os_display_link_call_options_t call = {.cancelled = should_cancel};
     sdlp_info_t info = {.width = 13, .height = 13, .formats = 1,
         .preferred_format = SDLP_MONO1, .max_rect_bytes = 26, .command_ms = 1000,
         .present_ms = 1000, .capabilities = SDLP_RLE | SDLP_SYNC | SDLP_PRESERVE_CONTENT};
@@ -110,13 +239,12 @@ int main(void) {
     for (unsigned mode = 0; mode < 3; mode++) {
         legacy_only = mode == 1; fail_cache = mode == 2;
         solar_os_display_link_t *link = NULL, *busy = NULL;
-        solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100,
-            .cancelled = should_cancel};
-        assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
+        solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100};
+        assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) == ESP_OK);
         assert(link && !link->mono && !link->pixels);
         assert(solar_os_display_link_info(link)->width == 13);
         assert(solar_os_display_link_format(link) == SDLP_MONO1);
-        assert(solar_os_display_link_open_stream("test0", "busy", &options, &busy) == ESP_ERR_INVALID_STATE);
+        assert(solar_os_display_link_open_stream_with_options("test0", "busy", &options, &call, &busy) == ESP_ERR_INVALID_STATE);
         assert(!busy);
         uint8_t pixels[26] = {0};
         unsigned before = presented;
@@ -137,12 +265,11 @@ int main(void) {
     }
     legacy_only = fail_cache = false;
     solar_os_display_link_t *link = NULL;
-    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100,
-        .cancelled = should_cancel};
+    solar_os_display_link_options_t options = {.format = SDLP_MONO1, .timeout_ms = 100};
     options.timeout_ms = 500;
     transient_reads = transient_writes = 1;
     unsigned before_opens = opens;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) == ESP_OK);
     assert(opens == before_opens + 3 && !transient_reads && !transient_writes);
     assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
     solar_os_display_link_destroy(link);
@@ -153,29 +280,51 @@ int main(void) {
      * and release ownership just like an explicit transport failure. */
     silent_peer = true;
     uint64_t started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started <= 120000);
     silent_peer = false;
     fail_write = true;
     started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started <= 120000);
     options.timeout_ms = 500;
     cancel_at = clock_us + 25000;
     started = clock_us;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes && clock_us - started < 100000);
     cancel_at = 0; fail_write = false; options.timeout_ms = 100;
     cancel = true;
-    assert(solar_os_display_link_open_stream("test0", "test", &options, &link) != ESP_OK);
+    assert(solar_os_display_link_open_stream_with_options("test0", "test", &options, &call, &link) != ESP_OK);
     assert(!link && !allocations && opens == closes);
     cancel = false;
     assert(solar_os_display_link_open_stream("test0", "test", &options, &link) == ESP_OK);
     cancel = true;
-    assert(solar_os_display_link_present(link, shown, sizeof(shown)) != ESP_OK);
+    assert(solar_os_display_link_present_with_options(link, shown, sizeof(shown), &call) != ESP_OK);
     solar_os_display_link_destroy(link);
     assert(!allocations && opens == closes);
     cancel = false;
+    borrowed_callback_t *borrowed = calloc(1, sizeof(*borrowed));
+    solar_os_display_link_call_options_t *borrowed_call = malloc(sizeof(*borrowed_call));
+    assert(borrowed && borrowed_call);
+    *borrowed_call = (solar_os_display_link_call_options_t){.cancelled = borrowed_cancel, .cancel_user = borrowed};
+    assert(solar_os_display_link_open_stream_with_options("test0", "borrowed", &options, borrowed_call, &link) == ESP_OK);
+    assert(borrowed->calls);
+    free(borrowed_call); free(borrowed);
+    /* Exercise the transport's real predicate after both borrowed records
+     * expire. ASan catches any retained function/context reference. */
+    assert(!link->io.protocol.cancelled(link->io.protocol.ctx));
+    assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
+    borrowed = calloc(1, sizeof(*borrowed));
+    borrowed_call = malloc(sizeof(*borrowed_call));
+    assert(borrowed && borrowed_call);
+    *borrowed_call = (solar_os_display_link_call_options_t){.cancelled = borrowed_cancel, .cancel_user = borrowed};
+    assert(solar_os_display_link_present_with_options(link, shown, sizeof(shown), borrowed_call) == ESP_OK);
+    assert(borrowed->calls);
+    free(borrowed_call); free(borrowed);
+    assert(!link->io.protocol.cancelled(link->io.protocol.ctx));
+    assert(solar_os_display_link_present(link, shown, sizeof(shown)) == ESP_OK);
+    solar_os_display_link_destroy(link);
+    assert(!allocations && opens == closes);
     graphics = true;
     for (unsigned mode = 0; mode < 3; mode++) {
         assert(solar_os_display_link_open_stream("test0", "graphics", &options, &link) == ESP_OK);
@@ -192,6 +341,8 @@ int main(void) {
         solar_os_display_link_destroy(link);
         assert(!allocations && opens == closes);
     }
+    test_native_link();
+    test_native_target();
     assert(solar_os_port_unregister("test0") == ESP_OK);
     puts("DLP stream host: compact/legacy, fragmented I/O, delta, cache pressure, reconnect, cancellation, graphics allocation failure and cleanup PASS");
 }

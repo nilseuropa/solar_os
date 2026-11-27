@@ -184,11 +184,13 @@ static solar_os_pipeline_status_t finish(uint32_t id)
     assert(0); return s;
 }
 static bool never_cancel(void *user) { (void)user; return false; }
-static char sample_file[128];
+static char sample_file[] = "/tmp/solaros-pipeline-XXXXXX";
 static void create_sample_file(void)
 {
-    snprintf(sample_file,sizeof(sample_file),"/tmp/solaros-pipeline-%ld.jpg",(long)getpid());
-    FILE *file=fopen(sample_file,"wb"); assert(file);
+    const int descriptor = mkstemp(sample_file);
+    assert(descriptor >= 0);
+    FILE *file = fdopen(descriptor, "wb");
+    assert(file);
     assert(fwrite("\xff\xd8\xff\x00",1,4,file)==4); assert(!fclose(file));
 }
 int main(void)

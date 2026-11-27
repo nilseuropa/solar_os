@@ -9,7 +9,6 @@
 #include "solar_os_ble_backend.h"
 #include "solar_os_port.h"
 
-#define BLE_STREAM_MAX 4
 
 typedef struct {
     char name[SOLAR_OS_PORT_NAME_MAX];
@@ -19,7 +18,7 @@ typedef struct {
     solar_os_ble_peer_t peer;
     uint32_t channel;
 } ble_stream_t;
-static ble_stream_t endpoints[BLE_STREAM_MAX];
+static ble_stream_t endpoints[SOLAR_OS_BLE_STREAM_MAX];
 static SemaphoreHandle_t stream_mutex;
 static StaticSemaphore_t stream_mutex_storage;
 static portMUX_TYPE stream_init_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -144,7 +143,7 @@ static esp_err_t configure(const char *name, const uint8_t *address, uint8_t typ
         return ESP_ERR_INVALID_ARG;
     stream_lock();
     ble_stream_t *s = NULL;
-    for (size_t i = 0; i < BLE_STREAM_MAX; i++) {
+    for (size_t i = 0; i < SOLAR_OS_BLE_STREAM_MAX; i++) {
         if (!strcmp(endpoints[i].name, name)) { stream_unlock(); return ESP_ERR_INVALID_STATE; }
         if (!s && !endpoints[i].name[0]) s = &endpoints[i];
     }
@@ -170,7 +169,7 @@ esp_err_t solar_os_ble_stream_remove(const char *name)
     if (!name || !*name) return ESP_ERR_INVALID_ARG;
     stream_lock();
     esp_err_t err = ESP_ERR_NOT_FOUND;
-    for (size_t i = 0; i < BLE_STREAM_MAX; i++) if (!strcmp(endpoints[i].name, name)) {
+    for (size_t i = 0; i < SOLAR_OS_BLE_STREAM_MAX; i++) if (!strcmp(endpoints[i].name, name)) {
         err = solar_os_port_unregister(name);
         if (!err) { release_connection(&endpoints[i]); memset(&endpoints[i], 0, sizeof(endpoints[i])); }
         break;
@@ -182,7 +181,7 @@ esp_err_t solar_os_ble_stream_status(const char *name, solar_os_ble_stream_info_
     if (!name || !*name || !info) return ESP_ERR_INVALID_ARG;
     stream_lock();
     esp_err_t err = ESP_ERR_NOT_FOUND;
-    for (size_t i = 0; i < BLE_STREAM_MAX; i++) if (!strcmp(endpoints[i].name, name)) {
+    for (size_t i = 0; i < SOLAR_OS_BLE_STREAM_MAX; i++) if (!strcmp(endpoints[i].name, name)) {
         ble_stream_t *s = &endpoints[i];
         *info = (solar_os_ble_stream_info_t){.claimed=s->session != 0, .listening=s->listener};
         if (s->channel) {

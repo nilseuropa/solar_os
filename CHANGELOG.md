@@ -2,6 +2,10 @@
 
 ## 4.x
 
+- **4.19.0** — 2026-11-27 — Native modules can now access more SolarOS
+  services through a shared system interface. Added a minimal Core firmware
+  profile and a slimmer Classic profile that keeps Python. Fixed rendering
+  in file browsers, popups, and the on-screen keyboard.
 - **4.18.4** — 2026-11-24 — Added `pkg update` and `pkg upgrade` for
   checking and updating installed native modules. Added ILI9488 SPI display
   and XPT2046 resistive touch support. Fixed expansion touch polling and
@@ -44,6 +48,11 @@
   Improved T-Deck Plus startup, documentation catalog loading, and message
   history restoration speed. Fixed numbered list rendering and preservation in
   Writer and Reader, and improved NTP synchronization when packets are lost.
+  Added a third source keymap layer with named layer selectors, `fn` mappings
+  and a `layer` field on `layer_tap` entries. The standard LilyGO T-LoRa-Pager
+  profile is unchanged; an opt-in `keymaps/overrides/lilygo-pager-custom.json`
+  moves symbols to the yellow key and adds a Space-held navigation layer with
+  HJKL arrows, Home/End, Tab, Left Alt, parentheses, pipe, Delete and Escape.
 - **4.18.0** — 2026-11-17 — Added on-device C compilation for ESP32-S3
   boards with PSRAM, including multi-file projects, installed library headers,
   SDK browsing and header export. The compiler is included in the full flavor

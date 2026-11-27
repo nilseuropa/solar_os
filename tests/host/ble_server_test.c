@@ -4,7 +4,7 @@
 #include <string.h>
 #include <pthread.h>
 #include "nimble_test_support.h"
-#include "solar_os_ble_hid_report_map.h"
+#include "solar_os_hid_report_descriptor.h"
 static int allocation, fail_at;
 static uint32_t local_service, local_char;
 esp_err_t solar_os_ble_keyboard_client_acquire(uint32_t timeout_ms)
@@ -347,7 +347,7 @@ int main(void)
     server_char_t *gamepad=hid_characteristic(SERVER_HID_GAMEPAD_INPUT);
     assert(map && map->static_value==server_hid_report_map && map->len>128);
     bool keyboard_ids[256]={0};
-    assert(solar_os_ble_hid_report_map(map->static_value,map->len,keyboard_ids));
+    assert(solar_os_hid_report_descriptor_keyboard_map(map->static_value,map->len,keyboard_ids));
     assert(keyboard_ids[1] && !keyboard_ids[2] && !keyboard_ids[3]);
     assert(keyboard && mouse && gamepad && output && keyboard->descriptor_definitions);
     assert(ble_uuid_u16(keyboard->descriptor_definitions[0].uuid)==0x2908);

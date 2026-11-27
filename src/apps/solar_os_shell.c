@@ -170,7 +170,7 @@ typedef struct {
     char scp_paths[2][SHELL_PATH_MAX];
 } shell_app_launch_storage_t;
 
-typedef enum {
+enum {
     SHELL_COMPLETION_SOURCE_NONE,
     SHELL_COMPLETION_SOURCE_COMMANDS,
     SHELL_COMPLETION_SOURCE_APPS,
@@ -236,7 +236,9 @@ typedef enum {
     SHELL_COMPLETION_SOURCE_ROBOT_JOINTS,
     SHELL_COMPLETION_SOURCE_PARAMETERS,
     SHELL_COMPLETION_SOURCE_WIFI_SSIDS,
-} shell_completion_source_t;
+    SHELL_COMPLETION_SOURCE_COUNT,
+};
+_Static_assert(SHELL_COMPLETION_SOURCE_COUNT <= UINT8_MAX + 1U, "completion source index must fit in one byte");
 
 enum {
     SHELL_COMPLETION_FLAG_PATH = 1U << 0,
@@ -244,17 +246,16 @@ enum {
     SHELL_COMPLETION_FLAG_SCALAR_STREAMS = 1U << 2,
     SHELL_COMPLETION_FLAG_ABSOLUTE_POINTERS = 1U << 3,
     SHELL_COMPLETION_FLAG_SCALAR_SINKS = 1U << 4,
+    SHELL_COMPLETION_FLAG_OPTION_PREFIX = 1U << 5,
+    SHELL_COMPLETION_FLAG_MANUAL_PREFIX = 1U << 6,
 };
 
 typedef struct {
     const char * const *path;
-    size_t path_count;
     const char * const *values;
-    size_t value_count;
-    const char *required_prefix;
-    shell_completion_source_t source;
-    uint8_t flags;
+    uint8_t path_count, value_count, source, flags;
 } shell_completion_rule_t;
+_Static_assert(sizeof(void *) != 4 || sizeof(shell_completion_rule_t) == 12, "completion rule layout");
 
 struct solar_os_shell_session {
     char input[SHELL_INPUT_MAX];
@@ -794,7 +795,7 @@ static const shell_command_t shell_builtin_commands[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_SSH
     {"sshkey", "manage SSH keys", solar_os_shell_cmd_sshkey},
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_GIT
+#if SOLAR_OS_PACKAGE_APP_GIT
     {"git", "version control for user projects", solar_os_shell_cmd_git},
 #endif
 #if SOLAR_OS_PACKAGE_SERVICE_SENSORS
@@ -1686,7 +1687,7 @@ static const char * const say_speed_values[] = {
 static const char * const sshkey_gen_values[] = {"-f", "2048", "3072", "4096"};
 static const char * const sshkey_bits_values[] = {"2048", "3072", "4096"};
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_GIT
+#if SOLAR_OS_PACKAGE_APP_GIT
 static const char * const git_subcommands[] = {
     "help", "init", "clone", "config", "status", "add", "diff", "commit", "log",
     "branch", "checkout", "switch", "remote", "fetch", "pull", "push",
@@ -2963,7 +2964,7 @@ static const char * const path_sshkey[] = {"sshkey"};
 static const char * const path_sshkey_gen[] = {"sshkey", "gen"};
 static const char * const path_sshkey_gen_force[] = {"sshkey", "gen", "-f"};
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_GIT
+#if SOLAR_OS_PACKAGE_APP_GIT
 static const char * const path_git[] = {"git"};
 static const char * const path_git_config[] = {"git", "config"};
 static const char * const path_git_remote[] = {"git", "remote"};
@@ -2989,7 +2990,7 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
         .path_count = SHELL_ARRAY_COUNT(path_array), \
         .values = value_array, \
         .value_count = SHELL_ARRAY_COUNT(value_array), \
-        .required_prefix = "-", \
+        .flags = SHELL_COMPLETION_FLAG_OPTION_PREFIX, \
     }
 #define SHELL_COMPLETION_COMMANDS(path_array) \
     { \
@@ -3093,7 +3094,7 @@ static const char * const path_ota_boot[] = {"ota", "boot"};
     { \
         .path = path_array, \
         .path_count = SHELL_ARRAY_COUNT(path_array), \
-        .required_prefix = "man:", \
+        .flags = SHELL_COMPLETION_FLAG_MANUAL_PREFIX, \
         .source = SHELL_COMPLETION_SOURCE_MANUAL_REFERENCES, \
     }
 #define SHELL_COMPLETION_DISPLAY_SESSION_IDS(path_array) \
@@ -3372,6 +3373,9 @@ static const char * const path_robot_enable[] = {"robot","joint","enable"};
 static const char * const path_robot_disable[] = {"robot","joint","disable"};
 static const char * const path_robot_close[] = {"robot","joint","close"};
 #endif
+/* Reject a rule whose static path or candidate count would be truncated. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Woverflow"
 static const shell_completion_rule_t shell_completion_rules[] = {
 #if SOLAR_OS_PACKAGE_SERVICE_ROBOT
     SHELL_COMPLETION_STATIC(path_robot,robot_domains),
@@ -4244,7 +4248,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_sshkey_gen, sshkey_gen_values),
     SHELL_COMPLETION_STATIC(path_sshkey_gen_force, sshkey_bits_values),
 #endif
-#if SOLAR_OS_PACKAGE_SERVICE_GIT
+#if SOLAR_OS_PACKAGE_APP_GIT
     SHELL_COMPLETION_STATIC(path_git, git_subcommands),
     SHELL_COMPLETION_STATIC(path_git_config, git_config_keys),
     SHELL_COMPLETION_STATIC(path_git_remote, git_remote_commands),
@@ -4257,6 +4261,7 @@ static const shell_completion_rule_t shell_completion_rules[] = {
     SHELL_COMPLETION_STATIC(path_ota_boot, ota_boot_values),
 #endif
 };
+#pragma GCC diagnostic pop
 
 #define SHELL_COMPLETION_INDEX_BUCKETS 128U
 #define SHELL_COMPLETION_RULE_NONE UINT16_MAX
@@ -4389,13 +4394,7 @@ static solar_os_shell_session_t *shell_session(solar_os_context_t *ctx)
 static solar_os_shell_io_t *shell_io(solar_os_context_t *ctx)
 {
     solar_os_shell_session_t *session = shell_session(ctx);
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&session->io, solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &session->io);
-        io = &session->io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &session->io, true);
 }
 
 static void cmd_commands(solar_os_context_t *ctx, int argc, char **argv)
@@ -6501,6 +6500,13 @@ static void shell_complete_path(solar_os_context_t *ctx,
     solar_os_memory_free(work);
 }
 
+static bool shell_completion_prefix_matches(const shell_completion_rule_t *rule, const char *prefix)
+{
+    if (rule->flags & SHELL_COMPLETION_FLAG_OPTION_PREFIX) return prefix && prefix[0] == '-';
+    if (rule->flags & SHELL_COMPLETION_FLAG_MANUAL_PREFIX) return prefix && starts_with(prefix, "man:");
+    return true;
+}
+
 static bool shell_completion_path_matches(const shell_completion_rule_t *rule,
                                           const char * const *tokens,
                                           size_t token_count,
@@ -6617,7 +6623,7 @@ static void shell_completion_emit_jobs(shell_completion_match_t *state)
     const size_t count = solar_os_jobs_count();
     for (size_t i = 0; i < count; i++) {
         solar_os_job_status_t job;
-        if (solar_os_jobs_get(i, &job) && job.name != NULL) {
+        if (solar_os_jobs_get(i, &job) && job.name[0]) {
             shell_completion_emit(state, job.name);
         }
     }
@@ -7307,11 +7313,11 @@ static void shell_completion_emit_display_modes(shell_completion_match_t *state,
                                                 size_t token_count)
 {
     char emitted[16][32];
+    char values[SOLAR_OS_DISPLAY_MODE_CHOICES_MAX];
     size_t emitted_count = 0;
 
     if (token_count >= 3 && tokens[2] != NULL) {
-        const char *values = NULL;
-        if (solar_os_display_get_controller_mode(tokens[2], NULL, &values) == ESP_OK) {
+        if (solar_os_display_get_controller_mode(tokens[2], NULL, 0, values, sizeof(values)) == ESP_OK) {
             shell_completion_emit_display_mode_values(state,
                                                       values,
                                                       emitted,
@@ -7324,9 +7330,8 @@ static void shell_completion_emit_display_modes(shell_completion_match_t *state,
     const size_t count = solar_os_display_target_count();
     for (size_t i = 0; i < count; i++) {
         solar_os_display_target_t target;
-        const char *values = NULL;
         if (solar_os_display_get_target(i, &target) &&
-            solar_os_display_get_controller_mode(target.name, NULL, &values) == ESP_OK) {
+            solar_os_display_get_controller_mode(target.name, NULL, 0, values, sizeof(values)) == ESP_OK) {
             shell_completion_emit_display_mode_values(state,
                                                       values,
                                                       emitted,
@@ -7810,8 +7815,8 @@ static void shell_completion_emit_expansion_drivers(
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
     const size_t count = solar_os_expansion_driver_count();
     for (size_t i = 0; i < count; i++) {
-        solar_os_expansion_driver_t driver;
-        if (solar_os_expansion_get_driver(i, &driver) &&
+        solar_os_expansion_driver_info_t driver;
+        if (solar_os_expansion_get_driver_info(i, &driver) == ESP_OK &&
             solar_os_expansion_driver_supported(driver.name)) {
             shell_completion_emit(state, driver.name);
         }
@@ -9101,8 +9106,7 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             !shell_completion_path_matches(rule, tokens, token_count, &wildcards)) {
             continue;
         }
-        if (rule->required_prefix != NULL &&
-            (prefix == NULL || !starts_with(prefix, rule->required_prefix))) {
+        if (!shell_completion_prefix_matches(rule, prefix)) {
             continue;
         }
         if (wildcards < best_wildcards) {
@@ -9121,8 +9125,7 @@ static bool shell_completion_collect_matches(solar_os_context_t *ctx,
             wildcards != best_wildcards) {
             continue;
         }
-        if (rule->required_prefix != NULL &&
-            (prefix == NULL || !starts_with(prefix, rule->required_prefix))) {
+        if (!shell_completion_prefix_matches(rule, prefix)) {
             continue;
         }
 
@@ -10345,16 +10348,22 @@ static void cmd_session(solar_os_context_t *ctx, int argc, char **argv)
             return;
         }
 
-        uint8_t session_id = 0;
-        const esp_err_t err =
-            solar_os_port_shell_start_with_options(ctx, argv[3], &options, false, &session_id);
+        const solar_os_native_shell_session_request_v1_t request = {
+            .kind = SOLAR_OS_NATIVE_SESSION_PORT_SHELL,
+            .target = argv[3],
+            .terminal_profile = solar_os_shell_terminal_profile_name(options.terminal_profile),
+            .charset = solar_os_shell_charset_name(options.charset),
+            .columns = options.cols, .rows = options.rows,
+        };
+        solar_os_native_shell_session_result_v1_t opened;
+        const esp_err_t err = solar_os_sessions_open_shell(ctx, &request, &opened);
         if (err == ESP_OK) {
             solar_os_shell_io_printf(io,
                                      "session %u created: shell on %s term=%s charset=%s\n",
-                                     (unsigned)session_id,
+                                     (unsigned)opened.id,
                                      argv[3],
-                                     solar_os_shell_terminal_profile_name(options.terminal_profile),
-                                     solar_os_shell_charset_name(options.charset));
+                                     request.terminal_profile,
+                                     request.charset);
         } else {
             solar_os_shell_io_printf(io,
                                      "session create failed: %s\n",

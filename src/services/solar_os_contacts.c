@@ -1248,6 +1248,16 @@ static esp_err_t contacts_upsert_discovered(
     return ESP_OK;
 }
 
+esp_err_t solar_os_contacts_apply_discovery(const solar_os_contact_discovery_v1_t *entry,
+    bool batch, solar_os_contact_id_t *contact, solar_os_endpoint_id_t *endpoint)
+{
+    if (!entry) return ESP_ERR_INVALID_ARG;
+    return contacts_upsert_discovered(entry->provider, entry->address.bytes,
+        entry->address.length, entry->display_name, entry->capabilities,
+        entry->last_seen_ms, entry->provider_metadata, entry->provider_metadata_len,
+        contact, endpoint, !batch, !batch);
+}
+
 esp_err_t solar_os_contacts_upsert_discovered(
     solar_os_messaging_provider_id_t provider,
     const uint8_t *address, size_t address_len, const char *display_name,

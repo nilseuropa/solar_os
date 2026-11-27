@@ -26,6 +26,12 @@ void vTaskDelay(TickType_t ticks)
 void *solar_os_memory_alloc(size_t size, solar_os_memory_class_t cls, const char *tag)
 { assert(cls == SOLAR_OS_MEMORY_EXTERNAL_PREFERRED && !strcmp(tag, "usb.serial.rx")); if (fail_alloc) return NULL; live_buffers++; return malloc(size); }
 void solar_os_memory_free(void *data) { if (data) live_buffers--; free(data); }
+void *solar_os_memory_calloc(size_t count, size_t size, solar_os_memory_class_t cls, const char *tag)
+{
+    void *data = solar_os_memory_alloc(count * size, cls, tag);
+    if (data) memset(data, 0, count * size);
+    return data;
+}
 QueueHandle_t solar_os_queue_create(UBaseType_t length, UBaseType_t size)
 { assert(length == 16 && size == sizeof(usb_serial_port_candidate_t)); return malloc(1); }
 void solar_os_queue_delete(QueueHandle_t queue) { free(queue); }
@@ -59,13 +65,25 @@ esp_err_t usb_serial_port_lines(usb_serial_port_device_t *device, bool dtr, bool
 esp_err_t usb_serial_port_break(usb_serial_port_device_t *device, uint16_t duration)
 { assert(device->handle && duration == 100); return ESP_OK; }
 const char *usb_serial_port_kind_name(usb_serial_port_kind_t kind) { (void)kind; return "test"; }
+static bool fail_publication;
 esp_err_t solar_os_stream_register(const solar_os_stream_driver_t *driver)
 {
+    if (!strcmp(driver->info.id, "probe")) {
+        solar_os_port_handle_t handle = SOLAR_OS_PORT_HANDLE_INIT;
+        solar_os_port_info_t info;
+        assert(solar_os_port_claim("probe", "test", &handle) == ESP_ERR_INVALID_STATE);
+        assert(solar_os_port_get_info("probe", &info) == ESP_ERR_NOT_FOUND);
+        assert(solar_os_port_list(NULL, 0) == 0);
+        assert(solar_os_port_unregister("probe") == ESP_ERR_INVALID_STATE);
+        if (fail_publication) return ESP_ERR_NO_MEM;
+    }
     for (unsigned i = 0; i < SOLAR_OS_PORT_MAX; i++) if (!stream_used[i]) {
         streams[i] = *driver; stream_used[i] = true; return ESP_OK;
     }
     return ESP_ERR_NO_MEM;
 }
+esp_err_t solar_os_stream_register_many(const solar_os_stream_driver_t *drivers, size_t count)
+{ assert(count == 1); return solar_os_stream_register(drivers); }
 esp_err_t solar_os_stream_unregister_many(const char *const *names, size_t count)
 {
     if (fail_retire) return ESP_ERR_INVALID_STATE;
@@ -76,6 +94,9 @@ esp_err_t solar_os_stream_unregister_many(const char *const *names, size_t count
     }
     return ESP_OK;
 }
+esp_err_t solar_os_stream_unregister_many_owned(const char *const *names, const void *const *owners, size_t count)
+{ assert(owners != NULL); return solar_os_stream_unregister_many(names, count); }
+
 esp_err_t solar_os_stream_unregister(const char *name) { return solar_os_stream_unregister_many(&name, 1); }
 static void connect_at(uint8_t address)
 {
@@ -95,6 +116,16 @@ static void *pending_read(void *data)
 int main(void)
 {
     assert(solar_os_port_init() == ESP_OK);
+    const solar_os_port_driver_t probe = {
+        .name = "probe", .label = "Publication probe", .capabilities = SOLAR_OS_PORT_CAP_READ,
+    };
+    fail_publication = true;
+    assert(solar_os_port_register(&probe) == ESP_ERR_NO_MEM);
+    assert(solar_os_port_list(NULL, 0) == 0);
+    fail_publication = false;
+    assert(solar_os_port_register(&probe) == ESP_OK);
+    assert(solar_os_port_list(NULL, 0) == 1);
+    assert(solar_os_port_unregister("probe") == ESP_OK);
     fail_task = true; assert(solar_os_usb_serial_start() == ESP_ERR_NO_MEM && !class_installed && !discoveries);
     fail_task = false;
     assert(solar_os_usb_serial_start() == ESP_OK && discovery);

@@ -4,9 +4,9 @@ import tempfile
 import unittest
 
 from test_foreground_presenter import production_functions
+from host_cjson import CJSON
 
 ROOT = Path(__file__).resolve().parents[1]
-CJSON = Path.home() / '.platformio/packages/framework-espidf/components/json/cJSON'
 
 
 class PackageUpgradeTest(unittest.TestCase):
@@ -18,7 +18,7 @@ class PackageUpgradeTest(unittest.TestCase):
                 'cc', '-std=c11', '-D_GNU_SOURCE', '-Wall', '-Wextra', '-Werror',
                 '-Wno-unused-function', '-g', '-O1', '-fsanitize=address,undefined',
                 '-fno-omit-frame-pointer', '-I' + str(CJSON),
-                '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/services'),
+                '-I' + str(ROOT / 'include'), '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/services'),
                 str(cfile), *map(str, extra_sources), *extra_flags, '-o', str(binary),
             ], check=True)
             subprocess.run([str(binary)], cwd=tmp, check=True)
@@ -27,7 +27,7 @@ class PackageUpgradeTest(unittest.TestCase):
         source = (ROOT / 'src/services/solar_os_module_packages.c').read_text()
         fixture = (ROOT / 'tests/host/pkg_upgrade_test.inc').read_text()
         basics = production_functions(source, (
-            'module_set_detail', 'module_name_valid', 'module_type_directory',
+            'module_set_detail', 'module_name_valid', 'solar_os_module_type_name', 'module_type_directory',
             'module_legacy_app_path', 'solar_os_module_package_path',
             'module_foreach_directory', 'solar_os_module_package_foreach_installed',
             'module_download_cancelled', 'module_download_progress',
@@ -43,13 +43,19 @@ class PackageUpgradeTest(unittest.TestCase):
         code = code.replace('/* RECEIPTS */', (ROOT / 'src/services/solar_os_module_receipts.inc').read_text())
         code = code.replace('/* INSTALL */', install)
         code = code.replace('/* UPGRADE */', (ROOT / 'src/services/solar_os_module_upgrade.inc').read_text())
-        self.compile_run(code, (CJSON / 'cJSON.c',), ('-lcrypto', '-lm'))
+        service_dir = ROOT / 'src/services'
+        self.compile_run(code, (CJSON / 'cJSON.c', service_dir / 'solar_os_native_components.c',
+            service_dir / 'solar_os_native_handles.c'),
+            ('-DSOLAR_OS_PACKAGE_CORE_RUNTIME=1', '-DSOLAR_OS_PACKAGE_SERVICE_NATIVE_MODULES=1', '-lcrypto', '-lm'))
 
     def test_shell_update_listing_confirmation_and_cancellation(self):
         source = (ROOT / 'src/shell/solar_os_shell_system.c').read_text()
         definitions = source[source.index('typedef struct {', source.index('#define PKG_NETWORK_WAIT_MS')):
                              source.index('static esp_err_t pkg_read_input(')]
-        functions = production_functions(source, (
+        poll_input = production_functions((ROOT / 'src/shell/solar_os_shell_io.c').read_text(), (
+            'solar_os_shell_io_poll_input',
+        ))
+        functions = poll_input + '\n' + production_functions(source, (
             'pkg_read_input', 'pkg_install_cancelled', 'pkg_install_progress',
             'pkg_print_upgrade_plan', 'pkg_confirm_upgrade', 'pkg_update_or_upgrade',
             'solar_os_shell_cmd_pkg',

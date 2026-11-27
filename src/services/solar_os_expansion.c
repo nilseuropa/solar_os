@@ -38,6 +38,8 @@ static const solar_os_expansion_driver_t *const expansion_drivers[] = {
 #define SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX 16U
 static const solar_os_expansion_driver_t *dynamic_expansion_drivers[
     SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX];
+static uint16_t driver_validations[SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX];
+static portMUX_TYPE registry_init_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t drivers_mutex;
 static StaticSemaphore_t drivers_mutex_storage;
 
@@ -50,6 +52,7 @@ typedef enum {
 typedef struct expansion_device_node {
     solar_os_expansion_device_t device;
     expansion_slot_state_t state;
+    void *driver_instance;
     struct expansion_device_node *next;
 } expansion_device_node_t;
 
@@ -100,25 +103,18 @@ static bool device_name_valid(const char *name)
     return strnlen(name, SOLAR_OS_EXPANSION_DEVICE_NAME_MAX) < SOLAR_OS_EXPANSION_DEVICE_NAME_MAX;
 }
 
-static esp_err_t ensure_devices_mutex(void)
+static esp_err_t ensure_registry_mutex(SemaphoreHandle_t *mutex, StaticSemaphore_t *storage)
 {
-    if (devices_mutex == NULL) {
-        devices_mutex = xSemaphoreCreateMutexStatic(&devices_mutex_storage);
-    }
-    return devices_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
-}
-
-static esp_err_t ensure_drivers_mutex(void)
-{
-    if (drivers_mutex == NULL) {
-        drivers_mutex = xSemaphoreCreateMutexStatic(&drivers_mutex_storage);
-    }
-    return drivers_mutex != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    portENTER_CRITICAL(&registry_init_lock);
+    if (*mutex == NULL) *mutex = xSemaphoreCreateMutexStatic(storage);
+    const bool available = *mutex != NULL;
+    portEXIT_CRITICAL(&registry_init_lock);
+    return available ? ESP_OK : ESP_ERR_NO_MEM;
 }
 
 static bool drivers_lock_take(void)
 {
-    return ensure_drivers_mutex() == ESP_OK &&
+    return ensure_registry_mutex(&drivers_mutex, &drivers_mutex_storage) == ESP_OK &&
         xSemaphoreTake(drivers_mutex, portMAX_DELAY) == pdTRUE;
 }
 
@@ -129,7 +125,7 @@ static void drivers_lock_give(void)
 
 static bool devices_lock_take(void)
 {
-    return ensure_devices_mutex() == ESP_OK &&
+    return ensure_registry_mutex(&devices_mutex, &devices_mutex_storage) == ESP_OK &&
         xSemaphoreTake(devices_mutex, portMAX_DELAY) == pdTRUE;
 }
 
@@ -188,54 +184,45 @@ static void release_device_reservation(expansion_device_node_t *node)
     }
 }
 
-static const solar_os_expansion_driver_t *find_driver(const char *name)
+static const solar_os_expansion_driver_t *find_builtin_driver(const char *name)
 {
-    if (name == NULL) {
-        return NULL;
-    }
     for (size_t i = 0; i < sizeof(expansion_drivers) / sizeof(expansion_drivers[0]); i++) {
-        if (strcmp(expansion_drivers[i]->name, name) == 0) {
-            return expansion_drivers[i];
-        }
+        if (strcmp(expansion_drivers[i]->name, name) == 0) return expansion_drivers[i];
     }
-    if (!drivers_lock_take()) {
-        return NULL;
-    }
-    const solar_os_expansion_driver_t *found = NULL;
-    for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; i++) {
-        if (dynamic_expansion_drivers[i] != NULL &&
-            strcmp(dynamic_expansion_drivers[i]->name, name) == 0) {
-            found = dynamic_expansion_drivers[i];
-            break;
-        }
-    }
-    drivers_lock_give();
-    return found;
+    return NULL;
 }
 
-static bool copy_driver(const char *name, solar_os_expansion_driver_t *driver)
+static size_t find_dynamic_driver_locked(const char *name)
 {
-    if (name == NULL || driver == NULL) {
-        return false;
-    }
-    for (size_t i = 0; i < sizeof(expansion_drivers) / sizeof(expansion_drivers[0]); i++) {
-        if (strcmp(expansion_drivers[i]->name, name) == 0) {
-            *driver = *expansion_drivers[i];
-            return true;
-        }
-    }
-    if (!drivers_lock_take()) {
-        return false;
-    }
-    bool found = false;
     for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; i++) {
-        if (dynamic_expansion_drivers[i] != NULL &&
-            strcmp(dynamic_expansion_drivers[i]->name, name) == 0) {
-            *driver = *dynamic_expansion_drivers[i];
-            found = true;
-            break;
-        }
+        if (dynamic_expansion_drivers[i] && strcmp(dynamic_expansion_drivers[i]->name, name) == 0) return i;
     }
+    return SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX;
+}
+
+static const solar_os_expansion_driver_t *find_driver(const char *name)
+{
+    if (!name) return NULL;
+    const solar_os_expansion_driver_t *driver = find_builtin_driver(name);
+    if (driver || !drivers_lock_take()) return driver;
+    const size_t slot = find_dynamic_driver_locked(name);
+    if (slot < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX) driver = dynamic_expansion_drivers[slot];
+    drivers_lock_give();
+    return driver;
+}
+
+static bool copy_driver_capabilities(const char *name, solar_os_board_capabilities_t *required)
+{
+    if (!name) return false;
+    const solar_os_expansion_driver_t *builtin = find_builtin_driver(name);
+    if (builtin) {
+        *required = builtin->required_capabilities;
+        return true;
+    }
+    if (!drivers_lock_take()) return false;
+    const size_t slot = find_dynamic_driver_locked(name);
+    const bool found = slot < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX;
+    if (found) *required = dynamic_expansion_drivers[slot]->required_capabilities;
     drivers_lock_give();
     return found;
 }
@@ -306,13 +293,15 @@ static esp_err_t driver_attach_callback(
     const solar_os_expansion_driver_t *driver,
     const char *name,
     const solar_os_expansion_binding_t *bindings,
-    size_t binding_count)
+    size_t binding_count,
+    void **instance)
 {
     if (driver->attach_with_user != NULL) {
         return driver->attach_with_user(driver->callback_user,
                                         name,
                                         bindings,
-                                        binding_count);
+                                        binding_count,
+                                        instance);
     }
     return driver->attach != NULL ?
         driver->attach(name, bindings, binding_count) : ESP_OK;
@@ -320,10 +309,11 @@ static esp_err_t driver_attach_callback(
 
 static esp_err_t driver_detach_callback(
     const solar_os_expansion_driver_t *driver,
-    const char *name)
+    const char *name,
+    void *instance)
 {
     if (driver->detach_with_user != NULL) {
-        return driver->detach_with_user(driver->callback_user, name);
+        return driver->detach_with_user(driver->callback_user, name, instance);
     }
     return driver->detach != NULL ? driver->detach(name) : ESP_OK;
 }
@@ -700,7 +690,7 @@ static bool expansion_device_exists(const char *name)
 
 static esp_err_t expansion_init_board_defaults(bool early)
 {
-    ESP_RETURN_ON_ERROR(ensure_devices_mutex(), "expansion", "device registry init failed");
+    ESP_RETURN_ON_ERROR(ensure_registry_mutex(&devices_mutex, &devices_mutex_storage), "expansion", "device registry init failed");
     ESP_RETURN_ON_ERROR(solar_os_resources_init(), "expansion", "resource init failed");
     ESP_RETURN_ON_ERROR(solar_os_buses_init(), "expansion", "bus init failed");
     esp_err_t first_error = ESP_OK;
@@ -827,65 +817,168 @@ size_t solar_os_expansion_driver_count(void)
     return count;
 }
 
+static const solar_os_expansion_driver_t *builtin_driver_at(size_t *index)
+{
+    for (size_t i = 0; i < sizeof(expansion_drivers) / sizeof(expansion_drivers[0]); ++i) {
+        if (expansion_drivers[i]->board_only) continue;
+        if (*index == 0) return expansion_drivers[i];
+        --*index;
+    }
+    return NULL;
+}
+
+static const solar_os_expansion_driver_t *dynamic_driver_at_locked(size_t index)
+{
+    for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; ++i) {
+        if (!dynamic_expansion_drivers[i]) continue;
+        if (index-- == 0) return dynamic_expansion_drivers[i];
+    }
+    return NULL;
+}
+
+typedef esp_err_t (*read_driver_fn)(const solar_os_expansion_driver_t *, void *);
+
+/* The reader runs while the dynamic descriptor is stable. It only copies
+ * metadata and does not invoke driver or application callbacks. */
+static esp_err_t read_driver(const char *name, size_t index, read_driver_fn read, void *out)
+{
+    const solar_os_expansion_driver_t *driver = name ? find_builtin_driver(name) : builtin_driver_at(&index);
+    if (driver) return driver->board_only ? ESP_ERR_NOT_FOUND : read(driver, out);
+    if (!drivers_lock_take()) return ESP_ERR_NO_MEM;
+    if (name) {
+        const size_t slot = find_dynamic_driver_locked(name);
+        if (slot < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX) driver = dynamic_expansion_drivers[slot];
+    } else {
+        driver = dynamic_driver_at_locked(index);
+    }
+    const esp_err_t result = driver ? read(driver, out) : ESP_ERR_NOT_FOUND;
+    drivers_lock_give();
+    return result;
+}
+
+static esp_err_t copy_driver(const solar_os_expansion_driver_t *source, void *out)
+{
+    *(solar_os_expansion_driver_t *)out = *source;
+    return ESP_OK;
+}
+
 bool solar_os_expansion_get_driver(size_t index, solar_os_expansion_driver_t *driver)
 {
-    if (driver == NULL) {
-        return false;
+    return driver && read_driver(NULL, index, copy_driver, driver) == ESP_OK;
+}
+
+static bool copy_text(const char *text, char *out, size_t capacity)
+{
+    if (!text) return true;
+    const size_t length = strnlen(text, capacity);
+    if (length == capacity) return false;
+    memcpy(out, text, length + 1U);
+    return true;
+}
+
+static esp_err_t copy_driver_info(const solar_os_expansion_driver_t *driver, void *out)
+{
+    solar_os_expansion_driver_info_t info = {
+        .required_capabilities = driver->required_capabilities,
+        .category = driver->category, .binding_spec_count = driver->binding_spec_count,
+        .probe_supported = driver->probe_supported, .allow_unlisted_bindings = driver->allow_unlisted_bindings,
+    };
+    if (!copy_text(driver->name, info.name, sizeof(info.name)) ||
+        !copy_text(driver->summary, info.summary, sizeof(info.summary))) return ESP_ERR_INVALID_SIZE;
+    *(solar_os_expansion_driver_info_t *)out = info;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_get_driver_info(size_t index, solar_os_expansion_driver_info_t *info)
+{
+    if (!info) return ESP_ERR_INVALID_ARG;
+    return read_driver(NULL, index, copy_driver_info, info);
+}
+
+esp_err_t solar_os_expansion_find_driver_info(const char *name, solar_os_expansion_driver_info_t *info)
+{
+    if (!name || !*name || !info) return ESP_ERR_INVALID_ARG;
+    return read_driver(name, 0, copy_driver_info, info);
+}
+
+typedef struct {
+    size_t spec_index, capacity;
+    solar_os_expansion_binding_spec_info_t *spec;
+    int *values;
+} binding_spec_request_t;
+
+static esp_err_t copy_binding_spec(const solar_os_expansion_driver_t *driver, void *user)
+{
+    const binding_spec_request_t *request = user;
+    if (request->spec_index >= driver->binding_spec_count) return ESP_ERR_NOT_FOUND;
+    const solar_os_expansion_binding_spec_t *binding = &driver->binding_specs[request->spec_index];
+    if (binding->allowed_value_count > SIZE_MAX / sizeof(int) ||
+        (binding->allowed_value_count != 0 && !binding->allowed_values)) return ESP_ERR_INVALID_STATE;
+    solar_os_expansion_binding_spec_info_t info = {
+        .kind = binding->kind, .required = binding->required,
+        .has_role = binding->role != NULL, .has_value_hint = binding->value_hint != NULL,
+        .allowed_value_count = binding->allowed_value_count, .has_value_range = binding->has_value_range,
+        .min_value = binding->min_value, .max_value = binding->max_value,
+    };
+    if (!copy_text(binding->key, info.key, sizeof(info.key)) ||
+        !copy_text(binding->role, info.role, sizeof(info.role)) ||
+        !copy_text(binding->value_hint, info.value_hint, sizeof(info.value_hint))) return ESP_ERR_INVALID_SIZE;
+    *request->spec = info;
+    if (request->values && info.allowed_value_count) {
+        if (request->capacity < info.allowed_value_count) return ESP_ERR_INVALID_SIZE;
+        memcpy(request->values, binding->allowed_values, info.allowed_value_count * sizeof(*request->values));
     }
-    const size_t static_count = sizeof(expansion_drivers) / sizeof(expansion_drivers[0]);
-    for (size_t i = 0; i < static_count; i++) {
-        if (expansion_drivers[i]->board_only) {
-            continue;
-        }
-        if (index == 0U) {
-            *driver = *expansion_drivers[i];
-            return true;
-        }
-        index--;
-    }
-    if (!drivers_lock_take()) {
-        return false;
-    }
-    bool found = false;
-    for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; i++) {
-        if (dynamic_expansion_drivers[i] == NULL) {
-            continue;
-        }
-        if (index == 0U) {
-            *driver = *dynamic_expansion_drivers[i];
-            found = true;
-            break;
-        }
-        index--;
-    }
-    drivers_lock_give();
-    return found;
+    return ESP_OK;
+}
+
+esp_err_t solar_os_expansion_get_binding_spec(const char *name, size_t index,
+    solar_os_expansion_binding_spec_info_t *out, int *values, size_t capacity)
+{
+    if (!name || !*name || !out || (!values && capacity)) return ESP_ERR_INVALID_ARG;
+    binding_spec_request_t request = { .spec_index = index, .capacity = capacity, .spec = out, .values = values };
+    return read_driver(name, 0, copy_binding_spec, &request);
 }
 
 esp_err_t solar_os_expansion_register_driver(
     const solar_os_expansion_driver_t *driver)
 {
     if (driver == NULL || driver->name == NULL || driver->name[0] == '\0' ||
+        strnlen(driver->name, SOLAR_OS_EXPANSION_DRIVER_NAME_MAX) >= SOLAR_OS_EXPANSION_DRIVER_NAME_MAX ||
         driver->summary == NULL || driver->early || driver->board_only ||
-        driver->binding_spec_count != 0U || driver->allow_unlisted_bindings) {
+        driver->binding_spec_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
+        (driver->binding_spec_count != 0U && !driver->binding_specs) || driver->allow_unlisted_bindings) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (find_driver(driver->name) != NULL) {
-        return ESP_ERR_INVALID_STATE;
+    for (size_t i = 0; i < driver->binding_spec_count; i++) {
+        const solar_os_expansion_binding_spec_t *spec = &driver->binding_specs[i];
+        if (!spec->key || !*spec->key || strnlen(spec->key, SOLAR_OS_EXPANSION_ROLE_MAX) >= SOLAR_OS_EXPANSION_ROLE_MAX ||
+            (spec->role && strnlen(spec->role, SOLAR_OS_EXPANSION_ROLE_MAX) >= SOLAR_OS_EXPANSION_ROLE_MAX) ||
+            (spec->value_hint && strnlen(spec->value_hint, SOLAR_OS_EXPANSION_BINDING_HINT_MAX) >= SOLAR_OS_EXPANSION_BINDING_HINT_MAX) ||
+            (unsigned)spec->kind > SOLAR_OS_EXPANSION_BINDING_DISPLAY_TARGET ||
+            (spec->allowed_value_count && !spec->allowed_values) ||
+            (spec->has_value_range && spec->min_value > spec->max_value)) return ESP_ERR_INVALID_ARG;
     }
+    if (find_builtin_driver(driver->name)) return ESP_ERR_INVALID_STATE;
     if (!drivers_lock_take()) {
         return ESP_ERR_NO_MEM;
     }
-    esp_err_t ret = ESP_ERR_NO_MEM;
+    size_t free_slot = SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX;
+    esp_err_t result = ESP_ERR_NO_MEM;
     for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; i++) {
-        if (dynamic_expansion_drivers[i] == NULL) {
-            dynamic_expansion_drivers[i] = driver;
-            ret = ESP_OK;
+        const solar_os_expansion_driver_t *registered = dynamic_expansion_drivers[i];
+        if (!registered) {
+            if (free_slot == SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX) free_slot = i;
+        } else if (strcmp(registered->name, driver->name) == 0) {
+            result = ESP_ERR_INVALID_STATE;
             break;
         }
     }
+    if (result == ESP_ERR_NO_MEM && free_slot < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX) {
+        dynamic_expansion_drivers[free_slot] = driver;
+        result = ESP_OK;
+    }
     drivers_lock_give();
-    return ret;
+    return result;
 }
 
 esp_err_t solar_os_expansion_unregister_driver(
@@ -894,46 +987,35 @@ esp_err_t solar_os_expansion_unregister_driver(
     if (driver == NULL || driver->name == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (!drivers_lock_take()) {
+    /* Board-device refresh already looks up a driver under the device lock.
+     * Remove drivers in that same lock order, with no unpublished slot gap. */
+    if (!devices_lock_take()) {
         return ESP_ERR_NO_MEM;
     }
-    esp_err_t ret = ESP_ERR_NOT_FOUND;
-    size_t removed_index = SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX;
+    if (!drivers_lock_take()) {
+        devices_lock_give();
+        return ESP_ERR_NO_MEM;
+    }
+    esp_err_t result = ESP_ERR_NOT_FOUND;
     for (size_t i = 0; i < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX; i++) {
-        if (dynamic_expansion_drivers[i] == driver) {
-            dynamic_expansion_drivers[i] = NULL;
-            removed_index = i;
-            ret = ESP_OK;
+        if (dynamic_expansion_drivers[i] != driver) continue;
+        if (driver_validations[i]) {
+            result = ESP_ERR_INVALID_STATE;
             break;
         }
-    }
-    drivers_lock_give();
-    if (ret != ESP_OK) {
-        return ret;
-    }
-
-    bool in_use = false;
-    if (!devices_lock_take()) {
-        ret = ESP_ERR_NO_MEM;
-    } else {
-        for (const expansion_device_node_t *node = devices;
-             node != NULL;
-             node = node->next) {
+        result = ESP_OK;
+        for (const expansion_device_node_t *node = devices; node != NULL; node = node->next) {
             if (strcmp(node->device.driver, driver->name) == 0) {
-                in_use = true;
+                result = ESP_ERR_INVALID_STATE;
                 break;
             }
         }
-        devices_lock_give();
-        if (in_use) {
-            ret = ESP_ERR_INVALID_STATE;
-        }
+        if (result == ESP_OK) dynamic_expansion_drivers[i] = NULL;
+        break;
     }
-    if (ret != ESP_OK && drivers_lock_take()) {
-        dynamic_expansion_drivers[removed_index] = driver;
-        drivers_lock_give();
-    }
-    return ret;
+    drivers_lock_give();
+    devices_lock_give();
+    return result;
 }
 
 const char *solar_os_expansion_category_name(solar_os_expansion_category_t category)
@@ -954,8 +1036,8 @@ const char *solar_os_expansion_category_name(solar_os_expansion_category_t categ
 
 bool solar_os_expansion_driver_supported(const char *name)
 {
-    solar_os_expansion_driver_t driver;
-    if (!copy_driver(name, &driver)) {
+    solar_os_board_capabilities_t required;
+    if (!copy_driver_capabilities(name, &required)) {
         return false;
     }
     solar_os_board_capabilities_t caps = solar_os_board_capabilities();
@@ -969,8 +1051,7 @@ bool solar_os_expansion_driver_supported(const char *name)
         solar_os_bus_count_protocol(SOLAR_OS_BUS_PROTOCOL_MIDI) > 0) {
         caps |= SOLAR_OS_BOARD_CAP_EXPANSION_UART;
     }
-    return driver.required_capabilities == 0 ||
-        (caps & driver.required_capabilities) == driver.required_capabilities;
+    return (caps & required) == required;
 }
 
 bool solar_os_expansion_binding_pin_supported(
@@ -996,28 +1077,13 @@ bool solar_os_expansion_binding_pin_supported(
     }
 }
 
-static esp_err_t validate_bindings(
-    const char *driver,
+static esp_err_t validate_driver_bindings(
+    const solar_os_expansion_driver_t *driver_def,
     const solar_os_expansion_binding_t *bindings,
     size_t binding_count,
     solar_os_expansion_binding_validation_t *validation,
     bool allow_board_pins)
 {
-    if (validation != NULL) {
-        memset(validation, 0, sizeof(*validation));
-        validation->reason = SOLAR_OS_EXPANSION_BINDINGS_VALID;
-    }
-    if (driver == NULL || driver[0] == '\0' ||
-        binding_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
-        (binding_count > 0 && bindings == NULL)) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    solar_os_expansion_driver_t driver_copy;
-    if (!copy_driver(driver, &driver_copy)) {
-        return ESP_ERR_NOT_FOUND;
-    }
-    const solar_os_expansion_driver_t *driver_def = &driver_copy;
     if (driver_def->board_only && !allow_board_pins) {
         return ESP_ERR_NOT_SUPPORTED;
     }
@@ -1122,6 +1188,49 @@ static esp_err_t validate_bindings(
         }
     }
     return ESP_OK;
+}
+
+static esp_err_t validate_bindings(const char *driver, const solar_os_expansion_binding_t *bindings,
+    size_t binding_count, solar_os_expansion_binding_validation_t *validation, bool allow_board_pins)
+{
+    if (validation != NULL) {
+        memset(validation, 0, sizeof(*validation));
+        validation->reason = SOLAR_OS_EXPANSION_BINDINGS_VALID;
+    }
+    if (driver == NULL || driver[0] == '\0' ||
+        binding_count > SOLAR_OS_EXPANSION_DEVICE_BINDING_MAX ||
+        (binding_count > 0 && bindings == NULL)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    for (size_t i = 0; i < binding_count; ++i) {
+        if (!memchr(bindings[i].role, 0, sizeof(bindings[i].role)) ||
+            !memchr(bindings[i].target, 0, sizeof(bindings[i].target))) {
+            set_binding_validation(validation, SOLAR_OS_EXPANSION_BINDINGS_INVALID_VALUE, "resource");
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    const solar_os_expansion_driver_t *definition = find_builtin_driver(driver);
+    if (definition) return validate_driver_bindings(definition, bindings, binding_count, validation, allow_board_pins);
+
+    if (!drivers_lock_take()) return ESP_ERR_NO_MEM;
+    const size_t slot = find_dynamic_driver_locked(driver);
+    esp_err_t result = ESP_ERR_NOT_FOUND;
+    if (slot < SOLAR_OS_DYNAMIC_EXPANSION_DRIVER_MAX) {
+        result = ESP_ERR_INVALID_STATE;
+        if (driver_validations[slot] < UINT16_MAX) {
+            ++driver_validations[slot];
+            definition = dynamic_expansion_drivers[slot];
+        }
+    }
+    drivers_lock_give();
+    if (!definition) return result;
+    result = validate_driver_bindings(definition, bindings, binding_count, validation, allow_board_pins);
+    if (drivers_lock_take()) {
+        --driver_validations[slot];
+        drivers_lock_give();
+    }
+    return result;
 }
 
 esp_err_t solar_os_expansion_validate_bindings(
@@ -1459,7 +1568,8 @@ static esp_err_t expansion_attach(const char *driver,
         const esp_err_t ret = driver_attach_callback(driver_def,
                                                      name,
                                                      normalized,
-                                                     binding_count);
+                                                     binding_count,
+                                                     &node->driver_instance);
         if (ret != ESP_OK) {
             (void)solar_os_bus_release_owner(name);
             (void)solar_os_resource_release_owner(name);
@@ -1538,7 +1648,7 @@ esp_err_t solar_os_expansion_attach_board_device(const char *name)
             node->state = EXPANSION_SLOT_ATTACHING;
             devices_lock_give();
             const esp_err_t ret = driver_attach_callback(driver, name,
-                node->device.bindings, node->device.binding_count);
+                node->device.bindings, node->device.binding_count, &node->driver_instance);
             if (!devices_lock_take()) return ESP_ERR_NO_MEM;
             node->state = EXPANSION_SLOT_ACTIVE;
             node->device.ready = ret == ESP_OK;
@@ -1589,7 +1699,7 @@ esp_err_t solar_os_expansion_detach(const char *name)
     const solar_os_expansion_driver_t *driver = find_driver(device.driver);
     if (driver != NULL &&
         (driver->detach != NULL || driver->detach_with_user != NULL)) {
-        const esp_err_t ret = driver_detach_callback(driver, name);
+        const esp_err_t ret = driver_detach_callback(driver, name, node->driver_instance);
         if (ret != ESP_OK) {
             if (devices_lock_take()) {
                 if (node->state == EXPANSION_SLOT_DETACHING) {

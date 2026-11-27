@@ -263,7 +263,7 @@ class ManualReleaseLimitTest(unittest.TestCase):
 
     def test_cached_manual_survives_firmware_version_change(self):
         docs_header = (
-            REPOSITORY / "src/services/solar_os_docs.h"
+            REPOSITORY / "include/solar_os_native_docs_abi.h"
         ).read_text(encoding="utf-8")
         self.assertIn("char manual_version[32];", docs_header)
         self.assertNotIn("char version[32];", docs_header)

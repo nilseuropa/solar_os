@@ -16,12 +16,13 @@
 typedef struct { int id; } u8g2_t;
 typedef unsigned u8g2_uint_t;
 typedef uint16_t solar_os_terminal_cell_t;
+typedef struct { char name[16], owner[32]; u8g2_t *u8g2; bool epaper, ready; } solar_os_display_target_t;
 typedef struct {
     bool active,terminal_blocked,orientation_locked;
     struct {unsigned orientation_degrees;} terminal_profile;
-    uint32_t terminal_epoch;
+    uint32_t terminal_epoch, generation;
     unsigned claim_refs;
-    struct { char name[16],owner[32]; u8g2_t *u8g2; bool epaper; } target;
+    solar_os_display_target_t target;
     int gfx;
 } display_target_slot_t;
 typedef struct {unsigned orientation_degrees;} solar_os_terminal_profile_t;
@@ -32,6 +33,28 @@ static bool display_owner_valid(const char *owner) {return owner&&*owner&&strlen
 static void *solar_os_gfx_detach_surface_storage(int *gfx) {(void)gfx;return NULL;}
 static void display_init_slot_gfx(display_target_slot_t *slot) {(void)slot;}
 static void solar_os_memory_free(void *data) {assert(!data);}
+static bool recycle_target;
+static bool display_snapshot_slot(size_t index, uint32_t generation, solar_os_display_target_t *out)
+{
+    assert(index < SOLAR_OS_DISPLAY_TARGET_MAX && display_targets[index].generation == generation);
+    *out = display_targets[index].target;
+    if (recycle_target) ++display_targets[index].generation;
+    return true;
+}
+
+static size_t strlcpy(char *out, const char *value, size_t capacity)
+{
+    size_t length = strlen(value);
+    if (capacity) {
+        size_t copied = length < capacity - 1 ? length : capacity - 1;
+        memcpy(out, value, copied);
+        out[copied] = 0;
+    }
+    return length;
+}
+
+#define SOLAR_OS_DISPLAY_CLAIM_BLOCK_TERMINAL (1U << 0)
+#define SOLAR_OS_DISPLAY_CLAIM_LOCK_ORIENTATION (1U << 1)
 #include "display_terminal_policy.inc"
 typedef enum { SOLAR_OS_TERMINAL_CURSOR_BLOCK, SOLAR_OS_TERMINAL_CURSOR_UNDERSCORE }
     solar_os_terminal_cursor_shape_t;
@@ -84,7 +107,6 @@ static solar_os_display_rect_t solar_os_display_canvas_rect(u8g2_t *u)
 static void solar_os_display_present_regions(u8g2_t *u,int mode,
     const solar_os_display_rect_t *areas,size_t count)
 { assert(areas && count==3);solar_os_display_present(u,mode); }
-static int solar_os_display_request_present_mode(u8g2_t *u,int mode) {(void)u;(void)mode;return 0;}
 static void solar_os_terminal_get_cursor_preference_for_display(const u8g2_t *u8g2,
     solar_os_terminal_cursor_shape_t *shape,bool *blink)
 { (void)u8g2; *shape=SOLAR_OS_TERMINAL_CURSOR_BLOCK; *blink=false; }
@@ -114,11 +136,14 @@ int main(void) {
     display_targets[0].claim_refs=2;strcpy(display_targets[0].target.owner,"jet");
     assert(solar_os_display_set_terminal_blocked("display0","other",true)==ESP_ERR_INVALID_STATE);
     assert(solar_os_display_set_orientation_locked("display0","other",true)==ESP_ERR_INVALID_STATE);
-    assert(solar_os_display_set_orientation_locked("display0","jet",true)==ESP_OK);
+    const uint32_t mask = SOLAR_OS_DISPLAY_CLAIM_BLOCK_TERMINAL | SOLAR_OS_DISPLAY_CLAIM_LOCK_ORIENTATION;
+    assert(solar_os_display_set_claim_policy("display0", "jet", mask, mask)==ESP_OK);
+    assert(solar_os_display_set_claim_policy("display0", "jet", mask, 0x80)==ESP_ERR_INVALID_ARG);
     solar_os_terminal_profile_t same={0},rotated={90};
     assert(display_profile_orientation_allowed(&display_targets[0],&same));
     assert(!display_profile_orientation_allowed(&display_targets[0],&rotated));
     assert(solar_os_display_set_orientation_locked("display0","jet",false)==ESP_OK);
+    assert(!solar_os_display_terminal_draw_state(&screens[0], NULL));
     assert(display_profile_orientation_allowed(&display_targets[0],&rotated));
     assert(solar_os_display_set_terminal_blocked("display0","jet",true)==ESP_OK);
     assert(solar_os_display_terminal_draw_state(&screens[1],NULL));
@@ -138,5 +163,14 @@ int main(void) {
     /* Even a short stream with no terminal changes needs a complete repaint. */
     assert(!terminal.dirty&&solar_os_terminal_needs_draw(&terminal));
     solar_os_terminal_draw(&terminal);assert(clears==3&&presents==3);
+    assert(solar_os_display_release("display0", "jet") == ESP_OK);
+    display_targets[0].target.ready = true;
+    recycle_target = true;
+    assert(solar_os_display_claim("display0", "fresh", NULL, 0) == ESP_ERR_NOT_FOUND);
+    assert(!display_targets[0].claim_refs && !display_targets[0].target.owner[0]);
+    recycle_target = false;
+    assert(solar_os_display_claim("display0", "fresh", NULL, 0) == ESP_OK);
+    assert(display_targets[0].claim_refs == 1 && !strcmp(display_targets[0].target.owner, "fresh"));
+    assert(solar_os_display_release("display0", "fresh") == ESP_OK);
     puts("Display claims exclude terminal/status paints and restore a full terminal frame");
 }

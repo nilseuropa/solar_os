@@ -1401,7 +1401,7 @@ esp_err_t solar_os_sim7670_attach(
     };
     ret = solar_os_gnss_register(&registration);
     if (ret != ESP_OK) {
-        (void)solar_os_modem_unregister(name);
+        (void)solar_os_modem_unregister_owned(name, device);
 #if CONFIG_LWIP_PPP_SUPPORT
         (void)solar_os_ppp_destroy(device->ppp);
 #endif
@@ -1440,12 +1440,10 @@ esp_err_t solar_os_sim7670_detach(const char *name)
                             TAG,
                             "modem power off failed");
     }
-    ESP_RETURN_ON_ERROR(solar_os_gnss_unregister(name),
-                        TAG,
-                        "GNSS unregister failed");
-    ESP_RETURN_ON_ERROR(solar_os_modem_unregister(name),
-                        TAG,
-                        "modem unregister failed");
+    esp_err_t error = solar_os_gnss_unregister_owned(name, device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_modem_unregister_owned(name, device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
 #if CONFIG_LWIP_PPP_SUPPORT
     ESP_RETURN_ON_ERROR(solar_os_ppp_destroy(device->ppp),
                         TAG,

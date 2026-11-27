@@ -13,3 +13,8 @@ artifact = "solaros_native_hello_library.library.elf"
 
 [sdk.headers]
 "hello_library_api.h" = "main/hello_library_api.h"
+
+[build]
+entry = "main"
+sources = ["main/hello_library.c"]
+include_dirs = ["main"]

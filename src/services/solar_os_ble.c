@@ -32,8 +32,6 @@ typedef struct ble_session {
     bool closing;
     bool busy; /* Pins this slot and its result until the calling task returns. */
     bool pending;
-    solar_os_ble_cancel_check_t cancel_check;
-    void *cancel_user;
     uint32_t request;
     ble_operation_t op;
     uint16_t handle;
@@ -292,33 +290,6 @@ esp_err_t solar_os_ble_session_create(const char *owner, solar_os_ble_session_t 
     return ret;
 }
 
-esp_err_t solar_os_ble_session_set_cancel_check(solar_os_ble_session_t id,
-    solar_os_ble_cancel_check_t check, void *user)
-{
-    solar_os_ble_service_prepare_runtime();
-    lock_state();
-    ble_session_t *s = live_locked(id);
-    if (s == NULL || s->busy) {
-        unlock_state();
-        return ESP_ERR_INVALID_STATE;
-    }
-    for (ble_session_t *child = sessions; child; child = child->next) {
-        if (child->parent == id && child->busy) {
-            unlock_state(); return ESP_ERR_INVALID_STATE;
-        }
-    }
-    s->cancel_check = check;
-    s->cancel_user = user;
-    for (ble_session_t *child = sessions; child; child = child->next) {
-        if (child->parent == id) {
-            child->cancel_check = check;
-            child->cancel_user = user;
-        }
-    }
-    unlock_state();
-    return ESP_OK;
-}
-
 bool solar_os_ble_parse_address(const char *text, size_t len, uint8_t bda[6])
 {
     if (text == NULL || bda == NULL || len != 17) {
@@ -387,21 +358,34 @@ esp_err_t solar_os_ble_session_close(solar_os_ble_session_t session)
     return cancel_session(session, true);
 }
 
-esp_err_t solar_os_ble_server_request(solar_os_ble_session_t session,
-                                     solar_os_ble_server_request_t *request)
+static bool call_options_valid(const solar_os_ble_call_options_v1_t *options)
+{ return !options || options->struct_size >= sizeof(*options); }
+static bool call_options_cancelled(const solar_os_ble_call_options_v1_t *options)
+{ return options && options->cancelled && options->cancelled(options->user); }
+
+/* Called under the dispatch mutex, which keeps the owner alive until return.
+ * Explicit options are borrowed from this call. Legacy configured callbacks
+ * still need a pin so the setter cannot replace an active context. */
+static esp_err_t dispatch_check_cancel(solar_os_ble_session_t session, const solar_os_ble_call_options_v1_t *options)
 {
+    /* The caller holds dispatch, so lifecycle operations cannot retire the
+     * session while its synchronous borrowed check runs outside metadata. */
+    lock_state();
+    ble_session_t *s = live_locked(session);
+    const bool valid = s && !s->parent && !sleeping;
+    unlock_state();
+    if (!valid) return ESP_ERR_INVALID_STATE;
+    return call_options_cancelled(options) ? SOLAR_OS_BLE_ERR_CANCELLED : ESP_OK;
+}
+
+esp_err_t solar_os_ble_server_request_with_options(solar_os_ble_session_t session, solar_os_ble_server_request_t *request, const solar_os_ble_call_options_v1_t *options)
+{
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (!request || request->op < SOLAR_OS_BLE_SERVER_CREATE || request->op > SOLAR_OS_BLE_SERVER_PEER ||
         request->value_len > SOLAR_OS_BLE_GATT_VALUE_MAX ||
         !memchr(request->text, 0, sizeof(request->text))) return ESP_ERR_INVALID_ARG;
     lock_dispatch();
-    lock_state();
-    ble_session_t *s = live_locked(session);
-    bool valid = s && !s->parent && !sleeping;
-    solar_os_ble_cancel_check_t check = valid ? s->cancel_check : NULL;
-    void *user = valid ? s->cancel_user : NULL;
-    unlock_state();
-    esp_err_t result = valid ? ESP_OK : ESP_ERR_INVALID_STATE;
-    if (result == ESP_OK && check && check(user)) result = SOLAR_OS_BLE_ERR_CANCELLED;
+    esp_err_t result = dispatch_check_cancel(session, options);
     if (result == ESP_OK && request->op == SOLAR_OS_BLE_SERVER_CREATE)
         result = solar_os_ble_backend_init();
     if (result == ESP_OK) result = solar_os_ble_backend_server_request(session, request);
@@ -409,25 +393,18 @@ esp_err_t solar_os_ble_server_request(solar_os_ble_session_t session,
     return result;
 }
 
-static esp_err_t ble_hid_request(solar_os_ble_session_t session,
-                                 solar_os_ble_hid_request_t *request)
+esp_err_t solar_os_ble_hid_request_with_options(solar_os_ble_session_t session, solar_os_ble_hid_request_t *request, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (!request || request->op < SOLAR_OS_BLE_HID_OP_START ||
         request->op > SOLAR_OS_BLE_HID_OP_DISCONNECT ||
+        request->key_count > sizeof(request->keys) / sizeof(request->keys[0]) ||
+        request->host_count > SOLAR_OS_BLE_HID_HOST_MAX ||
         !memchr(request->name, 0, sizeof(request->name))) {
         return ESP_ERR_INVALID_ARG;
     }
     lock_dispatch();
-    lock_state();
-    ble_session_t *s = live_locked(session);
-    const bool valid = s && !s->parent && !sleeping;
-    solar_os_ble_cancel_check_t check = valid ? s->cancel_check : NULL;
-    void *user = valid ? s->cancel_user : NULL;
-    unlock_state();
-    esp_err_t result = valid ? ESP_OK : ESP_ERR_INVALID_STATE;
-    if (result == ESP_OK && check && check(user)) {
-        result = SOLAR_OS_BLE_ERR_CANCELLED;
-    }
+    esp_err_t result = dispatch_check_cancel(session, options);
     if (result == ESP_OK && request->op == SOLAR_OS_BLE_HID_OP_START) {
         result = solar_os_ble_backend_init();
     }
@@ -437,6 +414,9 @@ static esp_err_t ble_hid_request(solar_os_ble_session_t session,
     unlock_dispatch();
     return result;
 }
+
+static esp_err_t ble_hid_request(solar_os_ble_session_t session, solar_os_ble_hid_request_t *request)
+{ return solar_os_ble_hid_request_with_options(session, request, NULL); }
 
 esp_err_t solar_os_ble_hid_device_start(solar_os_ble_session_t session,
                                         const char *name)
@@ -677,13 +657,13 @@ static esp_err_t begin_locked(ble_session_t *s, ble_operation_t op, uint16_t han
 }
 
 static esp_err_t wait_operation(solar_os_ble_session_t id, uint32_t request,
-    uint32_t timeout_ms, uint8_t *value, size_t max_len, size_t *value_len)
+    uint32_t timeout_ms, uint8_t *value, size_t max_len, size_t *value_len, const solar_os_ble_call_options_v1_t *options)
 {
     lock_state();
     ble_session_t *s = find_locked(id); /* busy pins the slot, including after close */
     SemaphoreHandle_t wake = s->wake;
-    const solar_os_ble_cancel_check_t check = s->cancel_check;
-    void *const user = s->cancel_user;
+    const solar_os_ble_cancel_check_t check = options ? options->cancelled : NULL;
+    void *const user = options ? options->user : NULL;
     unlock_state();
     const TickType_t started = xTaskGetTickCount();
     const TickType_t timeout = pdMS_TO_TICKS(timeout_ms);
@@ -743,12 +723,13 @@ static esp_err_t wait_operation(solar_os_ble_session_t id, uint32_t request,
     return ret;
 }
 
-esp_err_t solar_os_ble_session_connect(solar_os_ble_session_t id,
-    const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms)
+esp_err_t solar_os_ble_session_connect_with_options(solar_os_ble_session_t id, const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (bda == NULL || addr_type > SOLAR_OS_BLE_ADDR_RANDOM_IDENTITY) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (call_options_cancelled(options)) return SOLAR_OS_BLE_ERR_CANCELLED;
     lock_dispatch();
     lock_state();
     const bool valid = live_locked(id) != NULL && !sleeping;
@@ -801,7 +782,7 @@ esp_err_t solar_os_ble_session_connect(solar_os_ble_session_t id,
     }
     unlock_dispatch();
     return wait_operation(id, request, timeout_ms != 0 ? timeout_ms : BLE_CONNECT_TIMEOUT_MS,
-                          NULL, 0, NULL);
+                          NULL, 0, NULL, options);
 }
 
 esp_err_t solar_os_ble_session_services(solar_os_ble_session_t id,
@@ -876,7 +857,7 @@ esp_err_t solar_os_ble_session_characteristics(solar_os_ble_session_t id,
 
 static esp_err_t transfer(solar_os_ble_session_t id, uint16_t handle,
     const uint8_t *write_value, size_t write_len, bool with_response,
-    uint8_t *read_value, size_t read_max, size_t *read_len, uint32_t timeout_ms, bool write)
+    uint8_t *read_value, size_t read_max, size_t *read_len, uint32_t timeout_ms, bool write, const solar_os_ble_call_options_v1_t *options)
 {
     lock_dispatch();
     lock_state();
@@ -906,30 +887,32 @@ static esp_err_t transfer(solar_os_ble_session_t id, uint16_t handle,
     }
     unlock_dispatch();
     return wait_operation(id, request, timeout_ms != 0 ? timeout_ms : BLE_OPERATION_TIMEOUT_MS,
-                          read_value, read_max, read_len);
+                          read_value, read_max, read_len, options);
 }
 
-esp_err_t solar_os_ble_session_read(solar_os_ble_session_t id,
-    uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms)
+esp_err_t solar_os_ble_session_read_with_options(solar_os_ble_session_t id, uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
     if (value_len != NULL) {
         *value_len = 0;
     }
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (handle == 0 || (max_len != 0 && value == NULL)) {
         return ESP_ERR_INVALID_ARG;
     }
+    if (call_options_cancelled(options)) return SOLAR_OS_BLE_ERR_CANCELLED;
     size_t ignored;
     return transfer(id, handle, NULL, 0, false, value, max_len,
-                    value_len != NULL ? value_len : &ignored, timeout_ms, false);
+                    value_len != NULL ? value_len : &ignored, timeout_ms, false, options);
 }
 
-esp_err_t solar_os_ble_session_write(solar_os_ble_session_t id,
-    uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms)
+esp_err_t solar_os_ble_session_write_with_options(solar_os_ble_session_t id, uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (handle == 0 || value == NULL || value_len == 0 || value_len > SOLAR_OS_BLE_GATT_VALUE_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-    return transfer(id, handle, value, value_len, with_response, NULL, 0, NULL, timeout_ms, true);
+    if (call_options_cancelled(options)) return SOLAR_OS_BLE_ERR_CANCELLED;
+    return transfer(id, handle, value, value_len, with_response, NULL, 0, NULL, timeout_ms, true, options);
 }
 
 void solar_os_ble_service_event(const solar_os_ble_backend_event_t *event)
@@ -1134,10 +1117,11 @@ esp_err_t solar_os_ble_peer_poll(solar_os_ble_session_t session,
     return ret;
 }
 
-esp_err_t solar_os_ble_peer_subscribe(solar_os_ble_session_t session,
-    solar_os_ble_peer_t peer, uint16_t handle, uint8_t mode, uint32_t timeout_ms)
+esp_err_t solar_os_ble_peer_subscribe_with_options(solar_os_ble_session_t session, solar_os_ble_peer_t peer, uint16_t handle, uint8_t mode, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (!handle || mode > 2) return ESP_ERR_INVALID_ARG;
+    if (call_options_cancelled(options)) return SOLAR_OS_BLE_ERR_CANCELLED;
     lock_dispatch();
     lock_state();
     ble_session_t *s = owned_peer_locked(session, peer);
@@ -1156,14 +1140,14 @@ esp_err_t solar_os_ble_peer_subscribe(solar_os_ble_session_t session,
         unlock_state();
     }
     unlock_dispatch();
-    return wait_operation(peer, request, timeout_ms ? timeout_ms : BLE_OPERATION_TIMEOUT_MS, NULL, 0, NULL);
+    return wait_operation(peer, request, timeout_ms ? timeout_ms : BLE_OPERATION_TIMEOUT_MS, NULL, 0, NULL, options);
 }
 
-esp_err_t solar_os_ble_peer_connect(solar_os_ble_session_t session,
-    const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms, solar_os_ble_peer_t *peer)
+esp_err_t solar_os_ble_peer_connect_with_options(solar_os_ble_session_t session, const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms, solar_os_ble_peer_t *peer, const solar_os_ble_call_options_v1_t *options)
 {
     if (!peer) return ESP_ERR_INVALID_ARG;
     *peer = SOLAR_OS_BLE_PEER_INVALID;
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (!bda || addr_type > SOLAR_OS_BLE_ADDR_RANDOM_IDENTITY) return ESP_ERR_INVALID_ARG;
     lock_dispatch();
     lock_state();
@@ -1171,15 +1155,10 @@ esp_err_t solar_os_ble_peer_connect(solar_os_ble_session_t session,
     solar_os_ble_session_t child = 0;
     esp_err_t ret = owner && !owner->parent && !sleeping ?
         create_locked(owner->owner, session, &child) : ESP_ERR_INVALID_STATE;
-    if (ret == ESP_OK) {
-        ble_session_t *entry = find_locked(child);
-        entry->cancel_check = owner->cancel_check;
-        entry->cancel_user = owner->cancel_user;
-    }
     unlock_state();
     unlock_dispatch();
     if (ret != ESP_OK) return ret;
-    ret = solar_os_ble_session_connect(child, bda, addr_type, timeout_ms);
+    ret = solar_os_ble_session_connect_with_options(child, bda, addr_type, timeout_ms, options);
     if (ret != ESP_OK) {
         (void)solar_os_ble_session_close(child);
         return ret;
@@ -1193,10 +1172,11 @@ esp_err_t solar_os_ble_peer_disconnect(solar_os_ble_session_t session, solar_os_
     return owns_peer(session, peer) ? solar_os_ble_session_close(peer) : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t solar_os_ble_session_pair(solar_os_ble_session_t id,
-    uint32_t passkey, uint32_t timeout_ms)
+esp_err_t solar_os_ble_session_pair_with_options(solar_os_ble_session_t id, uint32_t passkey, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     if (passkey > 999999U) return ESP_ERR_INVALID_ARG;
+    if (call_options_cancelled(options)) return SOLAR_OS_BLE_ERR_CANCELLED;
     lock_dispatch();
     lock_state();
     ble_session_t *s = live_locked(id);
@@ -1219,14 +1199,14 @@ esp_err_t solar_os_ble_session_pair(solar_os_ble_session_t id,
     }
     unlock_dispatch();
     return wait_operation(id, request,
-        timeout_ms ? timeout_ms : BLE_CONNECT_TIMEOUT_MS, NULL, 0, NULL);
+        timeout_ms ? timeout_ms : BLE_CONNECT_TIMEOUT_MS, NULL, 0, NULL, options);
 }
 
-esp_err_t solar_os_ble_peer_pair(solar_os_ble_session_t session,
-    solar_os_ble_peer_t peer, uint32_t passkey, uint32_t timeout_ms)
+esp_err_t solar_os_ble_peer_pair_with_options(solar_os_ble_session_t session, solar_os_ble_peer_t peer, uint32_t passkey, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     return owns_peer(session, peer) ?
-        solar_os_ble_session_pair(peer, passkey, timeout_ms) : ESP_ERR_INVALID_STATE;
+        solar_os_ble_session_pair_with_options(peer, passkey, timeout_ms, options) : ESP_ERR_INVALID_STATE;
 }
 
 esp_err_t solar_os_ble_peer_get_info(solar_os_ble_session_t session, solar_os_ble_peer_t peer,
@@ -1251,19 +1231,19 @@ esp_err_t solar_os_ble_peer_characteristics(solar_os_ble_session_t session, sola
         solar_os_ble_session_characteristics(peer, service_index, chars, max_chars, count) : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t solar_os_ble_peer_read(solar_os_ble_session_t session, solar_os_ble_peer_t peer,
-    uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms)
+esp_err_t solar_os_ble_peer_read_with_options(solar_os_ble_session_t session, solar_os_ble_peer_t peer, uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
     if (value_len) *value_len = 0;
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     return owns_peer(session, peer) ?
-        solar_os_ble_session_read(peer, handle, value, max_len, value_len, timeout_ms) : ESP_ERR_INVALID_STATE;
+        solar_os_ble_session_read_with_options(peer, handle, value, max_len, value_len, timeout_ms, options) : ESP_ERR_INVALID_STATE;
 }
 
-esp_err_t solar_os_ble_peer_write(solar_os_ble_session_t session, solar_os_ble_peer_t peer,
-    uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms)
+esp_err_t solar_os_ble_peer_write_with_options(solar_os_ble_session_t session, solar_os_ble_peer_t peer, uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms, const solar_os_ble_call_options_v1_t *options)
 {
+    if (!call_options_valid(options)) return ESP_ERR_INVALID_ARG;
     return owns_peer(session, peer) ?
-        solar_os_ble_session_write(peer, handle, value, value_len, with_response, timeout_ms) : ESP_ERR_INVALID_STATE;
+        solar_os_ble_session_write_with_options(peer, handle, value, value_len, with_response, timeout_ms, options) : ESP_ERR_INVALID_STATE;
 }
 
 static solar_os_ble_session_t compatibility_session(void)
@@ -1325,3 +1305,43 @@ esp_err_t solar_os_ble_gatt_write(uint16_t handle, const uint8_t *value, size_t 
 {
     return solar_os_ble_session_write(compatibility_session(), handle, value, value_len, with_response, timeout_ms);
 }
+
+esp_err_t solar_os_ble_session_connect(solar_os_ble_session_t id,
+    const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms)
+{ return solar_os_ble_session_connect_with_options(id, bda, addr_type, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_session_pair(solar_os_ble_session_t id,
+    uint32_t passkey, uint32_t timeout_ms)
+{ return solar_os_ble_session_pair_with_options(id, passkey, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_session_read(solar_os_ble_session_t id,
+    uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms)
+{ return solar_os_ble_session_read_with_options(id, handle, value, max_len, value_len, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_session_write(solar_os_ble_session_t id,
+    uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms)
+{ return solar_os_ble_session_write_with_options(id, handle, value, value_len, with_response, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_peer_connect(solar_os_ble_session_t session,
+    const uint8_t bda[6], uint8_t addr_type, uint32_t timeout_ms, solar_os_ble_peer_t *peer)
+{ return solar_os_ble_peer_connect_with_options(session, bda, addr_type, timeout_ms, peer, NULL); }
+
+esp_err_t solar_os_ble_peer_pair(solar_os_ble_session_t session,
+    solar_os_ble_peer_t peer, uint32_t passkey, uint32_t timeout_ms)
+{ return solar_os_ble_peer_pair_with_options(session, peer, passkey, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_peer_read(solar_os_ble_session_t session, solar_os_ble_peer_t peer,
+    uint16_t handle, uint8_t *value, size_t max_len, size_t *value_len, uint32_t timeout_ms)
+{ return solar_os_ble_peer_read_with_options(session, peer, handle, value, max_len, value_len, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_peer_write(solar_os_ble_session_t session, solar_os_ble_peer_t peer,
+    uint16_t handle, const uint8_t *value, size_t value_len, bool with_response, uint32_t timeout_ms)
+{ return solar_os_ble_peer_write_with_options(session, peer, handle, value, value_len, with_response, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_peer_subscribe(solar_os_ble_session_t session,
+    solar_os_ble_peer_t peer, uint16_t handle, uint8_t mode, uint32_t timeout_ms)
+{ return solar_os_ble_peer_subscribe_with_options(session, peer, handle, mode, timeout_ms, NULL); }
+
+esp_err_t solar_os_ble_server_request(solar_os_ble_session_t session,
+                                     solar_os_ble_server_request_t *request)
+{ return solar_os_ble_server_request_with_options(session, request, NULL); }

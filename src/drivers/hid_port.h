@@ -37,5 +37,6 @@ typedef struct __attribute__((packed)) {
     uint32_t buttons;
 } hid_port_gamepad_report_t;
 
+bool hid_port_available(void);
 bool hid_port_is_connected(void);
 esp_err_t hid_port_send_report(uint8_t report_id, const void *report, size_t report_len);

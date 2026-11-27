@@ -46,4 +46,6 @@ typedef struct {
 esp_err_t solar_os_scp_start(const solar_os_scp_config_t *config,
                              solar_os_scp_session_t **session);
 bool solar_os_scp_stop(solar_os_scp_session_t *session);
+/* Strict ownership: timeout retains the session for another join attempt. */
+esp_err_t solar_os_scp_stop_wait(solar_os_scp_session_t *session, uint32_t timeout_ms);
 bool solar_os_scp_poll(solar_os_scp_session_t *session, solar_os_scp_event_t *event);

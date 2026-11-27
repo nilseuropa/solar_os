@@ -1,0 +1,95 @@
+#pragma once
+
+#include "solar_os_native_service_abi.h"
+
+#define SOLAR_OS_NATIVE_DOCUMENT_SERVICE "document"
+#define SOLAR_OS_NATIVE_DOCUMENT_ABI 1U
+#define SOLAR_OS_DOCUMENT_PATH_MAX 160U
+#define SOLAR_OS_DOCUMENT_MAX_BYTES (2U * 1024U * 1024U)
+#define SOLAR_OS_DOCUMENT_TEXT 0U
+#define SOLAR_OS_DOCUMENT_MARKDOWN 1U
+#define SOLAR_OS_DOCUMENT_HTML 2U
+
+typedef enum {
+    SOLAR_OS_DOC_BLOCK_PARAGRAPH,
+    SOLAR_OS_DOC_BLOCK_HEADING,
+    SOLAR_OS_DOC_BLOCK_LIST_ITEM,
+    SOLAR_OS_DOC_BLOCK_QUOTE,
+    SOLAR_OS_DOC_BLOCK_PRE,
+    SOLAR_OS_DOC_BLOCK_RULE,
+    SOLAR_OS_DOC_BLOCK_TABLE_ROW,
+    SOLAR_OS_DOC_BLOCK_IMAGE,
+    SOLAR_OS_DOC_BLOCK_BLANK,
+} solar_os_doc_block_type_t;
+
+typedef enum {
+    SOLAR_OS_DOC_RUN_PLAIN = 0,
+    SOLAR_OS_DOC_RUN_BOLD = 1U << 0,
+    SOLAR_OS_DOC_RUN_ITALIC = 1U << 1,
+    SOLAR_OS_DOC_RUN_CODE = 1U << 2,
+    SOLAR_OS_DOC_RUN_LINK = 1U << 3,
+    SOLAR_OS_DOC_RUN_UNDERLINE = 1U << 4,
+    SOLAR_OS_DOC_RUN_TABLE_SEPARATOR = 1U << 5, /* Structural pipe, excluded from cell text. */
+} solar_os_doc_run_style_t;
+
+typedef struct {
+    size_t text_offset, text_len, source_start, source_end;
+    uint8_t style;
+} solar_os_doc_run_t;
+
+typedef struct {
+    char path[SOLAR_OS_DOCUMENT_PATH_MAX];
+    size_t source_bytes, block_count, run_count;
+} solar_os_native_document_info_v1_t;
+
+typedef struct {
+    solar_os_doc_block_type_t type;
+    uint8_t level;
+    char list_delimiter;
+    uint32_t list_number;
+    size_t raw_source_start, raw_source_end, source_start, source_end;
+    size_t run_start, run_count, text_bytes;
+    uint32_t image_width, image_height;
+    bool image_attempted;
+    int32_t image_error;
+} solar_os_native_document_block_v1_t;
+
+/* A provider is borrowed for one synchronous parse or load. On success, read
+ * lends bytes until release is called. If release is NULL, those bytes must
+ * stay valid until the operation returns. An unsuccessful read lends no bytes.
+ * Callbacks must not call document or layout operations on the same document. */
+typedef struct {
+    void *user;
+    int (*read)(void *user, const char *document_path, const char *target,
+        const uint8_t **data, size_t *bytes);
+    void (*release)(void *user, const uint8_t *data);
+} solar_os_native_document_assets_v1_t;
+
+/* Documents own their text and parsed records. Serialize operations on one
+ * document. A load or parse error preserves the previous text. HTML parsing
+ * stores the converted Markdown as the source. Source offsets and lengths are
+ * bytes, and copied reads return the number of bytes without a terminator.
+ * Close handles after use. Free converted HTML output through memory.free. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*create)(solar_os_native_handle_t *document);
+    int (*close)(solar_os_native_handle_t document);
+    int (*parse)(solar_os_native_handle_t document, uint32_t format,
+        const char *source, size_t bytes, const char *path);
+    int (*load)(solar_os_native_handle_t document, uint32_t format, const char *path);
+    int (*info)(solar_os_native_handle_t document, solar_os_native_document_info_v1_t *info);
+    int (*block)(solar_os_native_handle_t document, size_t index, solar_os_native_document_block_v1_t *block);
+    int (*run)(solar_os_native_handle_t document, size_t index, solar_os_doc_run_t *run);
+    int (*read_source)(solar_os_native_handle_t document,
+        size_t offset, char *buffer, size_t capacity, size_t *read);
+    int (*read_block)(solar_os_native_handle_t document, size_t index,
+        size_t offset, char *buffer, size_t capacity, size_t *read);
+    int (*write_markdown)(solar_os_native_handle_t document, const char *path);
+    int (*html_to_markdown)(const char *source, size_t bytes, const char *asset_base,
+        char **markdown, size_t *written);
+    int (*parse_with_assets)(solar_os_native_handle_t document, uint32_t format,
+        const char *source, size_t bytes, const char *path,
+        const solar_os_native_document_assets_v1_t *assets);
+    int (*load_with_assets)(solar_os_native_handle_t document, uint32_t format,
+        const char *path, const solar_os_native_document_assets_v1_t *assets);
+} solar_os_native_document_api_v1_t;

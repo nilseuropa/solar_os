@@ -362,7 +362,7 @@ esp_err_t solar_os_es7210_detach(const char *name)
         return ESP_ERR_NOT_FOUND;
     }
     esp_err_t err = solar_os_stream_unregister(es7210_audio.stream_id);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) return err;
     err = solar_os_audio_unregister_device(es7210_audio.id);
     if (err != ESP_OK) return err;
     es7210_deinit();

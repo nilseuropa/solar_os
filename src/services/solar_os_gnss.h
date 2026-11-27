@@ -5,40 +5,13 @@
 #include <stdint.h>
 
 #include "esp_err.h"
+#include "solar_os_native_sensors_abi.h"
 
 #define SOLAR_OS_GNSS_NAME_MAX 20
 #define SOLAR_OS_GNSS_DRIVER_MAX 24
 
-typedef struct {
-    bool valid;
-    bool time_valid;
-    bool satellites_valid;
-    uint16_t year;
-    uint8_t month;
-    uint8_t day;
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
-    uint8_t fix_type;
-    uint8_t satellites;
-    int32_t latitude_deg_e7;
-    int32_t longitude_deg_e7;
-    int32_t height_msl_mm;
-    uint32_t horizontal_accuracy_mm;
-    uint32_t vertical_accuracy_mm;
-    int32_t ground_speed_mm_s;
-    int32_t heading_deg_e5;
-    uint16_t position_dop_e2;
-} solar_os_gnss_fix_t;
-
-typedef struct {
-    bool power_control;
-    bool powered;
-    bool enable_control;
-    bool enabled;
-    bool fix_available;
-    solar_os_gnss_fix_t fix;
-} solar_os_gnss_status_t;
+typedef solar_os_native_gnss_fix_v1_t solar_os_gnss_fix_t;
+typedef solar_os_native_gnss_status_v1_t solar_os_gnss_status_t;
 
 typedef struct {
     esp_err_t (*read_fix)(void *ctx,
@@ -68,6 +41,7 @@ typedef struct {
 
 esp_err_t solar_os_gnss_register(const solar_os_gnss_registration_t *registration);
 esp_err_t solar_os_gnss_unregister(const char *name);
+esp_err_t solar_os_gnss_unregister_owned(const char *name, const void *context);
 size_t solar_os_gnss_count(void);
 bool solar_os_gnss_get(size_t index, solar_os_gnss_info_t *info);
 esp_err_t solar_os_gnss_set_power(const char *name, bool enabled);
@@ -76,6 +50,7 @@ esp_err_t solar_os_gnss_notify_enabled_state(const char *name, bool enabled);
 /* Driver notification for physical power changes, including error cleanup;
  * does not touch hardware. */
 esp_err_t solar_os_gnss_notify_power_state(const char *name, bool powered);
+esp_err_t solar_os_gnss_notify_state_owned(const char *name, const void *context, uint32_t property, bool enabled);
 esp_err_t solar_os_gnss_get_status(const char *name,
                                    uint32_t timeout_ms,
                                    solar_os_gnss_status_t *status);

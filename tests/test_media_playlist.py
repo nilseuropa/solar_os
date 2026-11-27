@@ -14,9 +14,10 @@ class MediaPlaylistTest(unittest.TestCase):
                 "cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
-                f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}",
+                f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}", f"-I{ROOT / 'src/apps'}",
+                f"-I{ROOT / 'include'}",
                 str(ROOT / "tests/host/webradio_catalog_test.c"),
-                str(ROOT / "src/services/solar_os_webradio_catalog.c"),
+                str(ROOT / "src/apps/solar_os_webradio_catalog.c"),
                 str(ROOT / "src/services/solar_os_m3u.c"), "-o", str(binary),
             ], check=True)
             for mode in ([], ["binary"], ["m3u"]):
@@ -29,9 +30,13 @@ class MediaPlaylistTest(unittest.TestCase):
                 "cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
                 "-D_POSIX_C_SOURCE=200809L", "-include", str(ROOT / "tests/host/compat.h"),
                 "-fsanitize=address,undefined", "-fno-sanitize-recover=all",
+                "-DSOLAR_OS_PACKAGE_SERVICE_M3U=1", "-DSOLAR_OS_PACKAGE_SERVICE_MEDIA_PLAYLIST=1",
                 f"-I{ROOT / 'tests/host'}", f"-I{ROOT / 'src'}", f"-I{ROOT / 'src/services'}",
+                f"-I{ROOT / 'include'}",
                 str(ROOT / "tests/host/media_playlist_test.c"),
                 str(ROOT / "src/services/solar_os_m3u.c"),
+                str(ROOT / "src/services/solar_os_native_m3u.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"),
                 str(ROOT / "src/services/solar_os_media_playlist.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

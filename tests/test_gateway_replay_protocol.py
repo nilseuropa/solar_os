@@ -1,5 +1,9 @@
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
+
+from test_foreground_presenter import production_functions
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -20,7 +24,7 @@ class GatewayReplayProtocolTest(unittest.TestCase):
         self.assertIn("command->cursor", transport)
 
     def test_rejoin_uses_desired_rooms_and_retained_room_cursor(self):
-        sync = source("src/jobs/solar_os_gateway_sync_job.c")
+        sync = source("src/services/solar_os_gateway_sync.c")
         self.assertIn(".desired", sync)
         self.assertIn("solar_os_chat_channel_cursor(", sync)
         self.assertGreaterEqual(sync.count("solar_os_chat_channel_cursor("), 2)
@@ -46,6 +50,27 @@ class GatewayReplayProtocolTest(unittest.TestCase):
         self.assertIn("chat_check_pending_join();", app)
         self.assertIn('chat_set_status("waiting for join confirmation")', app)
         self.assertIn("chat_app.tab = CHAT_APP_TAB_CHAT", app)
+
+    def test_supervisor_serializes_start_and_retries_shutdown(self):
+        manager = source("src/services/solar_os_gateway_sync.c")
+        start = manager.index("static struct {\n    bool starting;")
+        end = manager.index("static const char *TAG", start)
+        routines = production_functions(manager, (
+            "gateway_manager_lock", "solar_os_gateway_sync_start",
+            "solar_os_gateway_sync_running", "solar_os_gateway_sync_stop"))
+        host = REPOSITORY / "tests/host"
+        services = REPOSITORY / "src/services"
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, "gateway_sync_manager.inc").write_text(manager[start:end] + routines)
+            binary = Path(directory, "gateway_sync")
+            subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+                "-fsanitize=address,undefined", "-fno-pie", "-no-pie",
+                "-DSOLAR_OS_PACKAGE_SERVICE_GATEWAY_SYNC=1",
+                "-I", directory, "-I", str(host), "-I", str(REPOSITORY / "include"),
+                "-I", str(REPOSITORY / "src"), "-I", str(services),
+                str(host / "gateway_sync_worker_test.c"), str(services / "solar_os_native_messages.c"),
+                "-o", str(binary)], check=True)
+            subprocess.run([str(binary)], check=True, timeout=20)
 
     def test_native_chatd_replays_only_messages_newer_than_cursor(self):
         chatd = source("src/jobs/solar_os_chatd_job.c")

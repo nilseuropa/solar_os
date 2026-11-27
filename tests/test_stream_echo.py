@@ -12,7 +12,11 @@ class StreamEchoTest(unittest.TestCase):
     def test_command_with_real_stream_registry(self):
         source = (ROOT / "src/shell/solar_os_shell_stream_echo.c").read_text()
         source = "\n".join(line for line in source.splitlines() if not line.startswith("#include"))
-        fixture = '#include "solar_os_imu.h"\n' + (ROOT / "tests/host/stream_echo_test.inc").read_text().replace("/* COMMAND */", source)
+        io_source = (ROOT / "src/shell/solar_os_shell_io.c").read_text()
+        poll_input = production_functions(io_source, ("solar_os_shell_io_poll_input",))
+        fixture = (ROOT / "tests/host/stream_echo_test.inc").read_text()
+        fixture = '#include "solar_os_imu.h"\n' + fixture.replace(
+            "/* POLL INPUT */", poll_input).replace("/* COMMAND */", source)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory)
             (path / "test.c").write_text(fixture)
@@ -20,6 +24,7 @@ class StreamEchoTest(unittest.TestCase):
                 "cc", "-std=c11", "-D_GNU_SOURCE", "-Wall", "-Wextra", "-Werror",
                 "-include", str(ROOT / "tests/host/compat.h"),
                 "-I" + str(ROOT / "tests/host"), "-I" + str(ROOT / "src/services"),
+                "-I", str(ROOT / "include"),
                 str(path / "test.c"), str(ROOT / "src/services/solar_os_stream.c"),
                 str(ROOT / "src/services/solar_os_imu.c"),
                 "-lm", "-o", str(path / "test")], capture_output=True, text=True)

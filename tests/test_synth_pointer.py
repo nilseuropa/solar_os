@@ -31,6 +31,7 @@ class SynthPointerTest(unittest.TestCase):
                 'cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-g', '-O1',
                 '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
                 '-I' + str(ROOT / 'tests/host'), '-I' + str(ROOT / 'src/services'),
+                '-I', str(ROOT / 'include'),
                 str(path), '-o', str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

@@ -32,18 +32,18 @@ static int solua_dlp_connection_close(lua_State *L)
 static int solua_dlp_connection_info(lua_State *L)
 {
     solar_os_display_link_t *link = solua_dlp_link(L);
-    const sdlp_info_t *info = solar_os_display_link_info(link);
-    unsigned format = solar_os_display_link_format(link);
+    solar_os_native_display_link_info_v1_t info;
+    solua_check_esp(L, solar_os_display_link_copy_info(link, &info));
     lua_newtable(L);
-    solua_set_int(L, -1, "width", info->width);
-    solua_set_int(L, -1, "height", info->height);
-    solua_set_int(L, -1, "format", format);
-    solua_set_int(L, -1, "stride", sdlp_row_bytes(info->width, format));
-    solua_set_int(L, -1, "frame_bytes", sdlp_row_bytes(info->width, format) * info->height);
-    solua_set_int(L, -1, "formats", info->formats);
-    solua_set_int(L, -1, "capabilities", info->capabilities);
-    solua_set_str(L, -1, "model", info->model);
-    solua_set_str(L, -1, "firmware", info->firmware);
+    solua_set_int(L, -1, "width", info.width);
+    solua_set_int(L, -1, "height", info.height);
+    solua_set_int(L, -1, "format", info.format);
+    solua_set_int(L, -1, "stride", info.stride);
+    solua_set_int(L, -1, "frame_bytes", info.frame_bytes);
+    solua_set_int(L, -1, "formats", info.formats);
+    solua_set_int(L, -1, "capabilities", info.capabilities);
+    solua_set_str(L, -1, "model", info.model);
+    solua_set_str(L, -1, "firmware", info.firmware);
     return 1;
 }
 static int solua_dlp_connection_present(lua_State *L)
@@ -51,7 +51,8 @@ static int solua_dlp_connection_present(lua_State *L)
     solar_os_display_link_t *link = solua_dlp_link(L);
     size_t size;
     const char *pixels = luaL_checklstring(L, 2, &size);
-    return solua_check_esp(L, solar_os_display_link_present(link, (const uint8_t *)pixels, size));
+    const solar_os_display_link_call_options_t call = {.cancelled = solua_should_cancel};
+    return solua_check_esp(L, solar_os_display_link_present_with_options(link, (const uint8_t *)pixels, size, &call));
 }
 static int solua_dlp_connect(lua_State *L)
 {
@@ -74,10 +75,10 @@ static int solua_dlp_connect(lua_State *L)
         lua_pushvalue(L, -1); lua_setfield(L, -2, "__index");
     }
     lua_setmetatable(L, -2);
-    solar_os_display_link_options_t options = {.format = format, .timeout_ms = timeout,
-        .cancelled = solua_should_cancel};
+    solar_os_display_link_options_t options = {.format = format, .timeout_ms = timeout};
+    const solar_os_display_link_call_options_t call = {.cancelled = solua_should_cancel};
     solar_os_display_link_t *link = NULL;
-    solua_check_esp(L, solar_os_display_link_open_stream(stream, "lua-dlp", &options, &link));
+    solua_check_esp(L, solar_os_display_link_open_stream_with_options(stream, "lua-dlp", &options, &call, &link));
     solua_runtime_state->dlp_links[slot] = link;
     if (!++solua_runtime_state->dlp_generation[slot]) ++solua_runtime_state->dlp_generation[slot];
     self->slot = slot; self->generation = solua_runtime_state->dlp_generation[slot];
@@ -88,38 +89,9 @@ static void solua_dlp_destroy(void) {}
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_BLE_STREAM
-static int solua_streams_ble_connect(lua_State *L)
-{
-    size_t len;
-    const char *address = luaL_checklstring(L, 2, &len);
-    uint8_t bda[6];
-    if (!solar_os_ble_parse_address(address, len, bda)) return luaL_error(L, "expected aa:bb:cc:dd:ee:ff");
-    lua_Integer type = luaL_optinteger(L, 3, 0);
-    if (type < 0 || type > 3) return luaL_error(L, "address type must be 0..3");
-    return solua_check_esp(L, solar_os_ble_stream_connect(luaL_checkstring(L, 1), bda, type));
-}
-static int solua_streams_ble_listen(lua_State *L)
-{ return solua_check_esp(L, solar_os_ble_stream_listen(luaL_checkstring(L, 1))); }
-static int solua_streams_ble_remove(lua_State *L)
-{ return solua_check_esp(L, solar_os_ble_stream_remove(luaL_checkstring(L, 1))); }
+#include "solar_os_lua_ble_stream.inc"
 #endif
 
 #if SOLAR_OS_PACKAGE_SERVICE_TCP_STREAM
-static int solua_streams_tcp_connect(lua_State *L)
-{
-    lua_Integer port = luaL_checkinteger(L, 3);
-    if (port < 1 || port > UINT16_MAX) return luaL_error(L, "invalid port");
-    return solua_check_esp(L, solar_os_tcp_stream_connect(luaL_checkstring(L, 1),
-        luaL_checkstring(L, 2), port));
-}
-static int solua_streams_tcp_listen(lua_State *L)
-{
-    lua_Integer port = luaL_checkinteger(L, 2);
-    if (port < 1 || port > UINT16_MAX) return luaL_error(L, "invalid port");
-    return solua_check_esp(L, solar_os_tcp_stream_listen(luaL_checkstring(L, 1), port));
-}
-static int solua_streams_tcp_remove(lua_State *L)
-{
-    return solua_check_esp(L, solar_os_tcp_stream_remove(luaL_checkstring(L, 1)));
-}
+#include "solar_os_lua_tcp_stream.inc"
 #endif

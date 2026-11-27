@@ -18,6 +18,7 @@
 #include "solar_os_agent_tools.h"
 #include "solar_os_log.h"
 #include "solar_os_memory.h"
+#include "solar_os_sync.h"
 
 #define AGENT_NVS_NAMESPACE "agent"
 #define AGENT_NVS_ENDPOINT_KEY "endpoint"
@@ -96,6 +97,7 @@ typedef struct {
 static const char *TAG = "agent";
 static portMUX_TYPE agent_lock = portMUX_INITIALIZER_UNLOCKED;
 static EXT_RAM_BSS_ATTR agent_state_t agent;
+static solar_os_lifecycle_t agent_settings;
 
 static uint32_t agent_internal_free(void)
 {
@@ -203,50 +205,52 @@ esp_err_t solar_os_agent_parse_tool_policy(
     return ESP_ERR_INVALID_ARG;
 }
 
-static void agent_load_config(void)
+static void agent_load_config(solar_os_agent_provider_config_t *config,
+                               solar_os_agent_tool_policy_t *policy,
+                               uint8_t *max_tools)
 {
     nvs_handle_t nvs;
     if (nvs_open(AGENT_NVS_NAMESPACE, NVS_READONLY, &nvs) != ESP_OK) {
         return;
     }
 
-    size_t len = sizeof(agent.config.endpoint);
+    size_t len = sizeof(config->endpoint);
     if (nvs_get_str(nvs,
                     AGENT_NVS_ENDPOINT_KEY,
-                    agent.config.endpoint,
+                    config->endpoint,
                     &len) != ESP_OK ||
-        !agent_endpoint_valid(agent.config.endpoint)) {
-        agent.config.endpoint[0] = '\0';
+        !agent_endpoint_valid(config->endpoint)) {
+        config->endpoint[0] = '\0';
     }
-    len = sizeof(agent.config.model);
+    len = sizeof(config->model);
     if (nvs_get_str(nvs,
                     AGENT_NVS_MODEL_KEY,
-                    agent.config.model,
+                    config->model,
                     &len) != ESP_OK ||
-        !agent_string_valid(agent.config.model,
-                            sizeof(agent.config.model),
+        !agent_string_valid(config->model,
+                            sizeof(config->model),
                             false)) {
-        agent.config.model[0] = '\0';
+        config->model[0] = '\0';
     }
-    len = sizeof(agent.config.api_key);
+    len = sizeof(config->api_key);
     if (nvs_get_str(nvs,
                     AGENT_NVS_API_KEY_KEY,
-                    agent.config.api_key,
+                    config->api_key,
                     &len) != ESP_OK ||
-        !agent_string_valid(agent.config.api_key,
-                            sizeof(agent.config.api_key),
+        !agent_string_valid(config->api_key,
+                            sizeof(config->api_key),
                             true)) {
-        agent.config.api_key[0] = '\0';
+        config->api_key[0] = '\0';
     }
-    len = sizeof(agent.config.reasoning_effort);
+    len = sizeof(config->reasoning_effort);
     if (nvs_get_str(nvs,
                     AGENT_NVS_REASONING_KEY,
-                    agent.config.reasoning_effort,
+                    config->reasoning_effort,
                     &len) != ESP_OK ||
-        !agent_reasoning_effort_valid(agent.config.reasoning_effort)) {
-        strlcpy(agent.config.reasoning_effort,
+        !agent_reasoning_effort_valid(config->reasoning_effort)) {
+        strlcpy(config->reasoning_effort,
                 AGENT_DEFAULT_REASONING_EFFORT,
-                sizeof(agent.config.reasoning_effort));
+                sizeof(config->reasoning_effort));
     }
     char tool_policy[16];
     len = sizeof(tool_policy);
@@ -255,15 +259,38 @@ static void agent_load_config(void)
                     tool_policy,
                     &len) != ESP_OK ||
         solar_os_agent_parse_tool_policy(tool_policy,
-                                         &agent.tool_policy) != ESP_OK) {
-        agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
+                                         policy) != ESP_OK) {
+        *policy = AGENT_DEFAULT_TOOL_POLICY;
     }
-    if (nvs_get_u8(nvs, AGENT_NVS_MAX_TOOLS_KEY, &agent.max_tools) != ESP_OK ||
-        agent.max_tools < SOLAR_OS_AGENT_MAX_TOOLS_MIN ||
-        agent.max_tools > SOLAR_OS_AGENT_MAX_TOOLS_MAX) {
-        agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
+    if (nvs_get_u8(nvs, AGENT_NVS_MAX_TOOLS_KEY, max_tools) != ESP_OK ||
+        *max_tools < SOLAR_OS_AGENT_MAX_TOOLS_MIN ||
+        *max_tools > SOLAR_OS_AGENT_MAX_TOOLS_MAX) {
+        *max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
     }
     nvs_close(nvs);
+}
+
+static esp_err_t agent_settings_enter(void)
+{
+    if (!solar_os_lifecycle_enter(&agent_settings)) return ESP_ERR_NO_MEM;
+    if (agent.initialized) return ESP_OK;
+
+    solar_os_agent_provider_config_t config = {0};
+    solar_os_agent_tool_policy_t policy = AGENT_DEFAULT_TOOL_POLICY;
+    uint8_t max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
+    strlcpy(config.reasoning_effort, AGENT_DEFAULT_REASONING_EFFORT,
+            sizeof(config.reasoning_effort));
+    agent_load_config(&config, &policy, &max_tools);
+
+    portENTER_CRITICAL(&agent_lock);
+    agent.config = config;
+    agent.tool_policy = policy;
+    agent.max_tools = max_tools;
+    agent.last_http_status = -1;
+    agent.initialized = true;
+    portEXIT_CRITICAL(&agent_lock);
+    explicit_bzero(config.api_key, sizeof(config.api_key));
+    return ESP_OK;
 }
 
 esp_err_t solar_os_agent_init(void)
@@ -271,26 +298,11 @@ esp_err_t solar_os_agent_init(void)
     portENTER_CRITICAL(&agent_lock);
     const bool initialized = agent.initialized;
     portEXIT_CRITICAL(&agent_lock);
-    if (initialized) {
-        return ESP_OK;
-    }
+    if (initialized) return ESP_OK;
 
-    solar_os_agent_provider_config_t config = {0};
-    strlcpy(config.reasoning_effort,
-            AGENT_DEFAULT_REASONING_EFFORT,
-            sizeof(config.reasoning_effort));
-    portENTER_CRITICAL(&agent_lock);
-    agent.config = config;
-    agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
-    agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
-    portEXIT_CRITICAL(&agent_lock);
-    agent_load_config();
-
-    portENTER_CRITICAL(&agent_lock);
-    agent.last_http_status = -1;
-    agent.initialized = true;
-    portEXIT_CRITICAL(&agent_lock);
-    return ESP_OK;
+    const esp_err_t err = agent_settings_enter();
+    if (err == ESP_OK) solar_os_lifecycle_leave(&agent_settings);
+    return err;
 }
 
 static esp_err_t agent_save_string(const char *key,
@@ -298,24 +310,23 @@ static esp_err_t agent_save_string(const char *key,
                                    char *cached,
                                    size_t cached_len)
 {
-    nvs_handle_t nvs;
-    esp_err_t err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
-    if (err != ESP_OK) {
-        return err;
-    }
-    err = nvs_set_str(nvs, key, value);
-    if (err == ESP_OK) {
-        err = nvs_commit(nvs);
-    }
-    nvs_close(nvs);
-    if (err != ESP_OK) {
-        return err;
-    }
+    esp_err_t err = agent_settings_enter();
+    if (err != ESP_OK) return err;
 
-    portENTER_CRITICAL(&agent_lock);
-    strlcpy(cached, value, cached_len);
-    portEXIT_CRITICAL(&agent_lock);
-    return ESP_OK;
+    nvs_handle_t nvs;
+    err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
+    if (err == ESP_OK) {
+        err = nvs_set_str(nvs, key, value);
+        if (err == ESP_OK) err = nvs_commit(nvs);
+        nvs_close(nvs);
+    }
+    if (err == ESP_OK) {
+        portENTER_CRITICAL(&agent_lock);
+        strlcpy(cached, value, cached_len);
+        portEXIT_CRITICAL(&agent_lock);
+    }
+    solar_os_lifecycle_leave(&agent_settings);
+    return err;
 }
 
 esp_err_t solar_os_agent_set_endpoint(const char *endpoint)
@@ -323,12 +334,10 @@ esp_err_t solar_os_agent_set_endpoint(const char *endpoint)
     if (!agent_endpoint_valid(endpoint)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
-    return err == ESP_OK ?
-        agent_save_string(AGENT_NVS_ENDPOINT_KEY,
-                          endpoint,
-                          agent.config.endpoint,
-                          sizeof(agent.config.endpoint)) : err;
+    return agent_save_string(AGENT_NVS_ENDPOINT_KEY,
+                             endpoint,
+                             agent.config.endpoint,
+                             sizeof(agent.config.endpoint));
 }
 
 esp_err_t solar_os_agent_set_model(const char *model)
@@ -336,12 +345,10 @@ esp_err_t solar_os_agent_set_model(const char *model)
     if (!agent_string_valid(model, SOLAR_OS_AGENT_MODEL_MAX, false)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
-    return err == ESP_OK ?
-        agent_save_string(AGENT_NVS_MODEL_KEY,
-                          model,
-                          agent.config.model,
-                          sizeof(agent.config.model)) : err;
+    return agent_save_string(AGENT_NVS_MODEL_KEY,
+                             model,
+                             agent.config.model,
+                             sizeof(agent.config.model));
 }
 
 esp_err_t solar_os_agent_set_api_key(const char *api_key)
@@ -349,12 +356,10 @@ esp_err_t solar_os_agent_set_api_key(const char *api_key)
     if (!agent_string_valid(api_key, SOLAR_OS_AGENT_API_KEY_MAX, true)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
-    return err == ESP_OK ?
-        agent_save_string(AGENT_NVS_API_KEY_KEY,
-                          api_key,
-                          agent.config.api_key,
-                          sizeof(agent.config.api_key)) : err;
+    return agent_save_string(AGENT_NVS_API_KEY_KEY,
+                             api_key,
+                             agent.config.api_key,
+                             sizeof(agent.config.api_key));
 }
 
 esp_err_t solar_os_agent_set_reasoning_effort(const char *effort)
@@ -362,12 +367,10 @@ esp_err_t solar_os_agent_set_reasoning_effort(const char *effort)
     if (!agent_reasoning_effort_valid(effort)) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
-    return err == ESP_OK ?
-        agent_save_string(AGENT_NVS_REASONING_KEY,
-                          effort,
-                          agent.config.reasoning_effort,
-                          sizeof(agent.config.reasoning_effort)) : err;
+    return agent_save_string(AGENT_NVS_REASONING_KEY,
+                             effort,
+                             agent.config.reasoning_effort,
+                             sizeof(agent.config.reasoning_effort));
 }
 
 esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
@@ -376,7 +379,7 @@ esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
     if (strcmp(name, "unknown") == 0) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
+    esp_err_t err = agent_settings_enter();
     if (err != ESP_OK) {
         return err;
     }
@@ -384,6 +387,7 @@ esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
     nvs_handle_t nvs;
     err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
+        solar_os_lifecycle_leave(&agent_settings);
         return err;
     }
     err = nvs_set_str(nvs, AGENT_NVS_TOOL_POLICY_KEY, name);
@@ -396,6 +400,7 @@ esp_err_t solar_os_agent_set_tool_policy(solar_os_agent_tool_policy_t policy)
         agent.tool_policy = policy;
         portEXIT_CRITICAL(&agent_lock);
     }
+    solar_os_lifecycle_leave(&agent_settings);
     return err;
 }
 
@@ -405,7 +410,7 @@ esp_err_t solar_os_agent_set_max_tools(uint8_t max_tools)
         max_tools > SOLAR_OS_AGENT_MAX_TOOLS_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-    esp_err_t err = solar_os_agent_init();
+    esp_err_t err = agent_settings_enter();
     if (err != ESP_OK) {
         return err;
     }
@@ -413,6 +418,7 @@ esp_err_t solar_os_agent_set_max_tools(uint8_t max_tools)
     nvs_handle_t nvs;
     err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
+        solar_os_lifecycle_leave(&agent_settings);
         return err;
     }
     err = nvs_set_u8(nvs, AGENT_NVS_MAX_TOOLS_KEY, max_tools);
@@ -425,12 +431,13 @@ esp_err_t solar_os_agent_set_max_tools(uint8_t max_tools)
         agent.max_tools = max_tools;
         portEXIT_CRITICAL(&agent_lock);
     }
+    solar_os_lifecycle_leave(&agent_settings);
     return err;
 }
 
 esp_err_t solar_os_agent_forget(void)
 {
-    esp_err_t err = solar_os_agent_init();
+    esp_err_t err = agent_settings_enter();
     if (err != ESP_OK) {
         return err;
     }
@@ -439,12 +446,14 @@ esp_err_t solar_os_agent_forget(void)
     const bool running = agent.running;
     portEXIT_CRITICAL(&agent_lock);
     if (running) {
+        solar_os_lifecycle_leave(&agent_settings);
         return ESP_ERR_INVALID_STATE;
     }
 
     nvs_handle_t nvs;
     err = nvs_open(AGENT_NVS_NAMESPACE, NVS_READWRITE, &nvs);
     if (err != ESP_OK) {
+        solar_os_lifecycle_leave(&agent_settings);
         return err;
     }
     err = nvs_erase_all(nvs);
@@ -453,6 +462,7 @@ esp_err_t solar_os_agent_forget(void)
     }
     nvs_close(nvs);
     if (err != ESP_OK) {
+        solar_os_lifecycle_leave(&agent_settings);
         return err;
     }
 
@@ -464,6 +474,7 @@ esp_err_t solar_os_agent_forget(void)
     agent.tool_policy = AGENT_DEFAULT_TOOL_POLICY;
     agent.max_tools = SOLAR_OS_AGENT_DEFAULT_MAX_TOOLS;
     portEXIT_CRITICAL(&agent_lock);
+    solar_os_lifecycle_leave(&agent_settings);
     return ESP_OK;
 }
 
@@ -472,8 +483,9 @@ esp_err_t solar_os_agent_get_status(solar_os_agent_status_t *status)
     if (status == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-    (void)solar_os_agent_init();
     memset(status, 0, sizeof(*status));
+    const esp_err_t err = solar_os_agent_init();
+    if (err != ESP_OK) return err;
 
     portENTER_CRITICAL(&agent_lock);
     status->initialized = agent.initialized;
@@ -809,6 +821,27 @@ static esp_err_t agent_authorize_tool(
                                  request->user_data);
 }
 
+esp_err_t solar_os_agent_invoke_tool(const char *name, const char *arguments,
+                                     const solar_os_agent_request_t *request,
+                                     char *result, size_t capacity)
+{
+    if (!name || !arguments || !request || !result || !capacity) return ESP_ERR_INVALID_ARG;
+    const esp_err_t err = solar_os_agent_init();
+    if (err != ESP_OK) return err;
+
+    solar_os_agent_tool_info_t info;
+    if (!agent_tool_info_by_name(name, &info)) return ESP_ERR_NOT_SUPPORTED;
+    portENTER_CRITICAL(&agent_lock);
+    const solar_os_agent_tool_policy_t policy = agent.tool_policy;
+    portEXIT_CRITICAL(&agent_lock);
+
+    bool allowed;
+    const esp_err_t auth = agent_authorize_tool(request, policy, &info, arguments, &allowed);
+    if (auth != ESP_OK) return auth;
+    if (!allowed) return ESP_ERR_NOT_ALLOWED;
+    return solar_os_agent_tools_execute(name, arguments, request, policy, true, result, capacity);
+}
+
 static esp_err_t agent_denied_tool_result(
     const solar_os_agent_tool_info_t *info,
     solar_os_agent_tool_policy_t policy,
@@ -900,8 +933,15 @@ static void agent_note_tool_result(bool denied, esp_err_t result)
     portEXIT_CRITICAL(&agent_lock);
 }
 
-static void agent_finish_request(esp_err_t error,
-                                 const solar_os_agent_provider_result_t *provider_result)
+typedef struct {
+    int http_status;
+    uint32_t duration_ms;
+    uint32_t internal_before;
+    uint32_t internal_low;
+    uint32_t internal_after;
+} agent_run_metrics_t;
+
+static void agent_finish_request(esp_err_t error, agent_run_metrics_t *metrics)
 {
     const uint32_t internal_after = agent_internal_free();
     const uint32_t internal_largest_after = agent_internal_largest();
@@ -916,15 +956,59 @@ static void agent_finish_request(esp_err_t error,
     agent.last_internal_after = internal_after;
     agent.last_internal_largest_after = internal_largest_after;
     agent.last_psram_after = psram_after;
-    if (provider_result != NULL) {
-        agent.last_http_status = provider_result->http_status;
-        agent.last_duration_ms += provider_result->duration_ms;
-        agent.last_bytes_received += provider_result->bytes_received;
+    if (metrics != NULL) {
+        *metrics = (agent_run_metrics_t){
+            .http_status = agent.last_http_status,
+            .duration_ms = agent.last_duration_ms,
+            .internal_before = agent.last_internal_before,
+            .internal_low = agent.last_internal_low,
+            .internal_after = agent.last_internal_after,
+        };
     }
     if (error != ESP_OK) {
         agent.failure_count++;
     }
     portEXIT_CRITICAL(&agent_lock);
+}
+
+static esp_err_t agent_begin_run(const solar_os_agent_request_t *request,
+                                 solar_os_agent_provider_config_t *config,
+                                 solar_os_agent_tool_policy_t *tool_policy,
+                                 uint8_t *max_tools)
+{
+    const esp_err_t err = agent_settings_enter();
+    if (err != ESP_OK) return err;
+
+    const uint32_t internal_before = agent_internal_free();
+    const uint32_t internal_largest_before = agent_internal_largest();
+    const uint32_t psram_before = agent_psram_free();
+    portENTER_CRITICAL(&agent_lock);
+    if (agent.running || !agent.config.endpoint[0] || !agent.config.model[0]) {
+        portEXIT_CRITICAL(&agent_lock);
+        solar_os_lifecycle_leave(&agent_settings);
+        return ESP_ERR_INVALID_STATE;
+    }
+    *config = agent.config;
+    *tool_policy = agent.tool_policy;
+    *max_tools = agent.max_tools;
+    agent.running = true;
+    agent.cancel_requested = false;
+    agent.should_cancel = request->should_cancel;
+    agent.cancel_user_data = request->user_data;
+    agent.request_count++;
+    agent.last_http_status = -1;
+    agent.last_error = ESP_OK;
+    agent.last_duration_ms = 0;
+    agent.last_bytes_received = 0;
+    agent.last_tool_call_count = 0U;
+    agent.last_max_tools = *max_tools;
+    agent.last_internal_before = internal_before;
+    agent.last_internal_low = agent.last_internal_before;
+    agent.last_internal_largest_before = internal_largest_before;
+    agent.last_psram_before = psram_before;
+    portEXIT_CRITICAL(&agent_lock);
+    solar_os_lifecycle_leave(&agent_settings);
+    return ESP_OK;
 }
 
 esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
@@ -938,45 +1022,11 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     if (err != ESP_OK) return err;
     err = solar_os_agent_audio_validate(request->audio);
     if (err != ESP_OK) return err;
-    err = solar_os_agent_init();
-    if (err != ESP_OK) {
-        return err;
-    }
-
-    const uint32_t internal_before = agent_internal_free();
-    const uint32_t internal_largest_before = agent_internal_largest();
-    const uint32_t psram_before = agent_psram_free();
     solar_os_agent_provider_config_t config;
     solar_os_agent_tool_policy_t tool_policy;
     uint8_t max_tools;
-    portENTER_CRITICAL(&agent_lock);
-    if (agent.running) {
-        portEXIT_CRITICAL(&agent_lock);
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (agent.config.endpoint[0] == '\0' || agent.config.model[0] == '\0') {
-        portEXIT_CRITICAL(&agent_lock);
-        return ESP_ERR_INVALID_STATE;
-    }
-    config = agent.config;
-    tool_policy = agent.tool_policy;
-    max_tools = agent.max_tools;
-    agent.running = true;
-    agent.cancel_requested = false;
-    agent.should_cancel = request->should_cancel;
-    agent.cancel_user_data = request->user_data;
-    agent.request_count++;
-    agent.last_http_status = -1;
-    agent.last_error = ESP_OK;
-    agent.last_duration_ms = 0;
-    agent.last_bytes_received = 0;
-    agent.last_tool_call_count = 0U;
-    agent.last_max_tools = max_tools;
-    agent.last_internal_before = internal_before;
-    agent.last_internal_low = agent.last_internal_before;
-    agent.last_internal_largest_before = internal_largest_before;
-    agent.last_psram_before = psram_before;
-    portEXIT_CRITICAL(&agent_lock);
+    err = agent_begin_run(request, &config, &tool_policy, &max_tools);
+    if (err != ESP_OK) return err;
 
     (void)agent_emit(request,
                      SOLAR_OS_AGENT_EVENT_STATUS,
@@ -1017,7 +1067,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
         solar_os_memory_free(tool_result);
         solar_os_memory_free(assistant);
         solar_os_memory_free(run);
-        memset(config.api_key, 0, sizeof(config.api_key));
+        explicit_bzero(config.api_key, sizeof(config.api_key));
         return err;
     }
 
@@ -1046,7 +1096,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             solar_os_memory_free(assistant);
             solar_os_memory_free(tool_result);
             solar_os_memory_free(run);
-            memset(config.api_key, 0, sizeof(config.api_key));
+            explicit_bzero(config.api_key, sizeof(config.api_key));
             return err;
         }
     }
@@ -1070,7 +1120,7 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
             solar_os_memory_free(assistant);
             solar_os_memory_free(tool_result);
             solar_os_memory_free(run);
-            memset(config.api_key, 0, sizeof(config.api_key));
+            explicit_bzero(config.api_key, sizeof(config.api_key));
             return err;
         }
     }
@@ -1353,7 +1403,6 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
                              false);
         }
     }
-    const int last_http_status = run->provider_result.http_status;
     solar_os_agent_conversation_free_history(&history);
     if (tool_context != NULL) {
         memset(tool_context, 0, AGENT_TOOL_CONTEXT_MAX);
@@ -1363,24 +1412,25 @@ esp_err_t solar_os_agent_run(const solar_os_agent_request_t *request)
     solar_os_memory_free(assistant);
     memset(tool_result, 0, SOLAR_OS_AGENT_TOOL_RESULT_MAX);
     solar_os_memory_free(tool_result);
-    agent_finish_request(err, NULL);
+    agent_run_metrics_t metrics;
+    agent_finish_request(err, &metrics);
     (void)agent_emit(request,
                      SOLAR_OS_AGENT_EVENT_DONE,
                      err == ESP_OK ? "complete" :
                          (cancelled ? "cancelled" : esp_err_to_name(err)),
                      NULL,
                      err == ESP_OK);
-    memset(config.api_key, 0, sizeof(config.api_key));
+    explicit_bzero(config.api_key, sizeof(config.api_key));
     memset(run, 0, sizeof(*run));
     solar_os_memory_free(run);
     SOLAR_OS_LOGI(TAG,
                   "request done: err=%s http=%d duration=%" PRIu32
                   " internal=%" PRIu32 " low=%" PRIu32 " after=%" PRIu32,
                   esp_err_to_name(err),
-                  last_http_status,
-                  agent.last_duration_ms,
-                  agent.last_internal_before,
-                  agent.last_internal_low,
-                  agent.last_internal_after);
+                  metrics.http_status,
+                  metrics.duration_ms,
+                  metrics.internal_before,
+                  metrics.internal_low,
+                  metrics.internal_after);
     return err;
 }

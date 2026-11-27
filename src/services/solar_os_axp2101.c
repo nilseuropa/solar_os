@@ -218,7 +218,6 @@ static esp_err_t parse_bindings(const solar_os_expansion_binding_t *bindings,
 
 static void clear_device(void)
 {
-    solar_os_power_unregister_off_provider(&power_device);
     if (power_device.mutex != NULL) {
         vSemaphoreDelete(power_device.mutex);
     }
@@ -320,10 +319,12 @@ esp_err_t solar_os_axp2101_detach(const char *name)
     const bool panel_active = power_device.aldo3_users > 0U;
     xSemaphoreGive(power_device.mutex);
     if (panel_active) return ESP_ERR_INVALID_STATE;
-    ESP_RETURN_ON_ERROR(solar_os_charger_unregister(AXP2101_CHARGER_NAME),
-                        TAG, "charger is busy");
-    const esp_err_t battery_ret = solar_os_battery_unregister_provider(name);
-    if (battery_ret != ESP_OK) return battery_ret;
+    esp_err_t error = solar_os_charger_unregister_owned(AXP2101_CHARGER_NAME, &power_device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_battery_unregister_provider_owned(name, &power_device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_power_unregister_off_provider(&power_device);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
     const esp_err_t ret = axp2101_deinit(&power_device.chip);
     clear_device();
     return ret;

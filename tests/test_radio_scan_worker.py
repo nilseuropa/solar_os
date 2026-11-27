@@ -30,11 +30,14 @@ class RadioScanWorkerTest(unittest.TestCase):
             subprocess.run([
                 "cc", "-std=c11", "-O1", "-g", "-Wall", "-Wextra", "-Werror",
                 "-pthread", "-fsanitize=address,undefined", "-no-pie",
+                "-DSOLAR_OS_PACKAGE_SERVICE_RADIO_SCAN=1",
                 "-D_POSIX_C_SOURCE=200809L", "-include", str(ROOT / "tests/host/compat.h"),
                 "-I", str(ROOT / "tests/host/radio_scan_stubs"),
                 "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"), "-I", str(ROOT / "src"),
                 "-idirafter", str(ROOT / "include"),
-                str(ROOT / "tests/host/radio_scan_worker_test.c"), "-o", str(binary),
+                str(ROOT / "tests/host/radio_scan_worker_test.c"),
+                str(ROOT / "src/services/solar_os_native_radio_scan.c"),
+                str(ROOT / "src/services/solar_os_native_handles.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True, timeout=15)

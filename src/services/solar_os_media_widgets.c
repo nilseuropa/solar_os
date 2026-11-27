@@ -3,27 +3,21 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "solar_os_memory.h"
-
-struct solar_os_cassette_widget {
-    uint8_t phase;
-    bool playing;
-    uint32_t elapsed_ms;
-    uint32_t total_ms;
-    uint32_t last_tick_ms;
-};
+#include "solar_os_gfx_widgets.h"
 
 void solar_os_media_playlist_draw(solar_os_gfx_t *gfx, int width, int height,
                                    size_t count, size_t cursor, size_t active, size_t *top,
                                    solar_os_m3u_get_fn get, void *user, const char *help)
 {
+    if (!gfx || !top || (count && !get) || width <= 0 || height <= 0) return;
     solar_os_media_list_layout_t layout;
     solar_os_media_list_layout(width, height, &layout);
-    if (cursor < *top) *top = cursor;
-    if (layout.visible > 0 && cursor >= *top + (size_t)layout.visible)
-        *top = cursor - (size_t)layout.visible + 1U;
+    solar_os_ui_viewport_t view = {.cursor = cursor, .top = *top};
+    solar_os_ui_viewport_reconcile(&view, count, (size_t)layout.visible);
+    cursor = view.cursor;
+    *top = view.top;
     solar_os_gfx_set_font(gfx, layout.compact ? SOLAR_OS_GFX_FONT_BITMAP_8 : SOLAR_OS_GFX_FONT_MONO_14);
-    for (int row = 0; row < layout.visible && *top + (size_t)row < count; row++) {
+    for (int row = 0; row < layout.visible && (size_t)row < count - *top; row++) {
         size_t i = *top + (size_t)row;
         solar_os_m3u_entry_t entry;
         if (!get(i, &entry, user)) continue;
@@ -170,24 +164,9 @@ void solar_os_media_player_layout(int width, int height, bool seek,
         layout->button_count;
 }
 
-static void media_clip_text(solar_os_gfx_t *gfx, char *out, size_t capacity,
-                            int width, const char *text) {
-    snprintf(out, capacity, "%s", text ? text : "");
-    while (out[0] && solar_os_gfx_text_width(gfx, out) >
-                         (size_t)(width > 0 ? width : 0)) {
-        size_t n = strlen(out) - 1;
-        while (n && ((unsigned char)out[n] & 0xc0) == 0x80)
-            n--;
-        out[n] = 0;
-    }
-}
 void solar_os_media_text_draw(solar_os_gfx_t *gfx, int x, int baseline,
-                              int width, const char *text) {
-    char clipped[192];
-    media_clip_text(gfx, clipped, sizeof(clipped), width, text);
-    if (clipped[0])
-        solar_os_gfx_text(gfx, x, baseline, clipped);
-}
+                              int width, const char *text)
+{ solar_os_gfx_label(gfx, x, baseline, width, text); }
 void solar_os_media_list_layout(int width, int height,
                                 solar_os_media_list_layout_t *l) {
     solar_os_media_player_layout_t player;
@@ -204,51 +183,15 @@ void solar_os_media_list_layout(int width, int height,
         l->visible = 0;
 }
 void solar_os_media_dialog_draw(solar_os_gfx_t *gfx, int width, int height,
-                                const char *title, const char *input,
-                                const char *help) {
-    bool compact = height < 160 || width < 240;
-    int w = width - (compact ? 4 : 24), h = compact ? height - 4 : 76;
-    if (h > 60 && compact)
-        h = 60;
-    int x = (width - w) / 2, y = (height - h) / 2;
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_WHITE);
-    solar_os_gfx_fill_rect(gfx, x, y, w, h);
-    solar_os_gfx_set_color(gfx, SOLAR_OS_GFX_COLOR_BLACK);
-    solar_os_gfx_rect(gfx, x, y, w, h);
-    solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8
-                                       : SOLAR_OS_GFX_FONT_BOLD_14);
-    solar_os_media_text_draw(gfx, x + 4, y + (compact ? 10 : 20), w - 8, title);
-    solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8
-                                       : SOLAR_OS_GFX_FONT_MONO_12);
-    const int cursor_width = (int)solar_os_gfx_text_width(gfx, "_");
-    const int input_width = w - 8 - cursor_width;
-    const int input_baseline = y + h / 2 + 4;
-    const char *visible = input ? input : "";
-    while (*visible &&
-           solar_os_gfx_text_width(gfx, visible) > (size_t)(input_width > 0 ? input_width : 0)) {
-        visible++;
-        while (((unsigned char)*visible & 0xc0) == 0x80)
-            visible++;
-    }
-    const int cursor_x = x + 4 + (int)solar_os_gfx_text_width(gfx, visible);
-    if (*visible) solar_os_gfx_text(gfx, x + 4, input_baseline, visible);
-    solar_os_gfx_set_font(gfx, compact ? SOLAR_OS_GFX_FONT_BITMAP_8
-                                       : SOLAR_OS_GFX_FONT_SMALL);
-    solar_os_media_text_draw(gfx, x + 4, y + h - 5, w - 8, help);
-    /* These dialogs edit at the end. Keep the cursor visible after scrolling
-     * and draw it last, including for an empty input field. */
-    solar_os_gfx_fill_rect(gfx, cursor_x, input_baseline + 1, cursor_width, 2);
+                                const char *title, const char *input, const char *help)
+{
+    solar_os_ui_input_state_t state = {.cursor = input ? strlen(input) : 0};
+    solar_os_gfx_dialog(gfx, width, height, title, input, &state, help);
 }
 
 static void media_player_centered(solar_os_gfx_t *gfx, int width, int baseline,
-                                  const char *text) {
-    char clipped[192];
-    media_clip_text(gfx, clipped, sizeof(clipped), width > 8 ? width - 8 : 0,
-                    text);
-    solar_os_gfx_text(gfx,
-                      (width - (int)solar_os_gfx_text_width(gfx, clipped)) / 2,
-                      baseline, clipped);
-}
+                                  const char *text)
+{ solar_os_gfx_centered_label(gfx, 4, baseline, width > 8 ? width - 8 : 0, text); }
 
 void solar_os_media_player_header_draw(solar_os_gfx_t *gfx, int width,
                                        const char *title, const char *tabs) {
@@ -376,21 +319,6 @@ int solar_os_media_player_button_at(int width, int height, bool seek, int x,
             return i;
     }
     return -1;
-}
-
-esp_err_t solar_os_cassette_widget_create(solar_os_cassette_widget_t **out) {
-    if (out == NULL) {
-        return ESP_ERR_INVALID_ARG;
-    }
-    *out = solar_os_memory_calloc(1U, sizeof(**out),
-                                  SOLAR_OS_MEMORY_EXTERNAL_PREFERRED,
-                                  "widget.cassette");
-    return *out != NULL ? ESP_OK : ESP_ERR_NO_MEM;
-}
-
-void solar_os_cassette_widget_destroy(solar_os_cassette_widget_t *widget)
-{
-    solar_os_memory_free(widget);
 }
 
 void solar_os_cassette_widget_reset(solar_os_cassette_widget_t *widget)

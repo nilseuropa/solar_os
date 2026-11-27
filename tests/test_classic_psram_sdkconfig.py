@@ -1,3 +1,4 @@
+import configparser
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +14,15 @@ DUPLDST = "CONFIG_SPIRAM_CACHE_WORKAROUND_STRATEGY_DUPLDST=y\n"
 
 
 class ClassicPsramSdkconfigTest(unittest.TestCase):
+    def test_wrover_build_does_not_override_the_esp_idf_cache_strategy(self):
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(ROOT / "platformio.ini")
+        for target in ("esp32_devkitc_v4_wrover", "freenove_esp32_wrover_v3"):
+            with self.subTest(target=target):
+                flags = config[f"env:{target}"]["board_build.extra_flags"]
+                self.assertIn("-DBOARD_HAS_PSRAM", flags.split())
+                self.assertNotIn("-mfix-esp32-psram-cache-strategy", flags)
+
     def run_guard(self, contents, target="esp32", defaults=None, name="sdkconfig"):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

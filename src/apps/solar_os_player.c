@@ -17,7 +17,8 @@
 #include "solar_os_gfx.h"
 #include "solar_os_keys.h"
 #include "solar_os_log.h"
-#include "solar_os_media_widgets.h"
+#include "solar_os_native_client.h"
+#include "solar_os_native_media_widgets.h"
 #include "solar_os_media_preferences.h"
 #include "solar_os_player_playlist.h"
 #include "solar_os_shell_io.h"
@@ -65,14 +66,14 @@ typedef struct {
     solar_os_tui_t tui;
     solar_os_shell_io_t fallback_io;
     solar_os_storage_browser_t *browser;
-    solar_os_cassette_widget_t *cassette;
-    solar_os_oscilloscope_widget_t *scope;
-    solar_os_spectrum_widget_t *spectrum;
+    const solar_os_native_media_widgets_api_v1_t *media_ui;
+    solar_os_cassette_widget_t cassette;
+    solar_os_signal_widget_t *scope;
+    solar_os_signal_widget_t *spectrum;
     size_t cursor;
     size_t top;
     size_t active_index;
     size_t track_count;
-    uint32_t playlist_generation;
     uint32_t elapsed_ms;
     uint32_t start_ms;
     uint32_t total_ms;
@@ -124,14 +125,7 @@ static bool player_audio_file(const char *name, void *user)
 
 static solar_os_shell_io_t *player_io(solar_os_context_t *ctx)
 {
-    solar_os_shell_io_t *io = solar_os_context_shell_io(ctx);
-    if (io == NULL || solar_os_shell_io_kind(io) == SOLAR_OS_SHELL_IO_KIND_NONE) {
-        solar_os_shell_io_init_terminal(&player.fallback_io,
-                                        solar_os_context_terminal(ctx));
-        solar_os_context_set_shell_io(ctx, &player.fallback_io);
-        io = &player.fallback_io;
-    }
-    return io;
+    return solar_os_shell_io_with_fallback(ctx, &player.fallback_io, true);
 }
 
 static bool player_graphical_session(solar_os_context_t *ctx)
@@ -151,7 +145,6 @@ static void player_set_message(const char *message)
 static void player_refresh_playlist(void)
 {
     player.track_count = solar_os_player_playlist_count();
-    player.playlist_generation = solar_os_player_playlist_generation();
     if (player.track_count == 0U) {
         player.cursor = 0U;
         player.top = 0U;
@@ -223,11 +216,11 @@ static void player_samples_callback(const int16_t *samples,
     }
     const size_t frames = sample_count / channels;
     if (player.scope != NULL) {
-        (void)solar_os_oscilloscope_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             player.scope, samples, frames, channels);
     }
     if (player.spectrum != NULL) {
-        (void)solar_os_spectrum_widget_submit_s16(
+        (void)solar_os_signal_widget_submit_s16(
             player.spectrum, samples, frames, channels);
     }
     portENTER_CRITICAL(&player_lock);
@@ -241,11 +234,11 @@ static void player_samples_callback(const int16_t *samples,
     portEXIT_CRITICAL(&player_lock);
 }
 
-static void player_device_callback(const solar_os_audio_device_info_t *device,
+static void player_device_callback(bool capture, const solar_os_audio_device_info_t *device,
                                    void *user)
 {
     (void)user;
-    if (device == NULL) return;
+    if (capture || device == NULL) return;
     portENTER_CRITICAL(&player_lock);
     strlcpy(player.active_device_id, device->id,
             sizeof(player.active_device_id));
@@ -263,9 +256,10 @@ static void player_worker(void *arg)
     strlcpy(path, player.active_path, sizeof(path));
     solar_os_audio_wav_info_t info = {0};
     const char *dot = strrchr(path, '.');
-    esp_err_t err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
-        solar_os_audio_get_mp3_info(path, &info) :
-        solar_os_audio_get_wav_info(path, &info);
+    const uint32_t format = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
+        SOLAR_OS_AUDIO_FORMAT_MP3 : SOLAR_OS_AUDIO_FORMAT_WAV;
+    uint32_t detected;
+    esp_err_t err = solar_os_audio_file_probe(path, format, &detected, &info);
     if (err == ESP_OK) {
         portENTER_CRITICAL(&player_lock);
         player.sample_rate = info.sample_rate;
@@ -284,9 +278,8 @@ static void player_worker(void *arg)
             .user = NULL,
             .progress_interval_ms = 250U,
         };
-        err = dot != NULL && strcasecmp(dot, ".mp3") == 0 ?
-            solar_os_audio_play_mp3(path, solar_os_media_preferences_volume(player.preferences), &options, &info) :
-            solar_os_audio_play_wav(path, solar_os_media_preferences_volume(player.preferences), &options, &info);
+        err = solar_os_audio_file_play(path, detected,
+            solar_os_media_preferences_volume(player.preferences), &options, &info);
     }
     solar_os_media_preferences_device(NULL, player.preferences);
     portENTER_CRITICAL(&player_lock);
@@ -357,9 +350,9 @@ static esp_err_t player_play_index_at(size_t index, uint32_t start_ms, bool paus
     player.stop_requested = false;
     player.paused = paused;
     player.seeking = start_ms != 0;
-    solar_os_cassette_widget_reset(player.cassette);
-    solar_os_oscilloscope_widget_reset(player.scope);
-    solar_os_spectrum_widget_reset(player.spectrum);
+    player.media_ui->cassette_reset(&player.cassette);
+    solar_os_signal_widget_reset(player.scope);
+    solar_os_signal_widget_reset(player.spectrum);
     const BaseType_t created = solar_os_task_create_pinned_external(
         player_worker, "player_audio", PLAYER_TASK_STACK, NULL,
         PLAYER_TASK_PRIORITY, &player.task, tskNO_AFFINITY,
@@ -556,23 +549,23 @@ static void player_draw_header(solar_os_gfx_t *gfx, int width)
 {
     const char *tabs = player.tab == PLAYER_TAB_PLAY ?
         "[PLAY]  PLAYLIST" : "PLAY  [PLAYLIST]";
-    solar_os_media_player_header_draw(gfx, width, "Player", tabs);
+    player.media_ui->player_header_draw(gfx, width, "Player", tabs);
 }
 
 static void player_draw_visualizer(solar_os_gfx_t *gfx, int width, int height)
 {
     solar_os_media_player_layout_t layout;
-    solar_os_media_player_layout(width, height, true, &layout);
+    player.media_ui->player_layout(width, height, true, &layout);
     const int visual_y = layout.view_y, visual_height = layout.view_height;
     if (visual_height < 5) return;
     if (player.visualizer == PLAYER_VISUALIZER_CASSETTE && visual_height >= 50 && layout.view_width >= 80) {
-        solar_os_cassette_widget_draw(player.cassette, gfx, layout.view_x, visual_y,
+        player.media_ui->cassette_draw(&player.cassette, gfx, layout.view_x, visual_y,
                                       layout.view_width, visual_height);
     } else if (player.visualizer != PLAYER_VISUALIZER_SPECTRUM) {
-        solar_os_oscilloscope_widget_draw(player.scope, gfx, layout.view_x, visual_y,
+        solar_os_signal_widget_draw(player.scope, gfx, layout.view_x, visual_y,
                                           layout.view_width, visual_height);
     } else {
-        solar_os_spectrum_widget_draw(player.spectrum, gfx, layout.view_x, visual_y,
+        solar_os_signal_widget_draw(player.spectrum, gfx, layout.view_x, visual_y,
                                       layout.view_width, visual_height);
     }
     if (layout.compact) return;
@@ -602,7 +595,7 @@ static void player_render_play(solar_os_gfx_t *gfx, int width, int height)
     player_draw_visualizer(gfx, width, height);
     char status[96];
     player_progress_text(status, sizeof(status));
-    solar_os_media_player_controls_draw(gfx, width, height,
+    player.media_ui->player_controls_draw(gfx, width, height,
         player.active_title[0] ? player.active_title :
         player.active_path[0] ? player_basename(player.active_path) : "No track selected",
         status, player.volume, true,
@@ -619,12 +612,12 @@ static bool player_playlist_entry(size_t index, solar_os_m3u_entry_t *entry, voi
 static void player_render_list(solar_os_gfx_t *gfx, int width, int height)
 {
     if (!player.browsing) {
-        solar_os_media_playlist_draw(gfx, width, height, player.track_count, player.cursor,
+        player.media_ui->playlist_draw(gfx, width, height, player.track_count, player.cursor,
             player.task ? player.active_index : SIZE_MAX, &player.top,
             player_playlist_entry, NULL, "A add  Del remove  Enter play");
         return;
     }
-    solar_os_media_playlist_draw(gfx, width, height,
+    player.media_ui->playlist_draw(gfx, width, height,
         solar_os_storage_browser_count(player.browser), solar_os_storage_browser_cursor(player.browser),
         SIZE_MAX, &player.top, solar_os_storage_browser_media_entry, player.browser,
         "Enter open/add  Esc cancel");
@@ -665,7 +658,7 @@ static void player_render_dynamic(solar_os_context_t *ctx)
     player_draw_visualizer(gfx, width, height);
     char status[96];
     player_progress_text(status, sizeof(status));
-    solar_os_media_player_status_draw(gfx, width, height, status);
+    player.media_ui->player_status_draw(gfx, width, height, status);
     solar_os_gfx_present(gfx);
 }
 
@@ -779,6 +772,9 @@ static bool player_handle_key(solar_os_context_t *ctx, uint8_t key)
 static esp_err_t player_start(solar_os_context_t *ctx)
 {
     memset(&player, 0, sizeof(player));
+    player.media_ui = solar_os_native_media_widgets_get(solar_os_native_media_widgets_get_service,
+        offsetof(solar_os_native_media_widgets_api_v1_t, cassette_draw) + sizeof(player.media_ui->cassette_draw));
+    if (!player.media_ui) return ESP_ERR_NOT_SUPPORTED;
     const int argc = solar_os_context_argc(ctx);
     bool force_tui = false;
     const char *path_arg = NULL;
@@ -807,9 +803,8 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     if (err != ESP_OK) goto fail_preferences;
     err = solar_os_storage_browser_create(player_audio_file, NULL, &player.browser);
     if (err != ESP_OK) {
-        solar_os_cassette_widget_destroy(player.cassette);
-        solar_os_oscilloscope_widget_destroy(player.scope);
-        solar_os_spectrum_widget_destroy(player.spectrum);
+        solar_os_signal_widget_destroy(player.scope);
+        solar_os_signal_widget_destroy(player.spectrum);
         solar_os_storage_browser_destroy(player.browser);
         player.browser = NULL;
         goto fail_preferences;
@@ -818,11 +813,8 @@ static esp_err_t player_start(solar_os_context_t *ctx)
     if (player.mode == PLAYER_MODE_TUI) {
         err = solar_os_tui_screen_begin(&player.tui, ctx);
     } else {
-        err = solar_os_cassette_widget_create(&player.cassette);
-        if (err == ESP_OK) err = solar_os_oscilloscope_widget_create(
-            PLAYER_SCOPE_SAMPLES, &player.scope);
-        if (err == ESP_OK) err = solar_os_spectrum_widget_create(
-            PLAYER_SPECTRUM_FFT_SIZE, &player.spectrum);
+        err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_WAVEFORM, PLAYER_SCOPE_SAMPLES, &player.scope);
+        if (err == ESP_OK) err = solar_os_signal_widget_create(SOLAR_OS_SIGNAL_SPECTRUM, PLAYER_SPECTRUM_FFT_SIZE, &player.spectrum);
         if (err == ESP_OK) {
             player_enable_high_refresh(ctx);
             solar_os_context_set_graphics_active(ctx, true);
@@ -868,9 +860,8 @@ static void player_stop(solar_os_context_t *ctx)
     player.preferences = NULL;
     if (player.mode == PLAYER_MODE_GRAPHICS) {
         player_disable_high_refresh();
-        solar_os_cassette_widget_destroy(player.cassette);
-        solar_os_oscilloscope_widget_destroy(player.scope);
-        solar_os_spectrum_widget_destroy(player.spectrum);
+        solar_os_signal_widget_destroy(player.scope);
+        solar_os_signal_widget_destroy(player.spectrum);
         solar_os_context_set_graphics_active(ctx, false);
     } else if (player.ui_started) {
         solar_os_tui_set_cursor_visible(&player.tui, true);
@@ -920,7 +911,7 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         }
         if (pointer->action == SOLAR_OS_INPUT_POINTER_PRESS &&
             (pointer->buttons & SOLAR_OS_INPUT_POINTER_BUTTON_PRIMARY)) {
-            int button = solar_os_media_player_button_at(width, height, true,
+            int button = player.media_ui->player_button_at(width, height, true,
                                                           player.pointer_x, player.pointer_y);
             if (button >= 0) {
                 if (button == 0 || button == 4) player_play_offset(button == 0 ? -1 : 1);
@@ -941,7 +932,7 @@ static bool player_event(solar_os_context_t *ctx, const solar_os_event_t *event)
         player_reap_finished();
         player_refresh_playlist();
         const bool playing = player.task != NULL && !player.paused;
-        solar_os_cassette_widget_update(player.cassette, playing,
+        player.media_ui->cassette_update(&player.cassette, playing,
             player.elapsed_ms, player.total_ms, event->data.tick_ms);
         const bool refresh_due = playing &&
             event->data.tick_ms - player.last_visualizer_ms >= PLAYER_REFRESH_MS;

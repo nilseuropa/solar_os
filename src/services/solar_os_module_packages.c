@@ -37,11 +37,16 @@
 #define SOLAR_OS_MODULE_REPOSITORY_URL "https://solar-os.eu/ota/modules"
 #endif
 
-#define MODULE_CATALOG_MAX_BYTES (32U * 1024U)
+#define MODULE_CATALOG_MAX_BYTES (1024U * 1024U)
 #define MODULE_CATALOG_SCHEMA_VERSION 3U
 #define MODULE_SIGNATURE_MAX_BYTES 512U
 #define MODULE_HTTP_TIMEOUT_MS 15000U
 #define MODULE_HTTP_DEADLINE_MS 60000U
+
+_Static_assert(SOLAR_OS_MODULE_PACKAGE_COUNT_MAX <= UINT8_MAX + 1U,
+               "package indices must fit in dependency and upgrade plans");
+_Static_assert(SOLAR_OS_MODULE_SERVICES_MAX <= UINT8_MAX,
+               "service counts must fit in package records");
 
 static atomic_bool module_operation_running;
 
@@ -490,6 +495,14 @@ static esp_err_t module_parse_catalog(const uint8_t *body,
         solar_os_json_free(document);
         return ESP_ERR_INVALID_SIZE;
     }
+    if (count) {
+        catalog->packages = solar_os_memory_calloc(count, sizeof(*catalog->packages),
+            SOLAR_OS_MEMORY_EXTERNAL_REQUIRED, "modules.entries");
+        if (!catalog->packages) {
+            solar_os_json_free(document);
+            return ESP_ERR_NO_MEM;
+        }
+    }
     for (size_t i = 0U; i < count; i++) {
         err = module_parse_package(solar_os_json_array_get(modules, i),
                                    release_url,
@@ -516,6 +529,8 @@ static esp_err_t module_catalog_decode(const void *body, size_t body_len,
     const char *signature, const char *release_url,
     solar_os_module_catalog_t **out_catalog, char *detail, size_t detail_len)
 {
+    if (!out_catalog) return ESP_ERR_INVALID_ARG;
+    *out_catalog = NULL;
     esp_err_t err = module_verify_catalog_signature(body, body_len, signature);
     if (err != ESP_OK) {
         module_set_detail(detail, detail_len, "module catalog signature is invalid");
@@ -526,7 +541,7 @@ static esp_err_t module_catalog_decode(const void *body, size_t body_len,
     if (catalog == NULL) return ESP_ERR_NO_MEM;
     err = module_parse_catalog(body, body_len, release_url, catalog);
     if (err != ESP_OK) {
-        solar_os_memory_free(catalog);
+        solar_os_module_catalog_free(catalog);
         module_set_detail(detail, detail_len, err == ESP_ERR_NOT_SUPPORTED ?
             "catalog does not match this firmware, target, ABI, or schema" : "module catalog is invalid");
         return err;
@@ -638,6 +653,8 @@ esp_err_t solar_os_module_catalog_fetch_ex(
 
 void solar_os_module_catalog_free(solar_os_module_catalog_t *catalog)
 {
+    if (!catalog) return;
+    solar_os_memory_free(catalog->packages);
     solar_os_memory_free(catalog);
 }
 
@@ -743,6 +760,7 @@ static esp_err_t module_foreach_directory(
         if (!module_name_valid(id)) {
             continue;
         }
+        if (solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, id)) continue;
 
         char path[SOLAR_OS_STORAGE_PATH_MAX];
         solar_os_storage_metadata_t metadata;
@@ -772,6 +790,12 @@ esp_err_t solar_os_module_package_foreach_installed(
     solar_os_module_package_visit_fn visit,
     void *user)
 {
+    if (!visit || type < SOLAR_OS_MODULE_TYPE_APP || type > SOLAR_OS_MODULE_TYPE_LIBRARY)
+        return ESP_ERR_INVALID_ARG;
+    for (size_t i = 0; i < solar_os_component_count(); ++i) {
+        const solar_os_component_t *component = solar_os_component_get(i);
+        if (component->type == type && !visit(component->id, user)) return ESP_OK;
+    }
     bool stopped = false;
     esp_err_t err = module_foreach_directory(type, visit, user, false, &stopped);
     if (err == ESP_OK && !stopped && type == SOLAR_OS_MODULE_TYPE_APP)
@@ -1072,6 +1096,8 @@ static esp_err_t module_install_one(const solar_os_module_package_t *package,
 static bool module_installed_matches(const solar_os_module_package_t *package,
                                      const solar_os_module_install_options_t *options)
 {
+    const solar_os_component_t *component = solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, package->id);
+    if (component) return module_component_matches(component, package->type, package->version);
     char path[SOLAR_OS_STORAGE_PATH_MAX];
     if (solar_os_module_package_path(package->type, package->id, path, sizeof(path)) != ESP_OK) return false;
     FILE *file = fopen(path, "rb");
@@ -1114,11 +1140,18 @@ esp_err_t solar_os_module_package_install(const char *id,
         return ESP_ERR_INVALID_STATE;
     }
     solar_os_module_catalog_t *catalog = NULL;
+    const solar_os_component_t *component = solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, id);
+    if (component && module_component_self_contained(component, 0)) {
+        module_component_result(component, result);
+        atomic_store(&module_operation_running, false);
+        module_set_detail(detail, detail_len, "component is compiled into firmware");
+        return ESP_OK;
+    }
     esp_err_t err = module_catalog_fetch(&catalog,
         options ? options->should_cancel : NULL, options ? options->user : NULL, detail, detail_len);
     if (err != ESP_OK) goto done;
     int root = module_catalog_index(catalog, id);
-    if (root < 0) {
+    if (root < 0 && !component) {
         err = ESP_ERR_NOT_FOUND;
         module_set_detail(detail, detail_len, "module is not present in the catalog");
         goto done;
@@ -1127,7 +1160,14 @@ esp_err_t solar_os_module_package_install(const char *id,
     uint8_t order[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX];
     bool reuse[SOLAR_OS_MODULE_PACKAGE_COUNT_MAX] = {0};
     size_t count = 0;
-    err = module_plan_visit(catalog, root, state, order, &count);
+    if (component) {
+        module_dependency_plan_t plan = {.catalog = catalog, .state = state, .order = order, .count = &count};
+        err = module_plan_compiled(&plan, component, 0);
+        for (size_t i = 0; i < component->dependency_count && err == ESP_OK; ++i) {
+            if (!module_dependency_compatible(catalog, component->dependencies[i].id,
+                    component->dependencies[i].version, 0, detail, detail_len)) err = ESP_ERR_NOT_SUPPORTED;
+        }
+    } else err = module_plan_visit(catalog, root, state, order, &count);
     if (err != ESP_OK) goto done;
     /* Check every capability and active module before replacing any file. */
     for (size_t i = 0; i < count; ++i) {
@@ -1137,7 +1177,13 @@ esp_err_t solar_os_module_package_install(const char *id,
             err = ESP_ERR_NOT_SUPPORTED;
             goto done;
         }
-        reuse[i] = order[i] != root && module_installed_matches(package, options);
+        const solar_os_component_t *provided = solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, package->id);
+        reuse[i] = (provided || order[i] != root) && module_installed_matches(package, options);
+        if (provided && !reuse[i]) {
+            module_set_detail(detail, detail_len, "compiled component has a different version or type");
+            err = ESP_ERR_NOT_SUPPORTED;
+            goto done;
+        }
         if (!reuse[i] && (package->type == SOLAR_OS_MODULE_TYPE_APP ?
             solar_os_native_foreground_active(package->id) :
             solar_os_native_module_active(package->type, package->id))) {
@@ -1153,6 +1199,7 @@ esp_err_t solar_os_module_package_install(const char *id,
                                  order[i] == root ? result : NULL, detail, detail_len);
         if (err != ESP_OK) break;
     }
+    if (err == ESP_OK && component) module_component_result(component, result);
 done:
     solar_os_module_catalog_free(catalog);
     atomic_store(&module_operation_running, false);
@@ -1177,6 +1224,12 @@ esp_err_t solar_os_module_package_remove(const char *id,
         module_set_detail(detail, detail_len, "invalid module name or storage path");
         atomic_store(&module_operation_running, false);
         return ESP_ERR_INVALID_ARG;
+    }
+
+    if (solar_os_component_find(SOLAR_OS_MODULE_TYPE_INVALID, id)) {
+        module_set_detail(detail, detail_len, "component is compiled into firmware; change the firmware flavor to remove it");
+        atomic_store(&module_operation_running, false);
+        return ESP_ERR_NOT_SUPPORTED;
     }
 
     char path[SOLAR_OS_STORAGE_PATH_MAX];

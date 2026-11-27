@@ -97,12 +97,12 @@ typedef struct {solar_os_gfx_t *gfx;solar_os_frame_presenter_t *presenter;size_t
 static foreground_state_t state;
 static bool caller=true;
 static esp_err_t init_result;
-static solar_os_frame_presenter_config_t captured;
+static solar_os_frame_presenter_options_v1_t captured;
 static foreground_state_t *foreground_current(void) {return &state;}
 static bool foreground_caller(void) {return caller;}
 static int foreground_result(esp_err_t result) {return result;}
-esp_err_t solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,const solar_os_frame_presenter_config_t *config)
-{captured=*config;if(init_result==ESP_OK)*out=(void *)&state;return init_result;}
+esp_err_t solar_os_frame_presenter_init(solar_os_frame_presenter_t **out,solar_os_gfx_t *target,const solar_os_frame_presenter_options_v1_t *config)
+{assert(target==state.gfx);captured=*config;if(init_result==ESP_OK)*out=(void *)&state;return init_result;}
 esp_err_t solar_os_frame_presenter_resume(solar_os_frame_presenter_t *p) {assert(p);return ESP_OK;}
 ''' + function + r'''
 int main(void)

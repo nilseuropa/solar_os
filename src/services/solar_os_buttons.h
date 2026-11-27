@@ -42,6 +42,5 @@ typedef struct {
 esp_err_t solar_os_buttons_init(void);
 void solar_os_buttons_set_long_press_handler(solar_os_button_long_press_fn_t handler, void *user);
 void solar_os_buttons_poll(void);
-size_t solar_os_buttons_read_chars(char *buffer, size_t buffer_len);
 size_t solar_os_buttons_count(void);
 bool solar_os_buttons_debug_get(size_t index, solar_os_button_debug_info_t *info);

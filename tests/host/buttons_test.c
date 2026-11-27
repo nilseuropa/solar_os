@@ -4,6 +4,7 @@
 #undef main
 
 #include "solar_os_buttons.h"
+#include "solar_os_native_input_hardware.h"
 #include "solar_os_log.h"
 
 static int levels[64];
@@ -35,6 +36,13 @@ int main(void)
     levels[4] = 1; /* Active-low press/release button. */
     levels[5] = 0; /* Active-high release-only button. */
     assert(solar_os_buttons_init() == ESP_OK);
+    const solar_os_native_input_hardware_api_v1_t *hardware =
+        solar_os_native_input_hardware_get_service("input.hardware", 1, sizeof(*hardware));
+    assert(hardware && hardware->button_count() == 2 && !hardware->dpad_axis_count());
+    assert(hardware->calibrate_dpad(false) == SOLAR_OS_NATIVE_ERROR_NOT_SUPPORTED);
+    solar_os_native_button_status_v1_t up;
+    assert(!hardware->button_at(0, &up) && !strcmp(up.name, "up") && !up.stable_pressed);
+    assert(up.pin == 4 && up.key == SOLAR_OS_KEY_UP);
     solar_os_buttons_poll();
     expect_no_events();
 
@@ -57,6 +65,8 @@ int main(void)
     solar_os_input_key_event_t event;
     assert(solar_os_input_read_events(&event, 1) == 1);
     assert(event.key == SOLAR_OS_KEY_UP && event.action == SOLAR_OS_INPUT_KEY_PRESS);
+    assert(!hardware->button_at(0, &up) && up.raw_pressed && up.stable_pressed);
+    assert(up.raw_transitions == 3 && up.stable_transitions == 1 && !up.dropped_edges);
     now_us += 100000;
     solar_os_buttons_poll();
     expect_no_events();

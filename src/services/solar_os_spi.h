@@ -32,6 +32,10 @@ typedef struct {
 esp_err_t solar_os_spi_init(void);
 esp_err_t solar_os_spi_get_status(solar_os_spi_status_t *status);
 esp_err_t solar_os_spi_resolve_cs(const char *name, int *pin);
+esp_err_t solar_os_spi_resolve_bus_cs(const char *bus, const char *name, int *pin);
+esp_err_t solar_os_spi_transfer_bus(const char *bus, const char *owner, int cs_pin,
+                                    uint8_t mode, uint32_t speed_hz,
+                                    const uint8_t *tx_data, uint8_t *rx_data, size_t len);
 esp_err_t solar_os_spi_transfer(int cs_pin,
                                 uint8_t mode,
                                 uint32_t speed_hz,

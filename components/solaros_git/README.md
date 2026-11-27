@@ -6,7 +6,7 @@ repository limits.
 
 ## Native integration
 
-The public API is [solar_os_git_run](../../src/services/solar_os_git.h).
+The public API is [solar_os_git_run](../../src/apps/solar_os_git.h).
 It takes an absolute VFS working directory, such as `/sdcard/project`, and
 arguments beginning with the subcommand. Calls are synchronous, and only one
 operation can run at a time. Run from a foreground worker with at least 28 KiB

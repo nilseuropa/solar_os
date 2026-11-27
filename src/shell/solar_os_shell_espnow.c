@@ -1,3 +1,7 @@
+#include "solar_os_config.h"
+
+#if SOLAR_OS_PACKAGE_SERVICE_ESPNOW
+
 #include "solar_os_shell_commands.h"
 
 #include <errno.h>
@@ -189,3 +193,5 @@ void solar_os_shell_cmd_espnow(solar_os_context_t *ctx, int argc, char **argv)
     }
     print_usage(term);
 }
+
+#endif /* SOLAR_OS_PACKAGE_SERVICE_ESPNOW */

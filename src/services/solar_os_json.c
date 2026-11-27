@@ -2,6 +2,7 @@
 
 #include <ctype.h>
 #include <limits.h>
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
@@ -297,7 +298,9 @@ esp_err_t solar_os_json_get_int64(const solar_os_json_value_t *value, int64_t *o
     }
 
     const double number = cJSON_GetNumberValue((const cJSON *)value);
-    if (number < (double)INT64_MIN || number > (double)INT64_MAX) {
+    /* INT64_MAX rounds up to 2^63 as a double; that upper bound is exclusive.
+     * Reject non-finite values before the cast as well. */
+    if (!isfinite(number) || number < (double)INT64_MIN || number >= -(double)INT64_MIN) {
         return ESP_ERR_INVALID_RESPONSE;
     }
 

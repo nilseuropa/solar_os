@@ -141,11 +141,11 @@ static esp_err_t sump_write_metadata(void)
     return err;
 }
 
-static esp_err_t sump_upload_capture(void)
+static esp_err_t sump_upload_capture(uint32_t generation)
 {
     solar_os_logic_status_t status;
     esp_err_t err = solar_os_logic_get_status(&status);
-    if (err != ESP_OK || !status.has_capture) {
+    if (err != ESP_OK || !status.has_capture || status.generation != generation) {
         return err != ESP_OK ? err : ESP_ERR_NOT_FOUND;
     }
 
@@ -155,7 +155,7 @@ static esp_err_t sump_upload_capture(void)
         const size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
         const size_t start = remaining - chunk;
         size_t copied = 0;
-        err = solar_os_logic_copy_samples(start, buffer, chunk, &copied);
+        err = solar_os_logic_copy_generation(generation, start, buffer, chunk, &copied);
         if (err != ESP_OK || copied != chunk) {
             return err != ESP_OK ? err : ESP_ERR_INVALID_SIZE;
         }
@@ -175,14 +175,22 @@ static esp_err_t sump_upload_capture(void)
     return remaining == 0 ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
+static bool sump_capture_cancelled(void *user)
+{
+    (void)user;
+    return sump_job.stop_requested;
+}
+
 static esp_err_t sump_run_capture(void)
 {
-    const esp_err_t err = solar_os_logic_capture(&sump_job.config);
+    const solar_os_logic_capture_options_v1_t options = {.cancelled = sump_capture_cancelled};
+    uint32_t generation;
+    const esp_err_t err = solar_os_logic_capture_with_options(&sump_job.config, &options, &generation);
     if (err != ESP_OK) {
         return err;
     }
     sump_job.captures++;
-    return sump_upload_capture();
+    return sump_upload_capture(generation);
 }
 
 static void sump_handle_long_command(uint8_t command, const uint8_t data[4])

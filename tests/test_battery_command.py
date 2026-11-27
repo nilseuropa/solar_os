@@ -26,6 +26,7 @@ class BatteryCommandTest(unittest.TestCase):
                 "-fsanitize=address,undefined", "-fno-omit-frame-pointer",
                 "-I", str(stage), "-I", str(ROOT / "tests/host"),
                 "-I", str(ROOT / "src/services"),
+                "-idirafter", str(ROOT / "include"),
                 str(ROOT / "tests/host/battery_command_test.c"), "-o", str(binary),
             ], check=True)
             subprocess.run([str(binary)], check=True)

@@ -1,53 +1,7 @@
 #pragma once
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
-
 #include "esp_err.h"
-
-#define SOLAR_OS_ESPNOW_MAC_LEN 6U
-#define SOLAR_OS_ESPNOW_FRAME_MTU 250U
-#define SOLAR_OS_ESPNOW_PEER_MAX 19U
-#define SOLAR_OS_ESPNOW_OWNER_MAX 32U
-
-typedef enum {
-    SOLAR_OS_ESPNOW_PHY_NORMAL = 0,
-    SOLAR_OS_ESPNOW_PHY_LR500,
-    SOLAR_OS_ESPNOW_PHY_LR250,
-} solar_os_espnow_phy_t;
-
-typedef struct {
-    uint32_t link_id;
-    uint8_t mac[SOLAR_OS_ESPNOW_MAC_LEN];
-    bool configured;
-    int8_t rssi;
-    uint32_t last_seen_ms;
-} solar_os_espnow_peer_t;
-
-typedef struct {
-    bool running;
-    bool channel_auto;
-    bool send_inflight;
-    uint8_t channel;
-    solar_os_espnow_phy_t phy;
-    char owner[SOLAR_OS_ESPNOW_OWNER_MAX];
-    size_t peer_count;
-    size_t configured_peer_count;
-    uint32_t tx_packets;
-    uint32_t tx_errors;
-    uint32_t rx_packets;
-    uint32_t rx_dropped;
-    uint32_t peer_conflicts;
-    esp_err_t last_error;
-} solar_os_espnow_status_t;
-
-typedef struct {
-    uint8_t source_mac[SOLAR_OS_ESPNOW_MAC_LEN];
-    int8_t rssi;
-    size_t len;
-    uint8_t data[SOLAR_OS_ESPNOW_FRAME_MTU];
-} solar_os_espnow_packet_t;
+#include "solar_os_espnow_types_v1.h"
 
 esp_err_t solar_os_espnow_start(const char *owner,
                                 uint8_t requested_channel,

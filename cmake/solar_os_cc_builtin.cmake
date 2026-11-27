@@ -8,11 +8,15 @@ function(solar_os_link_builtin_cc target)
         "${cc_source}/include/*.h" "${cc_source}/sdk/*.h" "${cc_source}/examples/*.c")
     file(GLOB cc_headers CONFIGURE_DEPENDS
         "${SOLAR_OS_PROJECT_DIR}/include/solar_os_native*.h"
-        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_*_types_v1.h")
+        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_*_types_v1.h"
+        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_key_codes.h"
+        "${SOLAR_OS_PROJECT_DIR}/include/solar_os_robot*.h")
     add_custom_command(OUTPUT "${cc_output}/libsolar_os_cc.a"
         COMMAND "${Python3_EXECUTABLE}" "${cc_source}/native_build.py"
             --builtin-output "${cc_output}"
         DEPENDS ${cc_inputs} ${cc_extra_inputs} ${cc_headers}
+            "${SOLAR_OS_PROJECT_DIR}/scripts/pack_lz4.py"
+            "${SOLAR_OS_PROJECT_DIR}/protocol/display_link/include/sdlp_lz4_block.h"
             "${SOLAR_OS_PROJECT_DIR}/modules/cc/module.toml"
             "${SOLAR_OS_PROJECT_DIR}/modules/tinycc/module.toml"
             "${SOLAR_OS_PROJECT_DIR}/modules/examples/hello-library/main/hello_library_api.h"

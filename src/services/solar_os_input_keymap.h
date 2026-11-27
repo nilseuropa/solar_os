@@ -2,21 +2,8 @@
 
 #include "solar_os_input_keymap_mapper.h"
 
-#define SOLAR_OS_INPUT_KEYMAP_PHYSICAL (1U << 0)
-#define SOLAR_OS_INPUT_KEYMAP_MODIFIERS (1U << 1)
-#define SOLAR_OS_INPUT_KEYMAP_LAYERS (1U << 2)
-#define SOLAR_OS_INPUT_KEYMAP_TAP_HOLD (1U << 3)
-#define SOLAR_OS_INPUT_KEYMAP_MATRIX (1U << 4)
-
 typedef uint32_t solar_os_input_keymap_handle_t;
 #define SOLAR_OS_INPUT_KEYMAP_INVALID 0U
-
-typedef struct {
-    solar_os_input_source_t source;
-    uint32_t capabilities;
-    uint16_t key_count, first, stride;
-    uint8_t rows, cols;
-} solar_os_input_keymap_info_t;
 
 /* Hardware callbacks serialize mapping with the producer. lock must reject a
  * stopped device; prepare drains pending hardware events before a map change.
@@ -38,6 +25,9 @@ esp_err_t solar_os_input_keymap_activate(solar_os_input_keymap_handle_t handle);
  * Call unregister outside the hardware lock. A
  * timeout retains the profile until outstanding operations finish; retry it. */
 esp_err_t solar_os_input_keymap_unregister(solar_os_input_keymap_handle_t handle);
+/* Retire immediately. INVALID_STATE retains the profile and callbacks while
+ * existing operations finish; retry. NOT_FOUND also establishes quiescence. */
+esp_err_t solar_os_input_keymap_try_unregister(solar_os_input_keymap_handle_t handle);
 /* Producer calls require its hardware lock. Repeat and event queues remain
  * owned by the common input service. */
 esp_err_t solar_os_input_keymap_process(solar_os_input_keymap_handle_t handle,

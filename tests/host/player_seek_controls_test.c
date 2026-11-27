@@ -74,7 +74,7 @@ int main(void)
     player_toggle_pause();
     assert(player.playback_state == PLAYER_PLAYING);
     solar_os_audio_device_info_t device = {.id = "sink", .native_format = {.sample_rate = 16000}};
-    player_device_callback(&device, NULL);
+    player_device_callback(false, &device, NULL);
     solar_os_audio_wav_progress_t progress = {.info = {.sample_rate = 44100, .duration_ms = 12000}};
     player_progress_callback(&progress, NULL);
     assert(player.sample_rate == 16000 && player.elapsed_ms == 12000);

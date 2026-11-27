@@ -49,8 +49,42 @@ class KeymapToolTest(_KeymapFixture, unittest.TestCase):
         self.assertEqual(self.profile.select("A"), 52)
         self.assertEqual(self.profile.layers[0][52], {"usage": 4})
         pager = load_profile("lilygo-pager-keyboard")
+        self.assertEqual(len(pager.layers), 3)
+        self.assertEqual(pager.layers[0][21], {"usage": 226})  # Alt modifier.
+        self.assertEqual(pager.layers[0][26], {"usage": 5, "alt_block": True})
         self.assertEqual(pager.layers[0][31], {"usage": 44, "layer_tap": True})
+        self.assertEqual(pager.layers[1][21], {"usage": 226})
         self.assertEqual(pager.layers[1][26], {"key": 33, "alt_block": True})
+        self.assertEqual(pager.layers[2], {})
+
+    def test_pager_override_file_matches_custom_navigation_layout(self):
+        pager = load_profile("lilygo-pager-keyboard")
+        path = ROOT / "keymaps" / "overrides" / "lilygo-pager-custom.json"
+        document = read_json(path)
+        layers = merge(pager, document)
+        self.assertEqual(layers[0][21], {"layer_tap": True})
+        self.assertEqual(layers[0][26], {"usage": 5})
+        self.assertEqual(layers[0][31], {"usage": 44, "layer_tap": True, "layer": 2})
+        self.assertEqual(layers[1][21], {})
+        self.assertEqual(layers[1][26], {"key": 33})
+        expected_fn = {
+            1: {"usage": 74},    # Q: Home
+            3: {"usage": 77},    # E: End
+            8: {"key": 40},     # I: (
+            9: {"key": 41},     # O: )
+            10: {"key": 124},   # P: |
+            11: {"usage": 43},  # A: Tab
+            16: {"usage": 80},  # H: Left
+            17: {"usage": 81},  # J: Down
+            18: {"usage": 82},  # K: Up
+            19: {"usage": 79},  # L: Right
+            20: {"key": 27},    # Enter: Escape
+            22: {"usage": 226}, # Z: Left Alt
+            30: {"usage": 76},  # Backspace: Delete
+        }
+        self.assertEqual(layers[2], expected_fn)
+        self.assertEqual(self.cli("validate", "--profile", pager.id,
+                                  "--input", str(path)), 0)
 
     def test_partial_maps_replace_entries_and_preserve_others(self):
         result = merge(self.profile, {"schema": 1, "keys": [{"physical": 78, "usage": 58}]})
@@ -60,6 +94,23 @@ class KeymapToolTest(_KeymapFixture, unittest.TestCase):
         self.assertEqual(self.profile.layers[0][78], {"raw": True})
         row = merge(self.profile, {"schema": 1, "keys": [{"row": 7, "col": 7, "usage": 58}]})
         self.assertEqual(result, row)
+
+    def test_two_selectors_target_separate_layers(self):
+        result = merge(self.profile, {
+            "schema": 1,
+            "keys": [{"physical": 78, "layer_tap": True},
+                     {"physical": 79, "usage": 44, "layer_tap": True, "layer": 2}],
+            "symbols": [{"physical": 52, "key": 33}],
+            "fn": [{"physical": 52, "key": 64}],
+        })
+        self.assertEqual(result[0][78], {"layer_tap": True})
+        self.assertEqual(result[0][79], {"usage": 44, "layer_tap": True, "layer": 2})
+        self.assertEqual(result[1][52], {"key": 33})
+        self.assertEqual(result[2][52], {"key": 64})
+        # Firmware accepts 0 as the historical alias for the symbols layer.
+        alias = merge(self.profile, {"schema": 1, "keys": [{"physical": 78,
+            "layer_tap": True, "layer": 0}], "symbols": [{"physical": 52, "key": 33}]})
+        self.assertEqual(alias[0][78], {"layer_tap": True})
 
     def test_generic_geometry_keeps_controller_stride_and_rejects_inactive_cells(self):
         profile = load_profile("tca8418", rows=3, cols=3)
@@ -132,8 +183,15 @@ class KeymapToolTest(_KeymapFixture, unittest.TestCase):
             {"schema": 1, "keys": [{"physical": 78, "layer_tap": "yes"}]},
             {"schema": 1, "keys": [{"physical": 78, "layer_tap": True},
                                      {"physical": 79, "layer_tap": True}]},
+            {"schema": 1, "keys": [{"physical": 78, "layer_tap": True},
+                                     {"physical": 79, "layer_tap": True, "layer": 1}]},
+            {"schema": 1, "keys": [{"physical": 78, "layer_tap": True, "layer": 3}]},
+            {"schema": 1, "keys": [{"physical": 78, "usage": 58, "layer": 2}]},
             {"schema": 1, "keys": [{"physical": 78}, {"row": 7, "col": 7}]},
             {"schema": 1, "symbols": [{"physical": 78, "layer_tap": True}]},
+            {"schema": 1, "fn": [{"physical": 78, "layer_tap": True}]},
+            {"schema": 1, "fn": [{"physical": 78, "key": 33, "layer": 2}]},
+            {"schema": 1, "unknown": []},
         ]
         for document in invalid:
             with self.subTest(document=document), self.assertRaises(KeymapError):
@@ -166,7 +224,7 @@ class KeymapToolTest(_KeymapFixture, unittest.TestCase):
         standard = {path.name: path.read_bytes() for path in output.glob("*.h")}
         generate_keymaps.generate(output, root=self.directory, profile=self.profile.id, file=first.name)
         custom = (output / "solar_os_inputronic_keymap_generated.h").read_text()
-        self.assertIn("[78] = {58, 0, 0, 0}", custom)
+        self.assertIn("[78] = {58, 0, 0, 0, 0}", custom)
         self.assertEqual((output / "solar_os_pager_keymap_generated.h").read_bytes(),
                          standard["solar_os_pager_keymap_generated.h"])
         bad = self.write("bad.json", {"schema": 99, "keys": []})
@@ -195,6 +253,8 @@ class PlatformIOKeymapTest(_KeymapFixture, unittest.TestCase):
             def GetProjectOption(self, name, default=""):
                 return (custom or {}).get(name, default)
             def Depends(self, target, source):
+                pass
+            def AddPostAction(self, target, action):
                 pass
         selection = {name: "" for name in os.environ if name.startswith("SOLAR_OS_")}
         selection.update(variables)
@@ -273,18 +333,23 @@ class NativeKeymapParityTest(unittest.TestCase):
             code, result = self.dump(self.standard, name)
             self.assertEqual(code, 0)
             self.assertEqual((result["rows"], result["cols"]), (profile.rows, profile.cols))
-            for layer, physical, usage, key, shift, flags in result["keys"]:
+            for layer, physical, usage, key, shift, flags, target in result["keys"]:
                 entry = profile.layers[layer].get(physical, {})
-                self.assertEqual([usage, key, shift, flags], [entry.get("usage", 0), entry.get("key", 0),
-                    entry.get("shift_key", 0), 1 if entry.get("raw") else 2 if entry.get("layer_tap") else 4 if entry.get("alt_block") else 0])
+                expected_flags = (1 if entry.get("raw") else
+                                  2 if entry.get("layer_tap") else
+                                  4 if entry.get("alt_block") else 0)
+                expected_target = entry.get("layer", 1) if entry.get("layer_tap") else 0
+                self.assertEqual([usage, key, shift, flags, target],
+                    [entry.get("usage", 0), entry.get("key", 0),
+                     entry.get("shift_key", 0), expected_flags, expected_target])
 
     def test_standard_profiles_preserve_previous_firmware_mappings(self):
         # Golden dumps from the C factories before moving their tables to JSON.
-        # Include every physical position in both layers, not only text keys.
+        # Include every physical position in all layers, not only text keys.
         expected = {
-            "tca8418": "57cd250de89f0d7157a73a978c801d64e88728ad440de4288defd14558870d01",
-            "inputronic-keyboard": "979f44eb7e1b73541442f130cf4d596d0762d81b3661e87fd2eb9836a9c5a5b0",
-            "lilygo-pager-keyboard": "e4a1c56ca9963418a1d64a79fb7d894e6ba115afa453e47cc0776c8be284ebe4",
+            "tca8418": "b98a5eec2223161aa4eb74ba9e5de1407bb235b9ff1e0bba6d92686160f508dd",
+            "inputronic-keyboard": "0982043a354c6f0c9c79aae5428ef65de1e989e0870a59c9a0a25bd2ba133d61",
+            "lilygo-pager-keyboard": "68ba07cdf886ff0f836598f217cabbfb6f560b790c82c050b1fa3c9bff333603",
         }
         for profile, digest in expected.items():
             dump = subprocess.check_output([str(self.standard), profile])
@@ -296,13 +361,13 @@ class NativeKeymapParityTest(unittest.TestCase):
         executable = self.compile("custom", profile="inputronic-keyboard", file=str(path))
         code, result = self.dump(executable, "inputronic-keyboard")
         self.assertEqual(code, 0)
-        self.assertIn([0, 78, 58, 0, 0, 0], result["keys"])
-        self.assertIn([0, 52, 4, 0, 0, 0], result["keys"])
+        self.assertIn([0, 78, 58, 0, 0, 0, 0], result["keys"])
+        self.assertIn([0, 52, 4, 0, 0, 0, 0], result["keys"])
         path.write_text('{"schema":1,"keys":[{"physical":79,"raw":true}]}')
         code, result = self.dump(executable, "inputronic-keyboard", path)
         self.assertEqual(code, 0)
-        self.assertIn([0, 78, 58, 0, 0, 0], result["keys"])
-        self.assertIn([0, 79, 0, 0, 0, 1], result["keys"])
+        self.assertIn([0, 78, 58, 0, 0, 0, 0], result["keys"])
+        self.assertIn([0, 79, 0, 0, 0, 1, 0], result["keys"])
 
     def test_firmware_and_desktop_accept_same_json_corpus(self):
         corpus = [
@@ -312,6 +377,9 @@ class NativeKeymapParityTest(unittest.TestCase):
             '{"schema":1,"keys":[{"physical":78,"raw":true}]}',
             '{"schema":1,"keys":[{"physical":78}]}',
             '{"schema":1,"keys":[{"physical":78,"layer_tap":true}],"symbols":[{"physical":52,"key":33}]}',
+            '{"schema":1,"fn":[{"physical":52,"key":64}]}',
+            '{"schema":1,"keys":[{"physical":78,"layer_tap":true},'
+                '{"physical":79,"layer_tap":true,"layer":2}]}',
             '{}', '{"schema":true,"keys":[]}', '{"schema":1,"keys":null}',
             '{"schema":1,"keys":[],"schema":1}', '{"schema":1,"keys":[]} trailing',
             '{"schema":1,"keys":[{"physical":78,"usage":1}]}',
@@ -324,6 +392,9 @@ class NativeKeymapParityTest(unittest.TestCase):
             '{"schema":1,"keys":[{"physical":78,"extra":1}]}',
             '{"schema":1,"symbols":[{"physical":78,"layer_tap":true}]}',
             '{"schema":1,"keys":[{"physical":78,"layer_tap":true},{"physical":79,"layer_tap":true}]}',
+            '{"schema":1,"keys":[{"physical":78,"layer_tap":true,"layer":3}]}',
+            '{"schema":1,"keys":[{"physical":78,"usage":4,"layer":2}]}',
+            '{"schema":1,"fn":[{"physical":78,"layer_tap":true}]}',
         ]
         profile = load_profile("inputronic-keyboard")
         for text in corpus:

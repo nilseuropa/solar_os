@@ -1,0 +1,52 @@
+#pragma once
+
+#include "solar_os_native_display_abi.h"
+
+#define SOLAR_OS_NATIVE_DISPLAY_PROVIDER_SERVICE "display.provider"
+#define SOLAR_OS_NATIVE_DISPLAY_PROVIDER_ABI 1U
+
+typedef struct {
+    const uint8_t *pixels;
+    size_t size;
+    uint16_t width, height, stride;
+} solar_os_native_display_mono_view_v1_t;
+
+/* All presentation runs synchronously. Frame and canvas records and their
+ * pixels are borrowed until the callback returns. The mono canvas is a
+ * complete native-orientation frame with eight vertical pixels per byte,
+ * top pixel in bit 0. Its polarity is declared in flags. */
+typedef struct {
+    void *user;
+    int (*present_mono)(void *user, const solar_os_native_display_mono_view_v1_t *view);
+    int (*present_surface)(void *user, const solar_os_display_surface_t *surface);
+    int (*present_frame)(void *user, const solar_os_display_raster_t *frame);
+    int (*set_colors)(void *user, uint32_t foreground, uint32_t background);
+    const char *(*get_mode)(const void *user);
+    const char *(*mode_choices)(const void *user);
+    int (*set_mode)(void *user, const char *mode);
+    int (*relax)(void *user, solar_os_display_relax_phase_t phase);
+    int (*sleep)(void *user, bool sleeping);
+    int (*present_power_state)(void *user);
+} solar_os_native_display_provider_callbacks_v1_t;
+
+typedef struct {
+    char name[16], controller[20], role[16], driver[20];
+    uint16_t width, height, preferred_stream_fps, presentation_stack_bytes;
+    uint32_t max_stream_pixels_per_second;
+    uint32_t flags, surface_formats, frame_formats;
+    solar_os_native_display_provider_callbacks_v1_t callbacks;
+} solar_os_native_display_provider_v1_t;
+
+/* The display participates in Core discovery, profiles, rendering and claims.
+ * Core owns the working canvas. ROUND, EPAPER, BLACK_IS_ONE and PREFER_MONO
+ * are accepted flags. At least present_mono is required.
+ * A nonzero library handle pins the callback code. During driver attach,
+ * library=0 retains the attaching driver.
+ * Close returns BUSY while a session or an active callback holds the target.
+ * Retain callback state until close succeeds. */
+typedef struct {
+    uint32_t abi_version, struct_size;
+    int (*register_display)(solar_os_native_handle_t library,
+        const solar_os_native_display_provider_v1_t *provider, solar_os_native_handle_t *registration);
+    int (*close)(solar_os_native_handle_t registration);
+} solar_os_native_display_provider_api_v1_t;

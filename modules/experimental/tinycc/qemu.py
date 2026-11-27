@@ -66,10 +66,12 @@ def main():
               "firmware_bytes": (build / "firmware.bin").stat().st_size,
               "artifacts": {name: hashlib.sha256((CACHE / name).read_bytes()).hexdigest() for name in paths}}
     if args.builtin:
-        if 'SOLAR_CC_BUILTIN_PASS:' not in text: raise RuntimeError('missing built-in compiler checks')
+        if any(marker not in text for marker in ('SOLAR_CC_BUILTIN_PASS:', 'SOLAR_CC_PACKED_SDK_PASS:')):
+            raise RuntimeError('missing built-in compiler or packed SDK checks')
         report['builtin_archive_sha256'] = hashlib.sha256(
             (build/'tinycc/libsolar_os_cc.a').read_bytes()).hexdigest()
         report['compiler_built_in'] = True
+        report['legacy_sdk_view_matches'] = True
     if args.native:
         loaded = re.search(r'CC_MEMORY deployment=(\w+) before_psram=(\d+) loaded_psram=(\d+) before_internal=(\d+) loaded_internal=(\d+)', text)
         released = re.search(r'CC_MEMORY_AFTER psram=(\d+) internal=(\d+)', text)

@@ -163,6 +163,11 @@ esp_err_t solar_os_imu_register(const solar_os_imu_registration_t *registration)
 
 esp_err_t solar_os_imu_unregister(const char *name)
 {
+    return solar_os_imu_unregister_owned(name, NULL);
+}
+
+esp_err_t solar_os_imu_unregister_owned(const char *name, const void *context)
+{
     if (!name_valid(name)) {
         return ESP_ERR_INVALID_ARG;
     }
@@ -173,7 +178,7 @@ esp_err_t solar_os_imu_unregister(const char *name)
 
     xSemaphoreTake(imu_mutex, portMAX_DELAY);
     for (size_t i = 0; i < IMU_DEVICE_MAX; i++) {
-        if (imu_devices[i].active &&
+        if (imu_devices[i].active && (!context || imu_devices[i].ctx == context) &&
             strcmp(imu_devices[i].info.name, name) == 0) {
             if (imu_devices[i].refs > 0U) {
                 xSemaphoreGive(imu_mutex);

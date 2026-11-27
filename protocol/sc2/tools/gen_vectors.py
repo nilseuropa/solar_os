@@ -566,8 +566,8 @@ def load_wordlist():
     except ImportError:
         import re
         with open(os.path.join(HERE, "..", "src", "sc2_wordlist_en.c"), encoding="utf-8") as f:
-            body = f.read().split("WORDS[SC2_WORDLIST_SIZE] = {", 1)[1].split("};", 1)[0]
-        words = re.findall(r'"([a-z]+)"', body)
+            body = f.read().split("WORD_GROUPS[] = {", 1)[1].split("};", 1)[0]
+        words = re.findall(r'"([a-z]+)(?:\\0)?"', body)
     digest = hashlib.sha256(("\n".join(words) + "\n").encode()).hexdigest()
     assert len(words) == 2048 and digest == WORDLIST_SHA256, "BIP-39 word list mismatch"
     return words

@@ -4,7 +4,6 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-INPUT = (ROOT / "src/services/solar_os_input.c").read_text(encoding="utf-8")
 ACTIONS = (ROOT / "src/services/solar_os_input_actions.c").read_text(
     encoding="utf-8"
 )
@@ -25,17 +24,6 @@ REGISTRY = (ROOT / "src/jobs/solar_os_job_registry.c").read_text(encoding="utf-8
 
 
 class InputActionsTest(unittest.TestCase):
-    def test_gesture_observers_are_not_the_foreground_queue(self):
-        writer = INPUT.split("esp_err_t solar_os_input_write_gesture", 1)[1].split(
-            "esp_err_t solar_os_input_pointer_calibration_get", 1
-        )[0]
-        self.assertIn("input_gesture_queue_push_locked", writer)
-        self.assertIn("observers[i].observer(&queued", writer)
-        self.assertLess(
-            writer.index("portEXIT_CRITICAL(&input_lock)"),
-            writer.index("observers[i].observer(&queued"),
-        )
-
     def test_actions_match_then_enqueue_without_running_in_observer(self):
         observer = ACTIONS.split("static void input_action_observe", 1)[1].split(
             "esp_err_t solar_os_input_actions_init", 1

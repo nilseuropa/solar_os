@@ -8,18 +8,9 @@
 #include "solar_os_link_stream.h"
 #include "solar_os_messaging_types.h"
 #include "solar_os_meshcore_stream_codec.h"
+#include "solar_os_native_meshcore_stream_abi.h"
 
 #define SOLAR_OS_MESHCORE_STREAM_MAX SOLAR_OS_LINK_STREAM_MAX
-
-typedef struct {
-    solar_os_endpoint_id_t endpoint_id;
-    uint32_t peer_id;
-    uint32_t mesh_packets_sent;
-    uint32_t mesh_packets_received;
-    uint32_t transport_errors;
-    esp_err_t transport_last_error;
-    solar_os_link_stream_status_t stream;
-} solar_os_meshcore_stream_status_t;
 
 esp_err_t solar_os_meshcore_stream_init(void);
 bool solar_os_meshcore_stream_instance_has_bindings(solar_os_messaging_provider_id_t provider);

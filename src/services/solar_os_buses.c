@@ -1904,6 +1904,27 @@ esp_err_t solar_os_bus_uart_set_baud_rate(const char *name,
     return ret;
 }
 
+esp_err_t solar_os_bus_uart_set_mode(const char *name, solar_os_uart_mode_t mode,
+                                    const char *owner)
+{
+    if (!name_valid(name) || !owner_valid(owner) ||
+        (mode != SOLAR_OS_UART_MODE_RAW && mode != SOLAR_OS_UART_MODE_LINE)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t ret = solar_os_buses_init();
+    if (ret != ESP_OK) return ret;
+
+    solar_os_bus_ref_t pin;
+    ret = pin_ready_bus_owned(name, SOLAR_OS_BUS_PROTOCOL_UART, owner, &pin);
+#if SOLAR_OS_PACKAGE_SERVICE_UART && SOLAR_OS_BOARD_HAS_UART
+    if (ret == ESP_OK) ret = solar_os_uart_bus_set_mode_owned(pin.info.name, mode, owner);
+#else
+    if (ret == ESP_OK) ret = ESP_ERR_NOT_SUPPORTED;
+#endif
+    if (pin.mutex != NULL) unpin_bus(&pin);
+    return ret;
+}
+
 esp_err_t solar_os_bus_midi_write(const char *name,
                                   const uint8_t *data,
                                   size_t len,

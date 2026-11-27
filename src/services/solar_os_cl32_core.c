@@ -305,7 +305,6 @@ static esp_err_t set_backlight(void *user, uint8_t percent)
 
 static void clear_device(solar_os_cl32_core_device_t *device)
 {
-    solar_os_power_unregister_off_provider(device);
     if (device == NULL) {
         return;
     }
@@ -411,10 +410,11 @@ esp_err_t solar_os_cl32_core_detach(const char *name)
                                  SOLAR_OS_TASK_STOP_WAIT_MS)) {
         return ESP_ERR_TIMEOUT;
     }
-    ESP_RETURN_ON_ERROR(
-        solar_os_battery_unregister_provider(CL32_CORE_BATTERY_NAME),
-        TAG,
-        "battery provider unregister failed");
+    cl32_core.worker_task = NULL;
+    esp_err_t error = solar_os_battery_unregister_provider_owned(CL32_CORE_BATTERY_NAME, &cl32_core);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
+    error = solar_os_power_unregister_off_provider(&cl32_core);
+    if (error != ESP_OK && error != ESP_ERR_NOT_FOUND) return error;
 
     ESP_LOGI(TAG,
              "%s detached: %lu transitions, %lu state, %lu unsupported, "
