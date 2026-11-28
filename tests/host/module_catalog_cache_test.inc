@@ -5,10 +5,13 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "solar_os_http_client.h"
 #include "solar_os_module_packages.h"
-#define MODULE_CATALOG_MAX_BYTES 32768
-#define MODULE_SIGNATURE_MAX_BYTES 512
+#define SOLAR_OS_VERSION "1.2.3"
+#define SOLAR_OS_MODULE_REPOSITORY_URL "https://example.invalid"
+/* LIMITS */
 #define SOLAR_OS_MEMORY_EXTERNAL_REQUIRED 1
+#define SOLAR_OS_LOGW(...) ((void)0)
 #define portENTER_CRITICAL(p) ((void)(p))
 #define portEXIT_CRITICAL(p) ((void)(p))
 static int module_catalog_cache_lock;
@@ -20,7 +23,28 @@ static void *solar_os_memory_alloc(size_t n,int cls,const char *tag) { (void)cls
 static void *solar_os_memory_calloc(size_t n,size_t size,int cls,const char *tag) { void *p=solar_os_memory_alloc(n*size,cls,tag);if(p)memset(p,0,n*size);return p; }
 static void solar_os_memory_free(void *p) { if(p){allocations--;free(p);} }
 static void module_set_detail(char *d,size_t n,const char *s) { if(d && n)strlcpy(d,s,n); }
-static esp_err_t module_release_url(char *out,size_t n) { strlcpy(out,"https://example.invalid/4.17.6",n);return ESP_OK; }
+esp_err_t solar_os_http_perform_buffered(const solar_os_http_request_options_t *options,
+    size_t max_body_bytes, solar_os_http_buffered_response_t *response)
+{
+    if (max_body_bytes > SOLAR_OS_HTTP_BUFFERED_MAX_BODY) return ESP_ERR_INVALID_ARG;
+    const char *body = "current";
+    if (strcmp(options->url, SOLAR_OS_MODULE_REPOSITORY_URL "/" SOLAR_OS_VERSION "/catalog.json")) {
+        assert(!strcmp(options->url, SOLAR_OS_MODULE_REPOSITORY_URL "/" SOLAR_OS_VERSION "/catalog.sig"));
+        body = "valid";
+    }
+    response->body_len = strlen(body);
+    assert(max_body_bytes > response->body_len);
+    response->body = malloc(max_body_bytes);
+    assert(response->body);
+    memcpy(response->body, body, response->body_len);
+    response->response.status_code = 200;
+    return ESP_OK;
+}
+
+void solar_os_http_buffered_response_clear(solar_os_http_buffered_response_t *response)
+{
+    free(response->body);
+}
 /* Keep the cache test independent of the signature algorithm. These adapters
  * enforce that verification precedes parsing and that host checks run on reload. */
 static esp_err_t module_verify_catalog_signature(const void *body,size_t n,const char *sig)
@@ -44,10 +68,12 @@ esp_err_t solar_os_storage_replace_files(const solar_os_storage_replacement_t *i
 int main(void) {
     solar_os_module_catalog_t *out=(void*)1;char detail[128];
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_ERR_NOT_FOUND && !out && !allocations);
-    assert(module_catalog_save("current",7,"valid",5)==ESP_OK);
+    assert(module_catalog_fetch(&out,NULL,NULL,detail,sizeof(detail))==ESP_OK && !detail[0]);
+    assert(out->signature_verified && out->count==1 && !out->packages[0].installed);
+    solar_os_module_catalog_free(out);
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);
     assert(out->signature_verified && out->count==1 && !out->packages[0].installed);
-    assert(signature_checks==1 && parses==1 && module_catalog_id_cache.count==1);
+    assert(signature_checks==2 && parses==2 && module_catalog_id_cache.count==1);
     solar_os_module_catalog_free(out);assert(!allocations);
     installed=true;
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK && out->packages[0].installed);
@@ -71,5 +97,5 @@ int main(void) {
     assert(module_catalog_save("current",7,"valid",5)==ESP_OK);
     assert(solar_os_module_catalog_load(&out,detail,sizeof(detail))==ESP_OK);solar_os_module_catalog_free(out);
     assert(!allocations);
-    puts("pkg cache: offline reload, verification, host checks, installed freshness and failed save preservation passed");
+    puts("pkg catalog: HTTP download, offline reload, verification, host checks, installed freshness and failed save preservation passed");
 }

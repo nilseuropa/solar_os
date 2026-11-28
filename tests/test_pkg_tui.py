@@ -30,9 +30,17 @@ class PackageTuiTest(unittest.TestCase):
         fixture = (ROOT / "tests/host/pkg_tui_test.inc").read_text()
         self.compile_run("pkg-tui", fixture.replace("/* VIEWPORT */", viewport).replace("/* TUI */", tui))
 
-    def test_signed_cache_reload_and_failure_preservation(self):
+    def test_signed_catalog_fetch_cache_reload_and_failure_preservation(self):
         fixture = (ROOT / "tests/host/module_catalog_cache_test.inc").read_text()
         cache = (ROOT / "src/services/solar_os_module_catalog_cache.inc").read_text()
-        decode = production_functions((ROOT / "src/services/solar_os_module_packages.c").read_text(), (
+        source = (ROOT / "src/services/solar_os_module_packages.c").read_text()
+        limits = "\n".join(line for line in source.splitlines() if line.startswith((
+            "#define MODULE_CATALOG_MAX_BYTES ", "#define MODULE_SIGNATURE_MAX_BYTES ",
+            "#define MODULE_HTTP_TIMEOUT_MS ", "#define MODULE_HTTP_DEADLINE_MS ")))
+        catalog_helpers = production_functions(source, (
+            "module_join_url", "module_release_url", "module_fetch_body",
             "module_catalog_decode", "solar_os_module_catalog_free"))
-        self.compile_run("pkg-cache", fixture.replace("/* CACHE */", decode + "\n" + cache))
+        fetch = production_functions(source, ("module_catalog_fetch",))
+        code = fixture.replace("/* LIMITS */", limits).replace(
+            "/* CACHE */", "\n".join((catalog_helpers, cache, fetch)))
+        self.compile_run("pkg-cache", code)

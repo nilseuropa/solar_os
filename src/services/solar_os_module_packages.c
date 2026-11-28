@@ -37,7 +37,8 @@
 #define SOLAR_OS_MODULE_REPOSITORY_URL "https://solar-os.eu/ota/modules"
 #endif
 
-#define MODULE_CATALOG_MAX_BYTES (1024U * 1024U)
+/* module_fetch_body reserves one additional byte for the NUL terminator. */
+#define MODULE_CATALOG_MAX_BYTES (SOLAR_OS_HTTP_BUFFERED_MAX_BODY - 1U)
 #define MODULE_CATALOG_SCHEMA_VERSION 3U
 #define MODULE_SIGNATURE_MAX_BYTES 512U
 #define MODULE_HTTP_TIMEOUT_MS 15000U
