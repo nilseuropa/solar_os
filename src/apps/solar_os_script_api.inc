@@ -1284,5 +1284,5 @@ SOLAR_OS_SCRIPT_API_FUNCTION(gfx, bitmap, bitmap);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, sprite, bitmap);
 SOLAR_OS_SCRIPT_API_FUNCTION(gfx, text, text);
 SOLAR_OS_SCRIPT_API_FUNCTION_NAMED(
-    gfx, getch, solaros_tui_getch_obj, solua_tui_getch);
+    gfx, getch, solaros_gfx_getch_obj, solua_tui_getch);
 SOLAR_OS_SCRIPT_API_MODULE_END(gfx);

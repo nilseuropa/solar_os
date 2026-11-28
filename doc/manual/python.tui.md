@@ -48,7 +48,8 @@ Functions:
 - `vrule(row, col, height[, width[, attr]])`: draw a continuous pixel vertical rule.
 - `box(row, col, height, width[, attr])`: draw a box.
 - `fill(row, col, height, width[, ch[, attr]])`: fill a rectangle.
-- `getch([timeout_ms])`: return a key code or `None`.
+- `getch([timeout_ms])`: return a key code or `None`. A positive timeout
+  also presents pending TUI drawing before waiting.
 
 Common key constants include `KEY_UP`, `KEY_DOWN`, `KEY_LEFT`, `KEY_RIGHT`,
 `KEY_CTRL_LEFT`, `KEY_CTRL_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_DELETE`,

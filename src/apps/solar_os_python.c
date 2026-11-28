@@ -316,6 +316,7 @@ typedef struct {
     solar_os_gfx_t *session_gfx;
     solar_os_tui_t tui;
     bool tui_active;
+    bool tui_frame_pending; /* Owned by the Python task. */
     volatile bool stop_requested;
     volatile bool task_done;
     volatile bool vm_active;
@@ -7387,6 +7388,7 @@ static void python_ui_send_event(const python_event_t *event)
 static void python_tui_send_event(const python_event_t *event)
 {
     python_ui_send_event(event);
+    python_app.tui_frame_pending = event->type != PYTHON_EVENT_TUI_REFRESH;
 }
 
 static void python_tui_send_simple(python_event_type_t type)
@@ -7771,9 +7773,8 @@ static mp_obj_t solaros_tui_input(size_t n_args, const mp_obj_t *args)
 }
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tui_input_obj, 7, 9, solaros_tui_input);
 
-static mp_obj_t solaros_tui_getch(size_t n_args, const mp_obj_t *args)
+static mp_obj_t python_read_key(uint32_t timeout_ms)
 {
-    const uint32_t timeout_ms = python_optional_u32(n_args, args, 0, 0);
     if (python_app.key_input == NULL) {
         return mp_const_none;
     }
@@ -7797,7 +7798,23 @@ static mp_obj_t solaros_tui_getch(size_t n_args, const mp_obj_t *args)
 
     return mp_const_none;
 }
+
+static mp_obj_t solaros_tui_getch(size_t n_args, const mp_obj_t *args)
+{
+    const uint32_t timeout_ms = python_optional_u32(n_args, args, 0, 0);
+    if (timeout_ms != 0U && python_app.key_input != NULL &&
+        python_app.tui_frame_pending && !python_app.stop_requested) {
+        python_tui_send_simple(PYTHON_EVENT_TUI_REFRESH);
+    }
+    return python_read_key(timeout_ms);
+}
 MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_tui_getch_obj, 0, 1, solaros_tui_getch);
+
+static mp_obj_t solaros_gfx_getch(size_t n_args, const mp_obj_t *args)
+{
+    return python_read_key(python_optional_u32(n_args, args, 0, 0));
+}
+MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(solaros_gfx_getch_obj, 0, 1, solaros_gfx_getch);
 
 static void python_gfx_send_event(const python_event_t *event)
 {

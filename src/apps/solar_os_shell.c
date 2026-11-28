@@ -56,6 +56,7 @@
 #if SOLAR_OS_PACKAGE_SERVICE_EXPANSION
 #include "solar_os_expansion.h"
 #include "solar_os_pins.h"
+#include "solar_os_resources.h"
 #endif
 #if SOLAR_OS_PACKAGE_APP_FLASH
 #include "solar_os_flash.h"
@@ -8694,12 +8695,15 @@ static void shell_completion_emit_expansion_gpio(shell_completion_match_t *state
                                                  const char *key)
 {
     char candidate[32];
-    for (size_t i = 0; i < solar_os_gpio_pin_count(); i++) {
-        solar_os_gpio_pin_info_t info;
-        if (!solar_os_gpio_get_pin_info(i, &info) || !info.available) {
+    for (size_t i = 0; i < solar_os_pin_count(); i++) {
+        solar_os_pin_info_t pin;
+        solar_os_resource_claim_t claim;
+        if (!solar_os_pin_get_info(i, &pin) ||
+            !solar_os_expansion_binding_pin_supported(SOLAR_OS_EXPANSION_BINDING_GPIO, NULL, pin.pin) ||
+            solar_os_resource_find_claim(SOLAR_OS_RESOURCE_GPIO_PIN, pin.pin, -1, &claim)) {
             continue;
         }
-        snprintf(candidate, sizeof(candidate), "%s=gpio%d", key, info.pin);
+        snprintf(candidate, sizeof(candidate), "%s=gpio%d", key, pin.pin);
         shell_completion_emit(state, candidate);
     }
 }
